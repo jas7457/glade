@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEvent, ChatStatus, ChatSummary } from "@pi-ui/protocol";
+import type { AgentEvent, ChatStatus, SessionSummary } from "@pi-ui/protocol";
 import type { FakeSession } from "../src/harness/fake/fake-harness.js";
-import { createTestEnv, flush, until, type TestEnv } from "./helpers.js";
+import { createTestEnv, flush, newChat, until, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
 let chatId: string;
+let workspaceId: string;
 let session: FakeSession;
 
 beforeEach(async () => {
   env = createTestEnv();
-  chatId = (await env.service.createChat({ projectId: null })).chat.id;
+  ({ sid: chatId, wid: workspaceId } = await newChat(env));
   session = [...env.harness.openSessions][0]!;
   env.messages.length = 0;
 });
@@ -17,14 +18,14 @@ afterEach(async () => {
   await env.cleanup();
 });
 
-function upserts(): ChatSummary[] {
-  return env.messages.flatMap((m) => (m.type === "chat_upsert" && m.chat.id === chatId ? [m.chat] : []));
+function upserts(): SessionSummary[] {
+  return env.messages.flatMap((m) => (m.type === "session_upsert" && m.session.id === chatId ? [m.session] : []));
 }
 function lastStatus(): ChatStatus | undefined {
   return upserts().at(-1)?.status;
 }
-function current(): ChatSummary {
-  return env.service.listChats().find((c) => c.id === chatId)!;
+function current(): SessionSummary {
+  return env.service.listSessions().find((c) => c.id === chatId)!;
 }
 function emit(...events: AgentEvent[]): void {
   for (const e of events) session.emit(e);
@@ -78,7 +79,7 @@ describe("chat status", () => {
     emit({ type: "run_start" }, { type: "ui_request", request: { id: "q", kind: "select", title: "Pick", options: ["a"], timeoutMs: 20 } });
     expect(lastStatus()).toBe("blocked");
     await until(() => lastStatus() === "working");
-    expect(env.messages).toContainEqual({ type: "chat_event", chatId, event: { type: "ui_request_closed", id: "q" } });
+    expect(env.messages).toContainEqual({ type: "session_event", sessionId: chatId, workspaceId, event: { type: "ui_request_closed", id: "q" } });
     expect(current().pendingInputs).toBe(0);
   });
 
@@ -86,7 +87,7 @@ describe("chat status", () => {
     emit({ type: "run_start" }, { type: "ui_request", request: { id: "q", kind: "confirm", title: "?", timeoutMs: 10 } });
     env.service.respondToUi(chatId, { id: "q", confirmed: false });
     const closedCount = () =>
-      env.messages.filter((m) => m.type === "chat_event" && m.event.type === "ui_request_closed").length;
+      env.messages.filter((m) => m.type === "session_event" && m.event.type === "ui_request_closed").length;
     expect(closedCount()).toBe(1);
     await flush(30);
     expect(closedCount()).toBe(1);
@@ -95,7 +96,7 @@ describe("chat status", () => {
   it("lastRunFailed: set on error stopReason, cleared on next run_start, not set on abort", () => {
     emit({ type: "run_start" }, errorMessage("error"), { type: "run_end" });
     expect(current().lastRunFailed).toBe(true);
-    expect(env.store.getChat(chatId)?.lastRunFailed).toBe(true); // persisted
+    expect(env.store.getSession(chatId)?.lastRunFailed).toBe(true); // persisted
 
     emit({ type: "run_start" });
     expect(current().lastRunFailed).toBe(false);

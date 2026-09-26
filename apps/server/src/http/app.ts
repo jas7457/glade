@@ -11,19 +11,21 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import {
   THINKING_LEVELS,
-  type CreateChatRequest,
   type CreateProjectRequest,
+  type CreateSessionRequest,
+  type CreateWorkspaceRequest,
   type DeepPartial,
   type ModelRef,
   type OpenProjectRequest,
   type PromptRequest,
-  type ReorderPinnedChatsRequest,
+  type ReorderPinnedWorkspacesRequest,
   type ReorderProjectsRequest,
   type Settings,
   type ThinkingLevel,
   type UiResponse,
-  type UpdateChatRequest,
   type UpdateProjectRequest,
+  type UpdateSessionRequest,
+  type UpdateWorkspaceRequest,
 } from "@pi-ui/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
@@ -105,43 +107,64 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     return c.body(null, 204);
   });
 
-  // Chats -------------------------------------------------------------------------------------
-  api.get("/chats", (c) => c.json(service.listChats()));
-  api.post("/chats", async (c) => {
-    const body = await readBody<CreateChatRequest>(c);
+  // Workspaces (sidebar rows) ----------------------------------------------------------------
+  api.get("/workspaces", (c) => c.json(service.listWorkspaces()));
+  api.post("/workspaces", async (c) => {
+    const body = await readBody<CreateWorkspaceRequest>(c);
     if (body.projectId !== null && typeof body.projectId !== "string") {
       throw new HttpError(400, "projectId must be a string or null");
     }
-    optional(body.prompt, "string", "prompt");
-    if (body.model != null) requireModelRef(body.model);
-    if (body.thinkingLevel != null) requireThinkingLevel(body.thinkingLevel);
-    if (body.images !== undefined) requireImages(body.images);
-    return c.json(await service.createChat(body));
+    requireNewSession(body);
+    return c.json(await service.createWorkspace(body));
   });
-  api.put("/chats/pin-order", async (c) => {
-    const body = await readBody<ReorderPinnedChatsRequest>(c);
+  api.put("/workspaces/pin-order", async (c) => {
+    const body = await readBody<ReorderPinnedWorkspacesRequest>(c);
     if (body.projectId !== null && typeof body.projectId !== "string") {
       throw new HttpError(400, "projectId must be a string or null");
     }
     requireIds(body.ids);
-    return c.json(service.reorderPinnedChats(body.projectId, body.ids));
+    return c.json(service.reorderPinnedWorkspaces(body.projectId, body.ids));
   });
-  api.get("/chats/:id", async (c) => c.json(await service.getChatDetail(c.req.param("id"))));
-  api.patch("/chats/:id", async (c) => {
-    const body = await readBody<UpdateChatRequest>(c);
+  api.get("/workspaces/:id", (c) => c.json(service.getWorkspaceDetail(c.req.param("id"))));
+  api.patch("/workspaces/:id", async (c) => {
+    const body = await readBody<UpdateWorkspaceRequest>(c);
     optional(body.title, "string", "title");
     optional(body.pinned, "boolean", "pinned");
+    if (body.layout !== undefined && body.layout !== null && (typeof body.layout !== "object" || Array.isArray(body.layout))) {
+      throw new HttpError(400, "layout must be an object or null");
+    }
+    return c.json(await service.updateWorkspace(c.req.param("id"), body));
+  });
+  api.delete("/workspaces/:id", async (c) => {
+    await service.deleteWorkspace(c.req.param("id"));
+    return c.body(null, 204);
+  });
+  api.get("/workspaces/:id/sessions", (c) => c.json(service.listSessions(c.req.param("id"))));
+  api.post("/workspaces/:id/sessions", async (c) => {
+    const body = await readOptionalBody<CreateSessionRequest>(c);
+    requireNewSession(body);
+    return c.json(await service.createSession(c.req.param("id"), body));
+  });
+  /** Legacy alias of `GET /workspaces` (the desktop app's quit check counts busy rows). */
+  api.get("/chats", (c) => c.json(service.listWorkspaces()));
+
+  // Sessions (one agent conversation each) ---------------------------------------------------
+  api.get("/sessions", (c) => c.json(service.listSessions()));
+  api.get("/sessions/:id", async (c) => c.json(await service.getSessionDetail(c.req.param("id"))));
+  api.patch("/sessions/:id", async (c) => {
+    const body = await readBody<UpdateSessionRequest>(c);
+    optional(body.title, "string", "title");
     optional(body.unread, "boolean", "unread");
     if (body.interrupted !== undefined && body.interrupted !== false) {
       throw new HttpError(400, "interrupted can only be set to false");
     }
-    return c.json(await service.updateChat(c.req.param("id"), body));
+    return c.json(await service.updateSession(c.req.param("id"), body));
   });
-  api.delete("/chats/:id", async (c) => {
-    await service.deleteChat(c.req.param("id"));
+  api.delete("/sessions/:id", async (c) => {
+    await service.deleteSession(c.req.param("id"));
     return c.body(null, 204);
   });
-  api.post("/chats/:id/prompt", async (c) => {
+  api.post("/sessions/:id/prompt", async (c) => {
     const body = await readBody<PromptRequest>(c);
     requireString(body.text, "text", true);
     if (body.images !== undefined) requireImages(body.images);
@@ -151,34 +174,34 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.prompt(c.req.param("id"), body);
     return c.body(null, 204);
   });
-  api.post("/chats/:id/abort", async (c) => {
+  api.post("/sessions/:id/abort", async (c) => {
     await service.abort(c.req.param("id"));
     return c.body(null, 204);
   });
-  api.put("/chats/:id/model", async (c) => {
+  api.put("/sessions/:id/model", async (c) => {
     const body = await readBody<ModelRef>(c);
     requireModelRef(body);
     await service.setModel(c.req.param("id"), { provider: body.provider, id: body.id });
     return c.body(null, 204);
   });
-  api.put("/chats/:id/thinking", async (c) => {
+  api.put("/sessions/:id/thinking", async (c) => {
     const body = await readBody<{ level: ThinkingLevel }>(c);
     requireThinkingLevel(body.level);
     await service.setThinkingLevel(c.req.param("id"), body.level);
     return c.body(null, 204);
   });
-  api.get("/chats/:id/commands", async (c) => c.json(await service.listCommands(c.req.param("id"))));
-  api.post("/chats/:id/compact", async (c) => {
+  api.get("/sessions/:id/commands", async (c) => c.json(await service.listCommands(c.req.param("id"))));
+  api.post("/sessions/:id/compact", async (c) => {
     const body = await readOptionalBody<{ instructions?: string }>(c);
     optional(body.instructions, "string", "instructions");
     return c.json(await service.compact(c.req.param("id"), body.instructions));
   });
-  api.post("/chats/:id/export", async (c) => {
+  api.post("/sessions/:id/export", async (c) => {
     const body = await readOptionalBody<{ reveal?: boolean }>(c);
     optional(body.reveal, "boolean", "reveal");
-    return withReveal(c, () => service.exportChat(c.req.param("id"), { reveal: body.reveal }));
+    return withReveal(c, () => service.exportSession(c.req.param("id"), { reveal: body.reveal }));
   });
-  api.post("/chats/:id/ui-response", async (c) => {
+  api.post("/sessions/:id/ui-response", async (c) => {
     const body = await readBody<UiResponse>(c);
     requireString(body.id, "id");
     const ok =
@@ -289,6 +312,14 @@ function requireThinkingLevel(value: unknown): asserts value is ThinkingLevel {
   if (!(THINKING_LEVELS as readonly unknown[]).includes(value)) {
     throw new HttpError(400, `level must be one of ${THINKING_LEVELS.join(", ")}`);
   }
+}
+
+/** Optional first prompt / model / thinking level of a new session. */
+function requireNewSession(body: Partial<CreateSessionRequest>): void {
+  optional(body.prompt, "string", "prompt");
+  if (body.model != null) requireModelRef(body.model);
+  if (body.thinkingLevel != null) requireThinkingLevel(body.thinkingLevel);
+  if (body.images !== undefined) requireImages(body.images);
 }
 
 function requireImages(value: unknown): void {

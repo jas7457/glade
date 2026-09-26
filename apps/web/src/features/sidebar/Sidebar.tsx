@@ -2,14 +2,14 @@
  * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings (+ usage gauge). In the
  * settings screen it shows the settings section list instead.
  */
-import type { ChatSummary, Project } from "@pi-ui/protocol";
+import type { WorkspaceSummary, Project } from "@pi-ui/protocol";
 import { useLocation, useNavigate } from "react-router";
 import { FolderPlus, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from "lucide-preact";
 import { routes } from "@/app/routes";
 import { routeContext } from "@/app/paths";
 import { cn } from "@/lib/cn";
 import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, Titlebar, sidebarClass } from "@/ui";
-import { chatsById, chatsForProject, sortedProjects } from "@/state/store";
+import { workspacesById, workspacesForProject, sortedProjects } from "@/state/store";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { reorderProjects } from "@/state/actions";
 import { SettingsNav } from "@/features/settings";
@@ -23,14 +23,14 @@ export const STANDALONE_CHAT_LIMIT = 10;
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const ctx = routeContext(location.pathname, chatsById.value);
+  const ctx = routeContext(location.pathname, workspacesById.value);
 
-  const onChatRemoved = (chat: ChatSummary) => navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
+  const onChatRemoved = (chat: WorkspaceSummary) => navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
   const onProjectRemoved = (_project: Project) => navigate(routes.home());
 
   const newChat = () => navigate(ctx.projectId ? routes.project(ctx.projectId) : routes.home());
   const projects = sortedProjects.value;
-  const standalone = chatsForProject(null);
+  const standalone = workspacesForProject(null);
   const newChatSelected = location.pathname === "/";
   const projectSort = useSortable({
     group: "projects",
@@ -81,8 +81,8 @@ export function Sidebar() {
                       sort={projectSort.bind(p.id, i, projects.length)}
                       canMoveUp={i > 0}
                       canMoveDown={i < projects.length - 1}
-                      selected={ctx.projectId === p.id && ctx.chatId === null}
-                      selectedChatId={ctx.chatId}
+                      selected={ctx.projectId === p.id && ctx.workspaceId === null}
+                      selectedChatId={ctx.workspaceId}
                       onChatRemoved={onChatRemoved}
                       onProjectRemoved={onProjectRemoved}
                     />
@@ -95,7 +95,7 @@ export function Sidebar() {
               <ChatList
                 chats={standalone}
                 listId={null}
-                selectedChatId={ctx.chatId}
+                selectedChatId={ctx.workspaceId}
                 limit={STANDALONE_CHAT_LIMIT}
                 emptyLabel="No chats yet"
                 onRemoved={onChatRemoved}

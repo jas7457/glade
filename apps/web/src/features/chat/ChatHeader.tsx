@@ -1,23 +1,24 @@
 /**
- * Chat header bar (window drag region): editable title, project name (for project chats), live
- * status, "Open in VS Code" (project chats) and an overflow menu (rename, pin, delete).
+ * Chat header bar (window drag region): the workspace's editable title, project name (for
+ * project chats), the shown session's live status, "Open in VS Code" (project chats) and an
+ * overflow menu (rename, pin, delete the workspace).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
-import { deriveChatStatus, type ChatSummary } from "@pi-ui/protocol";
+import { deriveChatStatus, type WorkspaceSummary } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
-import { api } from "@/lib/api";
 import { routes } from "@/app/routes";
-import { getChatSession, runAction } from "@/state/chat-session";
+import { getChatSession } from "@/state/chat-session";
+import { deleteWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
 import { projectsById } from "@/state/store";
 import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, confirm, statusLabel } from "@/ui";
 import { OpenInButton } from "./OpenInButton";
 
-export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; chatId: string }) {
+export function ChatHeader({ workspace: chat, sessionId }: { workspace: WorkspaceSummary | undefined; sessionId: string }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
-  const store = getChatSession(chatId);
+  const store = getChatSession(sessionId);
   const project = chat?.projectId ? projectsById.value.get(chat.projectId) : undefined;
   const title = chat?.title ?? "";
   const status = deriveChatStatus({
@@ -37,7 +38,7 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
       destructive: true,
     });
     if (!ok) return;
-    if (await runAction(() => api.deleteChat(chatId), "Could not delete chat")) leave();
+    if (chat && (await deleteWorkspace(chat.id))) leave();
   };
 
   return (
@@ -52,7 +53,7 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
             value={title}
             onDone={(next) => {
               setEditing(false);
-              if (next !== null && next !== title) void runAction(() => api.updateChat(chatId, { title: next }), "Could not rename chat");
+              if (next !== null && next !== title && chat) void renameWorkspace(chat.id, next);
             }}
           />
         ) : (
@@ -91,7 +92,7 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
         </MenuItem>
         <MenuItem
           icon={chat?.pinned ? <PinOff /> : <Pin />}
-          onSelect={() => chat && void runAction(() => api.updateChat(chatId, { pinned: !chat.pinned }), "Could not pin chat")}
+          onSelect={() => chat && void setWorkspacePinned(chat.id, !chat.pinned)}
         >
           {chat?.pinned ? "Unpin" : "Pin"}
         </MenuItem>

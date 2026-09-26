@@ -3,19 +3,20 @@
  */
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEvent, ChatSummary } from "@pi-ui/protocol";
+import type { AgentEvent, SessionSummary } from "@pi-ui/protocol";
 import { FakeHarness, type FakeSession } from "../src/harness/fake/fake-harness.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
-import { createTestEnv, flush, type TestEnv } from "./helpers.js";
+import { createTestEnv, flush, newChat, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
 let chatId: string;
+let workspaceId: string;
 let session: FakeSession;
 
 beforeEach(async () => {
   env = createTestEnv();
-  chatId = (await env.service.createChat({ projectId: null })).chat.id;
+  ({ sid: chatId, wid: workspaceId } = await newChat(env));
   session = [...env.harness.openSessions][0]!;
   env.messages.length = 0;
 });
@@ -24,7 +25,7 @@ afterEach(async () => {
 });
 
 const emit = (...events: AgentEvent[]) => events.forEach((e) => session.emit(e));
-const stored = () => env.store.getChat(chatId)!;
+const stored = () => env.store.getSession(chatId)!;
 
 describe("interrupted runs", () => {
   it("runInProgress is persisted between run_start and run_end", () => {
@@ -50,12 +51,12 @@ describe("interrupted runs", () => {
     const store = new Store(join(env.dir, "data"), 0);
     const service = new AppService({ store, harness: new FakeHarness(), scratchDir: join(env.dir, "scratch") });
     try {
-      const chat = service.listChats().find((c) => c.id === chatId)!;
+      const chat = service.listSessions().find((c) => c.id === chatId)!;
       expect(chat).toMatchObject({ runInProgress: false, interrupted: true, unread: true, lastRunFailed: true, status: "unread" });
-      expect(new Store(join(env.dir, "data"), 0).getChat(chatId)?.interrupted).toBe(true); // persisted
+      expect(new Store(join(env.dir, "data"), 0).getSession(chatId)?.interrupted).toBe(true); // persisted
 
       // Dismiss.
-      const dismissed = await service.updateChat(chatId, { interrupted: false });
+      const dismissed = await service.updateSession(chatId, { interrupted: false });
       expect(dismissed.interrupted).toBeUndefined();
     } finally {
       await service.dispose();
@@ -66,9 +67,10 @@ describe("interrupted runs", () => {
     emit({ type: "run_start" });
     session.crash("killed");
     expect(stored()).toMatchObject({ interrupted: true, runInProgress: false, lastRunFailed: true, unread: true });
-    expect(env.messages).toContainEqual({ type: "chat_event", chatId, event: { type: "run_end" } });
-    const last = env.messages.filter((m): m is { type: "chat_upsert"; chat: ChatSummary } => m.type === "chat_upsert").at(-1);
-    expect(last?.chat.interrupted).toBe(true);
+    expect(env.messages).toContainEqual({ type: "session_event", sessionId: chatId, workspaceId, event: { type: "run_end" } });
+    const last = env.messages.filter((m): m is { type: "session_upsert"; session: SessionSummary } => m.type === "session_upsert").at(-1);
+    expect(last?.session.interrupted).toBe(true);
+    expect(env.service.listWorkspaces()[0]).toMatchObject({ interrupted: true, lastRunFailed: true, status: "unread" });
   });
 
   it("a crash while idle isn't an interruption", () => {
@@ -91,7 +93,7 @@ describe("interrupted runs", () => {
     const { createApp } = await import("../src/http/app.js");
     const { app } = createApp({ service: env.service });
     const patch = (body: unknown) =>
-      app.request(`/api/chats/${chatId}`, {
+      app.request(`/api/sessions/${chatId}`, {
         method: "PATCH",
         headers: { host: "127.0.0.1:4317", "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -101,6 +103,6 @@ describe("interrupted runs", () => {
     session.crash("killed");
     const res = await patch({ interrupted: false });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as ChatSummary).interrupted).toBeUndefined();
+    expect(((await res.json()) as SessionSummary).interrupted).toBeUndefined();
   });
 });

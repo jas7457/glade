@@ -1,25 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSessionState, defaultSettings, emptyTranscript, type ChatDetail, type ModelInfo } from "@pi-ui/protocol";
+import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@pi-ui/protocol";
 import { TooltipProvider } from "@/ui";
-import { models, settings } from "@/state/store";
+import { models, settings, workspacesById } from "@/state/store";
+import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { isSendKey } from "./composer-utils";
 import { Composer } from "./Composer";
 
 vi.mock("@/lib/api", () => ({
   api: {
-    createChat: vi.fn(),
+    createWorkspace: vi.fn(),
     prompt: vi.fn(async () => undefined),
     abort: vi.fn(async () => undefined),
-    getChat: vi.fn(() => new Promise(() => {})),
+    getSession: vi.fn(() => new Promise(() => {})),
     setModel: vi.fn(async () => undefined),
     setThinkingLevel: vi.fn(async () => undefined),
     respondToUi: vi.fn(async () => undefined),
   },
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), setViewing: vi.fn() } }));
+vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const { api } = await import("@/lib/api");
 
@@ -158,16 +159,14 @@ describe("Composer (new chat)", () => {
       ...defaultSettings(),
       models: { ...defaultSettings().models, defaultModel: { provider: "anthropic", id: "haiku" }, defaultThinkingLevel: "xhigh" },
     };
-    const detail: ChatDetail = {
-      chat: {
-        id: "new1", projectId: "p1", title: "Hi", titleSource: "auto", cwd: "/tmp", harness: "fake", sessionRef: null, pinned: false,
-        unread: false, createdAt: 0, lastActivityAt: 0, model: null, thinkingLevel: null, running: true,
-      } as ChatDetail["chat"],
-      transcript: emptyTranscript(),
-      state: defaultSessionState(),
-      pendingUiRequests: [],
+    // Workspace "new1" with its first session "s-new1".
+    const session = makeSession({ id: "s-new1", workspaceId: "new1", title: "Hi", running: true });
+    const detail: CreateWorkspaceResponse = {
+      workspace: makeWorkspace({ id: "new1", projectId: "p1", title: "Hi" }),
+      sessions: [session],
+      session: { session, transcript: emptyTranscript(), state: defaultSessionState(), pendingUiRequests: [] },
     };
-    vi.mocked(api.createChat).mockResolvedValueOnce(detail);
+    vi.mocked(api.createWorkspace).mockResolvedValueOnce(detail);
     const router = renderAt(<Composer projectId="p1" />);
     expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Claude Haiku");
     // xhigh isn't supported by the model → clamped down to "high".
@@ -177,7 +176,7 @@ describe("Composer (new chat)", () => {
     fireEvent.input(box, { target: { value: "Hi there" } });
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() =>
-      expect(api.createChat).toHaveBeenCalledWith({
+      expect(api.createWorkspace).toHaveBeenCalledWith({
         projectId: "p1",
         prompt: "Hi there",
         images: undefined,
@@ -186,7 +185,8 @@ describe("Composer (new chat)", () => {
       }),
     );
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p1/chats/new1"));
-    expect(getChatSession("new1").status.value).toBe("ready");
+    expect(getChatSession("s-new1").status.value).toBe("ready");
+    expect(workspacesById.value.has("new1")).toBe(true);
   });
 
   it("falls back to the first visible model and hides thinking for non-reasoning models", () => {

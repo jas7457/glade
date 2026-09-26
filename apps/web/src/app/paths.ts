@@ -2,24 +2,25 @@
  * Pure helpers that derive app context from the current URL.
  */
 import { matchPath } from "react-router";
-import type { ChatSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@pi-ui/protocol";
 
 export interface RouteContext {
-  chatId: string | null;
-  /** Project in view: from the URL, or the project of the chat being shown. */
+  /** Workspace (sidebar row) in view. `/chats/:chatId` URLs carry workspace ids (I-035). */
+  workspaceId: string | null;
+  /** Project in view: from the URL, or the project of the workspace being shown. */
   projectId: string | null;
   isSettings: boolean;
 }
 
-export function routeContext(pathname: string, chatsById: ReadonlyMap<string, ChatSummary>): RouteContext {
+export function routeContext(pathname: string, workspacesById: ReadonlyMap<string, WorkspaceSummary>): RouteContext {
   const projectChat = matchPath("/projects/:projectId/chats/:chatId", pathname);
-  if (projectChat) return { chatId: projectChat.params.chatId!, projectId: projectChat.params.projectId!, isSettings: false };
+  if (projectChat) return { workspaceId: projectChat.params.chatId!, projectId: projectChat.params.projectId!, isSettings: false };
   const project = matchPath("/projects/:projectId", pathname);
-  if (project) return { chatId: null, projectId: project.params.projectId!, isSettings: false };
+  if (project) return { workspaceId: null, projectId: project.params.projectId!, isSettings: false };
   const chat = matchPath("/chats/:chatId", pathname);
   if (chat) {
-    const chatId = chat.params.chatId!;
-    return { chatId, projectId: chatsById.get(chatId)?.projectId ?? null, isSettings: false };
+    const workspaceId = chat.params.chatId!;
+    return { workspaceId, projectId: workspacesById.get(workspaceId)?.projectId ?? null, isSettings: false };
   }
-  return { chatId: null, projectId: null, isSettings: pathname.startsWith("/settings") };
+  return { workspaceId: null, projectId: null, isSettings: pathname.startsWith("/settings") };
 }

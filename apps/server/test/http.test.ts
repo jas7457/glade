@@ -4,11 +4,20 @@ import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import type { ChatDetail, PickFolderResponse, Project, ServerMessage } from "@pi-ui/protocol";
+import type {
+  CreateWorkspaceResponse,
+  PickFolderResponse,
+  Project,
+  ServerMessage,
+  SessionDetail,
+  SessionSummary,
+  WorkspaceDetail,
+  WorkspaceSummary,
+} from "@pi-ui/protocol";
 import { createApp } from "../src/http/app.js";
 import { createFolderPicker, type CreateFolderPickerOptions, type OsascriptRunner } from "../src/services/folder-picker.js";
 import { hostHeaderHostname, isLoopbackOrigin } from "../src/http/security.js";
-import { createTestEnv, flush, until, type TestEnv } from "./helpers.js";
+import { createTestEnv, flush, newChat, until, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
 let app: ReturnType<typeof createApp>["app"];
@@ -32,7 +41,7 @@ function req(method: string, path: string, body?: unknown, headers: Record<strin
 }
 
 describe("REST API", () => {
-  it("creates and lists projects and chats", async () => {
+  it("creates and lists projects, workspaces and sessions", async () => {
     const path = join(env.dir, "proj");
     mkdirSync(path);
     const res = await req("POST", "/api/projects", { path });
@@ -41,31 +50,60 @@ describe("REST API", () => {
     expect(project.path).toBe(path);
     expect(await (await req("GET", "/api/projects")).json()).toEqual([project]);
 
-    const created = await req("POST", "/api/chats", { projectId: project.id, prompt: "hi" });
+    const created = await req("POST", "/api/workspaces", { projectId: project.id, prompt: "hi" });
     expect(created.status).toBe(200);
-    const detail = (await created.json()) as ChatDetail;
-    expect(detail.chat.projectId).toBe(project.id);
+    const detail = (await created.json()) as CreateWorkspaceResponse;
+    expect(detail.workspace.projectId).toBe(project.id);
+    expect(detail.sessions.map((s) => s.id)).toEqual([detail.session.session.id]);
+    const wid = detail.workspace.id;
+    const sid = detail.session.session.id;
     await flush();
 
-    const chats = (await (await req("GET", "/api/chats")).json()) as unknown[];
-    expect(chats).toHaveLength(1);
-    const again = (await (await req("GET", `/api/chats/${detail.chat.id}`)).json()) as ChatDetail;
+    const workspaces = (await (await req("GET", "/api/workspaces")).json()) as WorkspaceSummary[];
+    expect(workspaces.map((w) => w.id)).toEqual([wid]);
+    // Legacy alias used by the desktop app's quit check.
+    expect(((await (await req("GET", "/api/chats")).json()) as WorkspaceSummary[])[0]).toMatchObject({ id: wid, status: "unread" });
+    const again = (await (await req("GET", `/api/sessions/${sid}`)).json()) as SessionDetail;
     expect(again.transcript.messages.length).toBe(3);
+    const ws = (await (await req("GET", `/api/workspaces/${wid}`)).json()) as WorkspaceDetail;
+    expect(ws.sessions.map((s) => s.id)).toEqual([sid]);
+    expect(((await (await req("GET", `/api/workspaces/${wid}/sessions`)).json()) as SessionSummary[]).map((s) => s.id)).toEqual([sid]);
+    expect(((await (await req("GET", "/api/sessions")).json()) as SessionSummary[]).map((s) => s.id)).toEqual([sid]);
 
-    expect((await req("PATCH", `/api/chats/${detail.chat.id}`, { pinned: true })).status).toBe(200);
-    expect((await req("POST", `/api/chats/${detail.chat.id}/prompt`, { text: "more" })).status).toBe(204);
-    expect((await req("POST", `/api/chats/${detail.chat.id}/abort`)).status).toBe(204);
-    expect((await req("PUT", `/api/chats/${detail.chat.id}/model`, { provider: "fake", id: "fast" })).status).toBe(204);
-    expect((await req("PUT", `/api/chats/${detail.chat.id}/thinking`, { level: "off" })).status).toBe(204);
-    expect((await req("DELETE", `/api/chats/${detail.chat.id}`)).status).toBe(204);
+    expect((await req("PATCH", `/api/workspaces/${wid}`, { pinned: true })).status).toBe(200);
+    expect((await req("PATCH", `/api/workspaces/${wid}`, { layout: { activeMainSessionId: sid } })).status).toBe(200);
+    expect((await req("PATCH", `/api/workspaces/${wid}`, { layout: "wide" })).status).toBe(400);
+    expect((await req("PATCH", `/api/sessions/${sid}`, { unread: false })).status).toBe(200);
+    expect((await req("POST", `/api/sessions/${sid}/prompt`, { text: "more" })).status).toBe(204);
+    expect((await req("POST", `/api/sessions/${sid}/abort`)).status).toBe(204);
+    expect((await req("PUT", `/api/sessions/${sid}/model`, { provider: "fake", id: "fast" })).status).toBe(204);
+    expect((await req("PUT", `/api/sessions/${sid}/thinking`, { level: "off" })).status).toBe(204);
+
+    // A second tab; then the first can be closed, but not the last one.
+    const tab = await req("POST", `/api/workspaces/${wid}/sessions`, {});
+    expect(tab.status).toBe(200);
+    const tabId = ((await tab.json()) as SessionDetail).session.id;
+    expect((await req("POST", `/api/workspaces/${wid}/sessions`)).status).toBe(200); // body optional
+    expect((await req("POST", `/api/workspaces/${wid}/sessions`, { thinkingLevel: "huge" })).status).toBe(400);
+    expect((await req("DELETE", `/api/sessions/${sid}`)).status).toBe(204);
+    expect((await req("DELETE", `/api/sessions/${tabId}`)).status).toBe(204);
+    const last = await req("DELETE", `/api/sessions/${env.service.listSessions(wid)[0]!.id}`);
+    expect(last.status).toBe(409);
+
+    expect((await req("DELETE", `/api/workspaces/${wid}`)).status).toBe(204);
     expect((await req("DELETE", `/api/projects/${project.id}`)).status).toBe(204);
   });
 
-  it("returns 404 for unknown chats and routes", async () => {
-    const res = await req("GET", "/api/chats/nope");
+  it("returns 404 for unknown workspaces, sessions and routes", async () => {
+    const res = await req("GET", "/api/sessions/nope");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "Chat not found" });
+    expect(await res.json()).toEqual({ error: "Session not found" });
+    expect(await (await req("GET", "/api/workspaces/nope")).json()).toEqual({ error: "Workspace not found" });
+    expect((await req("POST", "/api/workspaces/nope/sessions", {})).status).toBe(404);
+    expect((await req("POST", "/api/sessions/nope/prompt", { text: "x" })).status).toBe(404);
+    expect((await req("POST", "/api/sessions/nope/abort")).status).toBe(404);
     expect((await req("GET", "/api/nothing")).status).toBe(404);
+    expect((await req("GET", "/api/chats/nope")).status).toBe(404); // old per-chat routes are gone
     expect((await req("PATCH", "/api/projects/nope", { name: "x" })).status).toBe(404);
   });
 
@@ -75,12 +113,14 @@ describe("REST API", () => {
     const missing = await req("POST", "/api/projects", { path: join(env.dir, "missing") });
     expect(missing.status).toBe(400);
     expect(((await missing.json()) as { error: string }).error).toMatch(/Not a folder/);
-    expect((await req("POST", "/api/chats", { projectId: 5 })).status).toBe(400);
-    const chat = (await (await req("POST", "/api/chats", { projectId: null })).json()) as ChatDetail;
-    expect((await req("PUT", `/api/chats/${chat.chat.id}/thinking`, { level: "huge" })).status).toBe(400);
-    expect((await req("PUT", `/api/chats/${chat.chat.id}/model`, { provider: "fake" })).status).toBe(400);
-    expect((await req("POST", `/api/chats/${chat.chat.id}/prompt`, { text: 1 })).status).toBe(400);
-    expect((await req("POST", `/api/chats/${chat.chat.id}/prompt`, { text: " " })).status).toBe(400);
+    expect((await req("POST", "/api/workspaces", { projectId: 5 })).status).toBe(400);
+    const created = (await (await req("POST", "/api/workspaces", { projectId: null })).json()) as CreateWorkspaceResponse;
+    const sid = created.session.session.id;
+    expect((await req("PUT", `/api/sessions/${sid}/thinking`, { level: "huge" })).status).toBe(400);
+    expect((await req("PUT", `/api/sessions/${sid}/model`, { provider: "fake" })).status).toBe(400);
+    expect((await req("POST", `/api/sessions/${sid}/prompt`, { text: 1 })).status).toBe(400);
+    expect((await req("POST", `/api/sessions/${sid}/prompt`, { text: " " })).status).toBe(400);
+    expect((await req("PATCH", `/api/sessions/${sid}`, { interrupted: true })).status).toBe(400);
   });
 
   it("serves models and settings", async () => {
@@ -192,7 +232,7 @@ describe("security", () => {
 });
 
 describe("WebSocket /ws", () => {
-  it("says hello, pushes broadcasts and tracks the viewed chat", async () => {
+  it("says hello, pushes broadcasts and tracks the viewed sessions", async () => {
     const { app: wsApp, injectWebSocket } = createApp({ service: env.service });
     const server = serve({ fetch: wsApp.fetch, hostname: "127.0.0.1", port: 0 });
     injectWebSocket(server);
@@ -206,21 +246,33 @@ describe("WebSocket /ws", () => {
       await until(() => received.length > 0);
       expect(received[0]).toEqual({ type: "hello", version: expect.any(String) });
 
-      const detail = await env.service.createChat({ projectId: null });
-      await until(() => received.some((m) => m.type === "chat_upsert"));
+      const a = await newChat(env);
+      const b = await newChat(env);
+      await until(() => received.some((m) => m.type === "session_upsert") && received.some((m) => m.type === "workspace_upsert"));
 
-      ws.send(JSON.stringify({ type: "viewing", chatId: detail.chat.id }));
+      // Several sessions can be on screen at once.
+      ws.send(JSON.stringify({ type: "viewing", sessionIds: [a.sid, b.sid] }));
       await flush(20);
-      await env.service.prompt(detail.chat.id, { text: "hi" });
-      await until(() => received.some((m) => m.type === "chat_event" && m.event.type === "run_end"));
-      expect(env.store.getChat(detail.chat.id)?.unread).toBe(false);
+      await env.service.prompt(a.sid, { text: "hi" });
+      await env.service.prompt(b.sid, { text: "hi" });
+      await until(() => received.filter((m) => m.type === "session_event" && m.event.type === "run_end").length === 2);
+      expect(received).toContainEqual(expect.objectContaining({ type: "session_event", sessionId: a.sid, workspaceId: a.wid }));
+      expect(env.store.getSession(a.sid)?.unread).toBe(false);
+      expect(env.store.getSession(b.sid)?.unread).toBe(false);
 
-      // Closing the socket stops viewing: the next run marks the chat unread.
+      // Replacing the list stops viewing b.
+      ws.send(JSON.stringify({ type: "viewing", sessionIds: [a.sid] }));
+      await flush(20);
+      await env.service.prompt(b.sid, { text: "again" });
+      await flush(10);
+      expect(env.store.getSession(b.sid)?.unread).toBe(true);
+
+      // Closing the socket stops viewing: the next run marks the session unread.
       ws.close();
       await flush(50);
-      await env.service.prompt(detail.chat.id, { text: "again" });
+      await env.service.prompt(a.sid, { text: "again" });
       await flush(10);
-      expect(env.store.getChat(detail.chat.id)?.unread).toBe(true);
+      expect(env.store.getSession(a.sid)?.unread).toBe(true);
 
       // Upgrades from foreign origins are refused.
       const evil = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: "https://evil.com" });

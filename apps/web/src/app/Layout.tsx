@@ -8,9 +8,9 @@ import { AlertTriangle, PanelLeft } from "lucide-preact";
 import { connectionStatus } from "@/lib/socket";
 import { cn } from "@/lib/cn";
 import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
-import { chatsById, initError, initialized, loadAll } from "@/state/store";
+import { initError, initialized, loadAll, workspacesById } from "@/state/store";
 import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar, togglePalette } from "@/state/ui";
-import { currentChatId } from "@/state/attention";
+import { currentWorkspaceId } from "@/state/attention";
 import { Sidebar } from "@/features/sidebar";
 import { AddProjectHost } from "@/features/projects";
 import { rememberAppPath } from "@/features/settings";
@@ -92,12 +92,12 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const collapsed = sidebarCollapsed.value;
-  const ctx = routeContext(location.pathname, chatsById.value);
+  const ctx = routeContext(location.pathname, workspacesById.value);
 
   useEffect(() => {
     rememberAppPath(location.pathname);
-    currentChatId.value = ctx.chatId;
-  }, [location.pathname, ctx.chatId]);
+    currentWorkspaceId.value = ctx.workspaceId;
+  }, [location.pathname, ctx.workspaceId]);
 
   const commandContext = { navigate: (path: string) => navigate(path), route: ctx };
   useGlobalShortcuts(globalCommands({ ...commandContext, togglePalette }));

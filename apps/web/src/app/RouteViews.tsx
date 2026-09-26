@@ -2,11 +2,11 @@
  * Route elements: resolve URL params against the stores and render the chat feature views
  * (or a not-found state).
  */
-import { Navigate, useParams } from "react-router";
+import { Navigate, useParams, useSearchParams } from "react-router";
 import { ChatView, NewChatView } from "@/features/chat";
-import { chatsById, projectsById } from "@/state/store";
+import { projectsById, resolveSessionId, workspacesById } from "@/state/store";
 import { NotFound } from "./NotFound";
-import { chatPath } from "./routes";
+import { TAB_PARAM, chatPath } from "./routes";
 
 export function HomeRoute() {
   return <NewChatView projectId={null} />;
@@ -20,13 +20,23 @@ export function ProjectRoute() {
   return <NewChatView key={projectId} projectId={projectId} />;
 }
 
+/** `/chats/:chatId` (a workspace id) with optional `?tab=<sessionId>`. */
 export function ChatRoute() {
-  const { chatId, projectId } = useParams();
-  const chat = chatId ? chatsById.value.get(chatId) : undefined;
-  if (!chatId || !chat) {
+  const { chatId: workspaceId, projectId } = useParams();
+  const [search] = useSearchParams();
+  const tab = search.get(TAB_PARAM);
+  const workspace = workspaceId ? workspacesById.value.get(workspaceId) : undefined;
+  if (!workspaceId || !workspace) {
     return <NotFound title="Chat not found" message="It may have been deleted. Your other chats are in the sidebar." />;
   }
-  // Keep the URL canonical (chat inside its project, or standalone).
-  if ((chat.projectId ?? undefined) !== projectId) return <Navigate to={chatPath(chat)} replace />;
-  return <ChatView key={chatId} chatId={chatId} />;
+  // Keep the URL canonical (inside its project, or standalone; drop a tab that isn't one).
+  const sessionId = resolveSessionId(workspaceId, tab);
+  const canonicalTab = tab && tab === sessionId ? tab : null;
+  if ((workspace.projectId ?? undefined) !== projectId || (tab && !canonicalTab && sessionId)) {
+    return <Navigate to={chatPath(workspace, canonicalTab)} replace />;
+  }
+  if (!sessionId) {
+    return <NotFound title="Chat not found" message="This chat has no conversation. Your other chats are in the sidebar." />;
+  }
+  return <ChatView key={sessionId} workspaceId={workspaceId} sessionId={sessionId} />;
 }

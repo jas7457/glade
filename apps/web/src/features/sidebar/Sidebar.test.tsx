@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", () => ({ api: { reorderProjects: vi.fn(async () => []), reorderPinnedChats: vi.fn(async () => []) } }));
+vi.mock("@/lib/api", () => ({ api: { reorderProjects: vi.fn(async () => []), reorderPinnedWorkspaces: vi.fn(async () => []) } }));
 
 import { api } from "@/lib/api";
 import { TooltipProvider, sidebarClass } from "@/ui";
-import { chats, projects } from "@/state/store";
+import { projects, workspaces } from "@/state/store";
 import { closedProjects } from "@/state/ui";
-import { makeChat, makeProject } from "@/test/fixtures";
+import { makeWorkspace, makeProject } from "@/test/fixtures";
 import { Sidebar } from "./Sidebar";
 import { visibleChatCount } from "./ChatList";
 import { formatRelativeTime } from "./time";
@@ -35,11 +35,11 @@ describe("Sidebar", () => {
       makeProject({ id: "p1", name: "Alpha", sortOrder: 1, lastActivityAt: 10 }),
       makeProject({ id: "p2", name: "Beta", sortOrder: 0, lastActivityAt: 5 }),
     ];
-    chats.value = [
-      makeChat({ id: "c1", projectId: "p1", title: "Old", createdAt: 1, lastActivityAt: 9 }),
-      makeChat({ id: "c2", projectId: "p1", title: "Newer", createdAt: 3, lastActivityAt: 3, status: "working", running: true }),
-      makeChat({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, pinOrder: 0, status: "unread", unread: true }),
-      makeChat({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
+    workspaces.value = [
+      makeWorkspace({ id: "c1", projectId: "p1", title: "Old", createdAt: 1, lastActivityAt: 9 }),
+      makeWorkspace({ id: "c2", projectId: "p1", title: "Newer", createdAt: 3, lastActivityAt: 3, status: "working", running: true }),
+      makeWorkspace({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, pinOrder: 0, status: "unread", unread: true }),
+      makeWorkspace({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
     ];
   });
 
@@ -133,9 +133,9 @@ describe("Sidebar", () => {
     });
 
     it("reorders pinned chats within their list; unpinned chats aren't draggable", () => {
-      chats.value = [
-        ...chats.value,
-        makeChat({ id: "c5", projectId: "p1", title: "Pinned two", pinned: true, pinOrder: 1 }),
+      workspaces.value = [
+        ...workspaces.value,
+        makeWorkspace({ id: "c5", projectId: "p1", title: "Pinned two", pinned: true, pinOrder: 1 }),
       ];
       const { container } = renderSidebar();
       layout();
@@ -147,7 +147,7 @@ describe("Sidebar", () => {
       fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
       fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
       fireEvent.click(row);
-      expect(api.reorderPinnedChats).toHaveBeenCalledWith("p1", ["c5", "c3"]);
+      expect(api.reorderPinnedWorkspaces).toHaveBeenCalledWith("p1", ["c5", "c3"]);
       expect(rowTitles(alpha)).toEqual(["c5", "c3", "c2", "c1"]);
 
       // Unpinned rows don't start a drag.
@@ -155,7 +155,7 @@ describe("Sidebar", () => {
       fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
       expect(container.querySelector("[data-drop-line]")).toBeNull();
       fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
-      expect(api.reorderPinnedChats).toHaveBeenCalledTimes(1);
+      expect(api.reorderPinnedWorkspaces).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -214,7 +214,7 @@ describe("Sidebar", () => {
   });
 
   it("limits long project lists with Show more", () => {
-    chats.value = Array.from({ length: 8 }, (_, i) => makeChat({ id: `x${i}`, projectId: "p1", lastActivityAt: i }));
+    workspaces.value = Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `x${i}`, projectId: "p1", lastActivityAt: i }));
     const { container } = renderSidebar();
     const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
     expect(rowTitles(alpha)).toHaveLength(5);
@@ -224,7 +224,7 @@ describe("Sidebar", () => {
 });
 
 describe("visibleChatCount", () => {
-  const list = Array.from({ length: 8 }, (_, i) => makeChat({ id: `c${i}` }));
+  const list = Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `c${i}` }));
   it("shows the limit, all when expanded, and reaches the selection", () => {
     expect(visibleChatCount(list, 5, false, null)).toBe(5);
     expect(visibleChatCount(list, 5, true, null)).toBe(8);

@@ -6,11 +6,11 @@
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Folder, FolderOpen, MoreHorizontal, Plus } from "lucide-preact";
-import { aggregateChatStatus, type ChatSummary, type Project } from "@pi-ui/protocol";
+import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@pi-ui/protocol";
 import { routes } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
 import { cn } from "@/lib/cn";
-import { chatsForProject } from "@/state/store";
+import { workspacesForProject } from "@/state/store";
 import { closedProjects, setProjectOpen } from "@/state/ui";
 import { moveProject, removeProject, renameProject } from "@/state/actions";
 import { notify } from "@/state/toasts";
@@ -26,7 +26,7 @@ export interface ProjectGroupProps {
   /** Project whose new-chat screen is showing. */
   selected: boolean;
   selectedChatId: string | null;
-  onChatRemoved?: (chat: ChatSummary) => void;
+  onChatRemoved?: (chat: WorkspaceSummary) => void;
   onProjectRemoved?: (project: Project) => void;
   /** Drag-to-reorder wiring from the project list. */
   sort?: SortBinding;
@@ -46,7 +46,7 @@ export function ProjectGroup({
 }: ProjectGroupProps) {
   const navigate = useNavigate();
   const open = !closedProjects.value.has(project.id);
-  const list = chatsForProject(project.id);
+  const list = workspacesForProject(project.id);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const renaming = useRef(false);

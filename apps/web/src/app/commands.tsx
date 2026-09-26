@@ -10,7 +10,7 @@
  * field into that input and calls the prompt's `submit` instead of `run`.
  */
 import type { ComponentChildren } from "preact";
-import type { ChatSummary, Settings } from "@pi-ui/protocol";
+import type { Settings, WorkspaceSummary } from "@pi-ui/protocol";
 import { needsAttention } from "@pi-ui/protocol";
 import {
   Folder,
@@ -28,8 +28,8 @@ import {
   Trash2,
 } from "lucide-preact";
 import { StatusIndicator, confirm } from "@/ui";
-import { chats, chatsById, loadModels, projects, projectsById } from "@/state/store";
-import { deleteChat, renameChat, setChatPinned, updateSettings } from "@/state/actions";
+import { loadModels, projects, projectsById, workspaces, workspacesById } from "@/state/store";
+import { deleteWorkspace, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
@@ -88,7 +88,7 @@ export function globalCommands(ctx: CommandContext): ShortcutHandlers {
 }
 
 /** Chats for the palette: needing attention first, then most recent activity. */
-export function paletteChatOrder(list: readonly ChatSummary[]): ChatSummary[] {
+export function paletteChatOrder(list: readonly WorkspaceSummary[]): WorkspaceSummary[] {
   return [...list].sort(
     (a, b) => Number(needsAttention(b.status)) - Number(needsAttention(a.status)) || b.lastActivityAt - a.lastActivityAt,
   );
@@ -103,12 +103,12 @@ const THEMES: { value: Settings["appearance"]["theme"]; label: string; Icon: typ
 export function buildCommands(ctx: CommandContext): Command[] {
   const { navigate, route } = ctx;
   const global = globalCommands(ctx);
-  const current = () => (route.chatId ? chatsById.value.get(route.chatId) : undefined);
+  const current = () => (route.workspaceId ? workspacesById.value.get(route.workspaceId) : undefined);
   const hasChat = () => current() !== undefined;
   const sortedProjects = [...projects.value].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const out: Command[] = [];
 
-  for (const chat of paletteChatOrder(chats.value)) {
+  for (const chat of paletteChatOrder(workspaces.value)) {
     out.push({
       id: `chat:${chat.id}`,
       title: chat.title || "Untitled",
@@ -165,7 +165,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
           title: "Rename Chat",
           placeholder: "Chat title",
           initial: chat.title,
-          submit: (title) => (title.trim() && title.trim() !== chat.title ? renameChat(chat.id, title.trim()) : undefined),
+          submit: (title) => (title.trim() && title.trim() !== chat.title ? renameWorkspace(chat.id, title.trim()) : undefined),
         };
       },
     },
@@ -177,7 +177,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
       available: hasChat,
       run: async () => {
         const chat = current();
-        if (chat) await setChatPinned(chat.id, !chat.pinned);
+        if (chat) await setWorkspacePinned(chat.id, !chat.pinned);
       },
     },
     {
@@ -196,7 +196,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
           confirmLabel: "Delete",
           destructive: true,
         });
-        if (ok && (await deleteChat(chat.id))) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
+        if (ok && (await deleteWorkspace(chat.id))) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
       },
     },
     {

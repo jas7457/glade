@@ -84,6 +84,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Under the hood, each sidebar row is now a workspace that can hold several conversations
+  (groundwork for tabs and sub-agents). Existing chats were migrated automatically.
+
 - Sidebar: projects line up with the section headers, chats inside a project line up with the
   project name, and a chat's status sits on the right again (swapping to its actions on hover).
 
@@ -114,6 +117,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- Agents started by pi-ui no longer inherit the terminal's cmux settings, so they can't open panes
+  in your cmux window.
 
 - pi-ui shows its icon in AltTab and the Dock. Dev builds run as "pi-ui (dev)" with a DEV icon and
   no longer take over when you open the installed app.

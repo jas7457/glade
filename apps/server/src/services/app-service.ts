@@ -5,16 +5,18 @@ import { basename, resolve } from "node:path";
 import {
   DEFAULT_IMAGE_LIMITS,
   applyAgentEvent,
+  compareSessions,
   deriveChatStatus,
+  firstMainSession,
   quickTitle,
+  rollupWorkspace,
   sameModel,
   type AgentEvent,
-  type Chat,
-  type ChatDetail,
-  type ChatSummary,
   type CompactResult,
-  type CreateChatRequest,
   type CreateProjectRequest,
+  type CreateSessionRequest,
+  type CreateWorkspaceRequest,
+  type CreateWorkspaceResponse,
   type DeepPartial,
   type ModelInfo,
   type ModelRef,
@@ -23,15 +25,22 @@ import {
   type PromptImage,
   type PromptRequest,
   type ServerMessage,
+  type Session,
+  type SessionDetail,
+  type SessionSummary,
   type Settings,
   type SlashCommand,
   type ThinkingLevel,
   type Transcript,
   type UiRequest,
   type UiResponse,
-  type UpdateChatRequest,
   type UpdateProjectRequest,
+  type UpdateSessionRequest,
+  type UpdateWorkspaceRequest,
   type UsageLimits,
+  type Workspace,
+  type WorkspaceDetail,
+  type WorkspaceSummary,
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
@@ -68,7 +77,7 @@ export class HttpError extends Error {
   }
 }
 
-interface LiveChat {
+interface LiveSession {
   session: HarnessSession;
   transcript: Transcript;
   pendingUi: Map<string, UiRequest>;
@@ -91,22 +100,29 @@ export interface AppServiceOptions {
   log?: (msg: string) => void;
 }
 
+/** How a session is created. `subagent` sessions are for the agent API (I-037). */
+export type NewSessionKind =
+  | { kind: "main" }
+  | { kind: "subagent"; parentSessionId: string; agentName: string };
+
 type Listener = (message: ServerMessage) => void;
 
 /**
- * Owns projects, chats and the pool of live agent sessions. HTTP routes and the WebSocket are
- * thin layers over this class, which keeps it easy to test with the fake harness.
+ * Owns projects, workspaces, their sessions and the pool of live agent processes (one per
+ * session). HTTP routes and the WebSocket are thin layers over this class, which keeps it easy
+ * to test with the fake harness.
  */
 export class AppService {
-  private readonly live = new Map<string, LiveChat>();
-  private readonly opening = new Map<string, Promise<LiveChat>>();
+  /** sessionId -> live agent. */
+  private readonly live = new Map<string, LiveSession>();
+  private readonly opening = new Map<string, Promise<LiveSession>>();
   private readonly listeners = new Set<Listener>();
   private readonly usage: UsageLimitsPoller | null;
-  /** chatId -> number of clients currently viewing it. */
+  /** sessionId -> number of clients currently viewing it. */
   private readonly viewers = new Map<string, number>();
   private readonly store: Store;
   private readonly harness: AgentHarness;
-  /** Files written by `exportChat` this run; the only paths `revealPath` will show. */
+  /** Files written by `exportSession` this run; the only paths `revealPath` will show. */
   private readonly exported = new Set<string>();
 
   constructor(private readonly options: AppServiceOptions) {
@@ -126,9 +142,9 @@ export class AppService {
    * Mark them interrupted; `unread` + `lastRunFailed` make the sidebar show the failed marker.
    */
   private recoverInterruptedRuns(): void {
-    for (const chat of this.store.listChats()) {
-      if (!chat.runInProgress) continue;
-      this.saveChat({ ...chat, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
+    for (const session of this.store.listSessions()) {
+      if (!session.runInProgress) continue;
+      this.saveSession({ ...session, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
     }
   }
 
@@ -160,14 +176,14 @@ export class AppService {
     }
   }
 
-  /** Track which chats are on screen, so finished runs there don't get marked unread. */
-  setViewing(chatId: string, viewing: boolean): void {
-    const count = (this.viewers.get(chatId) ?? 0) + (viewing ? 1 : -1);
-    if (count <= 0) this.viewers.delete(chatId);
-    else this.viewers.set(chatId, count);
+  /** Track which sessions are on screen, so finished runs there don't get marked unread. */
+  setViewing(sessionId: string, viewing: boolean): void {
+    const count = (this.viewers.get(sessionId) ?? 0) + (viewing ? 1 : -1);
+    if (count <= 0) this.viewers.delete(sessionId);
+    else this.viewers.set(sessionId, count);
     if (viewing) {
-      const chat = this.store.getChat(chatId);
-      if (chat?.unread) this.saveChat({ ...chat, unread: false });
+      const session = this.store.getSession(sessionId);
+      if (session?.unread) this.saveSession({ ...session, unread: false });
     }
   }
 
@@ -268,11 +284,11 @@ export class AppService {
     }
   }
 
-  /** Removes the project and all of its chats (including their session files). */
+  /** Removes the project and all of its workspaces (including their session files). */
   async deleteProject(id: string): Promise<void> {
     this.requireProject(id);
-    for (const chat of this.store.listChats().filter((c) => c.projectId === id)) {
-      await this.deleteChat(chat.id);
+    for (const workspace of this.store.listWorkspaces().filter((w) => w.projectId === id)) {
+      await this.deleteWorkspace(workspace.id);
     }
     this.store.removeProject(id);
     this.broadcast({ type: "project_removed", projectId: id });
@@ -285,161 +301,321 @@ export class AppService {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Chats
+  // Records, summaries and pushes
   // -------------------------------------------------------------------------------------------
 
-  listChats(): ChatSummary[] {
-    return this.store.listChats().map((c) => this.summarize(c));
+  private requireWorkspace(id: string): Workspace {
+    const workspace = this.store.getWorkspace(id);
+    if (!workspace) throw new HttpError(404, "Workspace not found");
+    return workspace;
   }
 
-  private summarize(chat: Chat): ChatSummary {
-    const live = this.live.get(chat.id);
+  private requireSession(id: string): Session {
+    const session = this.store.getSession(id);
+    if (!session) throw new HttpError(404, "Session not found");
+    return session;
+  }
+
+  private summarizeSession(session: Session): SessionSummary {
+    const live = this.live.get(session.id);
     const running = live?.running ?? false;
     const pendingInputs = live?.pendingUi.size ?? 0;
-    return { ...chat, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: chat.unread }) };
+    return { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
   }
 
-  private requireChat(id: string): Chat {
-    const chat = this.store.getChat(id);
-    if (!chat) throw new HttpError(404, "Chat not found");
-    return chat;
+  private summarizeWorkspace(workspace: Workspace): WorkspaceSummary {
+    return rollupWorkspace(workspace, this.store.listSessions(workspace.id).map((s) => this.summarizeSession(s)));
   }
 
-  private saveChat(chat: Chat): ChatSummary {
-    this.store.upsertChat(chat);
-    const summary = this.summarize(chat);
-    this.broadcast({ type: "chat_upsert", chat: summary });
+  /** Main sessions first, then sub-agents; each by creation. */
+  private sessionsOf(workspaceId: string): SessionSummary[] {
+    const all = this.store.listSessions(workspaceId).sort(compareSessions);
+    return [...all.filter((s) => s.kind === "main"), ...all.filter((s) => s.kind !== "main")].map((s) => this.summarizeSession(s));
+  }
+
+  /** Persist + push a workspace (with its rolled-up status). */
+  private saveWorkspace(workspace: Workspace): WorkspaceSummary {
+    this.store.upsertWorkspace(workspace);
+    const summary = this.summarizeWorkspace(workspace);
+    this.broadcast({ type: "workspace_upsert", workspace: summary });
     return summary;
   }
 
-  async createChat(req: CreateChatRequest): Promise<ChatDetail> {
+  /** Push the workspace again because one of its sessions changed. `touch` bumps its activity. */
+  private refreshWorkspace(workspaceId: string, touch = false): void {
+    const workspace = this.store.getWorkspace(workspaceId);
+    if (!workspace) return;
+    this.saveWorkspace(touch ? { ...workspace, lastActivityAt: Date.now() } : workspace);
+  }
+
+  /** Persist + push a session, then its workspace (status roll-up). */
+  private saveSession(session: Session, { touch = false } = {}): SessionSummary {
+    this.store.upsertSession(session);
+    const summary = this.summarizeSession(session);
+    this.broadcast({ type: "session_upsert", session: summary });
+    this.refreshWorkspace(session.workspaceId, touch);
+    return summary;
+  }
+
+  private emitSessionEvent(session: Pick<Session, "id" | "workspaceId">, event: AgentEvent): void {
+    this.broadcast({ type: "session_event", sessionId: session.id, workspaceId: session.workspaceId, event });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Workspaces
+  // -------------------------------------------------------------------------------------------
+
+  listWorkspaces(): WorkspaceSummary[] {
+    return this.store.listWorkspaces().map((w) => this.summarizeWorkspace(w));
+  }
+
+  /** All sessions (or one workspace's), main sessions first. */
+  listSessions(workspaceId?: string): SessionSummary[] {
+    if (workspaceId !== undefined) {
+      this.requireWorkspace(workspaceId);
+      return this.sessionsOf(workspaceId);
+    }
+    return this.store.listWorkspaces().flatMap((w) => this.sessionsOf(w.id));
+  }
+
+  getWorkspaceDetail(id: string): WorkspaceDetail {
+    const workspace = this.requireWorkspace(id);
+    return { workspace: this.summarizeWorkspace(workspace), sessions: this.sessionsOf(id) };
+  }
+
+  /** A new workspace with its first main session (started, and prompted if a prompt is given). */
+  async createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
     const project = req.projectId ? this.requireProject(req.projectId) : null;
-    const settings = this.store.getSettings();
     const now = Date.now();
-    const chat: Chat = {
+    const workspace: Workspace = {
       id: randomUUID(),
       projectId: project?.id ?? null,
       title: req.prompt ? quickTitle(req.prompt) : "New chat",
       titleSource: "auto",
       cwd: project?.path ?? this.options.scratchDir,
-      harness: this.harness.id,
-      sessionRef: null,
       pinned: false,
-      unread: false,
       createdAt: now,
       lastActivityAt: now,
-      model: req.model ?? settings.models.defaultModel,
-      thinkingLevel: req.thinkingLevel ?? settings.models.defaultThinkingLevel,
+      layout: null,
     };
-    this.saveChat(chat);
+    this.store.upsertWorkspace(workspace);
     try {
-      const live = await this.ensureLive(chat.id);
-      if (req.prompt?.trim() || req.images?.length) {
-        await this.sendPrompt(chat.id, { text: req.prompt ?? "", images: req.images }, live);
-      }
+      const session = await this.createSession(workspace.id, req);
+      return { ...this.getWorkspaceDetail(workspace.id), session };
     } catch (err) {
-      // Don't leave a broken, empty chat behind.
-      await this.deleteChat(chat.id).catch(() => {});
+      // Don't leave a broken, empty workspace behind.
+      await this.deleteWorkspace(workspace.id).catch(() => {});
       throw err;
     }
-    return this.getChatDetail(chat.id);
   }
 
-  async getChatDetail(id: string): Promise<ChatDetail> {
-    this.requireChat(id);
-    const live = await this.ensureLive(id);
-    return {
-      chat: this.summarize(this.requireChat(id)),
-      transcript: live.transcript,
-      state: live.session.getState(),
-      pendingUiRequests: [...live.pendingUi.values()],
-    };
-  }
-
-  async updateChat(id: string, req: UpdateChatRequest): Promise<ChatSummary> {
-    const chat = this.requireChat(id);
-    const next: Chat = { ...chat };
+  async updateWorkspace(id: string, req: UpdateWorkspaceRequest): Promise<WorkspaceSummary> {
+    const workspace = this.requireWorkspace(id);
+    const next: Workspace = { ...workspace };
     if (req.title !== undefined) {
       const title = req.title.trim();
       if (!title) throw new HttpError(400, "Title cannot be empty");
       next.title = title;
       next.titleSource = "user";
-      await this.live.get(id)?.session.setTitle(title).catch(() => {});
+      // With a single tab, the tab and the workspace are the same thing to the user.
+      const main = this.store.listSessions(id).filter((s) => s.kind === "main");
+      if (main.length === 1) await this.renameSession(main[0]!, title);
     }
-    if (req.pinned === true && !chat.pinned) {
-      // Newly pinned chats go to the top of their list's pinned group.
-      const orders = this.pinnedChats(chat.projectId).map((c) => c.pinOrder ?? 0);
+    if (req.pinned === true && !workspace.pinned) {
+      // Newly pinned workspaces go to the top of their list's pinned group.
+      const orders = this.pinnedWorkspaces(workspace.projectId).map((w) => w.pinOrder ?? 0);
       next.pinned = true;
       next.pinOrder = orders.length ? Math.min(...orders) - 1 : 0;
     } else if (req.pinned === false) {
       next.pinned = false;
       delete next.pinOrder;
     }
-    if (req.unread !== undefined) next.unread = req.unread;
-    if (req.interrupted === false) delete next.interrupted;
-    return this.saveChat(next);
+    if (req.layout !== undefined) next.layout = req.layout;
+    return this.saveWorkspace(next);
   }
 
-  /** Pinned chats of one list (a project, or standalone = null), in pin order. */
-  private pinnedChats(projectId: string | null): Chat[] {
+  /** Pinned workspaces of one list (a project, or standalone = null), in pin order. */
+  private pinnedWorkspaces(projectId: string | null): Workspace[] {
     return this.store
-      .listChats()
-      .filter((c) => c.pinned && c.projectId === projectId)
+      .listWorkspaces()
+      .filter((w) => w.pinned && w.projectId === projectId)
       .sort((a, b) => (a.pinOrder ?? 0) - (b.pinOrder ?? 0));
   }
 
-  /** Reorder the pinned chats of one list. `ids` must be exactly that list's pinned chats. */
-  reorderPinnedChats(projectId: string | null, ids: string[]): ChatSummary[] {
+  /** Reorder the pinned workspaces of one list. `ids` must be exactly that list's pinned workspaces. */
+  reorderPinnedWorkspaces(projectId: string | null, ids: string[]): WorkspaceSummary[] {
     if (projectId !== null) this.requireProject(projectId);
-    if (!sameIdSet(ids, this.pinnedChats(projectId).map((c) => c.id))) {
-      throw new HttpError(400, "ids must list every pinned chat of that list exactly once");
+    if (!sameIdSet(ids, this.pinnedWorkspaces(projectId).map((w) => w.id))) {
+      throw new HttpError(400, "ids must list every pinned workspace of that list exactly once");
     }
     ids.forEach((id, pinOrder) => {
-      const chat = this.store.getChat(id)!;
-      if (chat.pinOrder !== pinOrder) this.saveChat({ ...chat, pinOrder });
+      const workspace = this.store.getWorkspace(id)!;
+      if (workspace.pinOrder !== pinOrder) this.saveWorkspace({ ...workspace, pinOrder });
     });
-    return this.pinnedChats(projectId).map((c) => this.summarize(c));
+    return this.pinnedWorkspaces(projectId).map((w) => this.summarizeWorkspace(w));
   }
 
-  async deleteChat(id: string): Promise<void> {
-    const chat = this.requireChat(id);
-    await this.closeLive(id);
-    if (chat.sessionRef) await this.harness.deleteSession(chat.sessionRef).catch(() => {});
-    this.store.removeChat(id);
-    this.viewers.delete(id);
-    this.broadcast({ type: "chat_removed", chatId: id });
+  /** Delete a workspace, stopping its agents and permanently deleting all of its session files. */
+  async deleteWorkspace(id: string): Promise<void> {
+    this.requireWorkspace(id);
+    for (const session of this.store.listSessions(id)) await this.disposeSession(session);
+    this.store.removeWorkspace(id);
+    this.broadcast({ type: "workspace_removed", workspaceId: id });
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Sessions
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Add a session to a workspace and start its agent (plus the first prompt, if given). Main
+   * sessions are tabs the user opens; `subagent` sessions are spawned by another session of the
+   * same workspace (agent API, I-037).
+   */
+  async createSession(workspaceId: string, req: CreateSessionRequest, how: NewSessionKind = { kind: "main" }): Promise<SessionDetail> {
+    this.requireWorkspace(workspaceId);
+    if (how.kind === "subagent") {
+      const parent = this.requireSession(how.parentSessionId);
+      if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
+    }
+    const settings = this.store.getSettings();
+    const now = Date.now();
+    const session: Session = {
+      id: randomUUID(),
+      workspaceId,
+      kind: how.kind,
+      parentSessionId: how.kind === "subagent" ? how.parentSessionId : null,
+      agentName: how.kind === "subagent" ? how.agentName : null,
+      title: how.kind === "subagent" ? how.agentName : req.prompt ? quickTitle(req.prompt) : "New chat",
+      titleSource: how.kind === "subagent" ? "user" : "auto",
+      harness: this.harness.id,
+      sessionRef: null,
+      unread: false,
+      createdAt: now,
+      lastActivityAt: now,
+      model: req.model ?? settings.models.defaultModel,
+      thinkingLevel: req.thinkingLevel ?? settings.models.defaultThinkingLevel,
+    };
+    this.saveSession(session);
+    try {
+      const live = await this.ensureLive(session.id);
+      if (req.prompt?.trim() || req.images?.length) {
+        await this.sendPrompt(session.id, { text: req.prompt ?? "", images: req.images }, live);
+      }
+    } catch (err) {
+      await this.disposeSession(this.store.getSession(session.id) ?? session).catch(() => {});
+      this.store.removeSession(session.id);
+      this.broadcast({ type: "session_removed", sessionId: session.id, workspaceId });
+      this.refreshWorkspace(workspaceId);
+      throw err;
+    }
+    return this.getSessionDetail(session.id);
+  }
+
+  async getSessionDetail(id: string): Promise<SessionDetail> {
+    this.requireSession(id);
+    const live = await this.ensureLive(id);
+    return {
+      session: this.summarizeSession(this.requireSession(id)),
+      transcript: live.transcript,
+      state: live.session.getState(),
+      pendingUiRequests: [...live.pendingUi.values()],
+    };
+  }
+
+  async updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {
+    let session = this.requireSession(id);
+    if (req.title !== undefined) {
+      const title = req.title.trim();
+      if (!title) throw new HttpError(400, "Title cannot be empty");
+      await this.renameSession(session, title);
+      session = this.requireSession(id);
+    }
+    const next: Session = { ...session };
+    if (req.unread !== undefined) next.unread = req.unread;
+    if (req.interrupted === false) delete next.interrupted;
+    return this.saveSession(next);
+  }
+
+  private async renameSession(session: Session, title: string): Promise<void> {
+    this.saveSession({ ...session, title, titleSource: "user" });
+    await this.live.get(session.id)?.session.setTitle(title).catch(() => {});
+  }
+
+  /**
+   * Close a tab: stops the agent and permanently deletes the session file, plus any sub-agents
+   * it spawned. The last main session can't be deleted (delete the workspace instead).
+   */
+  async deleteSession(id: string): Promise<void> {
+    const session = this.requireSession(id);
+    const siblings = this.store.listSessions(session.workspaceId);
+    if (session.kind === "main" && siblings.filter((s) => s.kind === "main").length <= 1) {
+      throw new HttpError(409, "A workspace needs at least one main session; delete the workspace instead");
+    }
+    const doomed = [session, ...this.descendantsOf(session.id, siblings)];
+    for (const s of doomed) {
+      await this.disposeSession(s);
+      this.store.removeSession(s.id);
+      this.broadcast({ type: "session_removed", sessionId: s.id, workspaceId: s.workspaceId });
+    }
+    this.refreshWorkspace(session.workspaceId);
+  }
+
+  /** Sub-agents spawned by `id`, recursively. */
+  private descendantsOf(id: string, sessions: Session[]): Session[] {
+    const children = sessions.filter((s) => s.parentSessionId === id);
+    return children.flatMap((c) => [c, ...this.descendantsOf(c.id, sessions)]);
+  }
+
+  /** Stop a session's agent and delete its file (the record is left to the caller). */
+  private async disposeSession(session: Session): Promise<void> {
+    await this.closeLive(session.id);
+    if (session.sessionRef) await this.harness.deleteSession(session.sessionRef).catch(() => {});
+    this.viewers.delete(session.id);
   }
 
   async prompt(id: string, req: PromptRequest): Promise<void> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     await this.sendPrompt(id, req, live);
   }
 
-  private async sendPrompt(id: string, req: PromptRequest, live: LiveChat): Promise<void> {
+  private async sendPrompt(id: string, req: PromptRequest, live: LiveSession): Promise<void> {
     if (!req.text.trim() && !req.images?.length) throw new HttpError(400, "Message is empty");
     await this.checkImageSizes(req.images, live);
     const isFirst = !live.transcript.messages.some((m) => m.role === "user");
     live.lastUsedAt = Date.now();
     const behavior = req.behavior ?? this.store.getSettings().general.busyBehavior;
     await live.session.prompt({ ...req, behavior });
-    const chat = this.requireChat(id);
-    const updates: Partial<Chat> = { lastActivityAt: Date.now() };
-    if (isFirst && chat.titleSource === "auto" && req.text.trim()) {
-      updates.title = quickTitle(req.text);
+    const session = this.requireSession(id);
+    const next: Session = { ...session, lastActivityAt: Date.now() };
+    delete next.interrupted; // any new prompt dismisses the "interrupted" state
+    const retitle = isFirst && session.titleSource === "auto" && !!req.text.trim();
+    if (retitle) {
+      next.title = quickTitle(req.text);
       void this.generateTitle(id, req.text).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
     }
-    const next: Chat = { ...chat, ...updates };
-    delete next.interrupted; // any new prompt dismisses the "interrupted" state
-    this.saveChat(next);
-    if (updates.title) await live.session.setTitle(updates.title).catch(() => {});
-    this.touchProject(chat.projectId);
+    this.saveSession(next, { touch: true });
+    if (retitle) {
+      this.followTitle(next);
+      await live.session.setTitle(next.title).catch(() => {});
+    }
+    this.touchProject(this.store.getWorkspace(session.workspaceId)?.projectId ?? null);
+  }
+
+  /** An `auto` workspace title follows the title of its first main session. */
+  private followTitle(session: Session): void {
+    const workspace = this.store.getWorkspace(session.workspaceId);
+    if (!workspace || workspace.titleSource !== "auto" || workspace.title === session.title) return;
+    if (firstMainSession(this.store.listSessions(workspace.id), workspace.id)?.id !== session.id) return;
+    this.saveWorkspace({ ...workspace, title: session.title });
   }
 
   /**
    * Reject images over the model's size limit with a clear message instead of letting the
    * provider fail the run. Clients downscale before sending, so this is only a safety net.
    */
-  private async checkImageSizes(images: PromptImage[] | undefined, live: LiveChat): Promise<void> {
+  private async checkImageSizes(images: PromptImage[] | undefined, live: LiveSession): Promise<void> {
     if (!images?.length) return;
     const model = live.session.getState().model;
     const models = model ? await this.harness.listModels().catch(() => [] as ModelInfo[]) : [];
@@ -456,16 +632,19 @@ export class AppService {
   private async generateTitle(id: string, firstMessage: string): Promise<void> {
     const settings = this.store.getSettings();
     if (!settings.general.generateTitles || !this.harness.generateTitle) return;
-    const chat = this.store.getChat(id);
-    if (!chat) return;
+    const session = this.store.getSession(id);
+    const workspace = session && this.store.getWorkspace(session.workspaceId);
+    if (!session || !workspace) return;
     const title = await this.harness.generateTitle({
       firstMessage,
-      cwd: chat.cwd,
-      model: settings.models.titleModel ?? (await this.defaultTitleModel()) ?? chat.model,
+      cwd: workspace.cwd,
+      model: settings.models.titleModel ?? (await this.defaultTitleModel()) ?? session.model,
     });
-    const current = this.store.getChat(id);
+    const current = this.store.getSession(id);
     if (!title || !current || current.titleSource !== "auto") return;
-    this.saveChat({ ...current, title });
+    const next = { ...current, title };
+    this.saveSession(next);
+    this.followTitle(next);
     await this.live.get(id)?.session.setTitle(title).catch(() => {});
   }
 
@@ -476,16 +655,19 @@ export class AppService {
   }
 
   async abort(id: string): Promise<void> {
+    this.requireSession(id);
     const live = this.live.get(id);
     if (live) await live.session.abort();
   }
 
   async setModel(id: string, model: ModelRef): Promise<void> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     await live.session.setModel(model);
   }
 
   async setThinkingLevel(id: string, level: ThinkingLevel): Promise<void> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     await live.session.setThinkingLevel(level);
   }
@@ -494,13 +676,15 @@ export class AppService {
   // Slash-command support (pi-ui's own built-ins run in the web app; see docs/ARCHITECTURE.md)
   // -------------------------------------------------------------------------------------------
 
-  /** The harness's slash commands (extensions, skills, prompt templates) for a chat. */
+  /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
   async listCommands(id: string): Promise<SlashCommand[]> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     return live.session.listCommands ? live.session.listCommands() : [];
   }
 
   async compact(id: string, instructions?: string): Promise<CompactResult> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     if (!live.session.compact) throw new HttpError(409, "This agent can't compact its context");
     if (live.running) throw new HttpError(409, "Wait for the current reply to finish before compacting");
@@ -509,8 +693,9 @@ export class AppService {
     return live.session.compact(instructions?.trim() || undefined);
   }
 
-  /** Export the chat to an HTML file; optionally reveal it in Finder. */
-  async exportChat(id: string, options: { reveal?: boolean } = {}): Promise<{ path: string }> {
+  /** Export the session to an HTML file; optionally reveal it in Finder. */
+  async exportSession(id: string, options: { reveal?: boolean } = {}): Promise<{ path: string }> {
+    this.requireSession(id);
     const live = await this.ensureLive(id);
     if (!live.session.exportHtml) throw new HttpError(409, "This agent can't export chats");
     const path = await live.session.exportHtml();
@@ -526,13 +711,13 @@ export class AppService {
   }
 
   respondToUi(id: string, response: UiResponse): void {
+    const session = this.requireSession(id);
     const live = this.live.get(id);
-    if (!live) throw new HttpError(404, "Chat is not running");
+    if (!live) throw new HttpError(404, "Session is not running");
     live.session.respondToUi(response);
     const wasPending = this.removePendingUi(live, response.id);
-    this.broadcast({ type: "chat_event", chatId: id, event: { type: "ui_request_closed", id: response.id } });
-    const chat = this.store.getChat(id);
-    if (wasPending && chat) this.saveChat(chat); // pendingInputs/status changed
+    this.emitSessionEvent(session, { type: "ui_request_closed", id: response.id });
+    if (wasPending) this.saveSession(session); // pendingInputs/status changed
   }
 
   private touchProject(projectId: string | null): void {
@@ -545,7 +730,7 @@ export class AppService {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Live session pool
+  // Live session pool (one agent process per session)
   // -------------------------------------------------------------------------------------------
 
   /** Number of agent processes currently alive (for tests/diagnostics). */
@@ -553,7 +738,7 @@ export class AppService {
     return this.live.size;
   }
 
-  private ensureLive(id: string): Promise<LiveChat> {
+  private ensureLive(id: string): Promise<LiveSession> {
     const existing = this.live.get(id);
     if (existing) {
       existing.lastUsedAt = Date.now();
@@ -567,17 +752,18 @@ export class AppService {
     return pending;
   }
 
-  private async openLive(id: string): Promise<LiveChat> {
-    const chat = this.requireChat(id);
-    mkdirSync(chat.cwd, { recursive: true });
+  private async openLive(id: string): Promise<LiveSession> {
+    const record = this.requireSession(id);
+    const workspace = this.requireWorkspace(record.workspaceId);
+    mkdirSync(workspace.cwd, { recursive: true });
     const session = await this.harness.openSession({
-      cwd: chat.cwd,
-      sessionRef: chat.sessionRef,
-      model: chat.model,
-      thinkingLevel: chat.thinkingLevel,
+      cwd: workspace.cwd,
+      sessionRef: record.sessionRef,
+      model: record.model,
+      thinkingLevel: record.thinkingLevel,
     });
     const transcript = await session.loadTranscript();
-    const live: LiveChat = {
+    const live: LiveSession = {
       session,
       transcript,
       pendingUi: new Map(),
@@ -596,9 +782,9 @@ export class AppService {
 
     // Persist the session reference / effective model once known.
     const state = session.getState();
-    const current = this.requireChat(id);
+    const current = this.requireSession(id);
     if (current.sessionRef !== session.sessionRef || !current.model) {
-      this.saveChat({
+      this.saveSession({
         ...current,
         sessionRef: session.sessionRef ?? current.sessionRef,
         model: current.model ?? state.model,
@@ -613,98 +799,100 @@ export class AppService {
     return live;
   }
 
-  private handleEvent(id: string, live: LiveChat, event: AgentEvent): void {
+  private handleEvent(id: string, live: LiveSession, event: AgentEvent): void {
     live.transcript = applyAgentEvent(live.transcript, event);
     if (event.type === "run_start") live.running = true;
     if (event.type === "run_end") live.running = false;
     if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
-    this.broadcast({ type: "chat_event", chatId: id, event });
+    const session = this.store.getSession(id);
+    if (!session) return;
+    this.emitSessionEvent(session, event);
 
-    const chat = this.store.getChat(id);
-    if (!chat) return;
     if (event.type === "run_start") {
-      const next: Chat = { ...chat, lastActivityAt: Date.now(), lastRunFailed: false, runInProgress: true };
+      const next: Session = { ...session, lastActivityAt: Date.now(), lastRunFailed: false, runInProgress: true };
       delete next.interrupted;
-      this.saveChat(next);
+      this.saveSession(next, { touch: true });
     } else if (event.type === "run_end") {
       this.usage?.onRunEnd();
       this.clearPendingUi(live);
       live.lastUsedAt = Date.now();
-      this.saveChat({ ...chat, lastActivityAt: Date.now(), runInProgress: false, unread: chat.unread || !this.viewers.has(id) });
+      this.saveSession(
+        { ...session, lastActivityAt: Date.now(), runInProgress: false, unread: session.unread || !this.viewers.has(id) },
+        { touch: true },
+      );
       this.evictIdle();
     } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
-      this.saveChat(chat); // pendingInputs/status changed
+      this.saveSession(session); // pendingInputs/status changed
     } else if (
       (event.type === "error" || (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error")) &&
-      !chat.lastRunFailed
+      !session.lastRunFailed
     ) {
-      this.saveChat({ ...chat, lastRunFailed: true });
+      this.saveSession({ ...session, lastRunFailed: true });
     } else if (event.type === "state" && (event.state.model || event.state.thinkingLevel)) {
       const next = {
-        ...chat,
-        model: event.state.model ?? chat.model,
-        thinkingLevel: event.state.thinkingLevel ?? chat.thinkingLevel,
+        ...session,
+        model: event.state.model ?? session.model,
+        thinkingLevel: event.state.thinkingLevel ?? session.thinkingLevel,
       };
-      const modelChanged = next.model !== chat.model && !sameModel(next.model, chat.model);
-      if (modelChanged || next.thinkingLevel !== chat.thinkingLevel) this.saveChat(next);
+      const modelChanged = next.model !== session.model && !sameModel(next.model, session.model);
+      if (modelChanged || next.thinkingLevel !== session.thinkingLevel) this.saveSession(next);
     }
   }
 
-  private addPendingUi(chatId: string, live: LiveChat, request: UiRequest): void {
+  private addPendingUi(sessionId: string, live: LiveSession, request: UiRequest): void {
     live.pendingUi.set(request.id, request);
     if (request.timeoutMs === undefined) return;
     // The agent auto-resolves timed-out dialogs without telling us; don't stay "blocked" forever.
     const timer = setTimeout(() => {
       live.uiTimers.delete(request.id);
-      if (!live.pendingUi.delete(request.id) || this.live.get(chatId) !== live) return;
-      this.broadcast({ type: "chat_event", chatId, event: { type: "ui_request_closed", id: request.id } });
-      const chat = this.store.getChat(chatId);
-      if (chat) this.saveChat(chat);
+      if (!live.pendingUi.delete(request.id) || this.live.get(sessionId) !== live) return;
+      const session = this.store.getSession(sessionId);
+      if (!session) return;
+      this.emitSessionEvent(session, { type: "ui_request_closed", id: request.id });
+      this.saveSession(session);
     }, request.timeoutMs);
     timer.unref();
     live.uiTimers.set(request.id, timer);
   }
 
-  private removePendingUi(live: LiveChat, requestId: string): boolean {
+  private removePendingUi(live: LiveSession, requestId: string): boolean {
     const timer = live.uiTimers.get(requestId);
     if (timer) clearTimeout(timer);
     live.uiTimers.delete(requestId);
     return live.pendingUi.delete(requestId);
   }
 
-  private clearPendingUi(live: LiveChat): void {
+  private clearPendingUi(live: LiveSession): void {
     for (const timer of live.uiTimers.values()) clearTimeout(timer);
     live.uiTimers.clear();
     live.pendingUi.clear();
   }
 
-  private handleExit(id: string, live: LiveChat, error: Error | null): void {
+  private handleExit(id: string, live: LiveSession, error: Error | null): void {
     if (this.live.get(id) !== live) return;
     this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
     const wasRunning = live.running;
+    const session = this.store.getSession(id);
+    if (!session) return;
     if (error) {
-      this.options.log?.(`chat ${id}: agent exited: ${error.message}`);
-      this.broadcast({ type: "chat_event", chatId: id, event: { type: "error", message: error.message } });
+      this.options.log?.(`session ${id}: agent exited: ${error.message}`);
+      this.emitSessionEvent(session, { type: "error", message: error.message });
     }
     if (error || wasRunning) {
-      this.broadcast({ type: "chat_event", chatId: id, event: { type: "state", state: { isRunning: false } } });
-      this.broadcast({ type: "chat_event", chatId: id, event: { type: "run_end" } });
-    }
-    const chat = this.store.getChat(id);
-    if (!chat) return;
-    if (error || wasRunning) {
+      this.emitSessionEvent(session, { type: "state", state: { isRunning: false } });
+      this.emitSessionEvent(session, { type: "run_end" });
       // A crash ends the run: flag it, and mark unread like any run that ends off screen.
       // Dying mid-run also means the work was cut off.
-      const unread = chat.unread || !this.viewers.has(id);
-      const next: Chat = { ...chat, lastRunFailed: true, unread, runInProgress: false };
-      if (wasRunning || chat.runInProgress) next.interrupted = true;
-      this.saveChat(next);
+      const unread = session.unread || !this.viewers.has(id);
+      const next: Session = { ...session, lastRunFailed: true, unread, runInProgress: false };
+      if (wasRunning || session.runInProgress) next.interrupted = true;
+      this.saveSession(next);
     } else {
-      this.saveChat(chat);
+      this.saveSession(session);
     }
   }
 
@@ -721,9 +909,7 @@ export class AppService {
   private evictIdle(keepId?: string): void {
     const max = this.store.getSettings().agent.maxIdleProcesses;
     const idle = [...this.live.entries()]
-      .filter(
-        ([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && !this.viewers.has(id),
-      )
+      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && !this.viewers.has(id))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
     const excess = idle.length - max;
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);

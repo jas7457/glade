@@ -14,6 +14,9 @@
  */
 export type ChatStatus = "idle" | "unread" | "working" | "blocked";
 
+/** Same thing, per session (I-035). Workspaces roll it up with `aggregateChatStatus`. */
+export type SessionStatus = ChatStatus;
+
 export const CHAT_STATUS_PRIORITY: Record<ChatStatus, number> = {
   idle: 0,
   unread: 1,

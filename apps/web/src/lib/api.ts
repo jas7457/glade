@@ -2,11 +2,11 @@
  * Typed REST client for the pi-ui server. All routes are documented in docs/ARCHITECTURE.md.
  */
 import type {
-  ChatDetail,
-  ChatSummary,
   CompactResult,
-  CreateChatRequest,
   CreateProjectRequest,
+  CreateSessionRequest,
+  CreateWorkspaceRequest,
+  CreateWorkspaceResponse,
   DeepPartial,
   ModelInfo,
   OpenTarget,
@@ -14,12 +14,17 @@ import type {
   PickFolderResponse,
   Project,
   PromptRequest,
+  SessionDetail,
+  SessionSummary,
   Settings,
   SlashCommand,
   ThinkingLevel,
   UiResponse,
-  UpdateChatRequest,
   UpdateProjectRequest,
+  UpdateSessionRequest,
+  UpdateWorkspaceRequest,
+  WorkspaceDetail,
+  WorkspaceSummary,
 } from "@pi-ui/protocol";
 
 export class ApiRequestError extends Error {
@@ -60,25 +65,36 @@ export const api = {
   reorderProjects: (ids: string[]) => request<Project[]>("PUT", "/projects/order", { ids }),
   openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
 
-  // Chats
-  listChats: () => request<ChatSummary[]>("GET", "/chats"),
-  createChat: (body: CreateChatRequest) => request<ChatDetail>("POST", "/chats", body),
-  getChat: (id: string) => request<ChatDetail>("GET", `/chats/${id}`),
-  updateChat: (id: string, body: UpdateChatRequest) => request<ChatSummary>("PATCH", `/chats/${id}`, body),
-  deleteChat: (id: string) => request<void>("DELETE", `/chats/${id}`),
-  /** Pinned chats of one list (project id, or null for standalone chats) in the new order. */
-  reorderPinnedChats: (projectId: string | null, ids: string[]) =>
-    request<ChatSummary[]>("PUT", "/chats/pin-order", { projectId, ids }),
-  prompt: (id: string, body: PromptRequest) => request<void>("POST", `/chats/${id}/prompt`, body),
-  abort: (id: string) => request<void>("POST", `/chats/${id}/abort`),
-  setModel: (id: string, model: ModelRef) => request<void>("PUT", `/chats/${id}/model`, model),
-  setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/chats/${id}/thinking`, { level }),
-  respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/chats/${id}/ui-response`, body),
+  // Workspaces (sidebar rows)
+  listWorkspaces: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
+  createWorkspace: (body: CreateWorkspaceRequest) => request<CreateWorkspaceResponse>("POST", "/workspaces", body),
+  getWorkspace: (id: string) => request<WorkspaceDetail>("GET", `/workspaces/${id}`),
+  updateWorkspace: (id: string, body: UpdateWorkspaceRequest) => request<WorkspaceSummary>("PATCH", `/workspaces/${id}`, body),
+  deleteWorkspace: (id: string) => request<void>("DELETE", `/workspaces/${id}`),
+  /** Pinned workspaces of one list (project id, or null for standalone ones) in the new order. */
+  reorderPinnedWorkspaces: (projectId: string | null, ids: string[]) =>
+    request<WorkspaceSummary[]>("PUT", "/workspaces/pin-order", { projectId, ids }),
+  /** A new main session (tab) in a workspace. */
+  createSession: (workspaceId: string, body: CreateSessionRequest = {}) =>
+    request<SessionDetail>("POST", `/workspaces/${workspaceId}/sessions`, body),
+
+  // Sessions (one agent conversation each; everything below takes a session id)
+  listSessions: () => request<SessionSummary[]>("GET", "/sessions"),
+  getSession: (id: string) => request<SessionDetail>("GET", `/sessions/${id}`),
+  updateSession: (id: string, body: UpdateSessionRequest) => request<SessionSummary>("PATCH", `/sessions/${id}`, body),
+  /** Close a tab (deletes its session file). Refused (409) for a workspace's last main session. */
+  deleteSession: (id: string) => request<void>("DELETE", `/sessions/${id}`),
+  prompt: (id: string, body: PromptRequest) => request<void>("POST", `/sessions/${id}/prompt`, body),
+  abort: (id: string) => request<void>("POST", `/sessions/${id}/abort`),
+  setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
+  setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),
+  respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/sessions/${id}/ui-response`, body),
   /** The harness's slash commands (pi-ui's built-ins are defined in features/chat/slash). */
-  listCommands: (id: string) => request<SlashCommand[]>("GET", `/chats/${id}/commands`),
+  listCommands: (id: string) => request<SlashCommand[]>("GET", `/sessions/${id}/commands`),
   compact: (id: string, instructions?: string) =>
-    request<CompactResult>("POST", `/chats/${id}/compact`, instructions ? { instructions } : {}),
-  exportChat: (id: string, options: { reveal?: boolean } = {}) => request<{ path: string }>("POST", `/chats/${id}/export`, options),
+    request<CompactResult>("POST", `/sessions/${id}/compact`, instructions ? { instructions } : {}),
+  exportSession: (id: string, options: { reveal?: boolean } = {}) =>
+    request<{ path: string }>("POST", `/sessions/${id}/export`, options),
   /** Reveal a file the server exported in Finder (macOS). */
   revealFile: (path: string) => request<void>("POST", "/fs/reveal", { path }),
 

@@ -1,6 +1,6 @@
 /**
  * Public surface of the chat feature. The app shell only imports from here.
- *   - <ChatView chatId>          existing chat: header + transcript + composer
+ *   - <ChatView workspaceId sessionId>  existing chat: header + transcript + composer
  *   - <NewChatView projectId>    empty state + composer; creates the chat on first send
  *   - <Transcript chatId>, <Composer chatId | projectId> are reusable building blocks
  *   - <Markdown text streaming?> is the shared markdown renderer

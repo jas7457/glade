@@ -3,9 +3,10 @@
 ```
 ┌──────────── apps/web (Preact) ────────────┐        ┌──────────── apps/server (Node) ─────────────┐
 │ routes → features → ui primitives          │  REST  │ http/ (Hono routes, security)                │
-│ state/ (signals) ← lib/socket (push)       │ ◄────► │ services/AppService (projects, chats, pool)  │
+│ state/ (signals) ← lib/socket (push)       │ ◄────► │ services/AppService (projects, workspaces,   │
+│                                            │        │   sessions, process pool)                    │
 │ applyAgentEvent() folds live events        │   WS   │ harness/<name>/ (pi, fake, …)                │
-└────────────────────────────────────────────┘        │   └─ pi: one `pi --mode rpc` per open chat   │
+└────────────────────────────────────────────┘        │   └─ pi: one `pi --mode rpc` per session     │
                  ▲                                    └──────────────────────────────────────────────┘
                  └──────── packages/protocol (shared types + transcript reducer) ────────┘
 ```
@@ -29,8 +30,11 @@ never see harness-native data. To add a harness: implement the two interfaces un
 
 ### pi adapter
 
-- Spawns `pi --mode rpc [--session <file>] [--model p/id] [--thinking lvl]` with `cwd` = project
-  folder (or the scratch folder for standalone chats).
+- Spawns `pi --mode rpc [--session <file>] [--model p/id] [--thinking lvl]` with `cwd` = the
+  workspace's folder (its project's, or the scratch folder for standalone workspaces).
+- Child environment (I-038, `harness/pi/child-env.ts`): the server's env minus `CMUX_*` and
+  `PI_AGENT_TEAMS_*`, so a server started from a cmux terminal doesn't make pi extensions
+  (agent-teams) drive that terminal. Applies to RPC processes and one-shot title runs.
 - Strict LF-delimited JSONL (not `readline`; it breaks on U+2028).
 - pi messages have no ids; `PiEventTranslator` assigns them (`m<n>` live, `h<n>` history).
 - Tool results are folded into `transcript.toolResults[toolCallId]` rather than shown as messages.
@@ -53,28 +57,69 @@ Built-in / Extensions / Skills / Prompts). Two kinds of command:
   `/compact [instructions]`, `/new`, `/name <title>`, `/model [query]`, `/thinking [level]`,
   `/export`, `/stats`, `/settings`. pi's own TUI commands aren't available over RPC, which is
   why these exist.
-- **Harness commands** come from `GET /api/chats/:id/commands` (pi: `get_commands`), are cached
-  in the chat store (`commands` signal, fetched once per chat when it opens) and are sent as a
-  normal prompt; pi expands skills/templates and runs extension commands itself.
+- **Harness commands** come from `GET /api/sessions/:id/commands` (pi: `get_commands`), are cached
+  in the session store (`commands` signal, fetched once per session when it opens) and are sent
+  as a normal prompt; pi expands skills/templates and runs extension commands itself.
 
 The server returns harness commands only and the web merges them after its built-ins (a harness
 command with a built-in's name is hidden). The new-chat composer has no agent yet, so it offers
 only built-ins that don't need a chat (`/model`, `/thinking`, `/settings`).
 
+## Workspaces and sessions (I-035)
+
+A **workspace** is one sidebar row (what the UI still calls a "chat"): title, project (or
+standalone), pin/pinOrder, created date, rolled-up status and a saved layout. Workspaces are
+independent of each other, even in the same folder. A workspace contains **sessions**, each one
+agent conversation (one pi session file) running in the workspace's folder:
+
+- `main` sessions are the tabs of the main area. The first one is created with the workspace; the
+  user opens more (`POST /api/workspaces/:id/sessions`). A workspace always keeps at least one.
+- `subagent` sessions (`parentSessionId`, `agentName`) are spawned by another session of the same
+  workspace (agent API, I-037). Closing a session also closes the sub-agents it spawned.
+
+Sessions never get sidebar rows. Everything per conversation lives on the session: transcript,
+live process, model/thinking, title, unread, `runInProgress`/`interrupted`, `lastRunFailed`,
+context meter, slash commands, dialogs. Ordering, pinning and project membership are per
+workspace. `WorkspaceSummary` rolls its sessions up (`rollupWorkspace` in
+`packages/protocol/src/workspaces.ts`): `status` = most urgent session status, and `running`,
+`unread`, `lastRunFailed`, `interrupted` = any session; `pendingInputs` = sum.
+
+Titles: each session has its own (quick title from the first message, then a generated one;
+`user` titles are never replaced). An `auto` workspace title follows its **first main session**
+(oldest `main`). Renaming a workspace also renames its tab while it has only one main session.
+
+Tab order and the focused tab come from `Workspace.layout` (`mainOrder`, `activeMainSessionId`,
+stored verbatim by the server for I-036), falling back to creation order and the first tab
+(`mainSessionsOf` / `activeMainSessionId`). The web shows the tab in `?tab=<sessionId>`, else that
+default.
+
+New sessions use the request's model/thinking, else the settings defaults (like new workspaces).
+
 ## Data on disk
 
 | What                            | Where                                                        |
 | ------------------------------- | ------------------------------------------------------------ |
-| Session transcripts (per chat)  | Owned by the harness. pi: `~/.pi/agent/sessions/--<cwd>--/…`  |
+| Session transcripts             | Owned by the harness. pi: `~/.pi/agent/sessions/--<cwd>--/…`  |
 | Projects                        | `<dataDir>/projects.json`                                    |
-| Chat index (title, pin, unread, model, session ref) | `<dataDir>/chats.json`                   |
+| Workspaces + sessions index (title, pin, unread, model, session ref…) | `<dataDir>/workspaces.json` `{ version: 1, workspaces, sessions }` |
+| Pre-I-035 chat index (no longer read; kept as a backup) | `<dataDir>/chats.json`               |
 | Settings (overrides only)       | `<dataDir>/settings.json`                                    |
 | Scratch cwd for non-project chats | `<dataDir>/scratch/`                                       |
 | Data-dir lock (running server)  | `<dataDir>/server.lock` (see below)                          |
 
 `dataDir` = `~/Library/Application Support/pi-ui` on macOS (override with `PI_UI_DATA_DIR`).
-Only chats created by pi-ui are listed; sessions started in the terminal are not imported.
-Because transcripts stay in pi's own format, a pi-ui chat can still be resumed with `pi --session`.
+Only sessions created by pi-ui are listed; sessions started in the terminal are not imported.
+Because transcripts stay in pi's own format, a pi-ui session can still be resumed with `pi --session`.
+
+**Migration (I-035)**: when `workspaces.json` doesn't exist and `chats.json` does, the store turns
+every chat into a workspace with exactly one main session, **both keeping the chat's id**
+(`workspace.id = session.id = session.workspaceId = chat.id`), so `/chats/:id` URLs and the pi
+session files (`sessionRef`, untouched) keep working. Workspace gets projectId, title/titleSource,
+cwd, pinned/pinOrder, createdAt, lastActivityAt (`layout: null`); the session gets title/titleSource,
+harness, sessionRef, unread, lastRunFailed, runInProgress, interrupted, createdAt, lastActivityAt,
+model, thinkingLevel. `workspaces.json` is written immediately; since the migration only runs
+while it's missing, it runs once. An unreadable `chats.json` is left alone (retried next start).
+New workspaces get fresh ids for the workspace and its first session (they differ).
 
 ### Data-dir lock
 
@@ -101,7 +146,7 @@ code 3 from its own server the same way.
 Projects are ordered manually by `Project.sortOrder` (ascending; new projects get min − 1, i.e.
 the top). Project pinning is gone. Chats are never re-sorted by activity: unpinned chats sort by
 `createdAt` (newest first, client-side); pinned chats sit at the top of their own list (a project,
-or standalone) ordered by `Chat.pinOrder`. The server never uses `lastActivityAt` for ordering.
+or standalone) ordered by `Workspace.pinOrder`. (Here "chat" = workspace, the sidebar row.) The server never uses `lastActivityAt` for ordering.
 Older data is migrated when the store loads: projects get `sortOrder` from their previous order
 (pinned first, then most recent activity) and lose `pinned`; pinned chats without `pinOrder`
 get one per list (most recent activity first).
@@ -117,35 +162,54 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | PATCH  | `/projects/:id`               | `UpdateProjectRequest` (`{ name? }`) → `Project` |
 | PUT    | `/projects/order`             | `ReorderProjectsRequest` `{ ids }` → `Project[]` sorted; `ids` must be exactly the set of projects (400 otherwise); sets `sortOrder` 0..n−1, `project_upsert` per changed project |
 | POST   | `/projects/:id/open`          | `OpenProjectRequest` `{ app: "vscode" }` → 204; opens the project folder (`open -a "Visual Studio Code" <path>`). 404 unknown project, 400 unknown app, 424 app not installed, 501 off macOS |
-| DELETE | `/projects/:id`               | removes project + its chats → 204              |
-| GET    | `/chats`                      | → `ChatSummary[]`                              |
-| POST   | `/chats`                      | `CreateChatRequest` → `ChatDetail`             |
-| GET    | `/chats/:id`                  | → `ChatDetail` (starts the agent if needed)    |
-| PATCH  | `/chats/:id`                  | `UpdateChatRequest` → `ChatSummary`. `pinned: true` puts the chat at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder`; `interrupted: false` (only value accepted) dismisses the interrupted state |
-| PUT    | `/chats/pin-order`            | `ReorderPinnedChatsRequest` `{ projectId, ids }` → `ChatSummary[]` (that list's pinned chats, in order); `ids` must be exactly the pinned chats of that list (400), unknown project 404; sets `pinOrder` 0..n−1, `chat_upsert` per changed chat |
-| DELETE | `/chats/:id`                  | → 204 (session file permanently deleted)       |
-| POST   | `/chats/:id/prompt`           | `PromptRequest` → 204 (empty text OK with images) |
-| POST   | `/chats/:id/abort`            | → 204                                          |
-| PUT    | `/chats/:id/model`            | `ModelRef` → 204                               |
-| PUT    | `/chats/:id/thinking`         | `{ level }` → 204                              |
-| POST   | `/chats/:id/ui-response`      | `UiResponse` → 204                             |
-| GET    | `/chats/:id/commands`         | → `SlashCommand[]`: the harness's commands only (extensions, skills, prompts); built-ins live in the web app |
-| POST   | `/chats/:id/compact`          | `{ instructions? }` (body optional) → `CompactResult`; 409 while a reply is running |
-| POST   | `/chats/:id/export`           | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
+| DELETE | `/projects/:id`               | removes project + its workspaces → 204         |
+| GET    | `/workspaces`                 | → `WorkspaceSummary[]` (rolled-up status)      |
+| POST   | `/workspaces`                 | `CreateWorkspaceRequest` `{ projectId, prompt?, images?, model?, thinkingLevel? }` → `CreateWorkspaceResponse` `{ workspace, sessions, session: SessionDetail }` (first main session started, prompt sent) |
+| GET    | `/workspaces/:id`             | → `WorkspaceDetail` `{ workspace, sessions }` (main first, then sub-agents; doesn't start agents) |
+| PATCH  | `/workspaces/:id`             | `UpdateWorkspaceRequest` `{ title?, pinned?, layout? }` → `WorkspaceSummary`. `pinned: true` puts it at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder`; `layout` is stored as given (`null` clears) |
+| PUT    | `/workspaces/pin-order`       | `ReorderPinnedWorkspacesRequest` `{ projectId, ids }` → `WorkspaceSummary[]` (that list's pinned workspaces, in order); `ids` must be exactly the pinned workspaces of that list (400), unknown project 404; sets `pinOrder` 0..n−1, `workspace_upsert` per changed one |
+| DELETE | `/workspaces/:id`             | → 204 (all its session files permanently deleted) |
+| GET    | `/workspaces/:id/sessions`    | → `SessionSummary[]`                           |
+| POST   | `/workspaces/:id/sessions`    | `CreateSessionRequest` `{ prompt?, images?, model?, thinkingLevel? }` (body optional) → `SessionDetail`: a new **main** session (tab), started |
+| GET    | `/chats`                      | legacy alias of `GET /workspaces` (the desktop app's quit check counts `working`/`blocked`) |
+| GET    | `/sessions`                   | → `SessionSummary[]` (all workspaces)          |
+| GET    | `/sessions/:id`               | → `SessionDetail` `{ session, transcript, state, pendingUiRequests }` (starts the agent if needed) |
+| PATCH  | `/sessions/:id`               | `UpdateSessionRequest` `{ title?, unread?, interrupted?: false }` → `SessionSummary`; `interrupted: false` (only value accepted) dismisses the interrupted state |
+| DELETE | `/sessions/:id`               | → 204: closes a tab (stops the agent, deletes its file, plus sub-agents it spawned); 409 for a workspace's last main session |
+| POST   | `/sessions/:id/prompt`        | `PromptRequest` → 204 (empty text OK with images) |
+| POST   | `/sessions/:id/abort`         | → 204                                          |
+| PUT    | `/sessions/:id/model`         | `ModelRef` → 204                               |
+| PUT    | `/sessions/:id/thinking`      | `{ level }` → 204                              |
+| POST   | `/sessions/:id/ui-response`   | `UiResponse` → 204                             |
+| GET    | `/sessions/:id/commands`      | → `SlashCommand[]`: the harness's commands only (extensions, skills, prompts); built-ins live in the web app |
+| POST   | `/sessions/:id/compact`       | `{ instructions? }` (body optional) → `CompactResult`; 409 while a reply is running |
+| POST   | `/sessions/:id/export`        | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
 | POST   | `/fs/reveal`                  | `{ path }` → 204; reveals a file this server exported in Finder (404 for other paths, 501 off macOS) |
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
 | POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
 
-WebSocket `/ws`: server pushes `ServerMessage` (`chat_event`, `chat_upsert`, `chat_removed`,
-`project_upsert`, `project_removed`, `settings`, `models`, `usage_limits`). Client sends
-`{ type: "viewing", chatId }` so runs finishing on screen aren't marked unread.
+WebSocket `/ws`: server pushes `ServerMessage`:
+
+| Message | Payload / when |
+| --- | --- |
+| `session_event` | `{ sessionId, workspaceId, event: AgentEvent }`, live agent events of one session |
+| `session_upsert` | `{ session: SessionSummary }`, any change to a session (created, status, title, model…) |
+| `session_removed` | `{ sessionId, workspaceId }`, a tab/sub-agent was closed |
+| `workspace_upsert` | `{ workspace: WorkspaceSummary }`, after every workspace change **and every session change** (rolled-up status) |
+| `workspace_removed` | `{ workspaceId }`, its sessions are gone too (no `session_removed`s) |
+| `project_upsert` / `project_removed`, `settings`, `models`, `usage_limits`, `hello` | as before |
+
+Client sends `{ type: "viewing", sessionIds: string[] }` (every session on screen in a visible
+window, replacing the previous list) so runs finishing there aren't marked unread. The web
+reports them with `socket.watch(sessionId)` (counted per view, released on unmount).
 
 ## Chat status
 
-Every `ChatSummary` carries a derived `status` (`packages/protocol/src/status.ts`), computed on
-the server and pushed via `chat_upsert` on every change. Precedence, most urgent first:
+Every `SessionSummary` carries a derived `status` (`packages/protocol/src/status.ts`), computed on
+the server and pushed via `session_upsert` on every change; each `WorkspaceSummary` carries the
+most urgent status of its sessions (pushed via `workspace_upsert`). Precedence, most urgent first:
 
 | Status    | Meaning                                                                   | Source                               |
 | --------- | ------------------------------------------------------------------------- | ------------------------------------ |
@@ -156,15 +220,16 @@ the server and pushed via `chat_upsert` on every change. Precedence, most urgent
 
 `lastRunFailed` marks runs that ended in an error or crash (user aborts don't count).
 
-**Interrupted runs**: the chat record carries `runInProgress` (set at `run_start`, cleared at
-`run_end`/abort) and is persisted, so it survives the server dying. On startup, any chat still
+**Interrupted runs**: the session record carries `runInProgress` (set at `run_start`, cleared at
+`run_end`/abort) and is persisted, so it survives the server dying. On startup, any session still
 flagged gets `interrupted: true` plus `unread` + `lastRunFailed` (the sidebar shows the failed
 marker without special-casing). An agent process exiting mid-run sets `interrupted` too. Any new
 prompt (e.g. the UI's "Continue") or `PATCH { interrupted: false }` clears it. A model
 asking a question in plain text can't be detected reliably; it ends the run and shows as
-`unread`. The client tells the server which chat is on screen (`viewing`), but only while the
-document is visible, so chats finishing behind a hidden window still become unread.
-Project rows, the window title and the desktop Dock badge use `aggregateChatStatus` / `needsAttention`.
+`unread`. The client tells the server which sessions are on screen (`viewing`), but only while the
+document is visible, so sessions finishing behind a hidden window still become unread.
+Project rows, the window title and the desktop Dock badge use workspace statuses with
+`aggregateChatStatus` / `needsAttention` (one count per workspace, not per session).
 
 ## Security
 
@@ -177,12 +242,17 @@ loopback. Remote access (a later phase) will add a token and configurable bind a
 - `src/app/` — router (`createBrowserRouter`), layout, `routes.ts` path helpers.
 - `src/ui/` — primitives (only place with raw styling decisions).
 - `src/features/<feature>/` — sidebar, chat, settings, projects. Each exposes an `index.ts`.
-- `src/state/` — signals: `store.ts` (projects, chats, models, settings), `chat-session.ts`
-  (per-chat transcript/state, `useChatSession(chatId)`), `toasts.ts`.
-- The transcript and composer take only a `chatId`, so they can be embedded anywhere.
+- `src/state/` — signals: `store.ts` (projects, `workspaces`, `sessions`, models, settings;
+  `workspacesForProject`, `mainSessionsFor`, `resolveSessionId`), `chat-session.ts` (per-session
+  transcript/state, `useChatSession(sessionId)`), `actions.ts`, `toasts.ts`.
+- The transcript and composer take only a session id (prop still named `chatId`), so they can be
+  embedded anywhere (tabs, panes).
 
 Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in project),
-`/projects/:projectId/chats/:chatId`, `/settings/:section`.
+`/projects/:projectId/chats/:chatId`, `/settings/:section`. `:chatId` is a **workspace** id; an
+optional `?tab=<sessionId>` picks its main tab (a refresh restores it; unknown tabs redirect
+without it). `ChatRoute` resolves the session with `resolveSessionId` and renders
+`<ChatView workspaceId sessionId>`.
 
 ## Desktop app (`apps/desktop`)
 
@@ -203,8 +273,8 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
   "Start Server" (its own).
 - Quit confirmation (`src-tauri/src/quit.rs`): ⌘Q / Dock Quit / AppleScript `quit` go through
   `-[NSApplication terminate:]`, which tao can't veto, so the app adds
-  `applicationShouldTerminate:` to tao's app delegate. It asks our own server `GET /api/chats`;
-  if any chat is `working`/`blocked` it cancels and shows "N chats are still working. Quitting
+  `applicationShouldTerminate:` to tao's app delegate. It asks our own server `GET /api/chats`
+  (legacy alias of `/api/workspaces`); if any workspace is `working`/`blocked` it cancels and shows "N chats are still working. Quitting
   stops them." [Quit] [Cancel]. No prompt when the server isn't ours or can't be reached.
 - `pnpm tauri:dev` loads the Vite dev server instead and starts no bundled server
   (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
@@ -234,6 +304,17 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
   button at all.
 
 ## Decisions
+
+- **Workspaces contain sessions** (2026-09-26, I-035): a sidebar row is a workspace; each
+  conversation is a session (kind `main` = tab, `subagent` = spawned). Per-conversation state and
+  the live process pool are keyed by session id; order/pin/project by workspace. Status rolls up
+  on the server so every client (and the desktop quit check) agrees. Migrated chats keep their id
+  for both the workspace and its session; new workspaces use distinct ids so nothing relies on
+  them being equal. Old `/api/chats/:id/*` routes were replaced (only `GET /api/chats` stays, as
+  an alias). `workspaces.json` holds both lists in one file so writes stay atomic.
+
+- **pi processes don't inherit multiplexer/agent-teams env** (2026-09-26, I-038): `CMUX_*` and
+  `PI_AGENT_TEAMS_*` are stripped when spawning pi.
 
 - **Sidebar grid** (2026-09-26, I-041): rows align with section headers; project chats align with the
   project name; status lives on the right and swaps to hover actions (the left status column from

@@ -7,31 +7,31 @@
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { MoreHorizontal, Pin } from "lucide-preact";
-import type { ChatSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@pi-ui/protocol";
 import { chatPath } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
-import { deleteChat, movePinnedChat, renameChat, setChatPinned, updateChat } from "@/state/actions";
+import { deleteWorkspace, markWorkspaceRead, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
 
 export interface ChatRowProps {
-  chat: ChatSummary;
+  chat: WorkspaceSummary;
   selected: boolean;
   indent?: SidebarIndent;
   /** Called after the chat was deleted while selected (navigate elsewhere). */
-  onRemoved?: (chat: ChatSummary) => void;
+  onRemoved?: (chat: WorkspaceSummary) => void;
   /** Position in its pinned group (pinned chats in a group of 2+); enables Move Up / Move Down. */
   pinPosition?: { first: boolean; last: boolean };
 }
 
-export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
+export async function confirmDeleteChat(chat: WorkspaceSummary): Promise<boolean> {
   const ok = await confirm({
     title: `Delete “${chat.title || "Untitled"}”?`,
     message: "The conversation will be permanently deleted. This can't be undone.",
     confirmLabel: "Delete",
     destructive: true,
   });
-  return ok && deleteChat(chat.id);
+  return ok && deleteWorkspace(chat.id);
 }
 
 export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: ChatRowProps) {
@@ -59,18 +59,18 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
       >
         Rename
       </MenuItem>
-      <MenuItem onSelect={() => void setChatPinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
+      <MenuItem onSelect={() => void setWorkspacePinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
       {pinPosition && (
         <>
-          <MenuItem disabled={pinPosition.first} onSelect={() => void movePinnedChat(chat.id, -1)}>
+          <MenuItem disabled={pinPosition.first} onSelect={() => void movePinnedWorkspace(chat.id, -1)}>
             Move Up
           </MenuItem>
-          <MenuItem disabled={pinPosition.last} onSelect={() => void movePinnedChat(chat.id, 1)}>
+          <MenuItem disabled={pinPosition.last} onSelect={() => void movePinnedWorkspace(chat.id, 1)}>
             Move Down
           </MenuItem>
         </>
       )}
-      {chat.status === "unread" && <MenuItem onSelect={() => void updateChat(chat.id, { unread: false })}>Mark as Read</MenuItem>}
+      {chat.status === "unread" && <MenuItem onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>}
       <MenuSeparator />
       <MenuItem destructive onSelect={() => void remove()}>
         Delete…
@@ -108,7 +108,7 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
               aria-label="Chat title"
               onCommit={(title) => {
                 setEditing(false);
-                void renameChat(chat.id, title);
+                void renameWorkspace(chat.id, title);
               }}
               onCancel={() => setEditing(false)}
             />

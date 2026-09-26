@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 async function titleModelFor(chatModel: ModelRef = { provider: "fake", id: "smart" }): Promise<ModelRef | null> {
-  await env.service.createChat({ projectId: null, prompt: "hello", model: chatModel });
+  await env.service.createWorkspace({ projectId: null, prompt: "hello", model: chatModel });
   await until(() => titleCalls.length === 1);
   return titleCalls[0]!.model;
 }

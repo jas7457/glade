@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { attentionCount, windowTitle, workingCount } from "./attention";
-import { chats } from "./store";
-import { makeChat } from "@/test/fixtures";
+import { workspaces } from "./store";
+import { makeWorkspace } from "@/test/fixtures";
 
 describe("counts + window title", () => {
-  it("counts attention and working chats", () => {
-    chats.value = [
-      makeChat({ id: "1", status: "unread" }),
-      makeChat({ id: "2", status: "blocked" }),
-      makeChat({ id: "3", status: "working" }),
-      makeChat({ id: "4", status: "idle" }),
+  it("counts attention and working workspaces", () => {
+    workspaces.value = [
+      makeWorkspace({ id: "1", status: "unread" }),
+      makeWorkspace({ id: "2", status: "blocked" }),
+      makeWorkspace({ id: "3", status: "working" }),
+      makeWorkspace({ id: "4", status: "idle" }),
     ];
     expect(attentionCount.value).toBe(2);
     expect(workingCount.value).toBe(2);

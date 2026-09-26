@@ -1,7 +1,7 @@
 /**
  * Message composer. Reusable anywhere:
  *
- *   <Composer chatId="…" />              existing chat: prompts, queues while running, stop
+ *   <Composer chatId="…" />              existing chat (a session id): prompts, queues while running, stop
  *   <Composer projectId={id | null} />   "new" mode: creates the chat on first send and
  *                                        navigates to it (needs a router)
  *
@@ -28,8 +28,9 @@ import {
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
-import { applyChatDetail, loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
-import { chatsById, settings, visibleModels } from "@/state/store";
+import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
+import { createWorkspace } from "@/state/actions";
+import { sessionsById, settings, visibleModels } from "@/state/store";
 import { notify } from "@/state/toasts";
 import { Spinner, Tooltip } from "@/ui";
 import { imageFiles, isSendKey, readImageFile, type Attachment } from "./composer-utils";
@@ -484,7 +485,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     });
   };
 
-  const interrupted = chatsById.value.get(chatId)?.interrupted === true;
+  const interrupted = sessionsById.value.get(chatId)?.interrupted === true;
 
   const above = (
     <>
@@ -581,15 +582,14 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
   const onSend = async (text: string, images: PromptImage[]) => {
     setBusy(true);
     try {
-      const detail = await api.createChat({
+      const created = await createWorkspace({
         projectId,
         prompt: text,
         images: images.length ? images : undefined,
         model,
         thinkingLevel: model ? thinkingLevel : null,
       });
-      applyChatDetail(detail);
-      navigate(chatPath(detail.chat));
+      navigate(chatPath(created.workspace));
       return true;
     } catch (err) {
       notify("error", `Could not start chat: ${(err as Error).message}`);

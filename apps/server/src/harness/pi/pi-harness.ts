@@ -21,6 +21,7 @@ import {
 } from "@pi-ui/protocol";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 import { fetchAnthropicUsageLimits } from "./anthropic-usage.js";
+import { piChildEnv } from "./child-env.js";
 import { PiRpcProcess } from "./rpc-process.js";
 import {
   PiEventTranslator,
@@ -110,7 +111,7 @@ export class PiHarness implements AgentHarness {
     if (model) args.push("--model", modelKey(model), "--thinking", "off");
     args.push("--", prompt);
     try {
-      const pending = execFileAsync(piPath, args, { cwd, timeout: 45_000, maxBuffer: 1024 * 1024 });
+      const pending = execFileAsync(piPath, args, { cwd, env: piChildEnv(), timeout: 45_000, maxBuffer: 1024 * 1024 });
       // `pi -p` reads piped stdin as extra input; close it so it doesn't wait for EOF.
       pending.child.stdin?.end();
       const { stdout } = await pending;
@@ -131,7 +132,7 @@ export class PiHarness implements AgentHarness {
 
   private spawn(cwd: string, args: string[]): PiRpcProcess {
     const { piPath, extraArgs } = this.options.config();
-    const proc = new PiRpcProcess({ command: piPath, args: ["--mode", "rpc", ...args, ...extraArgs], cwd });
+    const proc = new PiRpcProcess({ command: piPath, args: ["--mode", "rpc", ...args, ...extraArgs], cwd, env: piChildEnv() });
     proc.on("stderr", (text) => this.options.log?.(`[pi ${cwd}] ${text.trimEnd()}`));
     proc.start();
     return proc;

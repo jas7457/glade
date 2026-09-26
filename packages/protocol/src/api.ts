@@ -22,26 +22,74 @@ export interface Project {
   lastActivityAt: number;
 }
 
-export interface Chat {
+/**
+ * One sidebar row (I-035): a titled container of agent sessions running in one folder (a
+ * project's, or the scratch folder for standalone workspaces). Workspaces are independent of each
+ * other, even in the same project. Ordering, pinning and project membership live here; everything
+ * about a conversation lives on its {@link Session}s.
+ */
+export interface Workspace {
   id: string;
-  /** `null` for standalone chats (they run in the scratch folder). */
+  /** `null` for standalone workspaces (they run in the scratch folder). */
   projectId: string | null;
+  title: string;
+  /** `auto` titles follow the first main session's title; `user` titles never change on their own. */
+  titleSource: "auto" | "user";
+  /** Working directory every session of this workspace runs in. */
+  cwd: string;
+  pinned: boolean;
+  /** Position among the pinned workspaces of the same list (ascending). Only meaningful when pinned. */
+  pinOrder?: number;
+  createdAt: number;
+  /** Latest activity in any of its sessions. Not used for ordering. */
+  lastActivityAt: number;
+  /** Saved tab/pane layout (I-036). `null` until the UI stores one; the server treats it as opaque. */
+  layout: WorkspaceLayout | null;
+}
+
+/**
+ * Saved layout of a workspace's tabs. Placeholder for I-036: the server stores and returns it
+ * without interpreting it (unknown session ids are the client's to ignore).
+ */
+export interface WorkspaceLayout {
+  /** Main tabs in display order (session ids). Sessions missing here go after, by `createdAt`. */
+  mainOrder?: string[];
+  /** Focused main tab. */
+  activeMainSessionId?: string | null;
+  /** Focused sub-agent tab per main session id. */
+  activeSubagentSessionId?: Record<string, string>;
+  /** Width of the sub-agent pane as a fraction of the content area (0..1). */
+  subagentPaneSize?: number;
+}
+
+/** `main`: a tab in the main area. `subagent`: spawned by another session of the workspace (I-037). */
+export type SessionKind = "main" | "subagent";
+
+/**
+ * One agent conversation (one harness session file) inside a workspace. Sessions never get their
+ * own sidebar rows. All per-conversation state (transcript, live process, model, unread,
+ * interrupted runs, …) is keyed by the session id.
+ */
+export interface Session {
+  id: string;
+  workspaceId: string;
+  kind: SessionKind;
+  /** The session that spawned this one (`subagent` only; `null` for main sessions). */
+  parentSessionId: string | null;
+  /** Agent name shown on a sub-agent's tab (`subagent` only). */
+  agentName: string | null;
+  /** Tab title. */
   title: string;
   /** `auto` titles may be replaced by generated ones; `user` titles never are. */
   titleSource: "auto" | "user";
-  /** Working directory the agent runs in. */
-  cwd: string;
-  /** Which harness owns this chat (e.g. "pi"). */
+  /** Which harness owns this session (e.g. "pi"). */
   harness: string;
   /** Harness specific reference to the persisted session (for pi: the session .jsonl path). */
   sessionRef: string | null;
-  pinned: boolean;
-  /** A run finished while the chat wasn't being viewed. */
+  /** A run finished while the session wasn't being viewed. */
   unread: boolean;
   /** The most recent run ended with an error or the agent crashed. Cleared when a new run starts. */
   lastRunFailed?: boolean;
-  /** Position among the pinned chats of the same list (ascending). Only meaningful when pinned. */
-  pinOrder?: number;
   /** Server-internal: a run started and hasn't finished yet (survives restarts; see I-025). */
   runInProgress?: boolean;
   /** The last run was cut off (app quit, crash, agent died). Cleared by any new prompt or dismissal. */
@@ -53,13 +101,29 @@ export interface Chat {
   thinkingLevel: ThinkingLevel | null;
 }
 
-/** Chat plus runtime state that isn't persisted. */
-export interface ChatSummary extends Chat {
+/** Session plus runtime state that isn't persisted. */
+export interface SessionSummary extends Session {
   running: boolean;
   /** Open agent dialogs waiting for the user. */
   pendingInputs: number;
   /** Derived with `deriveChatStatus` - the single field the UI should use for indicators. */
   status: ChatStatus;
+}
+
+/** Workspace plus state rolled up from all of its sessions (see `rollupWorkspace`). */
+export interface WorkspaceSummary extends Workspace {
+  /** Most urgent session status (blocked > working > unread > idle). */
+  status: ChatStatus;
+  /** Any session is running. */
+  running: boolean;
+  /** Open dialogs across all sessions. */
+  pendingInputs: number;
+  /** Any session has an unread finished run. */
+  unread: boolean;
+  /** Any session's last run failed. */
+  lastRunFailed: boolean;
+  /** Any session's last run was interrupted. */
+  interrupted: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -147,8 +211,8 @@ export interface ReorderProjectsRequest {
   ids: string[];
 }
 
-/** `PUT /api/chats/pin-order`: the pinned chats of one list (a project, or standalone = null) in order. */
-export interface ReorderPinnedChatsRequest {
+/** `PUT /api/workspaces/pin-order`: the pinned workspaces of one list (a project, or standalone = null) in order. */
+export interface ReorderPinnedWorkspacesRequest {
   projectId: string | null;
   ids: string[];
 }
@@ -160,7 +224,8 @@ export interface OpenProjectRequest {
   app: OpenTarget;
 }
 
-export interface CreateChatRequest {
+/** `POST /api/workspaces`: a new workspace with its first main session. */
+export interface CreateWorkspaceRequest {
   projectId: string | null;
   /** Optional first prompt; sent right after the session starts. */
   prompt?: string;
@@ -169,9 +234,23 @@ export interface CreateChatRequest {
   thinkingLevel?: ThinkingLevel | null;
 }
 
-export interface UpdateChatRequest {
+export interface UpdateWorkspaceRequest {
   title?: string;
   pinned?: boolean;
+  /** Replace the saved layout (`null` clears it). */
+  layout?: WorkspaceLayout | null;
+}
+
+/** `POST /api/workspaces/:id/sessions`: a new main session (tab) in the workspace. */
+export interface CreateSessionRequest {
+  prompt?: string;
+  images?: PromptImage[];
+  model?: ModelRef | null;
+  thinkingLevel?: ThinkingLevel | null;
+}
+
+export interface UpdateSessionRequest {
+  title?: string;
   unread?: boolean;
   /** Only `false` is accepted: dismiss the "interrupted" banner. */
   interrupted?: false;
@@ -190,11 +269,24 @@ export interface PromptRequest {
   behavior?: "steer" | "followUp";
 }
 
-export interface ChatDetail {
-  chat: ChatSummary;
+/** A session with its live state (`GET /api/sessions/:id`; starts the agent if needed). */
+export interface SessionDetail {
+  session: SessionSummary;
   transcript: Transcript;
   state: SessionState;
   pendingUiRequests: import("./events.js").UiRequest[];
+}
+
+/** `GET /api/workspaces/:id`: the workspace and all of its sessions (doesn't start agents). */
+export interface WorkspaceDetail {
+  workspace: WorkspaceSummary;
+  /** Main sessions first (by `createdAt`), then sub-agents (by `createdAt`). */
+  sessions: SessionSummary[];
+}
+
+/** `POST /api/workspaces`: the new workspace, its sessions, and the first session's live state. */
+export interface CreateWorkspaceResponse extends WorkspaceDetail {
+  session: SessionDetail;
 }
 
 export interface ApiError {
@@ -209,9 +301,14 @@ export type { UiResponse, ModelInfo };
 
 export type ServerMessage =
   | { type: "hello"; version: string }
-  | { type: "chat_event"; chatId: string; event: AgentEvent }
-  | { type: "chat_upsert"; chat: ChatSummary }
-  | { type: "chat_removed"; chatId: string }
+  /** A live agent event of one session. */
+  | { type: "session_event"; sessionId: string; workspaceId: string; event: AgentEvent }
+  | { type: "session_upsert"; session: SessionSummary }
+  | { type: "session_removed"; sessionId: string; workspaceId: string }
+  /** Sent after every change to the workspace or any of its sessions (rolled-up status). */
+  | { type: "workspace_upsert"; workspace: WorkspaceSummary }
+  /** Its sessions are gone too (no separate `session_removed`s are sent). */
+  | { type: "workspace_removed"; workspaceId: string }
   | { type: "project_upsert"; project: Project }
   | { type: "project_removed"; projectId: string }
   | { type: "settings"; settings: Settings }
@@ -219,8 +316,12 @@ export type ServerMessage =
   /** Subscription usage limits; `null` when unavailable (feature hidden). */
   | { type: "usage_limits"; usage: UsageLimits | null };
 
-/** Client -> server messages over the WebSocket. */
-export type ClientMessage = { type: "viewing"; chatId: string | null };
+/**
+ * Client -> server messages over the WebSocket. `viewing` lists every session currently on
+ * screen (in a visible window), replacing the previous list; finished runs there aren't marked
+ * unread.
+ */
+export type ClientMessage = { type: "viewing"; sessionIds: string[] };
 
 /** Result of `POST /api/fs/pick-folder` (native folder dialog on the server's machine). */
 export type PickFolderResponse = { path: string } | { cancelled: true };

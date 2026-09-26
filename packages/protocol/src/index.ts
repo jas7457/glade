@@ -5,3 +5,4 @@ export * from "./reducer.js";
 export * from "./api.js";
 export * from "./util.js";
 export * from "./status.js";
+export * from "./workspaces.js";

@@ -1,7 +1,7 @@
 /**
  * Banner above the composer for a chat whose last run was cut off (app quit, crash, agent died):
  * "Continue" sends a follow-up prompt, "Dismiss" clears the flag. The server clears it on any
- * new prompt too, and pushes the updated chat.
+ * new prompt too, and pushes the updated session. `sessionId` is the conversation's session.
  */
 import { useState } from "preact/hooks";
 import { CirclePause } from "lucide-preact";
@@ -12,7 +12,7 @@ import { Button } from "@/ui";
 
 export const CONTINUE_PROMPT = "Continue where you left off.";
 
-export function InterruptedBanner({ chatId }: { chatId: string }) {
+export function InterruptedBanner({ chatId: sessionId }: { chatId: string }) {
   const [busy, setBusy] = useState(false);
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -26,11 +26,11 @@ export function InterruptedBanner({ chatId }: { chatId: string }) {
       <Button
         size="sm"
         disabled={busy}
-        onClick={() => void act(() => runAction(() => api.prompt(chatId, { text: CONTINUE_PROMPT }), "Could not continue"))}
+        onClick={() => void act(() => runAction(() => api.prompt(sessionId, { text: CONTINUE_PROMPT }), "Could not continue"))}
       >
         Continue
       </Button>
-      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => dismissInterrupted(chatId))}>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => dismissInterrupted(sessionId))}>
         Dismiss
       </Button>
     </div>

@@ -7,16 +7,16 @@
 import { type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@pi-ui/protocol";
 import { api } from "@/lib/api";
 import { routes } from "@/app/routes";
-import { renameChat } from "@/state/actions";
+import { renameFromSession } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
-import { chatsById } from "@/state/store";
+import { sessionsById, workspacesById } from "@/state/store";
 import { notify, showToast } from "@/state/toasts";
 import { describeStats } from "../context-meter";
 import { thinkingLabel } from "../composer-utils";
 
 /** What a built-in can do. Provided by the composer. */
 export interface SlashContext {
-  /** `null` in the new-chat composer. */
+  /** Session id of the conversation; `null` in the new-chat composer. */
   chatId: string | null;
   projectId: string | null;
   navigate: (path: string) => void;
@@ -85,7 +85,8 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     description: "Start a new chat in this project",
     needsChat: true,
     run: (_args, ctx) => {
-      const projectId = ctx.projectId ?? (ctx.chatId ? chatsById.value.get(ctx.chatId)?.projectId : null) ?? null;
+      const workspaceId = ctx.chatId ? sessionsById.value.get(ctx.chatId)?.workspaceId : undefined;
+      const projectId = ctx.projectId ?? (workspaceId ? workspacesById.value.get(workspaceId)?.projectId : null) ?? null;
       ctx.navigate(projectId ? routes.project(projectId) : routes.home());
       return true;
     },
@@ -101,7 +102,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
         notify("warning", "Usage: /name <title>");
         return false;
       }
-      return renameChat(requireChat(ctx), args);
+      return renameFromSession(requireChat(ctx), args);
     },
   },
   {
@@ -157,7 +158,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     needsChat: true,
     run: async (_args, ctx) => {
       try {
-        const { path } = await api.exportChat(requireChat(ctx));
+        const { path } = await api.exportSession(requireChat(ctx));
         showToast({
           level: "success",
           title: "Chat exported",

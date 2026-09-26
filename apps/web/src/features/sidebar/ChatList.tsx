@@ -1,21 +1,21 @@
 /**
  * A list of chat rows that shows the first `limit` and a "Show more" / "Show less" toggle.
  * The selected chat is always visible (the list expands if it's beyond the limit). Pinned chats
- * come first (see `chatsForProject`), can be dragged to reorder among themselves, and are set
+ * come first (see `workspacesForProject`), can be dragged to reorder among themselves, and are set
  * off from the rest by a subtle divider.
  */
 import { useState } from "preact/hooks";
-import type { ChatSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { SidebarList, sidebarClass, type SidebarIndent } from "@/ui";
-import { reorderPinnedChats } from "@/state/actions";
+import { reorderPinnedWorkspaces } from "@/state/actions";
 import { ChatRow } from "./ChatRow";
 import { DropLine } from "./DropLine";
 import { useSortable } from "./useSortable";
 
 export interface ChatListProps {
-  /** Sorted pinned-first (`chatsForProject`). */
-  chats: ChatSummary[];
+  /** Sorted pinned-first (`workspacesForProject`). */
+  chats: WorkspaceSummary[];
   /** The list's project id, or null for standalone chats (scopes pinned reordering). */
   listId: string | null;
   selectedChatId: string | null;
@@ -23,11 +23,11 @@ export interface ChatListProps {
   /** Indent level of the chat titles (0 standalone, 1 inside a project = the project name). */
   indent?: SidebarIndent;
   emptyLabel?: string;
-  onRemoved?: (chat: ChatSummary) => void;
+  onRemoved?: (chat: WorkspaceSummary) => void;
 }
 
 /** How many chats to render: all when expanded or the selection is past the limit. */
-export function visibleChatCount(chats: ChatSummary[], limit: number, expanded: boolean, selectedChatId: string | null): number {
+export function visibleChatCount(chats: WorkspaceSummary[], limit: number, expanded: boolean, selectedChatId: string | null): number {
   if (expanded) return chats.length;
   const selectedIdx = selectedChatId ? chats.findIndex((c) => c.id === selectedChatId) : -1;
   return Math.min(chats.length, Math.max(limit, selectedIdx + 1));
@@ -40,7 +40,7 @@ export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emp
   const pinSort = useSortable({
     group: `pins:${listId ?? "standalone"}`,
     ids: pinnedIds,
-    onReorder: (ids) => void reorderPinnedChats(listId, ids),
+    onReorder: (ids) => void reorderPinnedWorkspaces(listId, ids),
     disabled: pinnedIds.length < 2,
   });
   const visible = chats.slice(0, count);

@@ -3,21 +3,21 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 
 vi.mock("@/lib/api", () => ({ api: {} }));
 vi.mock("@/state/actions", () => ({
-  renameChat: vi.fn(async () => true),
+  renameWorkspace: vi.fn(async () => true),
   setChatPinned: vi.fn(async () => true),
   deleteChat: vi.fn(async () => true),
   updateSettings: vi.fn(async () => true),
 }));
 
-import { renameChat, updateSettings } from "@/state/actions";
-import { chats, projects } from "@/state/store";
+import { renameWorkspace, updateSettings } from "@/state/actions";
+import { projects, workspaces } from "@/state/store";
 import { paletteOpen, sidebarCollapsed } from "@/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
 import type { RouteContext } from "@/app/paths";
-import { makeChat, makeProject } from "@/test/fixtures";
+import { makeWorkspace, makeProject } from "@/test/fixtures";
 import { Palette } from "./Palette";
 
-const noRoute: RouteContext = { chatId: null, projectId: null, isSettings: false };
+const noRoute: RouteContext = { workspaceId: null, projectId: null, isSettings: false };
 
 function renderPalette(route: RouteContext = noRoute) {
   const navigate = vi.fn();
@@ -36,10 +36,10 @@ describe("Palette", () => {
     paletteOpen.value = true;
     sidebarCollapsed.value = false;
     projects.value = [makeProject({ id: "p1", name: "Alpha", sortOrder: 0 }), makeProject({ id: "p2", name: "Beta", sortOrder: 1 })];
-    chats.value = [
-      makeChat({ id: "c1", projectId: "p1", title: "Fix login bug", lastActivityAt: 5 }),
-      makeChat({ id: "c2", projectId: null, title: "Old notes", lastActivityAt: 1 }),
-      makeChat({ id: "c3", projectId: "p2", title: "Needs review", lastActivityAt: 0, status: "unread", unread: true }),
+    workspaces.value = [
+      makeWorkspace({ id: "c1", projectId: "p1", title: "Fix login bug", lastActivityAt: 5 }),
+      makeWorkspace({ id: "c2", projectId: null, title: "Old notes", lastActivityAt: 1 }),
+      makeWorkspace({ id: "c3", projectId: "p2", title: "Needs review", lastActivityAt: 0, status: "unread", unread: true }),
     ];
   });
 
@@ -91,7 +91,7 @@ describe("Palette", () => {
   });
 
   it("renames the current chat through a prompt", async () => {
-    const { input } = renderPalette({ chatId: "c1", projectId: "p1", isSettings: false });
+    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false });
     type(input(), "rename");
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(paletteOpen.value).toBe(true);
@@ -99,7 +99,7 @@ describe("Palette", () => {
     expect(screen.getByText("Rename Chat")).toBeTruthy();
     type(input(), "Fix OAuth login");
     fireEvent.keyDown(input(), { key: "Enter" });
-    expect(renameChat).toHaveBeenCalledWith("c1", "Fix OAuth login");
+    expect(renameWorkspace).toHaveBeenCalledWith("c1", "Fix OAuth login");
     expect(paletteOpen.value).toBe(false);
   });
 

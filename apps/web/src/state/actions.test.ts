@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@pi-ui/protocol";
 
 vi.mock("@/lib/api", () => ({
-  api: { updateSettings: vi.fn(), updateChat: vi.fn(), deleteProject: vi.fn(), reorderProjects: vi.fn(), reorderPinnedChats: vi.fn() },
+  api: { updateSettings: vi.fn(), updateWorkspace: vi.fn(), deleteProject: vi.fn(), reorderProjects: vi.fn(), reorderPinnedWorkspaces: vi.fn() },
 }));
 
 import { api } from "@/lib/api";
-import { chats, chatsForProject, projects, settings, sortedProjects } from "./store";
-import { mergeSettings, movePinnedChat, moveProject, removeProject, reorderPinnedChats, reorderProjects, stepOrder, updateSettings } from "./actions";
+import { workspaces, workspacesForProject, projects, settings, sortedProjects } from "./store";
+import { mergeSettings, movePinnedWorkspace, moveProject, removeProject, reorderPinnedWorkspaces, reorderProjects, stepOrder, updateSettings } from "./actions";
 import { toasts } from "./toasts";
-import { makeChat, makeProject } from "@/test/fixtures";
+import { makeWorkspace, makeProject } from "@/test/fixtures";
 
 const mocked = vi.mocked(api);
 
@@ -55,13 +55,13 @@ describe("updateSettings", () => {
 });
 
 describe("removeProject", () => {
-  it("drops the project and its chats locally", async () => {
+  it("drops the project and its workspaces locally", async () => {
     projects.value = [makeProject({ id: "p" }), makeProject({ id: "q" })];
-    chats.value = [makeChat({ id: "a", projectId: "p" }), makeChat({ id: "b", projectId: "q" })];
+    workspaces.value = [makeWorkspace({ id: "a", projectId: "p" }), makeWorkspace({ id: "b", projectId: "q" })];
     mocked.deleteProject.mockResolvedValue(undefined);
     expect(await removeProject("p")).toBe(true);
     expect(projects.value.map((p) => p.id)).toEqual(["q"]);
-    expect(chats.value.map((c) => c.id)).toEqual(["b"]);
+    expect(workspaces.value.map((c) => c.id)).toEqual(["b"]);
   });
 });
 
@@ -109,39 +109,39 @@ describe("reorderProjects", () => {
   });
 });
 
-describe("reorderPinnedChats", () => {
+describe("reorderPinnedWorkspaces", () => {
   beforeEach(() => {
     toasts.value = [];
     vi.clearAllMocks();
-    chats.value = [
-      makeChat({ id: "x", projectId: "p", pinned: true, pinOrder: 0 }),
-      makeChat({ id: "y", projectId: "p", pinned: true, pinOrder: 1 }),
-      makeChat({ id: "z", projectId: "p", createdAt: 5 }),
+    workspaces.value = [
+      makeWorkspace({ id: "x", projectId: "p", pinned: true, pinOrder: 0 }),
+      makeWorkspace({ id: "y", projectId: "p", pinned: true, pinOrder: 1 }),
+      makeWorkspace({ id: "z", projectId: "p", createdAt: 5 }),
     ];
   });
 
   it("reorders optimistically and applies the server result", async () => {
-    const y = { ...chats.value[1]!, pinOrder: 0 };
-    mocked.reorderPinnedChats.mockResolvedValue([y]);
-    const done = reorderPinnedChats("p", ["y", "x"]);
-    expect(chatsForProject("p").map((c) => c.id)).toEqual(["y", "x", "z"]);
-    expect(mocked.reorderPinnedChats).toHaveBeenCalledWith("p", ["y", "x"]);
+    const y = { ...workspaces.value[1]!, pinOrder: 0 };
+    mocked.reorderPinnedWorkspaces.mockResolvedValue([y]);
+    const done = reorderPinnedWorkspaces("p", ["y", "x"]);
+    expect(workspacesForProject("p").map((c) => c.id)).toEqual(["y", "x", "z"]);
+    expect(mocked.reorderPinnedWorkspaces).toHaveBeenCalledWith("p", ["y", "x"]);
     expect(await done).toBe(true);
-    expect(chatsForProject("p").map((c) => c.id)).toEqual(["y", "x", "z"]);
+    expect(workspacesForProject("p").map((c) => c.id)).toEqual(["y", "x", "z"]);
   });
 
   it("rolls back on failure", async () => {
-    mocked.reorderPinnedChats.mockRejectedValue(new Error("boom"));
-    expect(await reorderPinnedChats("p", ["y", "x"])).toBe(false);
-    expect(chatsForProject("p").map((c) => c.id)).toEqual(["x", "y", "z"]);
+    mocked.reorderPinnedWorkspaces.mockRejectedValue(new Error("boom"));
+    expect(await reorderPinnedWorkspaces("p", ["y", "x"])).toBe(false);
+    expect(workspacesForProject("p").map((c) => c.id)).toEqual(["x", "y", "z"]);
     expect(toasts.value[0]?.message).toContain("boom");
   });
 
-  it("movePinnedChat only moves pinned chats within their pinned group", async () => {
-    mocked.reorderPinnedChats.mockResolvedValue([]);
-    expect(await movePinnedChat("z", -1)).toBe(false);
-    expect(await movePinnedChat("y", 1)).toBe(false);
-    await movePinnedChat("y", -1);
-    expect(mocked.reorderPinnedChats).toHaveBeenCalledWith("p", ["y", "x"]);
+  it("movePinnedWorkspace only moves pinned workspaces within their pinned group", async () => {
+    mocked.reorderPinnedWorkspaces.mockResolvedValue([]);
+    expect(await movePinnedWorkspace("z", -1)).toBe(false);
+    expect(await movePinnedWorkspace("y", 1)).toBe(false);
+    await movePinnedWorkspace("y", -1);
+    expect(mocked.reorderPinnedWorkspaces).toHaveBeenCalledWith("p", ["y", "x"]);
   });
 });

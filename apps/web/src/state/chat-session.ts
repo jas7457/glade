@@ -1,8 +1,11 @@
 /**
- * Per-chat live state: transcript, agent session state and pending dialogs.
+ * Per-session live state: transcript, agent session state and pending dialogs. Keyed by
+ * **session id** (I-035: a workspace = sidebar row holds one or more sessions; each session is one
+ * agent conversation). The "chat" names are kept because the transcript/composer still call a
+ * conversation a chat.
  *
- * Any component can call `useChatSession(chatId)` (or `getChatSession`) to get the same store,
- * which is what lets the transcript and composer be reused in multiple places.
+ * Any component can call `useChatSession(sessionId)` (or `getChatSession`) to get the same store,
+ * which is what lets the transcript and composer be reused in multiple places (tabs, panes).
  */
 import { signal, type Signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
@@ -11,7 +14,7 @@ import {
   defaultSessionState,
   emptyTranscript,
   type AgentEvent,
-  type ChatDetail,
+  type SessionDetail,
   type SessionState,
   type SlashCommand,
   type Transcript,
@@ -22,7 +25,7 @@ import { socket } from "@/lib/socket";
 import { notify } from "./toasts";
 
 export interface ChatSessionStore {
-  chatId: string;
+  sessionId: string;
   transcript: Signal<Transcript>;
   state: Signal<SessionState>;
   uiRequests: Signal<UiRequest[]>;
@@ -30,17 +33,17 @@ export interface ChatSessionStore {
   error: Signal<string | null>;
   /** Last error reported by the agent itself (process crash etc). */
   agentError: Signal<string | null>;
-  /** The harness's slash commands for this chat; `null` until loaded (see loadChatCommands). */
+  /** The harness's slash commands for this session; `null` until loaded (see loadChatCommands). */
   commands: Signal<SlashCommand[] | null>;
 }
 
 const sessions = new Map<string, ChatSessionStore>();
 
-export function getChatSession(chatId: string): ChatSessionStore {
-  let store = sessions.get(chatId);
+export function getChatSession(sessionId: string): ChatSessionStore {
+  let store = sessions.get(sessionId);
   if (!store) {
     store = {
-      chatId,
+      sessionId,
       transcript: signal(emptyTranscript()),
       state: signal(defaultSessionState()),
       uiRequests: signal([]),
@@ -49,14 +52,14 @@ export function getChatSession(chatId: string): ChatSessionStore {
       agentError: signal(null),
       commands: signal(null),
     };
-    sessions.set(chatId, store);
+    sessions.set(sessionId, store);
   }
   return store;
 }
 
-/** Seed a store from a server response (e.g. right after creating a chat). */
-export function applyChatDetail(detail: ChatDetail): ChatSessionStore {
-  const store = getChatSession(detail.chat.id);
+/** Seed a store from a server response (e.g. right after creating a workspace or tab). */
+export function applySessionDetail(detail: SessionDetail): ChatSessionStore {
+  const store = getChatSession(detail.session.id);
   store.transcript.value = detail.transcript;
   store.state.value = detail.state;
   store.uiRequests.value = detail.pendingUiRequests;
@@ -65,12 +68,12 @@ export function applyChatDetail(detail: ChatDetail): ChatSessionStore {
   return store;
 }
 
-export async function loadChatSession(chatId: string): Promise<void> {
-  const store = getChatSession(chatId);
+export async function loadChatSession(sessionId: string): Promise<void> {
+  const store = getChatSession(sessionId);
   if (store.status.value === "loading") return;
   store.status.value = "loading";
   try {
-    applyChatDetail(await api.getChat(chatId));
+    applySessionDetail(await api.getSession(sessionId));
   } catch (err) {
     store.status.value = "error";
     store.error.value = (err as Error).message;
@@ -79,32 +82,32 @@ export async function loadChatSession(chatId: string): Promise<void> {
 
 const commandLoads = new Map<string, Promise<void>>();
 
-/** Fetch the chat's harness slash commands once (they're fixed for the agent's lifetime). */
-export function loadChatCommands(chatId: string): Promise<void> {
-  const store = getChatSession(chatId);
+/** Fetch the session's harness slash commands once (they're fixed for the agent's lifetime). */
+export function loadChatCommands(sessionId: string): Promise<void> {
+  const store = getChatSession(sessionId);
   if (store.commands.value) return Promise.resolve();
-  let pending = commandLoads.get(chatId);
+  let pending = commandLoads.get(sessionId);
   if (!pending) {
     pending = Promise.resolve()
-      .then(() => api.listCommands(chatId))
+      .then(() => api.listCommands(sessionId))
       .then((commands) => {
         store.commands.value = commands;
       })
       .catch(() => {
         // Not fatal: the menu still shows pi-ui's built-ins. Retried on the next open.
       })
-      .finally(() => commandLoads.delete(chatId));
-    commandLoads.set(chatId, pending);
+      .finally(() => commandLoads.delete(sessionId));
+    commandLoads.set(sessionId, pending);
   }
   return pending;
 }
 
 export async function reloadOpenChatSessions(): Promise<void> {
-  await Promise.all([...sessions.values()].filter((s) => s.status.value === "ready").map((s) => loadChatSession(s.chatId)));
+  await Promise.all([...sessions.values()].filter((s) => s.status.value === "ready").map((s) => loadChatSession(s.sessionId)));
 }
 
-export function handleChatEvent(chatId: string, event: AgentEvent): void {
-  const store = sessions.get(chatId);
+export function handleSessionEvent(sessionId: string, event: AgentEvent): void {
+  const store = sessions.get(sessionId);
   if (event.type === "notify") notify(event.level, event.message);
   if (!store || store.status.value !== "ready") return;
   store.transcript.value = applyAgentEvent(store.transcript.value, event);
@@ -131,17 +134,16 @@ export function handleChatEvent(chatId: string, event: AgentEvent): void {
 }
 
 /**
- * Hook: get the chat store, load it if needed, and tell the server this chat is on screen
- * (so finished runs don't get marked unread).
+ * Hook: get the session store, load it if needed, and tell the server this session is on screen
+ * (so finished runs don't get marked unread) while the component is mounted.
  */
-export function useChatSession(chatId: string, { markViewing = true } = {}): ChatSessionStore {
-  const store = getChatSession(chatId);
+export function useChatSession(sessionId: string, { markViewing = true } = {}): ChatSessionStore {
+  const store = getChatSession(sessionId);
   useEffect(() => {
-    if (store.status.value === "idle" || store.status.value === "error") void loadChatSession(chatId);
+    if (store.status.value === "idle" || store.status.value === "error") void loadChatSession(sessionId);
     if (!markViewing) return;
-    socket.setViewing(chatId);
-    return () => socket.setViewing(null);
-  }, [chatId, markViewing]);
+    return socket.watch(sessionId);
+  }, [sessionId, markViewing]);
   return store;
 }
 

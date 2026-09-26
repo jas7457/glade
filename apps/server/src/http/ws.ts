@@ -1,6 +1,6 @@
 /**
  * WebSocket push channel (`/ws`). Each connection receives every {@link ServerMessage} the
- * AppService broadcasts, and reports which chat it's showing so finished runs there aren't
+ * AppService broadcasts, and reports which sessions it's showing so finished runs there aren't
  * marked unread.
  */
 import type { Context } from "hono";
@@ -14,13 +14,14 @@ const OPEN = 1;
 export function createWsHandler(service: AppService): (c: Context) => WSEvents {
   return () => {
     let unsubscribe: (() => void) | null = null;
-    let viewing: string | null = null;
+    let viewing = new Set<string>();
 
-    const setViewing = (chatId: string | null) => {
-      if (chatId === viewing) return;
-      if (viewing) service.setViewing(viewing, false);
-      viewing = chatId;
-      if (viewing) service.setViewing(viewing, true);
+    /** Replace this connection's on-screen sessions (diffed, so counts stay balanced). */
+    const setViewing = (sessionIds: Iterable<string>) => {
+      const next = new Set(sessionIds);
+      for (const id of viewing) if (!next.has(id)) service.setViewing(id, false);
+      for (const id of next) if (!viewing.has(id)) service.setViewing(id, true);
+      viewing = next;
     };
 
     return {
@@ -40,15 +41,15 @@ export function createWsHandler(service: AppService): (c: Context) => WSEvents {
         } catch {
           return;
         }
-        const m = message as Partial<Record<keyof ClientMessage, unknown>>;
-        if (m.type === "viewing" && (typeof m.chatId === "string" || m.chatId === null)) {
-          setViewing(m.chatId);
+        const m = message as { type?: unknown; sessionIds?: unknown };
+        if (m.type === "viewing" && Array.isArray(m.sessionIds) && m.sessionIds.every((id) => typeof id === "string")) {
+          setViewing(m.sessionIds as ClientMessage["sessionIds"]);
         }
       },
       onClose() {
         unsubscribe?.();
         unsubscribe = null;
-        setViewing(null);
+        setViewing([]);
       },
       onError() {
         // `close` follows; cleanup happens there.

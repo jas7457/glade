@@ -9,8 +9,8 @@ vi.mock("@/lib/api", () => ({
 
 import { api } from "@/lib/api";
 import { TooltipProvider } from "@/ui";
-import { chats, models, settings } from "@/state/store";
-import { makeChat } from "@/test/fixtures";
+import { models, settings, workspaces } from "@/state/store";
+import { makeWorkspace } from "@/test/fixtures";
 import { SettingsRoute } from "./SettingsView";
 import { parseArgs } from "./AgentSettings";
 import { groupModels } from "./ModelSettings";

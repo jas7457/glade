@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentEvent, ChatDetail, CompactResult, NoticeMessage, SlashCommand } from "@pi-ui/protocol";
+import type { AgentEvent, CompactResult, NoticeMessage, SlashCommand } from "@pi-ui/protocol";
 import { createApp } from "../src/http/app.js";
 import { FAKE_COMMANDS, type FakeSession } from "../src/harness/fake/fake-harness.js";
 import { compactionNoticeText, formatTokenCount } from "../src/harness/format.js";
@@ -213,18 +213,19 @@ describe("slash-command endpoints", () => {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
-  async function newChat(prompt?: string): Promise<ChatDetail> {
-    const detail = await env.service.createChat({ projectId: null, prompt });
+  /** A new workspace; `chat.id` is its first session's id (what these endpoints take). */
+  async function newChat(prompt?: string) {
+    const created = await env.service.createWorkspace({ projectId: null, prompt });
     await flush();
-    return detail;
+    return { ...created.session, chat: created.session.session };
   }
 
   it("GET /commands returns the harness commands", async () => {
     const { chat } = await newChat();
-    const res = await req("GET", `/api/chats/${chat.id}/commands`);
+    const res = await req("GET", `/api/sessions/${chat.id}/commands`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(FAKE_COMMANDS);
-    expect((await req("GET", "/api/chats/nope/commands")).status).toBe(404);
+    expect((await req("GET", "/api/sessions/nope/commands")).status).toBe(404);
   });
 
   it("chat detail and run_end carry context usage + session stats", async () => {
@@ -232,7 +233,7 @@ describe("slash-command endpoints", () => {
     expect(detail.state.contextUsage).toMatchObject({ tokens: 0, contextWindow: 200000 });
     await env.service.prompt(detail.chat.id, { text: "hi" });
     await flush();
-    const after = await env.service.getChatDetail(detail.chat.id);
+    const after = await env.service.getSessionDetail(detail.chat.id);
     expect(after.state.contextUsage?.tokens).toBeGreaterThan(0);
     expect(after.state.sessionStats?.cost).toBeGreaterThan(0);
   });
@@ -240,38 +241,38 @@ describe("slash-command endpoints", () => {
   it("POST /compact compacts, broadcasts the notice and resets usage to unknown", async () => {
     const { chat } = await newChat("hello");
     env.messages.length = 0;
-    const res = await req("POST", `/api/chats/${chat.id}/compact`, { instructions: "keep decisions" });
+    const res = await req("POST", `/api/sessions/${chat.id}/compact`, { instructions: "keep decisions" });
     expect(res.status).toBe(200);
     const result = (await res.json()) as CompactResult;
     expect(result.tokensBefore).toBeGreaterThan(0);
     const session = [...env.harness.openSessions][0] as FakeSession;
     expect(session.compactions).toEqual(["keep decisions"]);
-    const events = env.messages.flatMap((m) => (m.type === "chat_event" ? [m.event] : []));
+    const events = env.messages.flatMap((m) => (m.type === "session_event" ? [m.event] : []));
     expect(events.some((e) => e.type === "message_end" && e.message.role === "notice" && e.message.kind === "compaction")).toBe(true);
-    const detail = await env.service.getChatDetail(chat.id);
+    const detail = await env.service.getSessionDetail(chat.id);
     expect(detail.state.contextUsage?.tokens).toBeNull();
     expect(detail.transcript.messages.at(-1)).toMatchObject({ role: "notice", kind: "compaction" });
     // Empty body is fine too.
-    expect((await req("POST", `/api/chats/${chat.id}/compact`)).status).toBe(200);
+    expect((await req("POST", `/api/sessions/${chat.id}/compact`)).status).toBe(200);
   });
 
   it("refuses to compact while a reply is running", async () => {
     env.harness.eventDelayMs = 5;
     const { chat } = await newChat();
     await env.service.prompt(chat.id, { text: "slow" });
-    await until(() => env.service.listChats()[0]!.running);
-    const res = await req("POST", `/api/chats/${chat.id}/compact`, {});
+    await until(() => env.service.listSessions()[0]!.running);
+    const res = await req("POST", `/api/sessions/${chat.id}/compact`, {});
     expect(res.status).toBe(409);
-    await until(() => !env.service.listChats()[0]!.running);
+    await until(() => !env.service.listSessions()[0]!.running);
   });
 
   it("POST /export returns the path; /fs/reveal only reveals exported files", async () => {
     const { chat } = await newChat();
-    const res = await req("POST", `/api/chats/${chat.id}/export`);
+    const res = await req("POST", `/api/sessions/${chat.id}/export`);
     expect(res.status).toBe(200);
     const { path } = (await res.json()) as { path: string };
     expect(path).toMatch(/\.html$/);
-    expect((await req("POST", `/api/chats/${chat.id}/export`, { reveal: true })).status).toBe(200);
+    expect((await req("POST", `/api/sessions/${chat.id}/export`, { reveal: true })).status).toBe(200);
     expect(revealPath).toHaveBeenCalledWith(path);
     expect((await req("POST", "/api/fs/reveal", { path })).status).toBe(204);
     expect((await req("POST", "/api/fs/reveal", { path: "/etc/passwd" })).status).toBe(404);

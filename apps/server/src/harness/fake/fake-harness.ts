@@ -124,7 +124,7 @@ export class FakeHarness implements AgentHarness {
         thinkingLevel: options.thinkingLevel ?? "medium",
       });
     }
-    const session = new FakeSession(this, ref);
+    const session = new FakeSession(this, ref, options.cwd);
     this.openSessions.add(session);
     return session;
   }
@@ -152,6 +152,8 @@ export class FakeSession implements HarnessSession {
   constructor(
     private readonly harness: FakeHarness,
     readonly sessionRef: string,
+    /** Folder the session was opened in. */
+    readonly cwd = "",
   ) {
     const stored = this.stored;
     const model = FAKE_MODELS.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);

@@ -1,31 +1,57 @@
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deepMerge, defaultSettings, type Chat, type DeepPartial, type Project, type Settings } from "@pi-ui/protocol";
+import { deepMerge, defaultSettings, type DeepPartial, type Project, type Session, type Settings, type Workspace } from "@pi-ui/protocol";
 import { JsonFile } from "./json-file.js";
+import { migrateChats, type LegacyChat } from "./migrate-workspaces.js";
 
 interface ProjectsFile {
   version: 1;
   projects: Project[];
 }
 
-interface ChatsFile {
+interface WorkspacesFile {
   version: 1;
-  chats: Chat[];
+  workspaces: Workspace[];
+  sessions: Session[];
 }
 
 /**
- * pi-ui's own persistent data: projects, the chat index, and settings.
+ * pi-ui's own persistent data: projects, the workspace + session index, and settings.
  * Stored as JSON under the app data dir; see docs/ARCHITECTURE.md.
  */
 export class Store {
   private readonly projectsFile: JsonFile<ProjectsFile>;
-  private readonly chatsFile: JsonFile<ChatsFile>;
+  private readonly workspacesFile: JsonFile<WorkspacesFile>;
   private readonly settingsFile: JsonFile<DeepPartial<Settings>>;
 
   constructor(dataDir: string, debounceMs = 50) {
     this.projectsFile = new JsonFile(join(dataDir, "projects.json"), () => ({ version: 1, projects: [] }), debounceMs);
-    this.chatsFile = new JsonFile(join(dataDir, "chats.json"), () => ({ version: 1, chats: [] }), debounceMs);
+    const workspacesPath = join(dataDir, "workspaces.json");
+    const hadWorkspaces = existsSync(workspacesPath);
+    this.workspacesFile = new JsonFile(workspacesPath, () => ({ version: 1, workspaces: [], sessions: [] }), debounceMs);
+    if (!hadWorkspaces) this.migrateLegacyChats(join(dataDir, "chats.json"));
     this.settingsFile = new JsonFile(join(dataDir, "settings.json"), () => ({}), debounceMs);
     this.migrate();
+  }
+
+  /**
+   * I-035: turn the old `chats.json` into workspaces + sessions (see migrate-workspaces.ts). Runs
+   * only while `workspaces.json` doesn't exist yet, so it happens once; `chats.json` is left
+   * untouched (no longer read) as a backup.
+   */
+  private migrateLegacyChats(chatsPath: string): void {
+    let chats: LegacyChat[];
+    try {
+      chats = (JSON.parse(readFileSync(chatsPath, "utf8")) as { chats?: LegacyChat[] }).chats ?? [];
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        // Don't create an empty workspaces.json over data we couldn't read; retry next start.
+        console.warn(`[pi-ui] could not migrate ${chatsPath}: ${(err as Error).message}`);
+      }
+      return;
+    }
+    this.workspacesFile.set({ version: 1, ...migrateChats(chats) });
+    this.workspacesFile.flush();
   }
 
   /**
@@ -59,27 +85,27 @@ export class Store {
       this.projectsFile.set({ version: 1, projects: migrated });
     }
 
-    const chats = this.listChats();
-    const needsPinOrder = (c: Chat) => c.pinned && typeof c.pinOrder !== "number";
-    const strayPinOrder = (c: Chat) => !c.pinned && c.pinOrder !== undefined;
-    if (chats.some((c) => needsPinOrder(c) || strayPinOrder(c))) {
+    const workspaces = this.listWorkspaces();
+    const needsPinOrder = (w: Workspace) => w.pinned && typeof w.pinOrder !== "number";
+    const strayPinOrder = (w: Workspace) => !w.pinned && w.pinOrder !== undefined;
+    if (workspaces.some((w) => needsPinOrder(w) || strayPinOrder(w))) {
       const assigned = new Map<string, number>();
-      for (const listId of new Set(chats.map((c) => c.projectId))) {
-        const pinned = chats.filter((c) => c.projectId === listId && c.pinned);
-        const ordered = pinned.filter((c) => typeof c.pinOrder === "number");
-        let next = ordered.length ? Math.max(...ordered.map((c) => c.pinOrder!)) + 1 : 0;
-        for (const c of pinned.filter(needsPinOrder).sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
-          assigned.set(c.id, next++);
+      for (const listId of new Set(workspaces.map((w) => w.projectId))) {
+        const pinned = workspaces.filter((w) => w.projectId === listId && w.pinned);
+        const ordered = pinned.filter((w) => typeof w.pinOrder === "number");
+        let next = ordered.length ? Math.max(...ordered.map((w) => w.pinOrder!)) + 1 : 0;
+        for (const w of pinned.filter(needsPinOrder).sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
+          assigned.set(w.id, next++);
         }
       }
-      const migrated = chats.map((c) => {
-        if (strayPinOrder(c)) {
-          const { pinOrder: _pinOrder, ...rest } = c;
+      const migrated = workspaces.map((w) => {
+        if (strayPinOrder(w)) {
+          const { pinOrder: _pinOrder, ...rest } = w;
           return rest;
         }
-        return assigned.has(c.id) ? { ...c, pinOrder: assigned.get(c.id)! } : c;
+        return assigned.has(w.id) ? { ...w, pinOrder: assigned.get(w.id)! } : w;
       });
-      this.chatsFile.set({ version: 1, chats: migrated });
+      this.workspacesFile.set({ ...this.workspacesFile.get(), workspaces: migrated });
     }
   }
 
@@ -103,26 +129,53 @@ export class Store {
     this.projectsFile.set({ version: 1, projects: this.listProjects().filter((p) => p.id !== id) });
   }
 
-  // Chats -------------------------------------------------------------------------------------
+  // Workspaces ---------------------------------------------------------------------------------
 
-  listChats(): Chat[] {
-    return this.chatsFile.get().chats;
+  listWorkspaces(): Workspace[] {
+    return this.workspacesFile.get().workspaces;
   }
 
-  getChat(id: string): Chat | undefined {
-    return this.listChats().find((c) => c.id === id);
+  getWorkspace(id: string): Workspace | undefined {
+    return this.listWorkspaces().find((w) => w.id === id);
   }
 
-  upsertChat(chat: Chat): Chat {
-    const chats = this.listChats();
-    const idx = chats.findIndex((c) => c.id === chat.id);
-    const next = idx === -1 ? [...chats, chat] : chats.map((c, i) => (i === idx ? chat : c));
-    this.chatsFile.set({ version: 1, chats: next });
-    return chat;
+  upsertWorkspace(workspace: Workspace): Workspace {
+    const file = this.workspacesFile.get();
+    this.workspacesFile.set({ ...file, workspaces: replaceOrAppend(file.workspaces, workspace) });
+    return workspace;
   }
 
-  removeChat(id: string): void {
-    this.chatsFile.set({ version: 1, chats: this.listChats().filter((c) => c.id !== id) });
+  /** Removes the workspace and all of its sessions. */
+  removeWorkspace(id: string): void {
+    const file = this.workspacesFile.get();
+    this.workspacesFile.set({
+      ...file,
+      workspaces: file.workspaces.filter((w) => w.id !== id),
+      sessions: file.sessions.filter((s) => s.workspaceId !== id),
+    });
+  }
+
+  // Sessions -----------------------------------------------------------------------------------
+
+  /** All sessions, or those of one workspace. */
+  listSessions(workspaceId?: string): Session[] {
+    const all = this.workspacesFile.get().sessions;
+    return workspaceId === undefined ? all : all.filter((s) => s.workspaceId === workspaceId);
+  }
+
+  getSession(id: string): Session | undefined {
+    return this.workspacesFile.get().sessions.find((s) => s.id === id);
+  }
+
+  upsertSession(session: Session): Session {
+    const file = this.workspacesFile.get();
+    this.workspacesFile.set({ ...file, sessions: replaceOrAppend(file.sessions, session) });
+    return session;
+  }
+
+  removeSession(id: string): void {
+    const file = this.workspacesFile.get();
+    this.workspacesFile.set({ ...file, sessions: file.sessions.filter((s) => s.id !== id) });
   }
 
   // Settings ----------------------------------------------------------------------------------
@@ -139,7 +192,12 @@ export class Store {
 
   flush(): void {
     this.projectsFile.flush();
-    this.chatsFile.flush();
+    this.workspacesFile.flush();
     this.settingsFile.flush();
   }
+}
+
+function replaceOrAppend<T extends { id: string }>(list: T[], item: T): T[] {
+  const idx = list.findIndex((x) => x.id === item.id);
+  return idx === -1 ? [...list, item] : list.map((x, i) => (i === idx ? item : x));
 }

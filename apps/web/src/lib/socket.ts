@@ -9,7 +9,7 @@ type Handler = (message: ServerMessage) => void;
 
 /**
  * Auto-reconnecting WebSocket to `/ws`. The server pushes {@link ServerMessage}s; the client
- * only reports which chat is on screen.
+ * only reports which sessions are on screen.
  */
 export class Socket {
   private ws: WebSocket | null = null;
@@ -17,29 +17,42 @@ export class Socket {
   private readonly reconnectHandlers = new Set<() => void>();
   private retry = 0;
   private lastViewing: ClientMessage | null = null;
-  /** The chat on screen according to the router (may be hidden if the window is). */
-  private routedChatId: string | null = null;
+  /** Sessions shown by mounted views (a count, since several views may show the same one). */
+  private readonly watched = new Map<string, number>();
   private stopped = false;
 
   constructor(private readonly url = defaultUrl()) {
-    // A chat only counts as "being read" while the window is visible; otherwise finished
+    // A session only counts as "being read" while the window is visible; otherwise finished
     // runs must still become unread.
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", () => this.syncViewing());
     }
   }
 
-  /** Report which chat is on screen (`null` for none). */
-  setViewing(chatId: string | null): void {
-    this.routedChatId = chatId;
+  /**
+   * Report that a session is on screen until the returned function is called. Several sessions
+   * can be watched at once (e.g. a main tab and a sub-agent side by side).
+   */
+  watch(sessionId: string): () => void {
+    this.watched.set(sessionId, (this.watched.get(sessionId) ?? 0) + 1);
     this.syncViewing();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (this.watched.get(sessionId) ?? 1) - 1;
+      if (count <= 0) this.watched.delete(sessionId);
+      else this.watched.set(sessionId, count);
+      this.syncViewing();
+    };
   }
 
   private syncViewing(): void {
     const visible = typeof document === "undefined" || document.visibilityState === "visible";
-    const chatId = visible ? this.routedChatId : null;
-    if (this.lastViewing?.chatId === chatId && this.lastViewing !== null) return;
-    this.send({ type: "viewing", chatId });
+    const sessionIds = visible ? [...this.watched.keys()].sort() : [];
+    const last = this.lastViewing?.sessionIds;
+    if (last && last.length === sessionIds.length && last.every((id, i) => id === sessionIds[i])) return;
+    this.send({ type: "viewing", sessionIds });
   }
 
   connect(): void {

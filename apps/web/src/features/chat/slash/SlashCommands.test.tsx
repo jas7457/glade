@@ -3,28 +3,29 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@pi-ui/protocol";
 import { TooltipProvider } from "@/ui";
-import { chats, models, settings } from "@/state/store";
+import { models, sessions, settings, workspaces } from "@/state/store";
+import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { toasts } from "@/state/toasts";
 import { Composer } from "../Composer";
 
 vi.mock("@/lib/api", () => ({
   api: {
-    createChat: vi.fn(),
+    createWorkspace: vi.fn(),
     prompt: vi.fn(async () => undefined),
     abort: vi.fn(async () => undefined),
-    getChat: vi.fn(() => new Promise(() => {})),
+    getSession: vi.fn(() => new Promise(() => {})),
     setModel: vi.fn(async () => undefined),
     setThinkingLevel: vi.fn(async () => undefined),
     respondToUi: vi.fn(async () => undefined),
-    updateChat: vi.fn(async (id: string, body: { title: string }) => ({ id, title: body.title })),
+    updateWorkspace: vi.fn(async (id: string, body: { title: string }) => ({ id, title: body.title })),
     listCommands: vi.fn(async () => HARNESS),
     compact: vi.fn(async () => ({ tokensBefore: 150_000, tokensAfter: 32_000 })),
-    exportChat: vi.fn(async () => ({ path: "/Users/me/Downloads/pi-session-x.html" })),
+    exportSession: vi.fn(async () => ({ path: "/Users/me/Downloads/pi-session-x.html" })),
     revealFile: vi.fn(async () => undefined),
   },
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), setViewing: vi.fn() } }));
+vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const HARNESS: SlashCommand[] = [
   { name: "mcp", source: "extension", description: "Manage MCP servers" },
@@ -76,7 +77,9 @@ beforeEach(() => {
   settings.value = defaultSettings();
   models.value = MODELS;
   toasts.value = [];
-  chats.value = [];
+  // Session "c1" is the only tab of workspace "w1" (different ids on purpose).
+  workspaces.value = [makeWorkspace({ id: "w1" })];
+  sessions.value = [makeSession({ id: "c1", workspaceId: "w1" })];
 });
 
 async function openChat() {
@@ -201,7 +204,7 @@ describe("built-in commands", () => {
     expect(box().value).toBe("/name ");
     type("/name Better title");
     key("Enter");
-    await waitFor(() => expect(api.updateChat).toHaveBeenCalledWith("c1", { title: "Better title" }));
+    await waitFor(() => expect(api.updateWorkspace).toHaveBeenCalledWith("w1", { title: "Better title" }));
   });
 
   it("/model <query> sets a unique match; /thinking <level> sets the level", async () => {
@@ -230,7 +233,7 @@ describe("built-in commands", () => {
     await openChat();
     type("/export");
     key("Enter");
-    await waitFor(() => expect(api.exportChat).toHaveBeenCalledWith("c1"));
+    await waitFor(() => expect(api.exportSession).toHaveBeenCalledWith("c1"));
     await waitFor(() => expect(toasts.value[0]?.message).toBe("/Users/me/Downloads/pi-session-x.html"));
     toasts.value[0]!.action!.onClick();
     expect(api.revealFile).toHaveBeenCalledWith("/Users/me/Downloads/pi-session-x.html");
@@ -249,7 +252,7 @@ describe("built-in commands", () => {
   });
 
   it("/new and /settings navigate", async () => {
-    chats.value = [{ id: "c1", projectId: "p1" } as (typeof chats.value)[number]];
+    workspaces.value = [makeWorkspace({ id: "w1", projectId: "p1" })];
     readyChat("c1");
     const router = renderAt(<Composer chatId="c1" />);
     type("/new");
@@ -266,7 +269,7 @@ describe("built-in commands", () => {
     type("/settings");
     key("Enter");
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
-    expect(api.createChat).not.toHaveBeenCalled();
+    expect(api.createWorkspace).not.toHaveBeenCalled();
   });
 });
 

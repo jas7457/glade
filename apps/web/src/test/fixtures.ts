@@ -1,15 +1,38 @@
 /** Test data builders shared by web tests. */
-import type { ChatSummary, Project } from "@pi-ui/protocol";
+import type { Project, SessionSummary, WorkspaceSummary } from "@pi-ui/protocol";
 
-export function makeChat(overrides: Partial<ChatSummary> & { id: string }): ChatSummary {
+/** A workspace (sidebar row). Pair it with {@link makeSession} for its conversation. */
+export function makeWorkspace(overrides: Partial<WorkspaceSummary> & { id: string }): WorkspaceSummary {
   return {
     projectId: null,
     title: `Chat ${overrides.id}`,
     titleSource: "auto",
     cwd: "/tmp",
+    pinned: false,
+    createdAt: 0,
+    lastActivityAt: 0,
+    layout: null,
+    status: "idle",
+    running: false,
+    pendingInputs: 0,
+    unread: false,
+    lastRunFailed: false,
+    interrupted: false,
+    ...overrides,
+  };
+}
+
+/** A session; defaults to the main session of workspace `overrides.workspaceId ?? overrides.id`. */
+export function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
+  return {
+    workspaceId: overrides.id,
+    kind: "main",
+    parentSessionId: null,
+    agentName: null,
+    title: `Chat ${overrides.id}`,
+    titleSource: "auto",
     harness: "fake",
     sessionRef: null,
-    pinned: false,
     unread: false,
     createdAt: 0,
     lastActivityAt: 0,

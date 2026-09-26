@@ -4,21 +4,27 @@
  */
 import { computed, signal } from "@preact/signals";
 import {
+  activeMainSessionId,
   defaultSettings,
-  type ChatSummary,
+  mainSessionsOf,
   type ModelInfo,
   type Project,
   type ServerMessage,
+  type SessionSummary,
   type Settings,
+  type WorkspaceSummary,
 } from "@pi-ui/protocol";
 import { api } from "@/lib/api";
 import { socket } from "@/lib/socket";
-import { handleChatEvent, reloadOpenChatSessions } from "./chat-session";
+import { handleSessionEvent, reloadOpenChatSessions } from "./chat-session";
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
 
 export const projects = signal<Project[]>([]);
-export const chats = signal<ChatSummary[]>([]);
+/** Sidebar rows (I-035). Each holds one or more sessions. */
+export const workspaces = signal<WorkspaceSummary[]>([]);
+/** Every session of every workspace (main tabs and sub-agents). */
+export const sessions = signal<SessionSummary[]>([]);
 export const models = signal<ModelInfo[]>([]);
 export const settings = signal<Settings>(defaultSettings());
 export const initialized = signal(false);
@@ -31,7 +37,8 @@ export const visibleModels = computed(() => {
 });
 
 export const projectsById = computed(() => new Map(projects.value.map((p) => [p.id, p])));
-export const chatsById = computed(() => new Map(chats.value.map((c) => [c.id, c])));
+export const workspacesById = computed(() => new Map(workspaces.value.map((w) => [w.id, w])));
+export const sessionsById = computed(() => new Map(sessions.value.map((s) => [s.id, s])));
 
 /** Projects in their manual order (`sortOrder` ascending); never re-sorted by activity. */
 export function compareProjects(a: Project, b: Project): number {
@@ -40,10 +47,10 @@ export function compareProjects(a: Project, b: Project): number {
 }
 
 /**
- * Chats within one list: pinned first in their manual `pinOrder`, then the rest newest-created
- * first. Activity never moves a chat.
+ * Workspaces within one list: pinned first in their manual `pinOrder`, then the rest
+ * newest-created first. Activity never moves a row.
  */
-export function compareChats(a: ChatSummary, b: ChatSummary): number {
+export function compareWorkspaces(a: WorkspaceSummary, b: WorkspaceSummary): number {
   if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
   if (a.pinned) {
     const order = (a.pinOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinOrder ?? Number.MAX_SAFE_INTEGER);
@@ -54,8 +61,25 @@ export function compareChats(a: ChatSummary, b: ChatSummary): number {
 
 export const sortedProjects = computed(() => [...projects.value].sort(compareProjects));
 
-export function chatsForProject(projectId: string | null): ChatSummary[] {
-  return chats.value.filter((c) => c.projectId === projectId).sort(compareChats);
+export function workspacesForProject(projectId: string | null): WorkspaceSummary[] {
+  return workspaces.value.filter((w) => w.projectId === projectId).sort(compareWorkspaces);
+}
+
+/** A workspace's main sessions in tab order. */
+export function mainSessionsFor(workspaceId: string): SessionSummary[] {
+  return mainSessionsOf(sessions.value, workspaceId, workspacesById.value.get(workspaceId)?.layout);
+}
+
+/**
+ * The session to show for a workspace: `tab` when it's one of its main sessions, else the saved
+ * active tab, else the first. `null` while the workspace's sessions aren't known.
+ */
+export function resolveSessionId(workspaceId: string, tab?: string | null): string | null {
+  const workspace = workspacesById.value.get(workspaceId);
+  if (!workspace) return null;
+  const wanted = tab ? sessionsById.value.get(tab) : undefined;
+  if (wanted && wanted.workspaceId === workspaceId && wanted.kind === "main") return wanted.id;
+  return activeMainSessionId(workspace, sessions.value);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -64,9 +88,10 @@ export function chatsForProject(projectId: string | null): ChatSummary[] {
 
 export async function loadAll(): Promise<void> {
   try {
-    const [p, c, s] = await Promise.all([api.listProjects(), api.listChats(), api.getSettings()]);
+    const [p, w, ss, s] = await Promise.all([api.listProjects(), api.listWorkspaces(), api.listSessions(), api.getSettings()]);
     projects.value = p;
-    chats.value = c;
+    workspaces.value = w;
+    sessions.value = ss;
     settings.value = s;
     initError.value = null;
   } catch (err) {
@@ -86,7 +111,7 @@ export async function loadModels(refresh = false): Promise<void> {
   }
 }
 
-function upsert<T extends { id: string }>(list: T[], item: T): T[] {
+export function upsert<T extends { id: string }>(list: T[], item: T): T[] {
   const idx = list.findIndex((x) => x.id === item.id);
   if (idx === -1) return [...list, item];
   const copy = list.slice();
@@ -96,11 +121,18 @@ function upsert<T extends { id: string }>(list: T[], item: T): T[] {
 
 export function handleServerMessage(message: ServerMessage): void {
   switch (message.type) {
-    case "chat_upsert":
-      chats.value = upsert(chats.value, message.chat);
+    case "workspace_upsert":
+      workspaces.value = upsert(workspaces.value, message.workspace);
       break;
-    case "chat_removed":
-      chats.value = chats.value.filter((c) => c.id !== message.chatId);
+    case "workspace_removed":
+      workspaces.value = workspaces.value.filter((w) => w.id !== message.workspaceId);
+      sessions.value = sessions.value.filter((s) => s.workspaceId !== message.workspaceId);
+      break;
+    case "session_upsert":
+      sessions.value = upsert(sessions.value, message.session);
+      break;
+    case "session_removed":
+      sessions.value = sessions.value.filter((s) => s.id !== message.sessionId);
       break;
     case "project_upsert":
       projects.value = upsert(projects.value, message.project);
@@ -114,8 +146,8 @@ export function handleServerMessage(message: ServerMessage): void {
     case "models":
       models.value = message.models;
       break;
-    case "chat_event":
-      handleChatEvent(message.chatId, message.event);
+    case "session_event":
+      handleSessionEvent(message.sessionId, message.event);
       break;
     case "usage_limits":
       handleUsageMessage(message.usage);
