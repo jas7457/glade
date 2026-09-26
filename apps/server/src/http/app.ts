@@ -55,13 +55,16 @@ export function createApp({ service, security, staticDir, pickFolder = createFol
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 
-  if (staticDir && existsSync(join(staticDir, "index.html"))) {
-    // serveStatic only accepts roots relative to the working directory.
-    const root = relative(process.cwd(), staticDir) || ".";
-    app.use("*", serveStatic({ root }));
+  if (staticDir) {
+    // The built web app may appear (or be rebuilt) after the server starts, e.g. `vite build`
+    // while `tsx watch` restarts us, so check for it per request rather than once at startup.
     const indexHtml = join(staticDir, "index.html");
+    // serveStatic only accepts roots relative to the working directory.
+    const serve = serveStatic({ root: relative(process.cwd(), staticDir) || "." });
+    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws";
+    app.use("*", async (c, next) => (isApiPath(c.req.path) || !existsSync(indexHtml) ? next() : serve(c, next)));
     app.get("*", async (c, next) => {
-      if (c.req.path.startsWith("/api/") || c.req.path === "/api" || c.req.path === "/ws") return next();
+      if (isApiPath(c.req.path) || !existsSync(indexHtml)) return next();
       return c.html(await readFile(indexHtml, "utf8"));
     });
   }

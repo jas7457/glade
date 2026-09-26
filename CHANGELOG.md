@@ -78,6 +78,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 - ⌘K command palette: jump to any chat or project, or run actions (new chat, add project,
   settings, theme, rename/pin/delete the current chat…).
 
+- The Mac app asks before quitting while chats are still working.
+- If the dev server is already running, the Mac app uses it instead of starting a second server
+  on the same data.
+
 ### Changed
 
 - Softer text: light grey instead of near-white, with dedicated sidebar text colours (brighter for
@@ -99,6 +103,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- The dev server no longer shows "Not found" after restarting while the web app was being rebuilt.
 
 - Dialogs no longer open off to the left and then jump to the centre.
 - The usage gauge says the weekday ("Resets Saturday") for resets a week away.
