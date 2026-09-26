@@ -202,3 +202,6 @@ export type ServerMessage =
 
 /** Client -> server messages over the WebSocket. */
 export type ClientMessage = { type: "viewing"; chatId: string | null };
+
+/** Result of `POST /api/fs/pick-folder` (native folder dialog on the server's machine). */
+export type PickFolderResponse = { path: string } | { cancelled: true };

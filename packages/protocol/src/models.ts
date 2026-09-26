@@ -19,7 +19,26 @@ export interface ModelInfo extends ModelRef {
   input: Array<"text" | "image">;
   contextWindow?: number;
   maxTokens?: number;
+  /** Limits for attached images; clients downscale to fit before sending. */
+  imageLimits?: ImageLimits;
 }
+
+export interface ImageLimits {
+  maxWidth: number;
+  maxHeight: number;
+  /** Maximum encoded size in bytes (of the decoded image data, not base64). */
+  maxBytes: number;
+  /** JPEG quality 1-100 used when re-encoding. */
+  jpegQuality: number;
+}
+
+/** Used when a model doesn't report its own limits. */
+export const DEFAULT_IMAGE_LIMITS: ImageLimits = {
+  maxWidth: 2000,
+  maxHeight: 2000,
+  maxBytes: 4.5 * 1024 * 1024,
+  jpegQuality: 80,
+};
 
 export function modelKey(ref: ModelRef): string {
   return `${ref.provider}/${ref.id}`;

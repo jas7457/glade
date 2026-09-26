@@ -62,7 +62,10 @@ export interface AssistantMessage {
   model?: string;
   provider?: string;
   stopReason?: StopReason;
+  /** Human readable error (e.g. the provider's message extracted from its JSON body). */
   errorMessage?: string;
+  /** Raw error text as reported by the provider/harness, for a "Details" disclosure. */
+  errorDetails?: string;
   usage?: Usage;
   /** True while the message is still being streamed. */
   streaming?: boolean;
