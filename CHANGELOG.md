@@ -138,6 +138,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Removed
 
+- The Apple Intelligence "Write with Siri" button no longer pops up next to the message box in the
+  Mac app.
+
 - System notifications and the "chat finished" pop-ups. Chat status shows in the sidebar, the window
   title count and the Dock badge (unread, waiting for input, interrupted).
 
