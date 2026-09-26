@@ -84,6 +84,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The context meter tooltip is shorter (no auto-compact note) and also shows your Claude
+  subscription limits with reset times.
+
 - Softer text: light grey instead of near-white, with dedicated sidebar text colours (brighter for
   the selected and unread chats).
 - ⌘B toggles the sidebar (⌘\\ still works).
