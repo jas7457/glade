@@ -6,13 +6,16 @@
  */
 import type {
   AgentEvent,
+  CompactResult,
   ModelInfo,
   ModelRef,
   PromptRequest,
   SessionState,
+  SlashCommand,
   ThinkingLevel,
   Transcript,
   UiResponse,
+  UsageLimits,
 } from "@pi-ui/protocol";
 
 export interface OpenSessionOptions {
@@ -40,6 +43,8 @@ export interface AgentHarness {
   deleteSession(sessionRef: string): Promise<void>;
   /** One-shot short title for a conversation. Returns `null` if unavailable. */
   generateTitle?(options: GenerateTitleOptions): Promise<string | null>;
+  /** Subscription/plan usage limits for the harness's current account, or `null` if unavailable. */
+  getUsageLimits?(): Promise<UsageLimits | null>;
   dispose(): Promise<void>;
 }
 
@@ -56,6 +61,12 @@ export interface HarnessSession {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setTitle(title: string): Promise<void>;
   respondToUi(response: UiResponse): void;
+  /** Harness-provided slash commands (extensions, skills, prompt templates). Built-ins are pi-ui's. */
+  listCommands?(): Promise<SlashCommand[]>;
+  /** Compact the conversation context. */
+  compact?(instructions?: string): Promise<CompactResult>;
+  /** Export the session to an HTML file; returns its path. */
+  exportHtml?(): Promise<string>;
   /** Subscribe to normalized events. Returns an unsubscribe function. */
   onEvent(listener: (event: AgentEvent) => void): () => void;
   /** Called once if the underlying agent dies unexpectedly. */

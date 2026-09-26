@@ -15,7 +15,19 @@ export interface SessionState {
   isCompacting: boolean;
   /** Messages queued while the agent is running. */
   queue: { steering: string[]; followUp: string[] };
+  /**
+   * Current context window usage. `tokens`/`percent` are `null` when unknown (e.g. right after
+   * compaction, until the next reply).
+   */
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+  /** Whole-session totals (all turns, incl. compaction/summaries). */
+  sessionStats?: SessionStats;
+}
+
+export interface SessionStats {
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  /** Total cost in USD (0 for subscription/local models that don't report cost). */
+  cost: number;
 }
 
 export function defaultSessionState(): SessionState {

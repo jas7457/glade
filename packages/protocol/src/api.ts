@@ -192,10 +192,61 @@ export type ServerMessage =
   | { type: "project_upsert"; project: Project }
   | { type: "project_removed"; projectId: string }
   | { type: "settings"; settings: Settings }
-  | { type: "models"; models: ModelInfo[] };
+  | { type: "models"; models: ModelInfo[] }
+  /** Subscription usage limits; `null` when unavailable (feature hidden). */
+  | { type: "usage_limits"; usage: UsageLimits | null };
 
 /** Client -> server messages over the WebSocket. */
 export type ClientMessage = { type: "viewing"; chatId: string | null };
 
 /** Result of `POST /api/fs/pick-folder` (native folder dialog on the server's machine). */
 export type PickFolderResponse = { path: string } | { cancelled: true };
+
+// ---------------------------------------------------------------------------------------------
+// Slash commands (I-016)
+// ---------------------------------------------------------------------------------------------
+
+export type SlashCommandSource = "builtin" | "extension" | "prompt" | "skill";
+
+export interface SlashCommand {
+  /** Without the leading slash, e.g. "compact" or "skill:web-design". */
+  name: string;
+  description?: string;
+  source: SlashCommandSource;
+  /** Short usage hint for arguments, e.g. "[instructions]". */
+  argsHint?: string;
+}
+
+export interface CompactResult {
+  tokensBefore: number;
+  /** Estimate; `null` if unknown. */
+  tokensAfter: number | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Subscription usage limits (I-015)
+// ---------------------------------------------------------------------------------------------
+
+export interface UsageLimit {
+  /** Stable id, e.g. "session", "weekly_all", "weekly_scoped:Fable". */
+  id: string;
+  /** Display label, e.g. "Current session", "This week", "Fable this week". */
+  label: string;
+  /** 0-100. */
+  percent: number;
+  /** ISO timestamp, or null if unknown. */
+  resetsAt: string | null;
+  severity: "normal" | "warning" | "critical";
+  /** This is the limit currently constraining usage. */
+  active: boolean;
+}
+
+export interface UsageLimits {
+  /** Which account/provider these limits belong to, e.g. "Claude subscription". */
+  source: string;
+  limits: UsageLimit[];
+  /** When the numbers were fetched (ms epoch). */
+  fetchedAt: number;
+  /** True when the last refresh failed/was skipped and these are older values. */
+  stale: boolean;
+}
