@@ -36,7 +36,9 @@ describe("formatResetsAt", () => {
     expect(formatResetsAt(at(2026, 8, 25, 18, 40), NOW)).toMatch(/^Resets at 6:40\sPM$/);
     expect(formatResetsAt(at(2026, 8, 26, 12, 0), NOW)).toMatch(/^Resets Saturday 12:00\sPM$/);
     expect(formatResetsAt(at(2026, 9, 1, 9, 5), NOW)).toMatch(/^Resets Thursday 9:05\sAM$/);
-    expect(formatResetsAt(at(2026, 9, 2, 12, 0), NOW)).toMatch(/^Resets Oct 2, 12:00\sPM$/);
+    expect(formatResetsAt(at(2026, 9, 2, 12, 0), NOW)).toMatch(/^Resets Friday 12:00\sPM$/); // exactly 7 days away
+    expect(formatResetsAt(at(2026, 9, 2, 23, 59), NOW)).toMatch(/^Resets Friday 11:59\sPM$/);
+    expect(formatResetsAt(at(2026, 9, 3, 0, 5), NOW)).toMatch(/^Resets Oct 3, 12:05\sAM$/);
     expect(formatResetsAt(at(2027, 0, 3, 9, 0), NOW)).toMatch(/^Resets Jan 3, 2027, 9:00\sAM$/);
   });
 

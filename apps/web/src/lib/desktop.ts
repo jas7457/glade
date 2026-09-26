@@ -13,7 +13,7 @@ export function isDesktop(): boolean {
 }
 
 /** Custom app-menu items (ids from apps/desktop/src-tauri/src/menu.rs). */
-export type MenuAction = "new-chat" | "settings" | "toggle-sidebar";
+export type MenuAction = "new-chat" | "settings" | "toggle-sidebar" | "command-palette";
 const MENU_EVENT = "pi-ui:menu";
 
 /** Listen for app-menu actions. Returns an unsubscribe function (safe to call immediately). */

@@ -20,8 +20,12 @@
   --color-selected: var(--pi-selected);
   --color-separator: var(--pi-separator);
   --color-fg: var(--pi-fg);
+  --color-fg-strong: var(--pi-fg-strong);
   --color-fg-muted: var(--pi-fg-muted);
   --color-fg-subtle: var(--pi-fg-subtle);
+  --color-sidebar-fg: var(--pi-sidebar-fg);
+  --color-sidebar-fg-strong: var(--pi-sidebar-fg-strong);
+  --color-sidebar-fg-muted: var(--pi-sidebar-fg-muted);
   --color-accent: var(--pi-accent);
   --color-accent-fg: var(--pi-accent-fg);
   --color-danger: var(--pi-danger);
@@ -43,9 +47,15 @@
   --pi-hover: rgb(0 0 0 / 0.05);
   --pi-selected: rgb(0 0 0 / 0.08);
   --pi-separator: rgb(0 0 0 / 0.1);
-  --pi-fg: rgb(0 0 0 / 0.88);
+  /* Body text is a soft black/grey rather than pure; headings and emphasis use fg-strong. */
+  --pi-fg: rgb(0 0 0 / 0.84);
+  --pi-fg-strong: rgb(0 0 0 / 0.9);
   --pi-fg-muted: rgb(0 0 0 / 0.55);
   --pi-fg-subtle: rgb(0 0 0 / 0.35);
+  /* Sidebar text: row labels, selected/unread rows (and hover), section headers + ages. */
+  --pi-sidebar-fg: rgb(0 0 0 / 0.75);
+  --pi-sidebar-fg-strong: rgb(0 0 0 / 0.88);
+  --pi-sidebar-fg-muted: rgb(0 0 0 / 0.48);
   --pi-accent: #007aff;
   --pi-accent-fg: #ffffff;
   --pi-danger: #ff3b30;
@@ -65,9 +75,13 @@
   --pi-hover: rgb(255 255 255 / 0.06);
   --pi-selected: rgb(255 255 255 / 0.1);
   --pi-separator: rgb(255 255 255 / 0.1);
-  --pi-fg: rgb(255 255 255 / 0.88);
+  --pi-fg: rgb(255 255 255 / 0.82);
+  --pi-fg-strong: rgb(255 255 255 / 0.9);
   --pi-fg-muted: rgb(255 255 255 / 0.55);
   --pi-fg-subtle: rgb(255 255 255 / 0.3);
+  --pi-sidebar-fg: rgb(255 255 255 / 0.72);
+  --pi-sidebar-fg-strong: rgb(255 255 255 / 0.9);
+  --pi-sidebar-fg-muted: rgb(255 255 255 / 0.45);
   --pi-accent: #0a84ff;
   --pi-accent-fg: #ffffff;
   --pi-danger: #ff453a;
@@ -146,13 +160,17 @@ html[data-desktop] [data-sidebar] {
 @keyframes pi-fade-in {
   from { opacity: 0; }
 }
+/*
+ * Keyframes animate `transform` only as an offset/scale on top of the element's resting place.
+ * Centring uses Tailwind v4's translate utilities (`-translate-x-1/2`), which set the separate
+ * CSS `translate` property; repeating the -50% here would double it for the animation's
+ * duration (panels opened shifted left, then jumped to the centre).
+ */
 @keyframes pi-sheet-in {
-  from { opacity: 0; transform: translate(-50%, -12px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(-12px); }
 }
 @keyframes pi-pop-in {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(1.06); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from { opacity: 0; transform: scale(1.06); }
 }
 @keyframes pi-toast-in {
   from { opacity: 0; transform: translateX(24px); }

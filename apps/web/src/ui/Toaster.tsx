@@ -34,7 +34,7 @@ export function Toaster() {
           >
             <Icon size={16} class={cn("mt-px shrink-0", iconClass)} />
             <div class="selectable min-w-0 flex-1 text-[0.92rem] leading-snug break-words text-fg">
-              {t.title && <div class="font-semibold">{t.title}</div>}
+              {t.title && <div class="font-semibold text-fg-strong">{t.title}</div>}
               <div class={cn(t.title && "text-fg-muted")}>{t.message}</div>
             </div>
             {t.action && (

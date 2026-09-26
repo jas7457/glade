@@ -29,7 +29,7 @@ export function SettingsView({ section }: { section: SettingsSection }) {
       <Titlebar />
       <div class="min-h-0 flex-1 overflow-y-auto">
         <div class="mx-auto w-full max-w-[640px] px-8 pb-10">
-          <h1 class="mb-5 text-[1.3rem] font-bold">{SECTION_INFO[section].label}</h1>
+          <h1 class="mb-5 text-[1.3rem] font-bold text-fg-strong">{SECTION_INFO[section].label}</h1>
           <Panel />
         </div>
       </div>

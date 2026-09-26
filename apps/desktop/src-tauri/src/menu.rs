@@ -1,6 +1,7 @@
 //! The macOS menu bar. Standard items (Edit, Window, Quit…) are predefined native items; the
 //! app-specific ones are forwarded to the web app as a `pi-ui:menu` event whose payload is the
-//! item id (`new-chat`, `settings`, `toggle-sidebar`).
+//! item id (`new-chat`, `settings`, `toggle-sidebar`, `command-palette`); the web app maps them in
+//! `apps/web/src/app/shortcuts.ts` (`MENU_ACTIONS`).
 
 use tauri::menu::{AboutMetadata, Menu, MenuEvent, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter};
@@ -8,13 +9,16 @@ use tauri::{AppHandle, Emitter};
 use crate::{focus_main, MAIN_WINDOW};
 
 pub const MENU_EVENT: &str = "pi-ui:menu";
-const APP_ACTIONS: [&str; 3] = ["new-chat", "settings", "toggle-sidebar"];
+const APP_ACTIONS: [&str; 4] = ["new-chat", "settings", "toggle-sidebar", "command-palette"];
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let settings = MenuItemBuilder::with_id("settings", "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
     let new_chat = MenuItemBuilder::with_id("new-chat", "New Chat").accelerator("CmdOrCtrl+N").build(app)?;
     let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", "Toggle Sidebar")
-        .accelerator("CmdOrCtrl+\\")
+        .accelerator("CmdOrCtrl+B")
+        .build(app)?;
+    let command_palette = MenuItemBuilder::with_id("command-palette", "Command Palette…")
+        .accelerator("CmdOrCtrl+K")
         .build(app)?;
 
     let about = AboutMetadata {
@@ -46,7 +50,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .paste()
         .select_all()
         .build()?;
-    let view = SubmenuBuilder::new(app, "View").item(&toggle_sidebar).separator().fullscreen().build()?;
+    let view = SubmenuBuilder::new(app, "View")
+        .item(&command_palette)
+        .item(&toggle_sidebar)
+        .separator()
+        .fullscreen()
+        .build()?;
     let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().close_window().build()?;
     #[cfg(target_os = "macos")]
     let _ = window.set_as_windows_menu_for_nsapp();

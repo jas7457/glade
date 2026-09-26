@@ -45,7 +45,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
           )}
         >
           <div class="px-5 pt-4 pb-1">
-            <RadixDialog.Title class="text-[1.08rem] font-semibold">{title}</RadixDialog.Title>
+            <RadixDialog.Title class="text-[1.08rem] font-semibold text-fg-strong">{title}</RadixDialog.Title>
             {description ? (
               <RadixDialog.Description class="mt-1 text-fg-muted">{description}</RadixDialog.Description>
             ) : (

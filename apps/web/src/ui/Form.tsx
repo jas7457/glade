@@ -24,7 +24,7 @@ export function FormGroup({ title, footer, actions, children, class: className }
     <section class={cn("mb-6", className)}>
       {(title || actions) && (
         <div class="mb-1.5 flex min-h-6 items-end justify-between gap-2 px-1">
-          {title && <h2 class="text-[1rem] font-semibold text-fg">{title}</h2>}
+          {title && <h2 class="text-[1rem] font-semibold text-fg-strong">{title}</h2>}
           {actions && <div class="flex items-center gap-1.5">{actions}</div>}
         </div>
       )}

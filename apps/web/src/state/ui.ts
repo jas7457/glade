@@ -1,6 +1,6 @@
 /**
  * App-shell UI state that isn't server data: sidebar width/collapse (persisted in
- * localStorage), collapsed project groups, and the "Add project" dialog.
+ * localStorage), collapsed project groups, the "Add project" dialog and the command palette.
  */
 import { effect, signal } from "@preact/signals";
 
@@ -66,4 +66,10 @@ export function setProjectOpen(projectId: string, open: boolean): void {
 export const addProjectOpen = signal(false);
 export function openAddProject(): void {
   addProjectOpen.value = true;
+}
+
+/** Whether the command palette (⌘K) is showing. */
+export const paletteOpen = signal(false);
+export function togglePalette(): void {
+  paletteOpen.value = !paletteOpen.value;
 }

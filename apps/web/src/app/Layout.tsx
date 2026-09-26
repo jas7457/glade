@@ -1,22 +1,24 @@
 /**
  * App layout route: resizable/collapsible sidebar + main pane (<Outlet/>), status banners,
- * global shortcuts and dialogs hosted at the root.
+ * global shortcuts, the command palette and dialogs hosted at the root.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AlertTriangle, PanelLeft } from "lucide-preact";
 import { connectionStatus } from "@/lib/socket";
 import { cn } from "@/lib/cn";
-import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "@/ui";
+import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
 import { chatsById, initError, initialized, loadAll } from "@/state/store";
-import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar } from "@/state/ui";
+import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar, togglePalette } from "@/state/ui";
 import { currentChatId, setChatOpener } from "@/state/attention";
 import { Sidebar } from "@/features/sidebar";
 import { AddProjectHost } from "@/features/projects";
 import { rememberAppPath } from "@/features/settings";
+import { Palette } from "@/features/palette";
+import { globalCommands } from "./commands";
 import { routeContext } from "./paths";
-import { chatPath, routes } from "./routes";
-import { useGlobalShortcuts } from "./shortcuts";
+import { chatPath } from "./routes";
+import { SHORTCUTS, useGlobalShortcuts } from "./shortcuts";
 
 function ResizeHandle() {
   const start = useRef<{ x: number; width: number } | null>(null);
@@ -99,11 +101,8 @@ export function Layout() {
   }, [location.pathname, ctx.chatId]);
   useEffect(() => setChatOpener((chat) => navigate(chatPath(chat))), [navigate]);
 
-  useGlobalShortcuts({
-    newChat: () => navigate(ctx.projectId ? routes.project(ctx.projectId) : routes.home()),
-    settings: () => navigate(routes.settings()),
-    toggleSidebar,
-  });
+  const commandContext = { navigate: (path: string) => navigate(path), route: ctx };
+  useGlobalShortcuts(globalCommands({ ...commandContext, togglePalette }));
 
   if (!initialized.value) {
     return (
@@ -119,7 +118,7 @@ export function Layout() {
         <aside
           data-sidebar
           style={{ width: `${sidebarWidth.value}px` }}
-          class="relative flex h-full shrink-0 flex-col border-r border-separator bg-sidebar/90 backdrop-blur-2xl"
+          class="relative flex h-full shrink-0 flex-col border-r border-separator bg-sidebar/90 text-sidebar-fg backdrop-blur-2xl"
         >
           <Sidebar />
           <ResizeHandle />
@@ -131,7 +130,7 @@ export function Layout() {
       >
         {collapsed && (
           <div class="absolute z-20 flex items-center" style={{ left: `${TRAFFIC_LIGHTS_WIDTH}px`, top: 0, height: `${TITLEBAR_HEIGHT}px` }}>
-            <IconButton size="sm" label="Show Sidebar (⌘\)" onClick={toggleSidebar}>
+            <IconButton size="sm" label={`Show Sidebar (${formatShortcut(SHORTCUTS["toggle-sidebar"])})`} onClick={toggleSidebar}>
               <PanelLeft />
             </IconButton>
           </div>
@@ -142,6 +141,7 @@ export function Layout() {
         </div>
       </main>
       <AddProjectHost />
+      <Palette context={commandContext} />
     </div>
   );
 }

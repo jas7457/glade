@@ -34,3 +34,4 @@ export { SIDEBAR_METRICS, sidebarClass, type SidebarIndent } from "./sidebar-met
 export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./StatusIndicator";
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
 export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";
+export { CommandPalette, type CommandPaletteProps, type CommandPaletteItem, type CommandPaletteSection } from "./CommandPalette";

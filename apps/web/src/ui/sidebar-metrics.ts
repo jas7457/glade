@@ -3,7 +3,8 @@
  * SidebarList, SidebarGroup) so the app sidebar and the settings sidebar line up exactly.
  *
  * `SIDEBAR_METRICS` documents the values in px; `sidebarClass` holds the matching Tailwind
- * classes (literal strings so Tailwind picks them up). Change both together.
+ * classes (literal strings so Tailwind picks them up). Change both together. It also names the
+ * sidebar text-colour classes so every sidebar row uses the same `--pi-sidebar-fg*` tokens.
  */
 
 export const SIDEBAR_METRICS = {
@@ -36,6 +37,12 @@ export const sidebarClass = {
   paddingX: "px-2.5",
   inset: ["pl-2", "pl-5"],
   labelInset: ["pl-8", "pl-11"],
+  /** Text colours (tokens in styles.css): row labels, selected/unread rows, headers + ages + icons. */
+  fg: "text-sidebar-fg",
+  fgStrong: "text-sidebar-fg-strong",
+  fgMuted: "text-sidebar-fg-muted",
+  /** Rows brighten slightly on hover. */
+  fgHover: "hover:text-sidebar-fg-strong",
 } as const;
 
 export type SidebarIndent = 0 | 1;

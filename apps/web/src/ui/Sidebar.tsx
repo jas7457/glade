@@ -46,7 +46,7 @@ export interface SidebarGroupProps {
   class?: string;
 }
 
-const headerLabelClass = "min-w-0 flex-1 truncate text-[0.85rem] font-semibold text-fg-subtle";
+const headerLabelClass = cn("min-w-0 flex-1 truncate text-[0.85rem] font-semibold", sidebarClass.fgMuted);
 
 export function SidebarGroup({
   title,

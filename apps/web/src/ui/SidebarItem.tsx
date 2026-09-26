@@ -44,7 +44,7 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
       {leading}
     </span>
   );
-  const iconSlot = icon && <span class="flex w-4 shrink-0 justify-center text-fg-muted [&_svg]:size-4">{icon}</span>;
+  const iconSlot = icon && <span class={cn("flex w-4 shrink-0 justify-center [&_svg]:size-4", sidebarClass.fgMuted)}>{icon}</span>;
   return (
     <div
       ref={ref}
@@ -52,8 +52,8 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
       class={cn(
         "group/item relative flex items-center",
         sidebarClass.row,
-        " rounded-[6px] text-[1rem] text-fg",
-        selected ? "bg-selected" : "hover:bg-hover",
+        "rounded-[6px] text-[1rem]",
+        selected ? cn("bg-selected", sidebarClass.fgStrong) : cn("hover:bg-hover", sidebarClass.fg, sidebarClass.fgHover),
         "data-[state=open]:ring-2 data-[state=open]:ring-accent/60 data-[state=open]:ring-inset",
         className as string,
       )}
@@ -78,12 +78,12 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
         >
           {leadingSlot}
           {iconSlot}
-          <span class={cn("min-w-0 flex-1 truncate", strong && "font-semibold")}>{label}</span>
+          <span class={cn("min-w-0 flex-1 truncate", strong && cn("font-semibold", sidebarClass.fgStrong))}>{label}</span>
           {trailing && (
             <span
               data-slot="trailing"
               class={cn(
-                "flex shrink-0 items-center gap-1.5 text-[0.85rem] text-fg-subtle tabular-nums",
+                cn("flex shrink-0 items-center gap-1.5 text-[0.85rem] tabular-nums", sidebarClass.fgMuted),
                 actions && "group-hover/item:invisible",
                 actions && actionsVisible && "invisible",
               )}

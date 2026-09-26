@@ -73,7 +73,7 @@ function startOfDay(t: number): number {
 }
 
 /**
- * "Resets at 6:40 PM" (today), "Resets Saturday 12:00 PM" (within a week), "Resets Oct 12,
+ * "Resets at 6:40 PM" (today), "Resets Saturday 12:00 PM" (up to 7 calendar days away), "Resets Oct 12,
  * 9:00 AM" (later), in local time. `null` if unknown.
  */
 export function formatResetsAt(iso: string | null, now = Date.now()): string | null {
@@ -84,7 +84,8 @@ export function formatResetsAt(iso: string | null, now = Date.now()): string | n
   const date = new Date(t);
   const days = Math.round((startOfDay(t) - startOfDay(now)) / 86_400_000);
   if (days <= 0) return `Resets at ${time(date)}`;
-  if (days < 7) return `Resets ${date.toLocaleDateString(undefined, { weekday: "long" })} ${time(date)}`;
+  // Up to 7 calendar days: a weekly limit resets on the same weekday next week (Claude says so too).
+  if (days <= 7) return `Resets ${date.toLocaleDateString(undefined, { weekday: "long" })} ${time(date)}`;
   const sameYear = date.getFullYear() === new Date(now).getFullYear();
   const day = date.toLocaleDateString(undefined, sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
   return `Resets ${day}, ${time(date)}`;

@@ -15,11 +15,6 @@ export interface Project {
   name: string;
   /** Absolute folder path on disk. Chats in this project run with this as cwd. */
   path: string;
-  /**
-   * @deprecated Project pinning is being removed (I-019): projects are ordered manually via
-   * `sortOrder`. Kept temporarily so existing code compiles; do not use in new code.
-   */
-  pinned?: boolean;
   /** Manual position in the sidebar (ascending). New projects get the lowest value (top). */
   sortOrder: number;
   createdAt: number;

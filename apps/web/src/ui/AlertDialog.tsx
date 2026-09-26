@@ -68,7 +68,7 @@ export function AlertDialog({ open, onResult, title, message, confirmLabel = "OK
             "animate-[pi-pop-in_150ms_ease-out] dark:ring-1 dark:ring-white/10",
           )}
         >
-          <RadixAlert.Title class="text-[1rem] font-semibold">{title}</RadixAlert.Title>
+          <RadixAlert.Title class="text-[1rem] font-semibold text-fg-strong">{title}</RadixAlert.Title>
           <RadixAlert.Description class={cn("mt-1.5 text-[0.92rem] text-fg-muted", !message && "sr-only")}>
             {message ?? title}
           </RadixAlert.Description>

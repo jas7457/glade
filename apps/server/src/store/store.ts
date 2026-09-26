@@ -34,9 +34,11 @@ export class Store {
    * a `pinOrder` the same way, per list. Writes only when something changed.
    */
   private migrate(): void {
-    const projects = this.listProjects();
+    /** Shape of projects written before I-019 (may have `pinned`, may lack `sortOrder`). */
+    type LegacyProject = Project & { pinned?: boolean };
+    const projects = this.listProjects() as LegacyProject[];
     if (projects.some((p) => typeof p.sortOrder !== "number" || "pinned" in p)) {
-      const byPrevious = (a: Project, b: Project) =>
+      const byPrevious = (a: LegacyProject, b: LegacyProject) =>
         Number(b.pinned ?? false) - Number(a.pinned ?? false) || b.lastActivityAt - a.lastActivityAt;
       const ordered = projects.filter((p) => typeof p.sortOrder === "number");
       let next = ordered.length ? Math.max(...ordered.map((p) => p.sortOrder)) + 1 : 0;

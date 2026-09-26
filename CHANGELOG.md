@@ -75,7 +75,14 @@ Every entry corresponds to a ticked item in PLAN.md.
 - "Open in VS Code" button on project chats and the project's new-chat screen.
 - Only one pi-ui server can use the data folder at a time; a second one explains what's running.
 
+- ⌘K command palette: jump to any chat or project, or run actions (new chat, add project,
+  settings, theme, rename/pin/delete the current chat…).
+
 ### Changed
+
+- Softer text: light grey instead of near-white, with dedicated sidebar text colours (brighter for
+  the selected and unread chats).
+- ⌘B toggles the sidebar (⌘\\ still works).
 
 - The sidebar no longer reorders when messages arrive: projects keep their manual order, chats are
   newest-created first with pinned chats on top.
@@ -92,6 +99,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- Dialogs no longer open off to the left and then jump to the centre.
+- The usage gauge says the weekday ("Resets Saturday") for resets a week away.
 
 - Large photos can be attached: images are shrunk to the model's limits before sending
   (e.g. an 11 MB phone photo goes out as about 200 KB), and anything still too big gets a clear message.
