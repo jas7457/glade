@@ -1,6 +1,7 @@
 /**
  * Server entry point: wires config, store, harness, AppService and the HTTP/WebSocket app.
  * Harnesses are registered here (`PI_UI_HARNESS=fake` selects the fake one for UI work).
+ * The desktop app runs a bundled copy of this file (see apps/desktop/scripts/bundle-server.mjs).
  */
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -32,7 +33,7 @@ const service = new AppService({ store, harness, scratchDir: config.scratchDir, 
 const { app, injectWebSocket } = createApp({
   service,
   security: { mode: "loopback" },
-  staticDir: fileURLToPath(new URL("../../web/dist", import.meta.url)),
+  staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
@@ -58,3 +59,9 @@ async function shutdown(signal: string): Promise<void> {
 }
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+if (config.exitOnStdinClose) {
+  // The desktop app holds our stdin; if it exits or crashes, the pipe closes and we follow.
+  process.stdin.on("end", () => void shutdown("stdin closed"));
+  process.stdin.on("error", () => void shutdown("stdin closed"));
+  process.stdin.resume();
+}

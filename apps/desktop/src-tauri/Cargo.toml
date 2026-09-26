@@ -1,0 +1,29 @@
+[package]
+name = "pi-ui"
+version = "0.1.0"
+description = "Desktop shell for pi-ui"
+edition = "2021"
+publish = false
+
+[lib]
+name = "pi_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+libc = "0.2.189"
+serde_json = "1.0.151"
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+window-vibrancy = "0.8.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

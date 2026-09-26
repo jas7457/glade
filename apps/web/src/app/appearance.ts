@@ -1,10 +1,12 @@
 /**
  * Applies settings.appearance to <html>: `data-theme` (light/dark, following the OS live when
  * set to "system") and `data-font-size`. styles.css keys all tokens off these attributes.
+ * In the desktop app the native window theme follows too.
  */
 import { effect, signal } from "@preact/signals";
 import type { Settings } from "@pi-ui/protocol";
 import { settings } from "@/state/store";
+import { setWindowTheme } from "@/lib/desktop";
 
 export function resolveTheme(theme: Settings["appearance"]["theme"], prefersDark: boolean): "light" | "dark" {
   if (theme === "system") return prefersDark ? "dark" : "light";
@@ -23,5 +25,10 @@ export function startAppearanceSync(root: HTMLElement = document.documentElement
     const { theme, fontSize } = settings.value.appearance;
     root.dataset.theme = resolveTheme(theme, prefersDark.value);
     root.dataset.fontSize = fontSize;
+  });
+  // Desktop app: native chrome (traffic lights, sidebar vibrancy) follows the chosen theme.
+  effect(() => {
+    const { theme } = settings.value.appearance;
+    void setWindowTheme(theme === "system" ? null : theme).catch(() => {});
   });
 }

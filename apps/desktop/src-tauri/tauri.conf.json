@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pi-ui",
+  "version": "0.1.0",
+  "identifier": "io.github.jas7457.pi-ui",
+  "build": {
+    "devUrl": "http://127.0.0.1:5317",
+    "frontendDist": "../splash",
+    "beforeDevCommand": { "script": "node scripts/dev-servers.mjs", "cwd": "..", "wait": false },
+    "beforeBuildCommand": { "script": "node scripts/bundle-server.mjs", "cwd": ".." }
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "pi-ui",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 420,
+        "center": true,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 20 },
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "DeveloperTool",
+    "copyright": "",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"],
+    "resources": { "../dist-bundle/": "app/" },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

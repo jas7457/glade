@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
 
+const desktop = vi.hoisted(() => ({ isDesktop: vi.fn(() => false), pickFolderNative: vi.fn() }));
+vi.mock("./desktop", () => desktop);
+
 import { pickFolder } from "./native";
 
 const json = (status: number, body: unknown) =>
@@ -25,5 +28,21 @@ describe("pickFolder", () => {
     expect(await pickFolder()).toEqual({ unavailable: true });
     fetchMock.mockResolvedValueOnce(json(500, { error: "boom" }));
     await expect(pickFolder()).rejects.toThrow("boom");
+  });
+});
+
+describe("pickFolder in the desktop app", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    desktop.isDesktop.mockReturnValue(true);
+  });
+
+  it("uses the native dialog instead of the server", async () => {
+    desktop.pickFolderNative.mockResolvedValueOnce("/Users/me/proj");
+    expect(await pickFolder({ prompt: "Pick" })).toEqual({ path: "/Users/me/proj" });
+    expect(desktop.pickFolderNative).toHaveBeenCalledWith({ prompt: "Pick" });
+    desktop.pickFolderNative.mockResolvedValueOnce(null);
+    expect(await pickFolder()).toEqual({ cancelled: true });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

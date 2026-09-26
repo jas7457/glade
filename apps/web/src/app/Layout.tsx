@@ -117,6 +117,7 @@ export function Layout() {
     <div class="flex h-full min-h-0">
       {!collapsed && (
         <aside
+          data-sidebar
           style={{ width: `${sidebarWidth.value}px` }}
           class="relative flex h-full shrink-0 flex-col border-r border-separator bg-sidebar/90 backdrop-blur-2xl"
         >

@@ -54,6 +54,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Create Project dialog like Codex: name the project and choose its folder with the native macOS
   folder picker. The name fills in from the folder unless you've typed one.
 
+- pi-ui as a Mac app: `pnpm tauri:install` builds it and installs it in /Applications. It starts
+  its own server, finds your node and pi automatically, and has native traffic lights, a
+  translucent sidebar, the native folder picker, notifications, a dock badge with chats needing
+  attention, and a proper menu bar. Closing the window keeps agents running; ⌘Q quits.
+- `pnpm tauri:dev` opens the desktop window on the live dev server.
+
 ### Changed
 
 - The chat header no longer shows the working folder path, just the title and project.

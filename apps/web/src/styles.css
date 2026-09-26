@@ -125,6 +125,20 @@
   }
 }
 
+/*
+ * Desktop app (<html data-desktop>, set in index.html): the window is transparent with native
+ * sidebar vibrancy behind it, so the page and sidebar let it show through; the main pane keeps
+ * its opaque bg-window. Unlayered so it beats the utilities.
+ */
+html[data-desktop],
+html[data-desktop] body {
+  background: transparent;
+}
+html[data-desktop] [data-sidebar] {
+  background: color-mix(in srgb, var(--pi-sidebar) 25%, transparent);
+  backdrop-filter: none;
+}
+
 /* Motion used by ui/ primitives (kept subtle, like AppKit). */
 @keyframes pi-spin {
   to { transform: rotate(360deg); }

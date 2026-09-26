@@ -17,6 +17,7 @@
 | `packages/protocol` | Harness-agnostic types: models, transcript, `AgentEvent`, REST/WS payloads, reducer. |
 | `apps/server`       | Node server. Owns agent processes and app data. Binds to 127.0.0.1:4317.             |
 | `apps/web`          | Preact UI. Vite dev server on 127.0.0.1:5317 proxies `/api` and `/ws`.               |
+| `apps/desktop`      | Tauri v2 macOS shell (`src-tauri/`): runs the bundled server, native chrome/menus.   |
 
 ## Harnesses
 
@@ -35,6 +36,30 @@ never see harness-native data. To add a harness: implement the two interfaces un
 - Tool results are folded into `transcript.toolResults[toolCallId]` rather than shown as messages.
 - Extension UI: `select/confirm/input/editor` → `ui_request` dialogs; `notify` → toast;
   `setStatus/setWidget/setTitle` are ignored for now.
+- Context usage: `get_session_stats` after init, `turn_end`, `agent_settled`, `compaction_end` and
+  model changes (one request in flight, extra triggers coalesce) → `state` with `contextUsage` +
+  `sessionStats`. `compaction_end` adds a transcript notice ("Compacted context: 150k → 32k tokens").
+- `listCommands` = `get_commands` (cached per process), `compact` = RPC `compact` (5-min timeout),
+  `exportHtml` = `export_html` into `~/Downloads` (pi's default would write into the project).
+
+## Slash commands
+
+Typing `/` at the start of the composer opens a menu (filtered on name + description, grouped
+Built-in / Extensions / Skills / Prompts). Two kinds of command:
+
+- **Built-ins** are pi-ui's own and are defined in one registry,
+  `apps/web/src/features/chat/slash/builtins.ts` (name, description, args hint, and a `run`
+  function). They run in the browser via the API or navigation and never reach the agent as text:
+  `/compact [instructions]`, `/new`, `/name <title>`, `/model [query]`, `/thinking [level]`,
+  `/export`, `/stats`, `/settings`. pi's own TUI commands aren't available over RPC, which is
+  why these exist.
+- **Harness commands** come from `GET /api/chats/:id/commands` (pi: `get_commands`), are cached
+  in the chat store (`commands` signal, fetched once per chat when it opens) and are sent as a
+  normal prompt; pi expands skills/templates and runs extension commands itself.
+
+The server returns harness commands only and the web merges them after its built-ins (a harness
+command with a built-in's name is hidden). The new-chat composer has no agent yet, so it offers
+only built-ins that don't need a chat (`/model`, `/thinking`, `/settings`).
 
 ## Data on disk
 
@@ -70,6 +95,10 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | PUT    | `/chats/:id/model`            | `ModelRef` → 204                               |
 | PUT    | `/chats/:id/thinking`         | `{ level }` → 204                              |
 | POST   | `/chats/:id/ui-response`      | `UiResponse` → 204                             |
+| GET    | `/chats/:id/commands`         | → `SlashCommand[]`: the harness's commands only (extensions, skills, prompts); built-ins live in the web app |
+| POST   | `/chats/:id/compact`          | `{ instructions? }` (body optional) → `CompactResult`; 409 while a reply is running |
+| POST   | `/chats/:id/export`           | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
+| POST   | `/fs/reveal`                  | `{ path }` → 204; reveals a file this server exported in Finder (404 for other paths, 501 off macOS) |
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
@@ -115,7 +144,28 @@ loopback. Remote access (a later phase) will add a token and configurable bind a
 Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in project),
 `/projects/:projectId/chats/:chatId`, `/settings/:section`.
 
+## Desktop app (`apps/desktop`)
+
+- `pnpm tauri:build` runs `scripts/bundle-server.mjs` (web build + esbuild bundle of the server
+  into one `server.mjs`), staged in `dist-bundle/` and shipped as the `app/` resource.
+- On launch (`src-tauri/src/server.rs`) the app resolves `node`/`pi` via `$SHELL -ilc` (falling
+  back to nvm/Homebrew dirs), starts `node server.mjs` on a free loopback port with the login
+  shell's PATH, `PI_UI_STATIC_DIR` and `PI_UI_EXIT_ON_STDIN_CLOSE=1`, waits for `GET /api/settings`,
+  then navigates the window there (same origin, so the loopback Host/Origin checks pass). Quit
+  sends SIGTERM; if the app dies, the closed stdin pipe stops the server. Log:
+  `~/Library/Logs/io.github.jas7457.pi-ui/server.log`. Missing node/pi → native error dialog.
+- `pnpm tauri:dev` loads the Vite dev server instead and starts no bundled server
+  (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
+- Web side: `lib/desktop.ts` is the only bridge (dynamic `@tauri-apps/*` imports, no-ops in a
+  browser); `<html data-desktop>` switches the page/sidebar to transparent over the window's
+  vibrancy. Menu items emit `pi-ui:menu` events handled by `useGlobalShortcuts`.
+- Closing the window hides it (agents keep running); the Dock icon reopens it; ⌘Q quits.
+
 ## Decisions
+
+- **Desktop runs the user's own Node** (2026-09-26): the server ships as one esbuild bundle run
+  with the `node` found through the login shell (pi needs Node anyway), keeping the app small.
+  Alternative if we ever drop the Node requirement: a compiled sidecar (Node SEA / bun).
 
 - **No archiving; deletes are permanent** (2026-09-26). A chat is either in the sidebar or gone.
   Deleting stops its agent (waiting for the process to exit so it can't rewrite the file) and

@@ -1,8 +1,10 @@
 /**
  * Global keyboard shortcuts: ⌘N new chat, ⌘, settings, ⌘\ toggle sidebar.
- * (Ctrl is accepted in place of ⌘ on non-Mac platforms.)
+ * (Ctrl is accepted in place of ⌘ on non-Mac platforms.) In the desktop app the same actions
+ * also arrive from the native menu bar.
  */
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
+import { onMenuAction, type MenuAction } from "@/lib/desktop";
 
 export interface ShortcutHandlers {
   newChat: () => void;
@@ -25,7 +27,16 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey"
   }
 }
 
+const MENU_ACTIONS: Record<MenuAction, keyof ShortcutHandlers> = {
+  "new-chat": "newChat",
+  settings: "settings",
+  "toggle-sidebar": "toggleSidebar",
+};
+
 export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
+  const latest = useRef(handlers);
+  latest.current = handlers;
+  useEffect(() => onMenuAction((action) => latest.current[MENU_ACTIONS[action]]()), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const action = shortcutFor(e);

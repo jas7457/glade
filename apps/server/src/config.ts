@@ -23,6 +23,10 @@ export interface ServerConfig {
   port: number;
   /** Which harness to use for new chats. */
   harness: "pi" | "fake";
+  /** Built web app to serve (`PI_UI_STATIC_DIR`); defaults to `apps/web/dist` in the repo. */
+  staticDir?: string;
+  /** Exit when stdin closes (`PI_UI_EXIT_ON_STDIN_CLOSE=1`): the desktop app's lifeline. */
+  exitOnStdinClose: boolean;
 }
 
 export function loadConfig(): ServerConfig {
@@ -34,5 +38,7 @@ export function loadConfig(): ServerConfig {
     host: process.env.PI_UI_HOST ?? "127.0.0.1",
     port: Number(process.env.PI_UI_PORT ?? 4317),
     harness: process.env.PI_UI_HARNESS === "fake" ? "fake" : "pi",
+    staticDir: process.env.PI_UI_STATIC_DIR || undefined,
+    exitOnStdinClose: process.env.PI_UI_EXIT_ON_STDIN_CLOSE === "1",
   };
 }

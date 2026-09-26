@@ -3,6 +3,7 @@
  * browser (talking to the local server) or inside the Tauri shell.
  */
 import { api, ApiRequestError } from "./api";
+import { isDesktop, pickFolderNative } from "./desktop";
 
 export interface PickFolderOptions {
   /** Text shown in the dialog. */
@@ -20,12 +21,11 @@ export type PickFolderResult = { path: string } | { cancelled: true } | { unavai
 
 /** Show the native "choose folder" dialog. Throws for unexpected failures. */
 export async function pickFolder(options: PickFolderOptions = {}): Promise<PickFolderResult> {
-  // TODO(tauri): when running inside the Tauri shell, use the dialog plugin instead of the server:
-  //   if ("__TAURI_INTERNALS__" in window) {
-  //     const { open } = await import("@tauri-apps/plugin-dialog");
-  //     const path = await open({ directory: true, title: options.prompt, defaultPath: options.defaultPath });
-  //     return typeof path === "string" ? { path } : { cancelled: true };
-  //   }
+  // Desktop app: the window's own sheet-style dialog (plugin-dialog) instead of the server.
+  if (isDesktop()) {
+    const path = await pickFolderNative(options);
+    return path ? { path } : { cancelled: true };
+  }
   try {
     return await api.pickFolder(options);
   } catch (err) {

@@ -13,7 +13,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "tauri:dev": "pnpm --filter @pi-ui/desktop tauri dev",
+    "tauri:build": "pnpm --filter @pi-ui/desktop tauri build --bundles app",
+    "tauri:install": "node apps/desktop/scripts/install.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",

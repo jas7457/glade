@@ -7,3 +7,5 @@ coverage/
 !.env.example
 *.tsbuildinfo
 apps/desktop/src-tauri/target/
+apps/desktop/dist-bundle/
+apps/desktop/src-tauri/gen/schemas/

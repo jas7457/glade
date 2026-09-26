@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  Shown while the desktop app starts its bundled server; the Rust side then navigates the window
+  to http://127.0.0.1:<port>/. If startup fails, Rust calls window.__piShowError(message).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>pi-ui</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+        font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        color: #6e6e73; background: #fff; -webkit-user-select: none; user-select: none; cursor: default;
+      }
+      @media (prefers-color-scheme: dark) { body { background: #1e1e1e; color: #a1a1a6; } }
+      .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; opacity: .6; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      #error { display: none; max-width: 520px; padding: 0 24px; text-align: center; }
+      #error h1 { font-size: 15px; font-weight: 600; margin: 0 0 8px; color: CanvasText; }
+      #error pre { white-space: pre-wrap; text-align: left; font: 11px ui-monospace, Menlo, monospace; -webkit-user-select: text; user-select: text; }
+      .drag { position: fixed; top: 0; left: 0; right: 0; height: 36px; }
+    </style>
+  </head>
+  <body>
+    <div class="drag" data-tauri-drag-region></div>
+    <div id="loading" style="display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div class="spinner"></div>
+      <div>Starting pi-ui…</div>
+    </div>
+    <div id="error"><h1>pi-ui couldn't start</h1><pre id="message"></pre></div>
+    <script>
+      window.__piShowError = function (message) {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("error").style.display = "block";
+        document.getElementById("message").textContent = message;
+      };
+    </script>
+  </body>
+</html>

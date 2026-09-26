@@ -7,10 +7,12 @@
  *  - `alertChannel(ctx)` (pure) picks where to show it: a system Notification when the window
  *    is hidden/unfocused, an in-app toast when you're in the app but viewing another chat,
  *    nothing when that chat is already on screen.
- *  - `startAttentionSync()` wires both to the `chats` signal and keeps document.title updated.
+ *  - `startAttentionSync()` wires both to the `chats` signal and keeps document.title (and, in
+ *    the desktop app, the Dock badge) updated. The desktop app uses native notifications.
  */
 import { computed, effect, signal, untracked } from "@preact/signals";
 import { needsAttention, type ChatSummary } from "@pi-ui/protocol";
+import { isDesktop, nativeNotificationPermission, sendNativeNotification, setDockBadge } from "@/lib/desktop";
 import { chats, chatsById, settings } from "./store";
 import { showToast } from "./toasts";
 
@@ -65,6 +67,13 @@ export function windowTitle(attention: number, chatTitle?: string | null): strin
 
 /** Ask for notification permission if it hasn't been decided yet. */
 export async function ensureNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (isDesktop()) {
+    try {
+      return await nativeNotificationPermission(true);
+    } catch {
+      return "unsupported";
+    }
+  }
   if (typeof Notification === "undefined") return "unsupported";
   if (Notification.permission === "default") {
     try {
@@ -101,7 +110,16 @@ function deliver(event: ChatAlertEvent): void {
     });
     return;
   }
-  if (!settings.value.general.notifyOnComplete || typeof Notification === "undefined") return;
+  if (!settings.value.general.notifyOnComplete) return;
+  if (isDesktop()) {
+    // Native notifications can't report clicks on macOS desktop; clicking focuses the app.
+    void nativeNotificationPermission(false)
+      .then((p) => (p === "granted" ? p : ensureNotificationPermission()))
+      .then((p) => (p === "granted" ? sendNativeNotification(title, body) : undefined))
+      .catch(() => {});
+    return;
+  }
+  if (typeof Notification === "undefined") return;
   const show = () => {
     const n = new Notification(title, { body, tag: `pi-ui-${event.chat.id}` });
     n.onclick = () => {
@@ -134,4 +152,9 @@ export function startAttentionSync(): void {
     const current = currentChatId.value ? chatsById.value.get(currentChatId.value) : null;
     document.title = windowTitle(attentionCount.value, current?.title);
   });
+  if (isDesktop()) {
+    effect(() => {
+      void setDockBadge(attentionCount.value).catch(() => {});
+    });
+  }
 }
