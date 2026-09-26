@@ -3,9 +3,13 @@
  */
 import { projectsById } from "@/state/store";
 import { TITLEBAR_HEIGHT } from "@/ui";
-import { shortenPath } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { columnClass } from "./Transcript";
+
+/** `/Users/me/src/x` → `~/src/x` (best effort; the server doesn't tell us $HOME). */
+export function shortenPath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}
 
 export function NewChatView({ projectId }: { projectId: string | null }) {
   const project = projectId ? projectsById.value.get(projectId) : undefined;

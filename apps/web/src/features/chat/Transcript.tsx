@@ -11,7 +11,7 @@ import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, Terminal, TriangleAle
 import type { ImageBlock, NoticeMessage, UserMessage } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
-import { Button, Spinner } from "@/ui";
+import { Button, Disclosure, Spinner } from "@/ui";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
@@ -130,7 +130,7 @@ function PartView({ part }: { part: TurnPart }) {
     case "image":
       return <ImageThumb image={part.image} class="my-1.5 max-h-80" />;
     case "error":
-      return <ErrorNotice kind={part.kind} message={part.message} />;
+      return <ErrorNotice kind={part.kind} message={part.message} details={part.details} />;
   }
 }
 
@@ -168,7 +168,7 @@ function ImageThumb({ image, class: className }: { image: ImageBlock; class?: st
   );
 }
 
-export function ErrorNotice({ kind, message }: { kind: "error" | "aborted"; message: string }) {
+export function ErrorNotice({ kind, message, details }: { kind: "error" | "aborted"; message: string; details?: string }) {
   if (kind === "aborted") {
     return (
       <div class="my-1.5 flex items-center gap-2 text-[0.92rem] text-fg-subtle">
@@ -183,7 +183,16 @@ export function ErrorNotice({ kind, message }: { kind: "error" | "aborted"; mess
       class="selectable my-2 flex items-start gap-2 rounded-[8px] border-[0.5px] border-danger/30 bg-danger/10 px-3 py-2 text-[0.95rem] text-danger"
     >
       <CircleAlert size={14} class="mt-[3px] shrink-0" />
-      <span class="min-w-0 break-words whitespace-pre-wrap">{message}</span>
+      <div class="min-w-0 flex-1">
+        <div class="break-words whitespace-pre-wrap">{message}</div>
+        {details && details !== message && (
+          <Disclosure label="Details" defaultOpen={false} class="-ml-1 mt-0.5 text-[0.88rem]">
+            <pre class="selectable mt-1 max-h-48 overflow-auto rounded-[6px] bg-code px-2 py-1.5 font-mono text-[0.85rem] leading-[1.45] whitespace-pre-wrap break-all text-fg-muted">
+              {details}
+            </pre>
+          </Disclosure>
+        )}
+      </div>
     </div>
   );
 }

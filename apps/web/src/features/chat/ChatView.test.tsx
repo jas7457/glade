@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/ui";
 import { chats, models, projects, settings } from "@/state/store";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { ChatView } from "./ChatView";
-import { shortenPath } from "./ChatHeader";
+import { shortenPath } from "./NewChatView";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -46,10 +46,19 @@ beforeEach(() => {
 });
 
 describe("ChatView", () => {
-  it("shows title and project / shortened cwd", () => {
+  it("shows title and project name, but not the working folder", () => {
     setup();
     expect(screen.getByRole("button", { name: "Fix the sidebar" })).toBeTruthy();
-    expect(screen.getByText(/app · ~\/src\/app/)).toBeTruthy();
+    expect(screen.getByText("app")).toBeTruthy();
+    expect(screen.queryByText(/src\/app/)).toBeNull();
+  });
+
+  it("shows no subtitle for standalone chats", () => {
+    chats.value = [{ ...chat, projectId: null, cwd: "/Users/me/Library/Application Support/pi-ui/scratch" }];
+    setup();
+    expect(screen.getByRole("button", { name: "Fix the sidebar" })).toBeTruthy();
+    expect(screen.queryByText(/scratch/)).toBeNull();
+    expect(screen.queryByText("app")).toBeNull();
   });
 
   it("renames inline: Enter saves, Escape cancels", async () => {
@@ -94,6 +103,25 @@ describe("ChatView", () => {
   it("shows a working indicator while running with nothing streaming", () => {
     setup(undefined, true);
     expect(screen.getAllByText("Working…").length).toBeGreaterThan(0);
+  });
+
+  it("shows a readable provider error with the raw text behind Details", async () => {
+    const raw = '400 {"type":"error","error":{"type":"invalid_request_error","message":"image exceeds 10 MB maximum"}}';
+    setup({
+      messages: [
+        { id: "u1", role: "user", content: [{ type: "text", text: "look" }], timestamp: 0 },
+        {
+          id: "a1", role: "assistant", timestamp: 0, stopReason: "error", content: [],
+          errorMessage: "Image exceeds 10 MB maximum", errorDetails: raw,
+        },
+      ],
+      toolResults: {},
+    });
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Image exceeds 10 MB maximum");
+    expect(screen.queryByText(raw)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    await waitFor(() => expect(screen.getByText(raw)).toBeTruthy());
   });
 
   it("shortens home paths", () => {

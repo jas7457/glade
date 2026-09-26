@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_IMAGE_LIMITS,
   applyAgentEvent,
   emptyTranscript,
   messageText,
@@ -117,5 +118,60 @@ describe("piThinkingLevels", () => {
     const models = (response("mod") as { models: Parameters<typeof translateModel>[0][] }).models.map(translateModel);
     expect(models.length).toBeGreaterThan(0);
     expect(models.find((m) => m.id === "claude-haiku-4-5")).toMatchObject({ provider: "anthropic", input: ["text", "image"] });
+  });
+});
+
+describe("translateModel image limits", () => {
+  const model = {
+    id: "claude-x",
+    provider: "anthropic",
+    input: ["text", "image"],
+    inputLimits: {
+      maxRequestBytes: 33554432,
+      images: { maxPerRequest: 600, resize: { maxWidth: 2000, maxHeight: 1800, maxBytes: 4718592, jpegQuality: 80 } },
+    },
+  };
+
+  it("maps pi's inputLimits.images.resize to imageLimits", () => {
+    expect(translateModel(model).imageLimits).toEqual({ maxWidth: 2000, maxHeight: 1800, maxBytes: 4718592, jpegQuality: 80 });
+  });
+
+  it("fills missing fields with defaults and omits limits when pi reports none", () => {
+    const partial = { ...model, inputLimits: { images: { resize: { maxBytes: 1000000 } } } };
+    expect(translateModel(partial).imageLimits).toEqual({ ...DEFAULT_IMAGE_LIMITS, maxBytes: 1000000 });
+    expect(translateModel({ id: "t", provider: "p" }).imageLimits).toBeUndefined();
+    expect("imageLimits" in translateModel({ id: "t", provider: "p" })).toBe(false);
+  });
+});
+
+describe("provider errors", () => {
+  const raw =
+    '400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64: image exceeds 10 MB maximum: 11324160 bytes > 10485760 bytes"},"request_id":"req_011"}';
+  const failed = { role: "assistant", content: [], stopReason: "error", errorMessage: raw, timestamp: 1 };
+
+  it("makes errorMessage readable and keeps the raw text in errorDetails (history)", () => {
+    const t = translateMessages([failed], (i) => `h${i}`);
+    expect(t.messages[0]).toMatchObject({
+      errorMessage: "Image exceeds 10 MB maximum (10.8 MB > 10 MB)",
+      errorDetails: raw,
+    });
+  });
+
+  it("does the same for live message_end events", () => {
+    const tr = new PiEventTranslator();
+    const out = tr.translate({ type: "message_end", message: failed });
+    expect(out[0]).toMatchObject({ type: "message_end", message: { errorMessage: "Image exceeds 10 MB maximum (10.8 MB > 10 MB)", errorDetails: raw } });
+  });
+
+  it("cleans up retry notifications", () => {
+    const tr = new PiEventTranslator();
+    const out = tr.translate({ type: "auto_retry_end", success: false, finalError: '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}' });
+    expect(out).toEqual([{ type: "notify", level: "error", message: "Request failed: Overloaded" }]);
+  });
+
+  it("leaves plain error text alone", () => {
+    const t = translateMessages([{ ...failed, errorMessage: "Connection error." }], (i) => `h${i}`);
+    expect(t.messages[0]).toMatchObject({ errorMessage: "Connection error." });
+    expect((t.messages[0] as AssistantMessage).errorDetails).toBeUndefined();
   });
 });

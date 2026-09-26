@@ -96,6 +96,8 @@ export interface ErrorPart {
   /** `aborted` = the user stopped the run. */
   kind: "error" | "aborted";
   message: string;
+  /** Raw provider error text, shown behind a "Details" disclosure. */
+  details?: string;
 }
 
 export type TurnPart = TextPart | ThinkingPart | ImagePart | ToolCallPart | ToolGroupPart | ErrorPart;
@@ -231,6 +233,7 @@ export function buildTurnParts(
         key: `${message.id}:error`,
         kind: message.stopReason,
         message: message.errorMessage ?? (message.stopReason === "aborted" ? "Stopped" : "Something went wrong"),
+        ...(message.errorDetails ? { details: message.errorDetails } : {}),
       });
     }
   }

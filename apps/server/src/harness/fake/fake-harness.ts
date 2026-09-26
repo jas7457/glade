@@ -15,7 +15,14 @@ import {
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 
 export const FAKE_MODELS: ModelInfo[] = [
-  { provider: "fake", id: "smart", name: "Fake Smart", thinkingLevels: ["off", "low", "medium", "high"], input: ["text", "image"] },
+  {
+    provider: "fake",
+    id: "smart",
+    name: "Fake Smart",
+    thinkingLevels: ["off", "low", "medium", "high"],
+    input: ["text", "image"],
+    imageLimits: { maxWidth: 2000, maxHeight: 2000, maxBytes: 1024 * 1024, jpegQuality: 80 },
+  },
   { provider: "fake", id: "fast", name: "Fake Fast", thinkingLevels: ["off"], input: ["text"] },
 ];
 

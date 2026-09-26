@@ -56,6 +56,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The chat header no longer shows the working folder path, just the title and project.
+
 - Roomier sidebar with clearer grouping: taller rows, more space between sections, and
   project chats indented under their project.
 - Settings sidebar grouped into App (General, Appearance) and AI (Models, Agent (pi)).
@@ -63,6 +65,13 @@ Every entry corresponds to a ticked item in PLAN.md.
   and stays visible when you hover the row.
 
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
+
+### Fixed
+
+- Large photos can be attached: images are shrunk to the model's limits before sending
+  (e.g. an 11 MB phone photo goes out as about 200 KB), and anything still too big gets a clear message.
+- Provider errors read as a sentence ("Image exceeds 10 MB maximum") with the raw error under
+  "Details", instead of a wall of JSON.
 
 ### Removed
 

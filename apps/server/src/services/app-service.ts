@@ -3,6 +3,7 @@ import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import {
+  DEFAULT_IMAGE_LIMITS,
   applyAgentEvent,
   deriveChatStatus,
   quickTitle,
@@ -17,6 +18,7 @@ import {
   type ModelInfo,
   type ModelRef,
   type Project,
+  type PromptImage,
   type PromptRequest,
   type ServerMessage,
   type Settings,
@@ -29,6 +31,17 @@ import {
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
+
+/** Byte size of base64 data once decoded (ignores whitespace and padding). */
+export function decodedBase64Size(data: string): number {
+  const clean = data.replace(/\s/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.floor((clean.length * 3) / 4) - padding;
+}
+
+function formatMB(bytes: number): string {
+  return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
+}
 
 export class HttpError extends Error {
   constructor(
@@ -295,6 +308,7 @@ export class AppService {
 
   private async sendPrompt(id: string, req: PromptRequest, live: LiveChat): Promise<void> {
     if (!req.text.trim() && !req.images?.length) throw new HttpError(400, "Message is empty");
+    await this.checkImageSizes(req.images, live);
     const isFirst = !live.transcript.messages.some((m) => m.role === "user");
     live.lastUsedAt = Date.now();
     const behavior = req.behavior ?? this.store.getSettings().general.busyBehavior;
@@ -308,6 +322,24 @@ export class AppService {
     this.saveChat({ ...chat, ...updates });
     if (updates.title) await live.session.setTitle(updates.title).catch(() => {});
     this.touchProject(chat.projectId);
+  }
+
+  /**
+   * Reject images over the model's size limit with a clear message instead of letting the
+   * provider fail the run. Clients downscale before sending, so this is only a safety net.
+   */
+  private async checkImageSizes(images: PromptImage[] | undefined, live: LiveChat): Promise<void> {
+    if (!images?.length) return;
+    const model = live.session.getState().model;
+    const models = model ? await this.harness.listModels().catch(() => [] as ModelInfo[]) : [];
+    const limits = models.find((m) => sameModel(m, model))?.imageLimits ?? DEFAULT_IMAGE_LIMITS;
+    images.forEach((image, i) => {
+      const bytes = decodedBase64Size(image.data);
+      if (bytes > limits.maxBytes) {
+        const which = images.length > 1 ? `Image ${i + 1}` : "The image";
+        throw new HttpError(400, `${which} is too large (${formatMB(bytes)}); this model accepts images up to ${formatMB(limits.maxBytes)}`);
+      }
+    });
   }
 
   private async generateTitle(id: string, firstMessage: string): Promise<void> {

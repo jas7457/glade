@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AssistantMessage } from "@pi-ui/protocol";
 import type { FakeSession } from "../src/harness/fake/fake-harness.js";
-import { HttpError } from "../src/services/app-service.js";
+import { HttpError, decodedBase64Size } from "../src/services/app-service.js";
 import { createTestEnv, deferred, flush, until, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
@@ -139,6 +139,34 @@ describe("chats", () => {
   it("rejects empty prompts", async () => {
     const detail = await env.service.createChat({ projectId: null });
     await expect(env.service.prompt(detail.chat.id, { text: "  " })).rejects.toThrow(/empty/);
+  });
+
+  it("rejects images over the model's size limit with a clear 400", async () => {
+    const detail = await env.service.createChat({ projectId: null }); // fake/smart: 1 MB limit
+    const session = fakeSessions()[0]!;
+    const small = { mimeType: "image/jpeg", data: Buffer.alloc(1000).toString("base64") };
+    const big = { mimeType: "image/jpeg", data: Buffer.alloc(1024 * 1024 + 1).toString("base64") };
+
+    const err = await env.service.prompt(detail.chat.id, { text: "look", images: [small, big] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HttpError);
+    expect(err).toMatchObject({ status: 400, message: "Image 2 is too large (1 MB); this model accepts images up to 1 MB" });
+    expect(session.prompts).toHaveLength(0);
+
+    await env.service.prompt(detail.chat.id, { text: "look", images: [small] });
+    expect(session.prompts).toHaveLength(1);
+  });
+
+  it("falls back to the default image limit for models without one", async () => {
+    const detail = await env.service.createChat({ projectId: null, model: { provider: "fake", id: "fast" } });
+    const image = (bytes: number) => ({ mimeType: "image/png", data: Buffer.alloc(bytes).toString("base64") });
+    await env.service.prompt(detail.chat.id, { text: "", images: [image(2 * 1024 * 1024)] });
+    await expect(env.service.prompt(detail.chat.id, { text: "", images: [image(5 * 1024 * 1024)] })).rejects.toThrow(
+      /The image is too large \(5 MB\); this model accepts images up to 4.5 MB/,
+    );
+  });
+
+  it("decodedBase64Size matches Buffer", () => {
+    for (const n of [0, 1, 2, 3, 100, 1001]) expect(decodedBase64Size(Buffer.alloc(n).toString("base64"))).toBe(n);
   });
 
   it("deleteChat removes it from the store and the harness", async () => {

@@ -1,7 +1,8 @@
 /**
  * Pure helpers for the composer: send-key handling, image attachments, labels.
  */
-import type { PromptImage, Settings, ThinkingLevel } from "@pi-ui/protocol";
+import type { ImageLimits, PromptImage, Settings, ThinkingLevel } from "@pi-ui/protocol";
+import { prepareImage } from "./image-resize";
 
 export interface KeyLike {
   key: string;
@@ -34,23 +35,10 @@ export interface Attachment extends PromptImage {
 
 let attachmentSeq = 0;
 
-/** Read an image file as base64 (without the `data:` prefix). */
-export function readImageFile(file: File): Promise<Attachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("Could not read file"));
-    reader.onload = () => {
-      const url = String(reader.result);
-      const comma = url.indexOf(",");
-      resolve({
-        id: `att-${++attachmentSeq}`,
-        name: file.name,
-        mimeType: file.type || "image/png",
-        data: comma >= 0 ? url.slice(comma + 1) : url,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
+/** Read an image file, downscaled/re-encoded to fit `limits` (see image-resize.ts). */
+export async function readImageFile(file: File, limits?: ImageLimits): Promise<Attachment> {
+  const image = await prepareImage(file, limits);
+  return { id: `att-${++attachmentSeq}`, name: file.name, mimeType: image.mimeType, data: image.data };
 }
 
 export function imageFiles(list: FileList | File[] | null | undefined): File[] {

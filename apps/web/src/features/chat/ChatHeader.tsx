@@ -1,6 +1,6 @@
 /**
- * Chat header bar (window drag region): editable title, project / cwd subtitle, live status
- * and an overflow menu (rename, pin, delete).
+ * Chat header bar (window drag region): editable title, project name (for project chats), live
+ * status and an overflow menu (rename, pin, delete).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -12,11 +12,6 @@ import { routes } from "@/app/routes";
 import { getChatSession, runAction } from "@/state/chat-session";
 import { projectsById } from "@/state/store";
 import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, confirm, statusLabel } from "@/ui";
-
-/** `/Users/me/src/x` → `~/src/x` (best effort; the server doesn't tell us $HOME). */
-export function shortenPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
 
 export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; chatId: string }) {
   const navigate = useNavigate();
@@ -69,10 +64,9 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
             {title || "\u00a0"}
           </button>
         )}
-        {chat && (
-          <span data-tauri-drag-region class="min-w-0 flex-1 truncate text-[0.92rem] text-fg-subtle" title={chat.cwd}>
-            {project ? `${project.name} · ` : ""}
-            {shortenPath(chat.cwd)}
+        {project && (
+          <span data-tauri-drag-region class="min-w-0 flex-1 truncate text-[0.92rem] text-fg-subtle">
+            {project.name}
           </span>
         )}
       </div>

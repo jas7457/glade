@@ -12,7 +12,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { ArrowUp, Paperclip, Square, TriangleAlert, X } from "lucide-preact";
-import { clampThinkingLevel, sameModel, type ModelInfo, type ModelRef, type PromptImage, type ThinkingLevel } from "@pi-ui/protocol";
+import { DEFAULT_IMAGE_LIMITS, clampThinkingLevel, sameModel, type ModelInfo, type ModelRef, type PromptImage, type ThinkingLevel } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
@@ -99,7 +99,8 @@ export function ComposerBox(props: ComposerBoxProps) {
       return;
     }
     try {
-      const read = await Promise.all(files.map(readImageFile));
+      const limits = modelInfo(props.models, props.model)?.imageLimits ?? DEFAULT_IMAGE_LIMITS;
+      const read = await Promise.all(files.map((file) => readImageFile(file, limits)));
       setImages((prev) => [...prev, ...read]);
     } catch (err) {
       notify("error", `Could not attach image: ${(err as Error).message}`);

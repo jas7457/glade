@@ -3,12 +3,14 @@
  * Kept free of I/O so it can be tested against recorded fixtures.
  */
 import {
+  DEFAULT_IMAGE_LIMITS,
   THINKING_LEVELS,
   type AgentEvent,
   type AssistantMessage,
   type ChatMessage,
   type ContentBlock,
   type ImageBlock,
+  type ImageLimits,
   type ModelInfo,
   type SessionState,
   type StopReason,
@@ -18,6 +20,7 @@ import {
   type UiRequest,
   type Usage,
 } from "@pi-ui/protocol";
+import { readableError } from "../provider-error";
 
 // ---------------------------------------------------------------------------------------------
 // Loose pi wire types (only the fields we read)
@@ -34,6 +37,12 @@ export interface PiModel {
   contextWindow?: number;
   maxTokens?: number;
   thinkingLevelMap?: Record<string, string | null>;
+  /** Present on models with image input; the resize targets pi uses for images it loads. */
+  inputLimits?: {
+    images?: {
+      resize?: { maxWidth?: number; maxHeight?: number; maxBytes?: number; jpegQuality?: number };
+    };
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -51,7 +60,25 @@ export function piThinkingLevels(model: PiModel): ThinkingLevel[] {
   });
 }
 
+function positive(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** pi's `inputLimits.images.resize` → `ImageLimits`; missing fields fall back to the defaults. */
+export function piImageLimits(model: PiModel): ImageLimits | undefined {
+  const resize = model.inputLimits?.images?.resize;
+  if (!resize || typeof resize !== "object") return undefined;
+  const quality = positive(resize.jpegQuality);
+  return {
+    maxWidth: positive(resize.maxWidth) ?? DEFAULT_IMAGE_LIMITS.maxWidth,
+    maxHeight: positive(resize.maxHeight) ?? DEFAULT_IMAGE_LIMITS.maxHeight,
+    maxBytes: positive(resize.maxBytes) ?? DEFAULT_IMAGE_LIMITS.maxBytes,
+    jpegQuality: quality !== undefined ? Math.min(100, quality) : DEFAULT_IMAGE_LIMITS.jpegQuality,
+  };
+}
+
 export function translateModel(model: PiModel): ModelInfo {
+  const imageLimits = piImageLimits(model);
   return {
     provider: model.provider,
     id: model.id,
@@ -60,6 +87,7 @@ export function translateModel(model: PiModel): ModelInfo {
     input: (model.input ?? ["text"]).filter((i): i is "text" | "image" => i === "text" || i === "image"),
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    ...(imageLimits ? { imageLimits } : {}),
   };
 }
 
@@ -161,7 +189,11 @@ export function translateMessage(raw: Json, id: string): ChatMessage | null {
         stopReason: raw.stopReason as StopReason | undefined,
         usage: translateUsage(raw.usage),
       };
-      if (raw.errorMessage) message.errorMessage = String(raw.errorMessage);
+      if (raw.errorMessage) {
+        const error = readableError(String(raw.errorMessage));
+        message.errorMessage = error.message;
+        if (error.details) message.errorDetails = error.details;
+      }
       return message;
     }
     case "bashExecution":
@@ -340,7 +372,7 @@ export class PiEventTranslator {
       case "compaction_end": {
         const out: AgentEvent[] = [{ type: "state", state: { isCompacting: false } }];
         if (event.errorMessage) {
-          out.push({ type: "notify", level: "error", message: `Compaction failed: ${String(event.errorMessage)}` });
+          out.push({ type: "notify", level: "error", message: `Compaction failed: ${readableError(String(event.errorMessage)).message}` });
         } else if (!event.aborted) {
           out.push({ type: "notify", level: "info", message: "Context compacted" });
         }
@@ -352,14 +384,14 @@ export class PiEventTranslator {
           {
             type: "notify",
             level: "warning",
-            message: `Retrying (${String(event.attempt)}/${String(event.maxAttempts)}): ${String(event.errorMessage ?? "")}`.trim(),
+            message: `Retrying (${String(event.attempt)}/${String(event.maxAttempts)}): ${readableError(String(event.errorMessage ?? "")).message}`.trim(),
           },
         ];
 
       case "auto_retry_end":
         return event.success
           ? []
-          : [{ type: "notify", level: "error", message: `Request failed: ${String(event.finalError ?? "unknown error")}` }];
+          : [{ type: "notify", level: "error", message: `Request failed: ${readableError(String(event.finalError ?? "unknown error")).message}` }];
 
       case "extension_error":
         return [{ type: "notify", level: "error", message: `Extension error: ${String(event.error ?? "")}` }];
