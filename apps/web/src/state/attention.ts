@@ -14,12 +14,11 @@ import { needsAttention, type ChatSummary } from "@pi-ui/protocol";
 import { chats, chatsById, settings } from "./store";
 import { showToast } from "./toasts";
 
-const active = computed(() => chats.value.filter((c) => !c.archived));
 
 /** Chats that are unread or blocked (the badge number). */
-export const attentionCount = computed(() => active.value.filter((c) => needsAttention(c.status)).length);
+export const attentionCount = computed(() => chats.value.filter((c) => needsAttention(c.status)).length);
 /** Chats with a running agent (includes blocked ones, which are mid-run). */
-export const workingCount = computed(() => active.value.filter((c) => c.status === "working" || c.status === "blocked").length);
+export const workingCount = computed(() => chats.value.filter((c) => c.status === "working" || c.status === "blocked").length);
 
 /** Chat currently on screen (set by the app shell from the route). */
 export const currentChatId = signal<string | null>(null);

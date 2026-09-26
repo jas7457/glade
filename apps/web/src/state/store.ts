@@ -37,9 +37,9 @@ export const sortedProjects = computed(() =>
   [...projects.value].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActivityAt - a.lastActivityAt),
 );
 
-export function chatsForProject(projectId: string | null, includeArchived = false): ChatSummary[] {
+export function chatsForProject(projectId: string | null): ChatSummary[] {
   return chats.value
-    .filter((c) => c.projectId === projectId && (includeArchived || !c.archived))
+    .filter((c) => c.projectId === projectId)
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActivityAt - a.lastActivityAt);
 }
 

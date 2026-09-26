@@ -1,14 +1,14 @@
 /**
  * One chat in the sidebar: title, running spinner / unread dot / age, and a menu (hover "…"
- * button and right-click) with Rename, Pin, Archive, Delete.
+ * button and right-click) with Rename, Pin, Delete.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Archive, MoreHorizontal, Pin } from "lucide-preact";
+import { MoreHorizontal, Pin } from "lucide-preact";
 import type { ChatSummary } from "@pi-ui/protocol";
 import { chatPath } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm } from "@/ui";
-import { deleteChat, renameChat, setChatArchived, setChatPinned, updateChat } from "@/state/actions";
+import { deleteChat, renameChat, setChatPinned, updateChat } from "@/state/actions";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
 
@@ -16,14 +16,14 @@ export interface ChatRowProps {
   chat: ChatSummary;
   selected: boolean;
   indent?: 0 | 1;
-  /** Called after the chat was deleted or archived while selected (navigate elsewhere). */
+  /** Called after the chat was deleted while selected (navigate elsewhere). */
   onRemoved?: (chat: ChatSummary) => void;
 }
 
 export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
   const ok = await confirm({
     title: `Delete “${chat.title || "Untitled"}”?`,
-    message: "The conversation will be moved to the Trash. This can't be undone from pi-ui.",
+    message: "The conversation will be permanently deleted. This can't be undone.",
     confirmLabel: "Delete",
     destructive: true,
   });
@@ -41,9 +41,6 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
     renaming.current = false;
   };
 
-  const archive = async () => {
-    if ((await setChatArchived(chat.id, !chat.archived)) && selected && !chat.archived) onRemoved?.(chat);
-  };
   const remove = async () => {
     if ((await confirmDeleteChat(chat)) && selected) onRemoved?.(chat);
   };
@@ -61,7 +58,6 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
       <MenuItem onSelect={() => void setChatPinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
       {chat.status === "unread" && <MenuItem onSelect={() => void updateChat(chat.id, { unread: false })}>Mark as Read</MenuItem>}
       <MenuSeparator />
-      <MenuItem onSelect={() => void archive()}>{chat.archived ? "Unarchive" : "Archive"}</MenuItem>
       <MenuItem destructive onSelect={() => void remove()}>
         Delete…
       </MenuItem>
@@ -105,11 +101,6 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
         }
         actions={
           <>
-            {!chat.archived && (
-              <IconButton size="sm" label="Archive" onClick={() => void archive()}>
-                <Archive />
-              </IconButton>
-            )}
             <Menu
               open={menuOpen}
               onOpenChange={setMenuOpen}

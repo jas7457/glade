@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { rm, rmdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
@@ -55,7 +54,7 @@ export class PiHarness implements AgentHarness {
       this.modelsCache = { at: Date.now(), models };
       return models;
     } finally {
-      proc.kill();
+      void proc.kill();
     }
   }
 
@@ -69,7 +68,7 @@ export class PiHarness implements AgentHarness {
     try {
       await session.init(this.options.config());
     } catch (err) {
-      proc.kill();
+      void proc.kill();
       const stderr = proc.recentStderr;
       throw new Error(`${(err as Error).message}${stderr ? `\n${stderr}` : ""}`);
     }
@@ -77,13 +76,8 @@ export class PiHarness implements AgentHarness {
   }
 
   async deleteSession(sessionRef: string): Promise<void> {
-    if (!existsSync(sessionRef)) return;
-    try {
-      // Prefer the macOS trash so deletions are recoverable.
-      await execFileAsync("trash", [sessionRef]);
-    } catch {
-      await rm(sessionRef, { force: true });
-    }
+    // Permanent: the session file is removed, not moved to the Trash.
+    await rm(sessionRef, { force: true });
     // Drop pi's per-cwd session folder once it's empty (fails harmlessly otherwise).
     await rmdir(dirname(sessionRef)).catch(() => {});
   }
@@ -220,7 +214,7 @@ export class PiSession implements HarnessSession {
 
   async dispose(): Promise<void> {
     this.disposed = true;
-    this.proc.kill();
+    await this.proc.kill();
   }
 
   private async refreshState(): Promise<void> {

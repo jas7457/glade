@@ -233,7 +233,6 @@ export class AppService {
       harness: this.harness.id,
       sessionRef: null,
       pinned: false,
-      archived: false,
       unread: false,
       createdAt: now,
       lastActivityAt: now,
@@ -276,7 +275,6 @@ export class AppService {
       await this.live.get(id)?.session.setTitle(title).catch(() => {});
     }
     if (req.pinned !== undefined) next.pinned = req.pinned;
-    if (req.archived !== undefined) next.archived = req.archived;
     if (req.unread !== undefined) next.unread = req.unread;
     return this.saveChat(next);
   }
@@ -302,7 +300,7 @@ export class AppService {
     const behavior = req.behavior ?? this.store.getSettings().general.busyBehavior;
     await live.session.prompt({ ...req, behavior });
     const chat = this.requireChat(id);
-    const updates: Partial<Chat> = { lastActivityAt: Date.now(), archived: false };
+    const updates: Partial<Chat> = { lastActivityAt: Date.now() };
     if (isFirst && chat.titleSource === "auto" && req.text.trim()) {
       updates.title = quickTitle(req.text);
       void this.generateTitle(id, req.text).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));

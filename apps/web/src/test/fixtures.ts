@@ -10,7 +10,6 @@ export function makeChat(overrides: Partial<ChatSummary> & { id: string }): Chat
     harness: "fake",
     sessionRef: null,
     pinned: false,
-    archived: false,
     unread: false,
     createdAt: 0,
     lastActivityAt: 0,

@@ -23,9 +23,8 @@ Every entry corresponds to a ticked item in PLAN.md.
   window is visible.
 - Automatic chat titles: an instant title from your first message, replaced by a short
   model-generated title unless you've renamed the chat.
-- Deleting a chat moves its session file to the Trash.
 - Chat screen: editable title, project and folder in the header, live "Working…" / "Needs your
-  input" status, and a menu to rename, pin, archive or delete the chat.
+  input" status, and a menu to rename, pin or delete the chat.
 - New chat screen: type your first message and the chat is created and opened; model and
   thinking level start from your defaults.
 - Rich transcript: formatted markdown with syntax-highlighted, copyable code blocks, collapsible
@@ -42,7 +41,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 - App shell like a native Mac app: resizable, collapsible sidebar (⌘\\), light/dark/auto theme,
   font size, and keyboard shortcuts (⌘N new chat, ⌘, settings).
 - Sidebar with Projects (each a folder on disk, with its chats) and standalone Chats: pin, rename
-  inline, archive, delete, "Show more", and right-click menus.
+  inline, delete, "Show more", and right-click menus.
 - Status on every chat: spinner while working, amber mark when it needs your input, blue dot for
   unread (red if the last run failed). Collapsed projects show their most urgent chat.
 - Notifications: the window title shows how many chats need attention; system notifications
@@ -50,5 +49,12 @@ Every entry corresponds to a ticked item in PLAN.md.
   finishes while you're using the app.
 - Add Project dialog with a folder browser (or paste a path, `~` supported).
 - Settings: General, Models (defaults, title model, show/hide models), Appearance, Agent
-  (pi path, arguments, process limits, auto-compaction/retry) and Archived Chats.
+  (pi path, arguments, process limits, auto-compaction/retry).
 
+### Changed
+
+- Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
+
+### Removed
+
+- Archiving chats (and the Archived Chats settings page). Chats are kept or deleted.

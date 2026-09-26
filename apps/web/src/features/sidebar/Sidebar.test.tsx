@@ -36,7 +36,6 @@ describe("Sidebar", () => {
       makeChat({ id: "c2", projectId: "p1", title: "Newer", lastActivityAt: 3, status: "working", running: true }),
       makeChat({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, status: "unread", unread: true }),
       makeChat({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
-      makeChat({ id: "c5", projectId: null, title: "Archived", archived: true }),
     ];
   });
 
@@ -46,7 +45,6 @@ describe("Sidebar", () => {
     expect(projectIds).toEqual(["p2", "p1"]);
     const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
     expect(rowTitles(alpha)).toEqual(["c3", "c2", "c1"]);
-    expect(screen.queryByText("Archived")).toBeNull();
     expect(screen.getByText("Loose")).toBeTruthy();
   });
 

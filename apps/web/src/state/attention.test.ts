@@ -48,13 +48,12 @@ describe("alertText", () => {
 });
 
 describe("counts + window title", () => {
-  it("counts attention and working chats (excluding archived)", () => {
+  it("counts attention and working chats", () => {
     chats.value = [
       makeChat({ id: "1", status: "unread" }),
       makeChat({ id: "2", status: "blocked" }),
       makeChat({ id: "3", status: "working" }),
       makeChat({ id: "4", status: "idle" }),
-      makeChat({ id: "5", status: "unread", archived: true }),
     ];
     expect(attentionCount.value).toBe(2);
     expect(workingCount.value).toBe(2);

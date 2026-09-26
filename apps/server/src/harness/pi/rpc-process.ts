@@ -128,14 +128,18 @@ export class PiRpcProcess extends EventEmitter<{
     this.child.stdin.write(`${JSON.stringify(record)}\n`);
   }
 
-  kill(): void {
-    if (!this.child || this.exited) return;
-    this.child.stdin.end();
-    this.child.kill("SIGTERM");
+  /** Stop the process. Resolves once it has exited (SIGKILL after 3s if it ignores SIGTERM). */
+  kill(): Promise<void> {
+    if (!this.child || this.exited) return Promise.resolve();
     const child = this.child;
-    setTimeout(() => {
+    const exited = new Promise<void>((resolve) => this.once("exit", () => resolve()));
+    child.stdin.end();
+    child.kill("SIGTERM");
+    const timer = setTimeout(() => {
       if (!this.exited) child.kill("SIGKILL");
-    }, 3000).unref();
+    }, 3000);
+    timer.unref();
+    return exited.finally(() => clearTimeout(timer));
   }
 
   private handleLine(line: string): void {

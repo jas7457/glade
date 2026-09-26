@@ -1,10 +1,10 @@
 /**
  * Chat header bar (window drag region): editable title, project / cwd subtitle, live status
- * and an overflow menu (rename, pin, archive, delete).
+ * and an overflow menu (rename, pin, delete).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Archive, ArchiveRestore, Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
+import { Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import { deriveChatStatus, type ChatSummary } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
@@ -36,18 +36,12 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
   const onDelete = async () => {
     const ok = await confirm({
       title: `Delete “${title || "this chat"}”?`,
-      message: "The conversation will be moved to the Trash.",
+      message: "The conversation will be permanently deleted. This can't be undone.",
       confirmLabel: "Delete",
       destructive: true,
     });
     if (!ok) return;
     if (await runAction(() => api.deleteChat(chatId), "Could not delete chat")) leave();
-  };
-
-  const onArchive = async () => {
-    if (!chat) return;
-    const archived = !chat.archived;
-    if ((await runAction(() => api.updateChat(chatId, { archived }), "Could not archive chat")) && archived) leave();
   };
 
   return (
@@ -104,9 +98,6 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
           onSelect={() => chat && void runAction(() => api.updateChat(chatId, { pinned: !chat.pinned }), "Could not pin chat")}
         >
           {chat?.pinned ? "Unpin" : "Pin"}
-        </MenuItem>
-        <MenuItem icon={chat?.archived ? <ArchiveRestore /> : <Archive />} onSelect={() => void onArchive()}>
-          {chat?.archived ? "Unarchive" : "Archive"}
         </MenuItem>
         <MenuSeparator />
         <MenuItem destructive icon={<Trash2 />} onSelect={() => void onDelete()}>

@@ -26,7 +26,6 @@ const chat: Chat = {
   harness: "fake",
   sessionRef: "s1",
   pinned: false,
-  archived: false,
   unread: true,
   createdAt: 1,
   lastActivityAt: 2,

@@ -105,7 +105,6 @@ function apiRoutes(service: AppService): Hono {
     const body = await readBody<UpdateChatRequest>(c);
     optional(body.title, "string", "title");
     optional(body.pinned, "boolean", "pinned");
-    optional(body.archived, "boolean", "archived");
     optional(body.unread, "boolean", "unread");
     return c.json(await service.updateChat(c.req.param("id"), body));
   });

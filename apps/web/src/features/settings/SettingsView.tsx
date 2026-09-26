@@ -10,14 +10,12 @@ import { GeneralSettings } from "./GeneralSettings";
 import { ModelSettings } from "./ModelSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AgentSettings } from "./AgentSettings";
-import { ArchivedSettings } from "./ArchivedSettings";
 
 const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   general: GeneralSettings,
   models: ModelSettings,
   appearance: AppearanceSettings,
   agent: AgentSettings,
-  archived: ArchivedSettings,
 };
 
 export function isSettingsSection(value: string | undefined): value is SettingsSection {

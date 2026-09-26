@@ -161,7 +161,7 @@ describe("Composer (new chat)", () => {
     const detail: ChatDetail = {
       chat: {
         id: "new1", projectId: "p1", title: "Hi", titleSource: "auto", cwd: "/tmp", harness: "fake", sessionRef: null, pinned: false,
-        archived: false, unread: false, createdAt: 0, lastActivityAt: 0, model: null, thinkingLevel: null, running: true,
+        unread: false, createdAt: 0, lastActivityAt: 0, model: null, thinkingLevel: null, running: true,
       } as ChatDetail["chat"],
       transcript: emptyTranscript(),
       state: defaultSessionState(),

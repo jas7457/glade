@@ -64,7 +64,7 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | POST   | `/chats`                      | `CreateChatRequest` → `ChatDetail`             |
 | GET    | `/chats/:id`                  | → `ChatDetail` (starts the agent if needed)    |
 | PATCH  | `/chats/:id`                  | `UpdateChatRequest` → `ChatSummary`            |
-| DELETE | `/chats/:id`                  | → 204 (session file moved to Trash)            |
+| DELETE | `/chats/:id`                  | → 204 (session file permanently deleted)       |
 | POST   | `/chats/:id/prompt`           | `PromptRequest` → 204 (empty text OK with images) |
 | POST   | `/chats/:id/abort`            | → 204                                          |
 | PUT    | `/chats/:id/model`            | `ModelRef` → 204                               |
@@ -116,6 +116,10 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 `/projects/:projectId/chats/:chatId`, `/settings/:section`.
 
 ## Decisions
+
+- **No archiving; deletes are permanent** (2026-09-26). A chat is either in the sidebar or gone.
+  Deleting stops its agent (waiting for the process to exit so it can't rewrite the file) and
+  removes the session file outright rather than moving it to the Trash.
 
 - **Session storage stays harness-owned, in the harness's default location** (2026-09-26). Every
   harness must keep its own session format to resume conversations, so pi-ui stores only an index

@@ -22,7 +22,7 @@ Element.prototype.scrollTo ??= function () {};
 
 const chat: ChatSummary = {
   id: "c1", projectId: "p1", title: "Fix the sidebar", titleSource: "auto", cwd: "/Users/me/src/app", harness: "fake",
-  sessionRef: null, pinned: false, archived: false, unread: false, createdAt: 0, lastActivityAt: 0, model: null,
+  sessionRef: null, pinned: false, unread: false, createdAt: 0, lastActivityAt: 0, model: null,
   thinkingLevel: null, running: false, status: "idle", pendingInputs: 0,
 } as ChatSummary;
 

@@ -81,15 +81,6 @@ describe("settings", () => {
     expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { hiddenModels: ["a/m2"] } });
   });
 
-  it("Archived: unarchive", () => {
-    mocked.updateChat.mockResolvedValue(makeChat({ id: "z" }));
-    chats.value = [makeChat({ id: "z", title: "Old stuff", archived: true })];
-    renderAt("/settings/archived");
-    expect(screen.getByText("Old stuff")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
-    expect(mocked.updateChat).toHaveBeenCalledWith("z", { archived: false });
-  });
-
   it("unknown sections redirect to general", () => {
     renderAt("/settings/nope");
     expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();

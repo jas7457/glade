@@ -35,7 +35,6 @@ export interface Chat {
   /** Harness specific reference to the persisted session (for pi: the session .jsonl path). */
   sessionRef: string | null;
   pinned: boolean;
-  archived: boolean;
   /** A run finished while the chat wasn't being viewed. */
   unread: boolean;
   /** The most recent run ended with an error or the agent crashed. Cleared when a new run starts. */
@@ -152,7 +151,6 @@ export interface CreateChatRequest {
 export interface UpdateChatRequest {
   title?: string;
   pinned?: boolean;
-  archived?: boolean;
   unread?: boolean;
 }
 

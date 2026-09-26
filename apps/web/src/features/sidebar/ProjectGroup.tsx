@@ -40,7 +40,7 @@ export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved,
 
   const newChat = () => navigate(routes.project(project.id));
   const remove = async () => {
-    const count = list.length + chatsForProject(project.id, true).filter((c) => c.archived).length;
+    const count = list.length;
     const ok = await confirm({
       title: `Remove “${project.name}”?`,
       message:

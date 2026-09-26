@@ -35,7 +35,6 @@ export async function updateChat(id: string, patch: UpdateChatRequest): Promise<
 
 export const renameChat = (id: string, title: string) => updateChat(id, { title });
 export const setChatPinned = (id: string, pinned: boolean) => updateChat(id, { pinned });
-export const setChatArchived = (id: string, archived: boolean) => updateChat(id, { archived });
 
 export async function deleteChat(id: string): Promise<boolean> {
   try {
