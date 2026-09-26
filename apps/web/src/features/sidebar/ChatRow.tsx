@@ -1,8 +1,8 @@
 /**
- * One chat in the sidebar: status (spinner / unread dot / needs-input) in a fixed leading slot
- * so it stays visible on hover and titles line up, title, pin + age on the right, and a menu
- * (hover "…" button replacing the age, and right-click) with Rename, Pin, Move Up/Down (pinned
- * chats), Delete.
+ * One chat in the sidebar: title, and on the right the pin plus the status (spinner / unread
+ * dot / needs-input) when not idle, else the age. On hover (or while the menu is open) the right
+ * side is replaced by a "…" menu button; the same menu opens on right-click: Rename, Pin,
+ * Move Up/Down (pinned chats), Mark as Read, Delete.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -34,7 +34,7 @@ export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
   return ok && deleteChat(chat.id);
 }
 
-export function ChatRow({ chat, selected, indent = 1, onRemoved, pinPosition }: ChatRowProps) {
+export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: ChatRowProps) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -78,12 +78,14 @@ export function ChatRow({ chat, selected, indent = 1, onRemoved, pinPosition }: 
     </>
   );
 
-  // Always rendered (an empty box when idle) so titles align across rows.
-  const leading = <StatusIndicator status={chat.status} failed={chat.lastRunFailed} />;
   const trailing = (
     <>
       {chat.pinned && <Pin size={11} aria-label="Pinned" />}
-      <span>{formatRelativeTime(chat.lastActivityAt)}</span>
+      {chat.status !== "idle" ? (
+        <StatusIndicator status={chat.status} failed={chat.lastRunFailed} />
+      ) : (
+        <span>{formatRelativeTime(chat.lastActivityAt)}</span>
+      )}
     </>
   );
 
@@ -97,7 +99,6 @@ export function ChatRow({ chat, selected, indent = 1, onRemoved, pinPosition }: 
         strong={chat.status === "unread" && !selected}
         indent={indent}
         onSelect={() => navigate(chatPath(chat))}
-        leading={leading}
         trailing={trailing}
         actionsVisible={menuOpen}
         editor={

@@ -119,13 +119,12 @@ export function ProjectGroup({
       {...sort?.item}
       class={cn("relative", sidebarClass.rows, open && sidebarClass.subgroupGap, sort?.dragging && "opacity-40")}
     >
-      <DropLine edge={sort?.dropEdge ?? null} indent={1} />
+      <DropLine edge={sort?.dropEdge ?? null} />
       <ContextMenu content={items} onCloseAutoFocus={onCloseAutoFocus} disabled={editing}>
         <SidebarItem
           {...(editing ? {} : sort?.handle)}
           label={project.name}
           title={project.path}
-          indent={1}
           icon={open ? <FolderOpen /> : <Folder />}
           selected={selected}
           aria-expanded={open}
@@ -172,7 +171,7 @@ export function ProjectGroup({
           listId={project.id}
           selectedChatId={selectedChatId}
           limit={PROJECT_CHAT_LIMIT}
-          indent={2}
+          indent={1}
           emptyLabel="No chats"
           onRemoved={onChatRemoved}
         />

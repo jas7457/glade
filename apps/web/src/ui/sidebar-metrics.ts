@@ -8,14 +8,15 @@
  *
  * Horizontal grid (x from the content edge, i.e. inside `paddingX`):
  *
- *   8   Projects                        ← group header text
- *   8   ●  32 📁 56 piui-demo            ← status column; project icon at indent 1, name at 56
- *   8   ●         56 Chat in project     ← project chats: title at indent 2 (= project name)
+ *   8   Projects                          +   ← group header text
+ *   8   📁 32 piui-demo                        ← project rows: icon at indent 0, name at 32
+ *            32 Chat in project          ●    ← project chats: title at indent 1 (= project name)
  *   8   Chats
- *   8   ●  32 Standalone chat            ← standalone chats: title at indent 1
+ *   8   Standalone chat                 34m   ← standalone chats: title at indent 0
  *
- * Column 0 (`status`) is flush with the header text; every indent level is one status column
- * (16px) + gap (8px) further right. Rows without a status (New Chat, settings) use indent 0.
+ * Indent 0 is flush with the header text; indent 1 is one icon (16px) + gap (8px) further right,
+ * i.e. where a label starts after an icon. Status / age / pin sit on the right of the row
+ * (the trailing slot) and hover actions replace them. The settings sidebar uses indent 0.
  */
 
 export const SIDEBAR_METRICS = {
@@ -33,14 +34,12 @@ export const SIDEBAR_METRICS = {
   subgroupGap: 6,
   /** Horizontal padding of the sidebar content. */
   paddingX: 10,
-  /** Left edge of the status column (column 0); equals the group header text inset. */
-  statusInset: 8,
-  /** Width of the status column (and of row icons). */
-  statusWidth: 16,
-  /** Row content (icon, else label) start per indent level: statusInset + n × (16 + 8). */
-  inset: [8, 32, 56],
-  /** Where row labels start after an icon, per indent level (inset + 16px icon + 8px gap). */
-  labelInset: [32, 56, 80],
+  /** Width of row icons. */
+  iconWidth: 16,
+  /** Gap between a row icon and its label. */
+  iconGap: 8,
+  /** Row content (icon, else label) start per indent level: 8 (= header text) + n × (16 + 8). */
+  inset: [8, 32],
 } as const;
 
 export const sidebarClass = {
@@ -50,12 +49,9 @@ export const sidebarClass = {
   header: "h-6 mb-0.5",
   subgroupGap: "mb-1.5",
   paddingX: "px-2.5",
-  /** Status column: absolutely placed at `statusInset`, `statusWidth` wide, vertically centred. */
-  status: "absolute top-0 bottom-0 left-2 w-4",
-  inset: ["pl-2", "pl-8", "pl-14"],
-  labelInset: ["pl-8", "pl-14", "pl-20"],
+  inset: ["pl-2", "pl-8"],
   /** Left edge of full-width lines (drop line, pinned divider) aligned with the content per indent. */
-  lineStart: ["left-2", "left-8", "left-14"],
+  lineStart: ["left-2", "left-8"],
   /** Text colours (tokens in styles.css): row labels, selected/unread rows, headers + ages + icons. */
   fg: "text-sidebar-fg",
   fgStrong: "text-sidebar-fg-strong",
@@ -64,4 +60,4 @@ export const sidebarClass = {
   fgHover: "hover:text-sidebar-fg-strong",
 } as const;
 
-export type SidebarIndent = 0 | 1 | 2;
+export type SidebarIndent = 0 | 1;

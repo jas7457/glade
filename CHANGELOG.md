@@ -84,6 +84,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sidebar: projects line up with the section headers, chats inside a project line up with the
+  project name, and a chat's status sits on the right again (swapping to its actions on hover).
+
 - Tooltips, menus and popovers stand out from what's behind them (lighter layer, thin border,
   deeper shadow).
 - Sidebar alignment: chat status dots line up with the section headers and projects are indented

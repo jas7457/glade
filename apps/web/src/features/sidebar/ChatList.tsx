@@ -20,7 +20,7 @@ export interface ChatListProps {
   listId: string | null;
   selectedChatId: string | null;
   limit: number;
-  /** Indent level of the chat titles (1 standalone, 2 inside a project); status sits in column 0. */
+  /** Indent level of the chat titles (0 standalone, 1 inside a project = the project name). */
   indent?: SidebarIndent;
   emptyLabel?: string;
   onRemoved?: (chat: ChatSummary) => void;
@@ -33,7 +33,7 @@ export function visibleChatCount(chats: ChatSummary[], limit: number, expanded: 
   return Math.min(chats.length, Math.max(limit, selectedIdx + 1));
 }
 
-export function ChatList({ chats, listId, selectedChatId, limit, indent = 1, emptyLabel, onRemoved }: ChatListProps) {
+export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emptyLabel, onRemoved }: ChatListProps) {
   const [expanded, setExpanded] = useState(false);
   const count = visibleChatCount(chats, limit, expanded, selectedChatId);
   const pinnedIds = chats.filter((c) => c.pinned).map((c) => c.id);

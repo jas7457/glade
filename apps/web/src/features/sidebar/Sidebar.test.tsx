@@ -168,35 +168,32 @@ describe("Sidebar", () => {
     expect(within(row("c1")).queryByRole("img", { name: /Working|New|Needs/ })).toBeNull();
   });
 
-  it("shows the status left of the title, outside the area hover actions replace, on every row", () => {
+  it("shows the status on the right, in the area hover actions replace, instead of the age", () => {
     const { container } = renderSidebar();
-    for (const id of ["c1", "c2", "c3", "c4"]) {
-      const row = container.querySelector(`[data-chat-id=${id}]`) as HTMLElement;
-      // Every chat row reserves the leading slot (empty when idle) so titles line up.
-      const leading = row.querySelector("[data-slot=leading]") as HTMLElement;
-      expect(leading).toBeTruthy();
-      expect(row.querySelector("[data-slot=trailing] [data-status]")).toBeNull();
+    for (const id of ["c2", "c3", "c4"]) {
+      const trailing = container.querySelector(`[data-chat-id=${id}] [data-slot=trailing]`) as HTMLElement;
+      expect(trailing.querySelector("[data-status]")).toBeTruthy();
+      expect(trailing.className).toContain("group-hover/item:invisible");
     }
-    const working = container.querySelector("[data-chat-id=c2] [data-slot=leading]") as HTMLElement;
+    const working = container.querySelector("[data-chat-id=c2] [data-slot=trailing]") as HTMLElement;
     expect(within(working).getByRole("img", { name: "Working…" })).toBeTruthy();
-    const title = within(container.querySelector("[data-chat-id=c2]") as HTMLElement).getByText("Newer");
-    expect(working.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Idle chats show the age instead.
+    const idle = container.querySelector("[data-chat-id=c1] [data-slot=trailing]") as HTMLElement;
+    expect(idle.querySelector("[data-status]")).toBeNull();
+    expect(idle.textContent).not.toBe("");
+    expect(container.querySelector("[data-slot=leading]")).toBeNull();
   });
 
-  it("lines up with the sidebar grid: status column, project icon indent, chat titles", () => {
+  it("lines up with the sidebar grid: projects and standalone chats flush, project chats under the name", () => {
     const { container } = renderSidebar();
     const button = (sel: string) => container.querySelector(`${sel} button`) as HTMLElement;
-    // Project row content at indent 1; its chats' titles at indent 2 (aligned with the name).
+    // Project row flush with the "Projects" header; its chats' titles at indent 1 (the project name).
     expect(within(container.querySelector("[data-project-id=p1]") as HTMLElement).getByRole("button", { name: "Alpha" }).className).toContain(
-      sidebarClass.inset[1],
+      sidebarClass.inset[0],
     );
-    expect(button("[data-chat-id=c1]").className).toContain(sidebarClass.inset[2]);
-    // Standalone chats: title right after the status column.
-    expect(button("[data-chat-id=c4]").className).toContain(sidebarClass.inset[1]);
-    // Status sits in column 0 for both.
-    for (const id of ["c1", "c4"]) {
-      expect((container.querySelector(`[data-chat-id=${id}] [data-slot=leading]`) as HTMLElement).className).toContain(sidebarClass.status);
-    }
+    expect(button("[data-chat-id=c1]").className).toContain(sidebarClass.inset[1]);
+    // Standalone chats flush with the "Chats" header.
+    expect(button("[data-chat-id=c4]").className).toContain(sidebarClass.inset[0]);
   });
 
   it("marks the current chat as selected", () => {
@@ -211,6 +208,8 @@ describe("Sidebar", () => {
     const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
     expect(rowTitles(alpha)).toEqual([]);
     expect(within(alpha).getByRole("img", { name: "Working…" })).toBeTruthy();
+    // The rolled-up status sits on the right, like chat statuses.
+    expect(alpha.querySelector("[data-slot=trailing] [data-status=working]")).toBeTruthy();
     expect(closedProjects.value.has("p1")).toBe(true);
   });
 

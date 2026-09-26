@@ -226,6 +226,10 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 
 ## Decisions
 
+- **Sidebar grid** (2026-09-26, I-041): rows align with section headers; project chats align with the
+  project name; status lives on the right and swaps to hover actions (the left status column from
+  I-006/I-030 was tried and reverted).
+
 - **One server per data folder** (2026-09-26): `pnpm dev` and the desktop app share the data
   folder, so a lock file (`server.lock`) guarantees a single owner. A second server refuses with
   exit code 3; the desktop app reuses a live server's port instead of starting its own.

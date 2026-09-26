@@ -68,33 +68,33 @@ describe("SidebarGroup", () => {
 });
 
 describe("SidebarItem", () => {
-  it("renders the leading slot before the label and outside the hover-hidden trailing area", () => {
-    const { container } = render(<SidebarItem label="Title" leading={<span>L</span>} trailing="5m" actions={<button type="button">More</button>} />);
-    const leading = container.querySelector("[data-slot=leading]") as HTMLElement;
+  it("hides the trailing indicators while hovered or while actions are pinned visible", () => {
+    const { container, rerender } = render(<SidebarItem label="Title" trailing="5m" actions={<button type="button">More</button>} />);
     const trailing = container.querySelector("[data-slot=trailing]") as HTMLElement;
-    expect(leading.textContent).toBe("L");
-    expect(leading.compareDocumentPosition(screen.getByText("Title")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(trailing.contains(leading)).toBe(false);
+    expect(trailing.textContent).toBe("5m");
+    expect(trailing.className).toContain("group-hover/item:invisible");
+    expect(trailing.className).not.toMatch(/(^| )invisible( |$)/);
+    rerender(<SidebarItem label="Title" trailing="5m" actions={<button type="button">More</button>} actionsVisible />);
+    expect((container.querySelector("[data-slot=trailing]") as HTMLElement).className).toMatch(/(^| )invisible( |$)/);
   });
 
-  it("places the leading slot in the status column and indents the content by level", () => {
-    const { container } = render(
+  it("keeps the trailing indicators on hover when there are no actions", () => {
+    const { container } = render(<SidebarItem label="Title" trailing="⌘N" />);
+    expect((container.querySelector("[data-slot=trailing]") as HTMLElement).className).not.toContain("invisible");
+  });
+
+  it("indents the content by level on the header-aligned grid", () => {
+    render(
       <>
         <SidebarItem label="Plain" />
-        <SidebarItem label="Standalone" leading={<span>L</span>} />
-        <SidebarItem label="Nested" leading={<span>L</span>} indent={2} />
+        <SidebarItem label="Nested" indent={1} />
       </>,
     );
     const button = (name: string) => screen.getByRole("button", { name: new RegExp(name) });
     expect(button("Plain").className).toContain(sidebarClass.inset[0]);
-    // A leading slot defaults to indent 1 so the label clears the status column.
-    expect(button("Standalone").className).toContain(sidebarClass.inset[1]);
-    expect(button("Nested").className).toContain(sidebarClass.inset[2]);
-    for (const slot of container.querySelectorAll("[data-slot=leading]")) {
-      expect(slot.className).toContain("absolute");
-      expect(slot.className).toContain("left-2");
-    }
-    expect(SIDEBAR_METRICS.inset).toEqual([8, 32, 56]);
-    expect(SIDEBAR_METRICS.statusInset + SIDEBAR_METRICS.statusWidth + 8).toBe(SIDEBAR_METRICS.inset[1]);
+    expect(button("Nested").className).toContain(sidebarClass.inset[1]);
+    // Indent 0 is flush with the header text (px-2); indent 1 is where a label starts after an icon.
+    expect(SIDEBAR_METRICS.inset).toEqual([8, 32]);
+    expect(SIDEBAR_METRICS.inset[0] + SIDEBAR_METRICS.iconWidth + SIDEBAR_METRICS.iconGap).toBe(SIDEBAR_METRICS.inset[1]);
   });
 });
