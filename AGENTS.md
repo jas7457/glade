@@ -19,6 +19,12 @@ We keep a strict ledger of planned and finished work:
    `- [ ] ~~Thing~~ — dropped: reason`.
 5. Decisions that shape the codebase go in the "Decisions" section of `docs/ARCHITECTURE.md`.
 
+## Issue queue
+
+When the user reports issues or ideas, follow `.agents/skills/issue-queue/SKILL.md`: record them
+in the `## Inbox` section of PLAN.md and **do not start work** until the user says "go". Then split
+the queue into sub-agent workstreams by file ownership, integrate, tick items, and commit.
+
 ## Commands
 
 ```bash
