@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@source "../node_modules/streamdown/dist/*.js";
+
+/*
+ * Design tokens. Values mimic macOS system colors; components should only use these semantic
+ * tokens (bg-surface, text-fg-muted, border-separator, ...) so theming stays in one place.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
+
+  --color-window: var(--pi-window);
+  --color-sidebar: var(--pi-sidebar);
+  --color-surface: var(--pi-surface);
+  --color-surface-raised: var(--pi-surface-raised);
+  --color-control: var(--pi-control);
+  --color-hover: var(--pi-hover);
+  --color-selected: var(--pi-selected);
+  --color-separator: var(--pi-separator);
+  --color-fg: var(--pi-fg);
+  --color-fg-muted: var(--pi-fg-muted);
+  --color-fg-subtle: var(--pi-fg-subtle);
+  --color-accent: var(--pi-accent);
+  --color-accent-fg: var(--pi-accent-fg);
+  --color-danger: var(--pi-danger);
+  --color-warning: var(--pi-warning);
+  --color-success: var(--pi-success);
+  --color-code: var(--pi-code);
+
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --shadow-popover: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 10px 30px -6px rgb(0 0 0 / 0.25);
+}
+
+:root {
+  --pi-window: #ffffff;
+  --pi-sidebar: #f3f2f7;
+  --pi-surface: #ffffff;
+  --pi-surface-raised: #ffffff;
+  --pi-control: #ffffff;
+  --pi-hover: rgb(0 0 0 / 0.05);
+  --pi-selected: rgb(0 0 0 / 0.08);
+  --pi-separator: rgb(0 0 0 / 0.1);
+  --pi-fg: rgb(0 0 0 / 0.88);
+  --pi-fg-muted: rgb(0 0 0 / 0.55);
+  --pi-fg-subtle: rgb(0 0 0 / 0.35);
+  --pi-accent: #007aff;
+  --pi-accent-fg: #ffffff;
+  --pi-danger: #ff3b30;
+  --pi-warning: #ff9500;
+  --pi-success: #28cd41;
+  --pi-code: #f5f5f7;
+  --pi-font-size: 13px;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --pi-window: #1e1e1e;
+  --pi-sidebar: #262626;
+  --pi-surface: #1e1e1e;
+  --pi-surface-raised: #2c2c2e;
+  --pi-control: rgb(255 255 255 / 0.08);
+  --pi-hover: rgb(255 255 255 / 0.06);
+  --pi-selected: rgb(255 255 255 / 0.1);
+  --pi-separator: rgb(255 255 255 / 0.1);
+  --pi-fg: rgb(255 255 255 / 0.88);
+  --pi-fg-muted: rgb(255 255 255 / 0.55);
+  --pi-fg-subtle: rgb(255 255 255 / 0.3);
+  --pi-accent: #0a84ff;
+  --pi-accent-fg: #ffffff;
+  --pi-danger: #ff453a;
+  --pi-warning: #ff9f0a;
+  --pi-success: #32d74b;
+  --pi-code: #2a2a2c;
+  color-scheme: dark;
+}
+
+[data-font-size="small"] { --pi-font-size: 12px; }
+[data-font-size="large"] { --pi-font-size: 14px; }
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+  html {
+    font-size: var(--pi-font-size);
+  }
+  body {
+    @apply bg-window text-fg font-sans antialiased;
+    /* Native apps don't select UI chrome text or show the pointer hand on controls. */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+    overflow: hidden;
+  }
+  /* Content (messages, inputs, code) stays selectable. */
+  .selectable,
+  input,
+  textarea,
+  [contenteditable] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  button,
+  [role="button"],
+  a {
+    cursor: default;
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--pi-accent) 45%, transparent);
+    outline-offset: 1px;
+    border-radius: var(--radius-control);
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--pi-accent) 30%, transparent);
+  }
+  /* Thin overlay-style scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--pi-fg-subtle) transparent;
+  }
+}

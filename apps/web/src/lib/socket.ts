@@ -1,0 +1,81 @@
+import { signal } from "@preact/signals";
+import type { ServerMessage } from "@pi-ui/protocol";
+
+/** Client -> server messages over the socket. */
+export type ClientMessage = { type: "viewing"; chatId: string | null };
+
+export const connectionStatus = signal<"connecting" | "open" | "closed">("connecting");
+
+type Handler = (message: ServerMessage) => void;
+
+/**
+ * Auto-reconnecting WebSocket to `/ws`. The server pushes {@link ServerMessage}s; the client
+ * only reports which chat is on screen.
+ */
+export class Socket {
+  private ws: WebSocket | null = null;
+  private readonly handlers = new Set<Handler>();
+  private readonly reconnectHandlers = new Set<() => void>();
+  private retry = 0;
+  private lastViewing: ClientMessage | null = null;
+  private stopped = false;
+
+  constructor(private readonly url = defaultUrl()) {}
+
+  connect(): void {
+    this.stopped = false;
+    connectionStatus.value = "connecting";
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
+    ws.onopen = () => {
+      const wasReconnect = this.retry > 0;
+      this.retry = 0;
+      connectionStatus.value = "open";
+      if (this.lastViewing) ws.send(JSON.stringify(this.lastViewing));
+      if (wasReconnect) this.reconnectHandlers.forEach((h) => h());
+    };
+    ws.onmessage = (e) => {
+      let message: ServerMessage;
+      try {
+        message = JSON.parse(String(e.data)) as ServerMessage;
+      } catch {
+        return;
+      }
+      this.handlers.forEach((h) => h(message));
+    };
+    ws.onclose = () => {
+      connectionStatus.value = "closed";
+      if (this.stopped) return;
+      const delay = Math.min(10_000, 250 * 2 ** this.retry++);
+      setTimeout(() => this.connect(), delay);
+    };
+  }
+
+  disconnect(): void {
+    this.stopped = true;
+    this.ws?.close();
+  }
+
+  send(message: ClientMessage): void {
+    if (message.type === "viewing") this.lastViewing = message;
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(message));
+  }
+
+  onMessage(handler: Handler): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+
+  /** Called after a dropped connection is re-established (state should be re-fetched). */
+  onReconnect(handler: () => void): () => void {
+    this.reconnectHandlers.add(handler);
+    return () => this.reconnectHandlers.delete(handler);
+  }
+}
+
+function defaultUrl(): string {
+  const { protocol, host } = window.location;
+  return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws`;
+}
+
+export const socket = new Socket();
