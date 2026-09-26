@@ -12,6 +12,7 @@ import {
   type Chat,
   type ChatDetail,
   type ChatSummary,
+  type CompactResult,
   type CreateChatRequest,
   type CreateProjectRequest,
   type DeepPartial,
@@ -22,6 +23,7 @@ import {
   type PromptRequest,
   type ServerMessage,
   type Settings,
+  type SlashCommand,
   type ThinkingLevel,
   type Transcript,
   type UiRequest,
@@ -31,6 +33,7 @@ import {
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
+import { createRevealPath, type RevealPath } from "./reveal.js";
 
 /** Byte size of base64 data once decoded (ignores whitespace and padding). */
 export function decodedBase64Size(data: string): number {
@@ -45,7 +48,7 @@ function formatMB(bytes: number): string {
 
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 500,
+    readonly status: 400 | 404 | 409 | 500 | 501,
     message: string,
   ) {
     super(message);
@@ -68,6 +71,8 @@ export interface AppServiceOptions {
   store: Store;
   harness: AgentHarness;
   scratchDir: string;
+  /** "Reveal in Finder" (injectable for tests). Default: `open -R` on macOS. */
+  revealPath?: RevealPath;
   log?: (msg: string) => void;
 }
 
@@ -85,6 +90,8 @@ export class AppService {
   private readonly viewers = new Map<string, number>();
   private readonly store: Store;
   private readonly harness: AgentHarness;
+  /** Files written by `exportChat` this run; the only paths `revealPath` will show. */
+  private readonly exported = new Set<string>();
 
   constructor(private readonly options: AppServiceOptions) {
     this.store = options.store;
@@ -371,6 +378,41 @@ export class AppService {
   async setThinkingLevel(id: string, level: ThinkingLevel): Promise<void> {
     const live = await this.ensureLive(id);
     await live.session.setThinkingLevel(level);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Slash-command support (pi-ui's own built-ins run in the web app; see docs/ARCHITECTURE.md)
+  // -------------------------------------------------------------------------------------------
+
+  /** The harness's slash commands (extensions, skills, prompt templates) for a chat. */
+  async listCommands(id: string): Promise<SlashCommand[]> {
+    const live = await this.ensureLive(id);
+    return live.session.listCommands ? live.session.listCommands() : [];
+  }
+
+  async compact(id: string, instructions?: string): Promise<CompactResult> {
+    const live = await this.ensureLive(id);
+    if (!live.session.compact) throw new HttpError(409, "This agent can't compact its context");
+    if (live.running) throw new HttpError(409, "Wait for the current reply to finish before compacting");
+    if (live.session.getState().isCompacting) throw new HttpError(409, "Already compacting");
+    live.lastUsedAt = Date.now();
+    return live.session.compact(instructions?.trim() || undefined);
+  }
+
+  /** Export the chat to an HTML file; optionally reveal it in Finder. */
+  async exportChat(id: string, options: { reveal?: boolean } = {}): Promise<{ path: string }> {
+    const live = await this.ensureLive(id);
+    if (!live.session.exportHtml) throw new HttpError(409, "This agent can't export chats");
+    const path = await live.session.exportHtml();
+    this.exported.add(path);
+    if (options.reveal) await this.revealPath(path);
+    return { path };
+  }
+
+  /** Reveal a file this server exported (arbitrary paths are refused). */
+  async revealPath(path: string): Promise<void> {
+    if (!this.exported.has(path)) throw new HttpError(404, "Unknown file");
+    await (this.options.revealPath ?? createRevealPath())(path);
   }
 
   respondToUi(id: string, response: UiResponse): void {

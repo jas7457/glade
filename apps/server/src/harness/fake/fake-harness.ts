@@ -4,14 +4,17 @@ import {
   defaultSessionState,
   emptyTranscript,
   type AgentEvent,
+  type CompactResult,
   type ModelInfo,
   type ModelRef,
   type PromptRequest,
   type SessionState,
+  type SlashCommand,
   type ThinkingLevel,
   type Transcript,
   type UiResponse,
 } from "@pi-ui/protocol";
+import { compactionNoticeText } from "../format.js";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 
 export const FAKE_MODELS: ModelInfo[] = [
@@ -21,10 +24,21 @@ export const FAKE_MODELS: ModelInfo[] = [
     name: "Fake Smart",
     thinkingLevels: ["off", "low", "medium", "high"],
     input: ["text", "image"],
+    contextWindow: 200_000,
     imageLimits: { maxWidth: 2000, maxHeight: 2000, maxBytes: 1024 * 1024, jpegQuality: 80 },
   },
-  { provider: "fake", id: "fast", name: "Fake Fast", thinkingLevels: ["off"], input: ["text"] },
+  { provider: "fake", id: "fast", name: "Fake Fast", thinkingLevels: ["off"], input: ["text"], contextWindow: 32_000 },
 ];
+
+/** Commands the fake harness offers (one of each kind). */
+export const FAKE_COMMANDS: SlashCommand[] = [
+  { name: "fake-ext", description: "A fake extension command", source: "extension" },
+  { name: "skill:fake-skill", description: "A fake skill", source: "skill" },
+  { name: "fake-prompt", description: "A fake prompt template", source: "prompt" },
+];
+
+/** Pretend every prompt adds this many tokens of context (and costs a tenth of a cent). */
+const FAKE_TOKENS_PER_PROMPT = 12_000;
 
 /** Produces the events for one prompt. Default: echo the prompt back after a bash tool call. */
 export type FakeScript = (request: PromptRequest, ids: () => string) => AgentEvent[];
@@ -68,6 +82,10 @@ export const defaultFakeScript: FakeScript = (request, nextId) => {
 
 interface StoredSession {
   transcript: Transcript;
+  /** Fake context size; `null` right after compaction (like pi). */
+  contextTokens: number | null;
+  totalTokens: number;
+  cost: number;
   title: string | null;
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel;
@@ -98,6 +116,9 @@ export class FakeHarness implements AgentHarness {
       ref = ref ?? `fake-session-${++this.counter}`;
       this.sessions.set(ref, {
         transcript: emptyTranscript(),
+        contextTokens: 0,
+        totalTokens: 0,
+        cost: 0,
         title: null,
         model: options.model ?? { provider: FAKE_MODELS[0]!.provider, id: FAKE_MODELS[0]!.id },
         thinkingLevel: options.thinkingLevel ?? "medium",
@@ -126,6 +147,7 @@ export class FakeSession implements HarnessSession {
   private idCounter = 0;
   readonly uiResponses: UiResponse[] = [];
   readonly prompts: PromptRequest[] = [];
+  readonly compactions: Array<string | undefined> = [];
 
   constructor(
     private readonly harness: FakeHarness,
@@ -138,6 +160,22 @@ export class FakeSession implements HarnessSession {
       model: stored.model,
       thinkingLevel: stored.thinkingLevel,
       thinkingLevels: model?.thinkingLevels ?? ["off"],
+      ...this.statsState(),
+    };
+  }
+
+  /** `contextUsage` + `sessionStats` derived from the stored counters. */
+  private statsState(): Pick<SessionState, "contextUsage" | "sessionStats"> {
+    const stored = this.stored;
+    const info = FAKE_MODELS.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
+    const contextWindow = info?.contextWindow ?? 200_000;
+    const tokens = stored.contextTokens === null ? null : Math.min(stored.contextTokens, contextWindow);
+    return {
+      contextUsage: { tokens, contextWindow, percent: tokens === null ? null : (tokens / contextWindow) * 100 },
+      sessionStats: {
+        tokens: { input: Math.round(stored.totalTokens * 0.8), output: Math.round(stored.totalTokens * 0.2), cacheRead: 0, cacheWrite: 0, total: stored.totalTokens },
+        cost: stored.cost,
+      },
     };
   }
 
@@ -155,6 +193,10 @@ export class FakeSession implements HarnessSession {
 
   async prompt(request: PromptRequest): Promise<void> {
     this.prompts.push(request);
+    const stored = this.stored;
+    stored.contextTokens = (stored.contextTokens ?? 4_000) + FAKE_TOKENS_PER_PROMPT;
+    stored.totalTokens += FAKE_TOKENS_PER_PROMPT;
+    stored.cost += 0.001;
     const nextId = () => `${this.sessionRef}-${this.idCounter++}`;
     const events: AgentEvent[] = [
       { type: "run_start" },
@@ -164,7 +206,7 @@ export class FakeSession implements HarnessSession {
         message: { id: nextId(), role: "user", content: [{ type: "text", text: request.text }], timestamp: Date.now() },
       },
       ...this.harness.script(request, nextId),
-      { type: "state", state: { isRunning: false } },
+      { type: "state", state: { isRunning: false, ...this.statsState() } },
       { type: "run_end" },
     ];
     void this.play(events);
@@ -195,7 +237,7 @@ export class FakeSession implements HarnessSession {
     if (!info) throw new Error(`Unknown model ${model.provider}/${model.id}`);
     this.stored.model = model;
     const thinkingLevel = clampThinkingLevel(info.thinkingLevels, this.state.thinkingLevel);
-    this.emit({ type: "state", state: { model, thinkingLevels: info.thinkingLevels, thinkingLevel } });
+    this.emit({ type: "state", state: { model, thinkingLevels: info.thinkingLevels, thinkingLevel, ...this.statsState() } });
   }
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {
@@ -206,6 +248,30 @@ export class FakeSession implements HarnessSession {
 
   async setTitle(title: string): Promise<void> {
     this.stored.title = title;
+  }
+
+  async listCommands(): Promise<SlashCommand[]> {
+    return FAKE_COMMANDS;
+  }
+
+  async compact(instructions?: string): Promise<CompactResult> {
+    this.compactions.push(instructions);
+    const stored = this.stored;
+    const tokensBefore = stored.contextTokens ?? 0;
+    const tokensAfter = Math.round(tokensBefore / 5);
+    this.emit({ type: "state", state: { isCompacting: true } });
+    if (this.harness.eventDelayMs > 0) await new Promise((r) => setTimeout(r, this.harness.eventDelayMs * 10));
+    stored.contextTokens = null; // unknown until the next reply, like pi
+    this.emit({ type: "state", state: { isCompacting: false, ...this.statsState() } });
+    this.emit({
+      type: "message_end",
+      message: { id: `${this.sessionRef}-${this.idCounter++}`, role: "notice", kind: "compaction", text: compactionNoticeText(tokensBefore, tokensAfter), timestamp: Date.now() },
+    });
+    return { tokensBefore, tokensAfter };
+  }
+
+  async exportHtml(): Promise<string> {
+    return `/tmp/pi-ui-fake-export-${this.sessionRef}.html`;
   }
 
   respondToUi(response: UiResponse): void {

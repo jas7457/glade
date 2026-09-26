@@ -6,23 +6,39 @@
  *                                        navigates to it (needs a router)
  *
  * Both are thin wrappers around <ComposerBox>, which owns the textarea, attachments, send
- * keys and toolbar but none of the data flow.
+ * keys, toolbar and the slash-command menu but none of the data flow.
+ *
+ * Slash commands: typing `/` at the start opens a menu of pi-ui built-ins (slash/builtins.ts,
+ * run here in the browser) plus the chat's harness commands (sent to the agent as a prompt).
  */
 import type { ComponentChildren } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { ArrowUp, Paperclip, Square, TriangleAlert, X } from "lucide-preact";
-import { DEFAULT_IMAGE_LIMITS, clampThinkingLevel, sameModel, type ModelInfo, type ModelRef, type PromptImage, type ThinkingLevel } from "@pi-ui/protocol";
+import {
+  DEFAULT_IMAGE_LIMITS,
+  clampThinkingLevel,
+  sameModel,
+  type ModelInfo,
+  type ModelRef,
+  type PromptImage,
+  type SlashCommand,
+  type ThinkingLevel,
+} from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
-import { applyChatDetail, runAction, useChatSession } from "@/state/chat-session";
+import { applyChatDetail, loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { settings, visibleModels } from "@/state/store";
 import { notify } from "@/state/toasts";
 import { Spinner, Tooltip } from "@/ui";
 import { imageFiles, isSendKey, readImageFile, type Attachment } from "./composer-utils";
+import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ThinkingPicker } from "./Pickers";
 import { UiRequestCard } from "./UiRequestCard";
+import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
+import { filterCommands, mergeCommands, parseSlash } from "./slash/match";
+import { SLASH_MENU_ID, SlashMenu, slashOptionId } from "./slash/SlashMenu";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -33,6 +49,15 @@ const drafts = new Map<string, string>();
 // ---------------------------------------------------------------------------------------------
 // Presentational composer
 // ---------------------------------------------------------------------------------------------
+
+/** Enables the slash-command menu. */
+export interface ComposerSlashOptions {
+  /** Everything the menu offers: built-ins (source "builtin") + harness commands. */
+  commands: SlashCommand[];
+  chatId: string | null;
+  projectId: string | null;
+  navigate: (path: string) => void;
+}
 
 export interface ComposerBoxProps {
   /** Key for draft persistence. */
@@ -54,6 +79,9 @@ export interface ComposerBoxProps {
   onStop?: () => void;
   /** Rendered above the input box (queue chips, dialogs, banners). */
   above?: ComponentChildren;
+  /** Extra toolbar items after the pickers (e.g. the context meter). */
+  toolbarExtra?: ComponentChildren;
+  slash?: ComposerSlashOptions;
   class?: string;
 }
 
@@ -62,9 +90,27 @@ export function ComposerBox(props: ComposerBoxProps) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [images, setImages] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [menuDismissed, setMenuDismissed] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [openPicker, setOpenPicker] = useState<"model" | "thinking" | null>(null);
+  const pickerFromSlash = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sendKey = settings.value.general.sendKey;
+  const slash = props.slash;
+
+  // Slash menu: open while typing a command name at the very start of the text.
+  const parsed = slash ? parseSlash(text) : null;
+  const typingName = parsed && !parsed.hasArgs ? parsed.name : null;
+  const groups = useMemo(() => (slash && typingName !== null ? filterCommands(slash.commands, typingName) : []), [slash?.commands, typingName]);
+  const flat = groups.flatMap((g) => g.commands);
+  const menuOpen = typingName !== null && !menuDismissed && !busy && flat.length > 0;
+  const active = Math.min(activeIndex, Math.max(0, flat.length - 1));
+
+  useEffect(() => setActiveIndex(0), [typingName]);
+  useEffect(() => {
+    if (typingName === null) setMenuDismissed(false);
+  }, [typingName === null]);
 
   // Switch drafts when the composer is reused for another chat.
   useEffect(() => {
@@ -109,10 +155,70 @@ export function ComposerBox(props: ComposerBoxProps) {
 
   const canSend = !busy && (text.trim().length > 0 || images.length > 0);
 
+  /** Insert `/name ` and keep typing arguments. */
+  const complete = (command: SlashCommand) => {
+    updateText(`/${command.name} `);
+    setMenuDismissed(false);
+    textareaRef.current?.focus();
+  };
+
+  const pickerProps = (which: "model" | "thinking") => ({
+    open: openPicker === which,
+    onOpenChange: (open: boolean) => {
+      if (!open && openPicker !== which) return;
+      setOpenPicker(open ? which : null);
+    },
+    onCloseAutoFocus: (e: Event) => {
+      if (!pickerFromSlash.current) return;
+      // Opened from a slash command: return to the textarea, not the picker button.
+      pickerFromSlash.current = false;
+      e.preventDefault();
+      textareaRef.current?.focus();
+    },
+  });
+
+  /** The built-in command `sentText` invokes, if any (only those this composer offers). */
+  const builtinFor = (sentText: string) => {
+    const cmd = slash ? parseSlash(sentText) : null;
+    if (!slash || !cmd || !slash.commands.some((c) => c.source === "builtin" && c.name === cmd.name)) return null;
+    const builtin = findBuiltin(cmd.name);
+    return builtin ? { builtin, args: cmd.args, slash } : null;
+  };
+
+  const runBuiltin = async ({ builtin, args, slash }: NonNullable<ReturnType<typeof builtinFor>>): Promise<boolean> => {
+    const ctx: SlashContext = {
+      chatId: slash.chatId,
+      projectId: slash.projectId,
+      navigate: slash.navigate,
+      models: props.models,
+      thinkingLevels: props.thinkingLevels,
+      setModel: props.onModelChange,
+      setThinkingLevel: props.onThinkingChange,
+      openPicker: (which) => {
+        pickerFromSlash.current = true;
+        setOpenPicker(which);
+      },
+    };
+    try {
+      return await builtin.run(args, ctx);
+    } catch (err) {
+      notify("error", `/${builtin.name} failed: ${(err as Error).message}`);
+      return false;
+    }
+  };
+
   const send = async () => {
     if (!canSend) return;
     const sentText = text.trim();
     const sentImages = images;
+    const builtin = builtinFor(sentText);
+    if (builtin) {
+      // Runs here instead of being sent (attached images stay for the next message).
+      const typed = text;
+      updateText("");
+      if (!(await runBuiltin(builtin))) updateText(typed);
+      return;
+    }
     // Optimistically clear; restore if it failed.
     updateText("");
     setImages([]);
@@ -127,6 +233,33 @@ export function ComposerBox(props: ComposerBoxProps) {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    const composing = e.isComposing || e.keyCode === 229;
+    if (menuOpen && !composing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setActiveIndex((active + step + flat.length) % flat.length);
+        return;
+      }
+      if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        complete(flat[active]!);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        const command = flat[active]!;
+        // Fully typed: run/send it. Otherwise complete the highlighted command first.
+        if (command.name === typingName) void send();
+        else complete(command);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMenuDismissed(true);
+        return;
+      }
+    }
     if (isSendKey(e, sendKey)) {
       e.preventDefault();
       void send();
@@ -162,6 +295,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           }
         }}
       >
+        {menuOpen && <SlashMenu groups={groups} activeIndex={active} onHover={setActiveIndex} onPick={complete} />}
         {images.length > 0 && (
           <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attachments">
             {images.map((img) => (
@@ -190,6 +324,10 @@ export function ComposerBox(props: ComposerBoxProps) {
           disabled={busy}
           placeholder={props.placeholder ?? (isRunning ? "Queue a message…" : "Ask anything…")}
           aria-label="Message"
+          aria-autocomplete={slash ? "list" : undefined}
+          aria-expanded={slash ? menuOpen : undefined}
+          aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
+          aria-activedescendant={menuOpen ? slashOptionId(active) : undefined}
           class="selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60"
           onInput={(e) => updateText(e.currentTarget.value)}
           onKeyDown={onKeyDown}
@@ -227,8 +365,21 @@ export function ComposerBox(props: ComposerBoxProps) {
               />
             </>
           )}
-          <ModelPicker value={props.model} models={props.models} onChange={props.onModelChange} disabled={busy} />
-          <ThinkingPicker value={props.thinkingLevel} levels={props.thinkingLevels} onChange={props.onThinkingChange} disabled={busy} />
+          <ModelPicker
+            value={props.model}
+            models={props.models}
+            onChange={props.onModelChange}
+            disabled={busy}
+            {...pickerProps("model")}
+          />
+          <ThinkingPicker
+            value={props.thinkingLevel}
+            levels={props.thinkingLevels}
+            onChange={props.onThinkingChange}
+            disabled={busy}
+            {...pickerProps("thinking")}
+          />
+          {props.toolbarExtra}
           <div class="flex-1" />
           {busy && <Spinner size={14} class="mr-1" />}
           {isRunning && props.onStop && (
@@ -281,8 +432,17 @@ export interface ChatComposerProps {
 }
 
 function ChatComposer({ chatId, placeholder, autoFocus, class: className }: ChatComposerProps) {
+  const navigate = useNavigate();
   const store = useChatSession(chatId, { markViewing: false });
   const state = store.state.value;
+  const ready = store.status.value === "ready";
+  const harnessCommands = store.commands.value;
+  const slashCommands = useMemo(() => mergeCommands(builtinCommands(true), harnessCommands), [harnessCommands]);
+
+  // The agent is running once the chat is loaded; fetch its slash commands then (cached).
+  useEffect(() => {
+    if (ready) void loadChatCommands(chatId);
+  }, [chatId, ready]);
   const models = visibleModels.value;
   const uiRequests = store.uiRequests.value;
   const agentError = store.agentError.value;
@@ -344,6 +504,12 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
           }}
         />
       )}
+      {state.isCompacting && (
+        <div role="status" class="mb-2 flex items-center justify-center gap-2 text-[0.88rem] text-fg-muted">
+          <Spinner size={12} />
+          Compacting context…
+        </div>
+      )}
       {queued.length > 0 && (
         <div class="mb-2 flex flex-col items-end gap-1" aria-label="Queued messages">
           {queued.map((q, i) => (
@@ -373,6 +539,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       onSend={onSend}
       onStop={() => void runAction(() => api.abort(chatId), "Could not stop")}
       above={above}
+      toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} />}
+      slash={{ commands: slashCommands, chatId, projectId: null, navigate }}
       class={className}
     />
   );
@@ -388,6 +556,8 @@ export interface NewChatComposerProps {
   autoFocus?: boolean;
   class?: string;
 }
+
+const NEW_CHAT_COMMANDS = builtinCommands(false);
 
 function NewChatComposer({ projectId, placeholder, autoFocus, class: className }: NewChatComposerProps) {
   const navigate = useNavigate();
@@ -439,6 +609,8 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
       thinkingLevels={levels}
       onThinkingChange={setPickedLevel}
       onSend={onSend}
+      // No agent yet, so no harness commands: only built-ins that work before the chat exists.
+      slash={{ commands: NEW_CHAT_COMMANDS, chatId: null, projectId, navigate }}
       class={className}
     />
   );

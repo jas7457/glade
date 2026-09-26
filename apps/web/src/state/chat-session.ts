@@ -13,6 +13,7 @@ import {
   type AgentEvent,
   type ChatDetail,
   type SessionState,
+  type SlashCommand,
   type Transcript,
   type UiRequest,
 } from "@pi-ui/protocol";
@@ -29,6 +30,8 @@ export interface ChatSessionStore {
   error: Signal<string | null>;
   /** Last error reported by the agent itself (process crash etc). */
   agentError: Signal<string | null>;
+  /** The harness's slash commands for this chat; `null` until loaded (see loadChatCommands). */
+  commands: Signal<SlashCommand[] | null>;
 }
 
 const sessions = new Map<string, ChatSessionStore>();
@@ -44,6 +47,7 @@ export function getChatSession(chatId: string): ChatSessionStore {
       status: signal("idle"),
       error: signal(null),
       agentError: signal(null),
+      commands: signal(null),
     };
     sessions.set(chatId, store);
   }
@@ -71,6 +75,28 @@ export async function loadChatSession(chatId: string): Promise<void> {
     store.status.value = "error";
     store.error.value = (err as Error).message;
   }
+}
+
+const commandLoads = new Map<string, Promise<void>>();
+
+/** Fetch the chat's harness slash commands once (they're fixed for the agent's lifetime). */
+export function loadChatCommands(chatId: string): Promise<void> {
+  const store = getChatSession(chatId);
+  if (store.commands.value) return Promise.resolve();
+  let pending = commandLoads.get(chatId);
+  if (!pending) {
+    pending = Promise.resolve()
+      .then(() => api.listCommands(chatId))
+      .then((commands) => {
+        store.commands.value = commands;
+      })
+      .catch(() => {
+        // Not fatal: the menu still shows pi-ui's built-ins. Retried on the next open.
+      })
+      .finally(() => commandLoads.delete(chatId));
+    commandLoads.set(chatId, pending);
+  }
+  return pending;
 }
 
 export async function reloadOpenChatSessions(): Promise<void> {
@@ -136,4 +162,5 @@ export async function runAction(fn: () => Promise<unknown>, errorPrefix: string)
 /** For tests. */
 export function resetChatSessions(): void {
   sessions.clear();
+  commandLoads.clear();
 }

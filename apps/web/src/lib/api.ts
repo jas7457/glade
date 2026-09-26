@@ -4,6 +4,7 @@
 import type {
   ChatDetail,
   ChatSummary,
+  CompactResult,
   CreateChatRequest,
   CreateProjectRequest,
   DeepPartial,
@@ -13,6 +14,7 @@ import type {
   Project,
   PromptRequest,
   Settings,
+  SlashCommand,
   ThinkingLevel,
   UiResponse,
   UpdateChatRequest,
@@ -65,6 +67,13 @@ export const api = {
   setModel: (id: string, model: ModelRef) => request<void>("PUT", `/chats/${id}/model`, model),
   setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/chats/${id}/thinking`, { level }),
   respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/chats/${id}/ui-response`, body),
+  /** The harness's slash commands (pi-ui's built-ins are defined in features/chat/slash). */
+  listCommands: (id: string) => request<SlashCommand[]>("GET", `/chats/${id}/commands`),
+  compact: (id: string, instructions?: string) =>
+    request<CompactResult>("POST", `/chats/${id}/compact`, instructions ? { instructions } : {}),
+  exportChat: (id: string, options: { reveal?: boolean } = {}) => request<{ path: string }>("POST", `/chats/${id}/export`, options),
+  /** Reveal a file the server exported in Finder (macOS). */
+  revealFile: (path: string) => request<void>("POST", "/fs/reveal", { path }),
 
   // Models + settings
   listModels: (refresh = false) => request<ModelInfo[]>("GET", `/models${refresh ? "?refresh=1" : ""}`),

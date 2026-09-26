@@ -13,6 +13,8 @@ import {
   type ImageLimits,
   type ModelInfo,
   type SessionState,
+  type SessionStats,
+  type SlashCommand,
   type StopReason,
   type ThinkingLevel,
   type ToolResult,
@@ -20,6 +22,7 @@ import {
   type UiRequest,
   type Usage,
 } from "@pi-ui/protocol";
+import { compactionNoticeText } from "../format";
 import { readableError } from "../provider-error";
 
 // ---------------------------------------------------------------------------------------------
@@ -103,6 +106,56 @@ export function translateState(data: Json): Partial<SessionState> {
   }
   if (typeof data.thinkingLevel === "string") state.thinkingLevel = data.thinkingLevel as ThinkingLevel;
   return state;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * `get_session_stats` → `contextUsage` + `sessionStats`. pi omits `contextUsage` when no model /
+ * context window is known, and reports `tokens`/`percent` as `null` right after compaction.
+ */
+export function translateSessionStats(data: Json): Pick<SessionState, "contextUsage" | "sessionStats"> {
+  const out: Pick<SessionState, "contextUsage" | "sessionStats"> = {};
+  const usage = data.contextUsage as Json | undefined | null;
+  const contextWindow = finiteNumber(usage?.contextWindow);
+  if (usage && contextWindow && contextWindow > 0) {
+    out.contextUsage = { tokens: finiteNumber(usage.tokens), contextWindow, percent: finiteNumber(usage.percent) };
+  }
+  const tokens = data.tokens as Json | undefined | null;
+  if (tokens && typeof tokens === "object") {
+    const n = (v: unknown) => finiteNumber(v) ?? 0;
+    const stats: SessionStats = {
+      tokens: {
+        input: n(tokens.input),
+        output: n(tokens.output),
+        cacheRead: n(tokens.cacheRead),
+        cacheWrite: n(tokens.cacheWrite),
+        total: n(tokens.total),
+      },
+      cost: n(data.cost),
+    };
+    out.sessionStats = stats;
+  }
+  return out;
+}
+
+const COMMAND_SOURCES = new Set(["extension", "prompt", "skill"]);
+
+/** `get_commands` → harness slash commands (pi's own TUI built-ins aren't included by pi). */
+export function translateCommands(data: Json): SlashCommand[] {
+  const list = Array.isArray(data.commands) ? (data.commands as Json[]) : [];
+  const seen = new Set<string>();
+  const out: SlashCommand[] = [];
+  for (const raw of list) {
+    const name = typeof raw?.name === "string" ? raw.name.trim().replace(/^\//, "") : "";
+    if (!name || seen.has(name) || !COMMAND_SOURCES.has(String(raw.source))) continue;
+    seen.add(name);
+    const description = typeof raw.description === "string" && raw.description.trim() ? raw.description.trim() : undefined;
+    out.push({ name, source: raw.source as SlashCommand["source"], ...(description ? { description } : {}) });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -205,7 +258,8 @@ export function translateMessage(raw: Json, id: string): ChatMessage | null {
         timestamp,
       };
     case "compactionSummary":
-      return { id, role: "notice", kind: "compaction", text: String(raw.summary ?? "Context compacted"), timestamp };
+      // The summary itself is model context, not something to show as a divider line.
+      return { id, role: "notice", kind: "compaction", text: compactionNoticeText(finiteNumber(raw.tokensBefore), null), timestamp };
     case "custom":
       if (raw.display === false) return null;
       return { id, role: "notice", kind: "info", text: textOf(raw.content), timestamp };
@@ -372,9 +426,13 @@ export class PiEventTranslator {
       case "compaction_end": {
         const out: AgentEvent[] = [{ type: "state", state: { isCompacting: false } }];
         if (event.errorMessage) {
-          out.push({ type: "notify", level: "error", message: `Compaction failed: ${readableError(String(event.errorMessage)).message}` });
+          const reason = readableError(String(event.errorMessage)).message.replace(/^Compaction failed:\s*/i, "");
+          out.push({ type: "notify", level: "error", message: `Compaction failed: ${reason}` });
         } else if (!event.aborted) {
-          out.push({ type: "notify", level: "info", message: "Context compacted" });
+          // A divider in the transcript rather than a toast: it marks where the context was cut.
+          const result = (event.result as Json | null | undefined) ?? {};
+          const text = compactionNoticeText(finiteNumber(result.tokensBefore), finiteNumber(result.estimatedTokensAfter));
+          out.push({ type: "message_end", message: { id: this.newId(), role: "notice", kind: "compaction", text, timestamp: Date.now() } });
         }
         return out;
       }

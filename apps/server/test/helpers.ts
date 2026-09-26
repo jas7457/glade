@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "@pi-ui/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
-import { AppService } from "../src/services/app-service.js";
+import { AppService, type AppServiceOptions } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
 
 export interface TestEnv {
@@ -18,11 +18,11 @@ export interface TestEnv {
   cleanup: () => Promise<void>;
 }
 
-export function createTestEnv(): TestEnv {
+export function createTestEnv(options: Pick<AppServiceOptions, "revealPath"> = {}): TestEnv {
   const dir = mkdtempSync(join(tmpdir(), "pi-ui-test-"));
   const store = new Store(join(dir, "data"), 0);
   const harness = new FakeHarness();
-  const service = new AppService({ store, harness, scratchDir: join(dir, "scratch") });
+  const service = new AppService({ store, harness, scratchDir: join(dir, "scratch"), ...options });
   const messages: ServerMessage[] = [];
   service.subscribe((m) => messages.push(m));
   return {

@@ -60,6 +60,12 @@ Every entry corresponds to a ticked item in PLAN.md.
   attention, and a proper menu bar. Closing the window keeps agents running; ⌘Q quits.
 - `pnpm tauri:dev` opens the desktop window on the live dev server.
 
+- Context meter in the composer: see how full the conversation's context is (amber near the limit),
+  plus the session cost where it applies.
+- Slash commands: type `/` for a menu of pi-ui commands (/compact, /new, /name, /model,
+  /thinking, /export, /stats, /settings) and your pi extension commands and skills.
+- Compacting shows a divider in the chat with how much context was freed.
+
 ### Changed
 
 - The chat header no longer shows the working folder path, just the title and project.

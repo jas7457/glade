@@ -24,6 +24,7 @@ import {
 } from "@pi-ui/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
+import { RevealUnavailableError } from "../services/reveal.js";
 import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
 
@@ -140,6 +141,17 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.setThinkingLevel(c.req.param("id"), body.level);
     return c.body(null, 204);
   });
+  api.get("/chats/:id/commands", async (c) => c.json(await service.listCommands(c.req.param("id"))));
+  api.post("/chats/:id/compact", async (c) => {
+    const body = await readOptionalBody<{ instructions?: string }>(c);
+    optional(body.instructions, "string", "instructions");
+    return c.json(await service.compact(c.req.param("id"), body.instructions));
+  });
+  api.post("/chats/:id/export", async (c) => {
+    const body = await readOptionalBody<{ reveal?: boolean }>(c);
+    optional(body.reveal, "boolean", "reveal");
+    return withReveal(c, () => service.exportChat(c.req.param("id"), { reveal: body.reveal }));
+  });
   api.post("/chats/:id/ui-response", async (c) => {
     const body = await readBody<UiResponse>(c);
     requireString(body.id, "id");
@@ -177,6 +189,15 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
   });
 
+  api.post("/fs/reveal", async (c) => {
+    const body = await readBody<{ path: string }>(c);
+    requireString(body.path, "path");
+    return withReveal(c, async () => {
+      await service.revealPath(body.path);
+      return null;
+    });
+  });
+
   api.notFound((c) => c.json({ error: "Not found" }, 404));
   return api;
 }
@@ -196,6 +217,23 @@ async function readBody<T>(c: Context): Promise<T> {
     throw new HttpError(400, "Request body must be a JSON object");
   }
   return body as T;
+}
+
+/** Like {@link readBody}, but an empty body means `{}`. */
+async function readOptionalBody<T extends object>(c: Context): Promise<Partial<T>> {
+  const text = (await c.req.text()).trim();
+  return text ? readBody<Partial<T>>(c) : {};
+}
+
+/** Run `fn`; JSON result (204 for null), 501 when Finder reveal isn't available here. */
+async function withReveal(c: Context, fn: () => Promise<unknown>): Promise<Response> {
+  try {
+    const result = await fn();
+    return result === null ? c.body(null, 204) : c.json(result);
+  } catch (err) {
+    if (err instanceof RevealUnavailableError) return c.json({ error: err.message }, 501);
+    throw err;
+  }
 }
 
 function requireString(value: unknown, name: string, allowEmpty = false): asserts value is string {

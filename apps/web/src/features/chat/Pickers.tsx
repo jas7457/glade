@@ -11,14 +11,21 @@ import { thinkingLabel } from "./composer-utils";
 const triggerClass =
   "inline-flex h-6 max-w-[220px] items-center gap-1 rounded-control px-1.5 text-[0.92rem] text-fg-muted outline-none hover:bg-hover hover:text-fg data-[state=open]:bg-selected data-[state=open]:text-fg disabled:opacity-40";
 
-export interface ModelPickerProps {
+/** Optional control over the menu (e.g. to open it from the `/model` command). */
+export interface PickerOpenProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onCloseAutoFocus?: (e: Event) => void;
+}
+
+export interface ModelPickerProps extends PickerOpenProps {
   value: ModelRef | null;
   models: ModelInfo[];
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
 }
 
-export function ModelPicker({ value, models, onChange, disabled }: ModelPickerProps) {
+export function ModelPicker({ value, models, onChange, disabled, open, onOpenChange, onCloseAutoFocus }: ModelPickerProps) {
   const current = models.find((m) => sameModel(m, value));
   const label = current?.name ?? value?.id ?? (models.length ? "Select model" : "Loading models…");
   const providers = new Map<string, ModelInfo[]>();
@@ -27,6 +34,9 @@ export function ModelPicker({ value, models, onChange, disabled }: ModelPickerPr
   return (
     <Menu
       side="top"
+      open={open}
+      onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       contentClass="max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px]"
       trigger={
         <button type="button" class={triggerClass} disabled={disabled || models.length === 0} aria-label="Model">
@@ -50,7 +60,7 @@ export function ModelPicker({ value, models, onChange, disabled }: ModelPickerPr
   );
 }
 
-export interface ThinkingPickerProps {
+export interface ThinkingPickerProps extends PickerOpenProps {
   value: ThinkingLevel;
   levels: ThinkingLevel[];
   onChange: (level: ThinkingLevel) => void;
@@ -58,11 +68,14 @@ export interface ThinkingPickerProps {
 }
 
 /** Hidden when the model doesn't reason (levels empty or exactly ["off"]). */
-export function ThinkingPicker({ value, levels, onChange, disabled }: ThinkingPickerProps) {
+export function ThinkingPicker({ value, levels, onChange, disabled, open, onOpenChange, onCloseAutoFocus }: ThinkingPickerProps) {
   if (levels.length === 0 || (levels.length === 1 && levels[0] === "off")) return null;
   return (
     <Menu
       side="top"
+      open={open}
+      onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       trigger={
         <button type="button" class={triggerClass} disabled={disabled} aria-label="Thinking level">
           <Brain size={12} class={cn("shrink-0", value === "off" && "opacity-50")} />

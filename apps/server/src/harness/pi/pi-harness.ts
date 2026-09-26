@@ -1,23 +1,35 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { rm, rmdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   clampThinkingLevel,
   defaultSessionState,
   modelKey,
   type AgentEvent,
+  type CompactResult,
   type ModelInfo,
   type ModelRef,
   type PromptRequest,
   type SessionState,
+  type SlashCommand,
   type ThinkingLevel,
   type Transcript,
   type UiResponse,
 } from "@pi-ui/protocol";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 import { PiRpcProcess } from "./rpc-process.js";
-import { PiEventTranslator, translateMessages, translateModel, translateState, type PiModel } from "./translate.js";
+import {
+  PiEventTranslator,
+  translateCommands,
+  translateMessages,
+  translateModel,
+  translateSessionStats,
+  translateState,
+  type PiModel,
+} from "./translate.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,7 +76,7 @@ export class PiHarness implements AgentHarness {
     if (options.model) args.push("--model", modelKey(options.model));
     if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
     const proc = this.spawn(options.cwd, args);
-    const session = new PiSession(proc, this.options.log);
+    const session = new PiSession(proc, this.options.log, options.cwd);
     try {
       await session.init(this.options.config());
     } catch (err) {
@@ -123,6 +135,18 @@ export class PiHarness implements AgentHarness {
   }
 }
 
+/** pi events after which context usage / session totals may have changed. */
+const STATS_TRIGGERS = new Set(["turn_end", "agent_settled", "compaction_end"]);
+
+/** Manual compaction summarizes with the model; give it plenty of time. */
+const COMPACT_TIMEOUT_MS = 5 * 60_000;
+
+/** Where `/export` writes HTML files: ~/Downloads when it exists (macOS), else the temp dir. */
+function defaultExportDir(): string {
+  const downloads = join(homedir(), "Downloads");
+  return existsSync(downloads) ? downloads : tmpdir();
+}
+
 export class PiSession implements HarnessSession {
   private state: SessionState = defaultSessionState();
   private ref: string | null = null;
@@ -130,16 +154,28 @@ export class PiSession implements HarnessSession {
   private readonly listeners = new Set<(event: AgentEvent) => void>();
   private readonly exitListeners = new Set<(error: Error | null) => void>();
   private disposed = false;
+  private commands: Promise<SlashCommand[]> | null = null;
+  /** `compact` requests in flight (their failures are reported by the request, not as a toast). */
+  private manualCompactions = 0;
+  /** `get_session_stats` in flight; further requests meanwhile coalesce into one follow-up. */
+  private statsInflight = false;
+  private statsDirty = false;
 
   constructor(
     private readonly proc: PiRpcProcess,
     private readonly log?: (msg: string) => void,
+    private readonly cwd = process.cwd(),
+    /** Folder for `exportHtml` (injectable for tests). */
+    private readonly exportDir: () => string = defaultExportDir,
   ) {
     proc.on("event", (raw) => {
       for (const event of this.translator.translate(raw)) {
         if (event.type === "state") this.state = { ...this.state, ...event.state };
+        // A failed manual compaction is reported to its caller (the RPC response); don't toast twice.
+        if (event.type === "notify" && raw.type === "compaction_end" && this.manualCompactions > 0) continue;
         this.emit(event);
       }
+      if (typeof raw.type === "string" && STATS_TRIGGERS.has(raw.type)) this.refreshStats();
     });
     proc.on("exit", () => {
       const error = this.disposed ? null : new Error(proc.recentStderr || "pi process exited unexpectedly");
@@ -156,7 +192,75 @@ export class PiSession implements HarnessSession {
     await Promise.all([
       this.proc.request({ type: "set_auto_compaction", enabled: config.autoCompaction }),
       this.proc.request({ type: "set_auto_retry", enabled: config.autoRetry }),
+      // Part of the initial state, so the context meter is right as soon as the chat opens.
+      this.fetchStats().catch((err: Error) => this.log?.(`get_session_stats failed: ${err.message}`)),
     ]);
+  }
+
+  /**
+   * Refresh `contextUsage`/`sessionStats` in the background. At most one request is in flight;
+   * calls made meanwhile coalesce into a single follow-up request.
+   */
+  refreshStats(): void {
+    if (this.disposed) return;
+    if (this.statsInflight) {
+      this.statsDirty = true;
+      return;
+    }
+    this.statsInflight = true;
+    void this.fetchStats()
+      .catch((err: Error) => {
+        if (!this.disposed) this.log?.(`get_session_stats failed: ${err.message}`);
+      })
+      .finally(() => {
+        this.statsInflight = false;
+        if (this.statsDirty) {
+          this.statsDirty = false;
+          this.refreshStats();
+        }
+      });
+  }
+
+  private async fetchStats(): Promise<void> {
+    const data = await this.proc.request<Record<string, unknown>>({ type: "get_session_stats" });
+    const stats = translateSessionStats(data ?? {});
+    if (stats.contextUsage || stats.sessionStats) this.setState(stats);
+  }
+
+  listCommands(): Promise<SlashCommand[]> {
+    // Commands come from extensions/skills/prompt files loaded at startup: cache per process.
+    this.commands ??= this.proc
+      .request<Record<string, unknown>>({ type: "get_commands" })
+      .then((data) => translateCommands(data ?? {}))
+      .catch((err: Error) => {
+        this.commands = null;
+        throw err;
+      });
+    return this.commands;
+  }
+
+  async compact(instructions?: string): Promise<CompactResult> {
+    const custom = instructions?.trim();
+    this.manualCompactions++;
+    let data: Record<string, unknown>;
+    try {
+      data = await this.proc.request<Record<string, unknown>>(
+        { type: "compact", ...(custom ? { customInstructions: custom } : {}) },
+        COMPACT_TIMEOUT_MS,
+      );
+    } finally {
+      this.manualCompactions--;
+    }
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    return { tokensBefore: num(data?.tokensBefore) ?? 0, tokensAfter: num(data?.estimatedTokensAfter) };
+  }
+
+  async exportHtml(): Promise<string> {
+    // pi's default is a relative file in the project folder; keep exports out of the repo.
+    const name = this.ref ? `pi-session-${basename(this.ref).replace(/\.jsonl$/, "")}.html` : `pi-session-${Date.now()}.html`;
+    const data = await this.proc.request<{ path?: unknown }>({ type: "export_html", outputPath: join(this.exportDir(), name) }, 60_000);
+    const path = typeof data?.path === "string" ? data.path : join(this.exportDir(), name);
+    return isAbsolute(path) ? path : resolve(this.cwd, path);
   }
 
   getState(): SessionState {
@@ -186,6 +290,7 @@ export class PiSession implements HarnessSession {
   async setModel(model: ModelRef): Promise<void> {
     await this.proc.request({ type: "set_model", provider: model.provider, modelId: model.id });
     await this.refreshState();
+    this.refreshStats(); // the context window may have changed
   }
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {

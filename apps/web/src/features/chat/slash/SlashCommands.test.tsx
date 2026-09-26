@@ -1,0 +1,293 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@pi-ui/protocol";
+import { TooltipProvider } from "@/ui";
+import { chats, models, settings } from "@/state/store";
+import { getChatSession, resetChatSessions } from "@/state/chat-session";
+import { toasts } from "@/state/toasts";
+import { Composer } from "../Composer";
+
+vi.mock("@/lib/api", () => ({
+  api: {
+    createChat: vi.fn(),
+    prompt: vi.fn(async () => undefined),
+    abort: vi.fn(async () => undefined),
+    getChat: vi.fn(() => new Promise(() => {})),
+    setModel: vi.fn(async () => undefined),
+    setThinkingLevel: vi.fn(async () => undefined),
+    respondToUi: vi.fn(async () => undefined),
+    updateChat: vi.fn(async (id: string, body: { title: string }) => ({ id, title: body.title })),
+    listCommands: vi.fn(async () => HARNESS),
+    compact: vi.fn(async () => ({ tokensBefore: 150_000, tokensAfter: 32_000 })),
+    exportChat: vi.fn(async () => ({ path: "/Users/me/Downloads/pi-session-x.html" })),
+    revealFile: vi.fn(async () => undefined),
+  },
+}));
+vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), setViewing: vi.fn() } }));
+
+const HARNESS: SlashCommand[] = [
+  { name: "mcp", source: "extension", description: "Manage MCP servers" },
+  { name: "skill:web-design", source: "skill", description: "Design websites" },
+  { name: "fix-tests", source: "prompt", description: "Fix failing tests" },
+];
+
+const { api } = await import("@/lib/api");
+
+const MODELS: ModelInfo[] = [
+  { provider: "anthropic", id: "haiku", name: "Claude Haiku", thinkingLevels: ["off", "low", "medium", "high"], input: ["text"] },
+  { provider: "openai", id: "mini", name: "GPT Mini", thinkingLevels: ["off"], input: ["text"] },
+];
+
+function renderAt(ui: preact.ComponentChildren) {
+  const router = createMemoryRouter(
+    [
+      { path: "/", element: <TooltipProvider>{ui}</TooltipProvider> },
+      { path: "/projects/:projectId", element: <div>project page</div> },
+      { path: "/settings/:section", element: <div>settings page</div> },
+    ],
+    { initialEntries: ["/"] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+function readyChat(chatId: string, overrides: Partial<ReturnType<typeof defaultSessionState>> = {}) {
+  const store = getChatSession(chatId);
+  store.status.value = "ready";
+  store.state.value = {
+    ...defaultSessionState(),
+    model: { provider: "anthropic", id: "haiku" },
+    thinkingLevel: "medium",
+    thinkingLevels: ["off", "low", "medium", "high"],
+    ...overrides,
+  };
+  return store;
+}
+
+const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+const type = (value: string) => fireEvent.input(box(), { target: { value } });
+const key = (k: string, extra: Record<string, unknown> = {}) => fireEvent.keyDown(box(), { key: k, ...extra });
+const options = () => screen.queryAllByRole("option").map((o) => o.textContent ?? "");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetChatSessions();
+  settings.value = defaultSettings();
+  models.value = MODELS;
+  toasts.value = [];
+  chats.value = [];
+});
+
+async function openChat() {
+  readyChat("c1");
+  renderAt(<Composer chatId="c1" />);
+  await waitFor(() => expect(getChatSession("c1").commands.value).toEqual(HARNESS));
+}
+
+describe("slash menu", () => {
+  it("opens on / with grouped built-ins, extensions, skills and prompts", async () => {
+    await openChat();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    type("/");
+    const groups = screen.getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Built-in", "Extensions", "Skills", "Prompts"]);
+    expect(options().some((o) => o.includes("/compact") && o.includes("free up context"))).toBe(true);
+    expect(options().some((o) => o.includes("/skill:web-design"))).toBe(true);
+    expect(box().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("filters by name and description; closes when nothing matches or args start", async () => {
+    await openChat();
+    type("/web");
+    expect(options()).toEqual([expect.stringContaining("/skill:web-design")]);
+    type("/failing");
+    expect(options()).toEqual([expect.stringContaining("/fix-tests")]);
+    type("/zzz");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    type("/compact now");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    type("not a command /compact");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("moves with arrows (wrapping) and completes with Tab / Enter", async () => {
+    await openChat();
+    type("/");
+    const selected = () => screen.getAllByRole("option").findIndex((o) => o.getAttribute("aria-selected") === "true");
+    expect(selected()).toBe(0);
+    key("ArrowDown");
+    expect(selected()).toBe(1);
+    key("ArrowUp");
+    key("ArrowUp");
+    expect(selected()).toBe(screen.getAllByRole("option").length - 1);
+    type("/comp");
+    key("Tab");
+    expect(box().value).toBe("/compact ");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    type("/mc");
+    key("Enter");
+    expect(box().value).toBe("/mcp ");
+    expect(api.prompt).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the menu without stopping the agent; mouse click completes", async () => {
+    readyChat("c1", { isRunning: true });
+    renderAt(<Composer chatId="c1" />);
+    await waitFor(() => expect(getChatSession("c1").commands.value).toEqual(HARNESS));
+    type("/");
+    key("Escape");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(api.abort).not.toHaveBeenCalled();
+    type("");
+    type("/sk");
+    fireEvent.click(screen.getByRole("option", { name: /skill:web-design/ }));
+    expect(box().value).toBe("/skill:web-design ");
+  });
+
+  it("is IME-safe: Enter/arrows during composition are left alone", async () => {
+    await openChat();
+    type("/comp");
+    key("Enter", { isComposing: true });
+    expect(box().value).toBe("/comp");
+    key("Tab");
+    expect(box().value).toBe("/compact ");
+  });
+
+  it("sends harness commands to the agent as a normal prompt", async () => {
+    await openChat();
+    type("/skill:web-design build a landing page");
+    key("Enter");
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "/skill:web-design build a landing page", images: undefined, behavior: undefined }));
+  });
+
+  it("an exact name + Enter in the menu runs it right away", async () => {
+    await openChat();
+    type("/mcp");
+    key("Enter");
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", expect.objectContaining({ text: "/mcp" })));
+  });
+});
+
+describe("built-in commands", () => {
+  it("/compact [instructions] compacts instead of sending, showing a working state", async () => {
+    let finish!: () => void;
+    vi.mocked(api.compact).mockImplementationOnce(() => new Promise((r) => (finish = () => r({ tokensBefore: 1, tokensAfter: 1 }))));
+    await openChat();
+    type("/compact keep the API decisions");
+    key("Enter");
+    await waitFor(() => expect(api.compact).toHaveBeenCalledWith("c1", "keep the API decisions"));
+    expect(api.prompt).not.toHaveBeenCalled();
+    expect(box().value).toBe("");
+    expect(screen.getByText("Compacting context…")).toBeTruthy();
+    await act(async () => finish());
+    await waitFor(() => expect(getChatSession("c1").state.value.isCompacting).toBe(false));
+  });
+
+  it("/compact reports errors and clears the working state", async () => {
+    vi.mocked(api.compact).mockRejectedValueOnce(new Error("Nothing to compact"));
+    await openChat();
+    type("/compact");
+    key("Enter");
+    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Nothing to compact"))).toBe(true));
+    expect(getChatSession("c1").state.value.isCompacting).toBe(false);
+  });
+
+  it("/name renames; without a title it keeps the text and explains", async () => {
+    await openChat();
+    type("/name ");
+    key("Enter");
+    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Usage: /name"))).toBe(true));
+    expect(box().value).toBe("/name ");
+    type("/name Better title");
+    key("Enter");
+    await waitFor(() => expect(api.updateChat).toHaveBeenCalledWith("c1", { title: "Better title" }));
+  });
+
+  it("/model <query> sets a unique match; /thinking <level> sets the level", async () => {
+    await openChat();
+    type("/model mini");
+    key("Enter");
+    await waitFor(() => expect(api.setModel).toHaveBeenCalledWith("c1", { provider: "openai", id: "mini" }));
+    // Back to a reasoning model for /thinking.
+    getChatSession("c1").state.value = { ...getChatSession("c1").state.value, thinkingLevels: ["off", "low", "high"] };
+    type("/thinking high");
+    key("Enter");
+    await waitFor(() => expect(api.setThinkingLevel).toHaveBeenCalledWith("c1", "high"));
+    type("/thinking ludicrous");
+    key("Enter");
+    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Unknown thinking level"))).toBe(true));
+  });
+
+  it("/model without a query opens the model picker", async () => {
+    await openChat();
+    type("/model ");
+    key("Enter");
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: /GPT Mini/ })).toBeTruthy());
+  });
+
+  it("/export shows the path with a Reveal action", async () => {
+    await openChat();
+    type("/export");
+    key("Enter");
+    await waitFor(() => expect(api.exportChat).toHaveBeenCalledWith("c1"));
+    await waitFor(() => expect(toasts.value[0]?.message).toBe("/Users/me/Downloads/pi-session-x.html"));
+    toasts.value[0]!.action!.onClick();
+    expect(api.revealFile).toHaveBeenCalledWith("/Users/me/Downloads/pi-session-x.html");
+  });
+
+  it("/stats shows usage and cost", async () => {
+    readyChat("c1", {
+      contextUsage: { tokens: 42_100, contextWindow: 200_000, percent: 21.05 },
+      sessionStats: { tokens: { input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, total: 1500 }, cost: 0.45 },
+    });
+    renderAt(<Composer chatId="c1" />);
+    type("/stats");
+    key("Enter");
+    await waitFor(() => expect(toasts.value[0]?.message).toContain("42.1k / 200k tokens (21%)"));
+    expect(toasts.value[0]?.message).toContain("$0.45");
+  });
+
+  it("/new and /settings navigate", async () => {
+    chats.value = [{ id: "c1", projectId: "p1" } as (typeof chats.value)[number]];
+    readyChat("c1");
+    const router = renderAt(<Composer chatId="c1" />);
+    type("/new");
+    key("Enter");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p1"));
+  });
+
+  it("new-chat composer offers only chat-independent built-ins", async () => {
+    const router = renderAt(<Composer projectId="p1" />);
+    type("/");
+    expect(options().map((o) => o.match(/^\/[a-z:-]+/)?.[0])).toEqual(["/model", "/thinking", "/settings"]);
+    type("/compact");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    type("/settings");
+    key("Enter");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
+    expect(api.createChat).not.toHaveBeenCalled();
+  });
+});
+
+describe("context meter", () => {
+  it("is hidden without usage, shows usage with thresholds, dashed when unknown", async () => {
+    readyChat("c1");
+    renderAt(<Composer chatId="c1" />);
+    expect(screen.queryByRole("button", { name: /Context usage/ })).toBeNull();
+    act(() => {
+      getChatSession("c1").state.value = { ...getChatSession("c1").state.value, contextUsage: { tokens: 170_000, contextWindow: 200_000, percent: 85 } };
+    });
+    const meter = screen.getByRole("button", { name: "Context usage: 170k / 200k tokens (85%)" });
+    expect(meter.getAttribute("data-level")).toBe("warning");
+    act(() => {
+      getChatSession("c1").state.value = { ...getChatSession("c1").state.value, contextUsage: { tokens: null, contextWindow: 200_000, percent: null } };
+    });
+    expect(screen.getByRole("button", { name: /Context usage/ }).getAttribute("data-level")).toBe("unknown");
+  });
+
+  it("is not shown in the new-chat composer", () => {
+    renderAt(<Composer projectId={null} />);
+    expect(screen.queryByRole("button", { name: /Context usage/ })).toBeNull();
+  });
+});
