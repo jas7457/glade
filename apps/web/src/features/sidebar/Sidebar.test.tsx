@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 vi.mock("@/lib/api", () => ({ api: { reorderProjects: vi.fn(async () => []), reorderPinnedChats: vi.fn(async () => []) } }));
 
 import { api } from "@/lib/api";
-import { TooltipProvider } from "@/ui";
+import { TooltipProvider, sidebarClass } from "@/ui";
 import { chats, projects } from "@/state/store";
 import { closedProjects } from "@/state/ui";
 import { makeChat, makeProject } from "@/test/fixtures";
@@ -181,6 +181,22 @@ describe("Sidebar", () => {
     expect(within(working).getByRole("img", { name: "Working…" })).toBeTruthy();
     const title = within(container.querySelector("[data-chat-id=c2]") as HTMLElement).getByText("Newer");
     expect(working.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("lines up with the sidebar grid: status column, project icon indent, chat titles", () => {
+    const { container } = renderSidebar();
+    const button = (sel: string) => container.querySelector(`${sel} button`) as HTMLElement;
+    // Project row content at indent 1; its chats' titles at indent 2 (aligned with the name).
+    expect(within(container.querySelector("[data-project-id=p1]") as HTMLElement).getByRole("button", { name: "Alpha" }).className).toContain(
+      sidebarClass.inset[1],
+    );
+    expect(button("[data-chat-id=c1]").className).toContain(sidebarClass.inset[2]);
+    // Standalone chats: title right after the status column.
+    expect(button("[data-chat-id=c4]").className).toContain(sidebarClass.inset[1]);
+    // Status sits in column 0 for both.
+    for (const id of ["c1", "c4"]) {
+      expect((container.querySelector(`[data-chat-id=${id}] [data-slot=leading]`) as HTMLElement).className).toContain(sidebarClass.status);
+    }
   });
 
   it("marks the current chat as selected", () => {

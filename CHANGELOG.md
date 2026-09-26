@@ -84,6 +84,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Tooltips, menus and popovers stand out from what's behind them (lighter layer, thin border,
+  deeper shadow).
+- Sidebar alignment: chat status dots line up with the section headers and projects are indented
+  by the status width, leaving less empty space on the left.
+
 - The context meter tooltip is shorter (no auto-compact note) and also shows your Claude
   subscription limits with reset times.
 
@@ -106,6 +111,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- The text cursor no longer touches the folder icon in the Create project name field.
 
 - The dev server no longer shows "Not found" after restarting while the web app was being rebuilt.
 

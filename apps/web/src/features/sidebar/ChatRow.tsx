@@ -34,7 +34,7 @@ export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
   return ok && deleteChat(chat.id);
 }
 
-export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: ChatRowProps) {
+export function ChatRow({ chat, selected, indent = 1, onRemoved, pinPosition }: ChatRowProps) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);

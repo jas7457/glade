@@ -1,7 +1,9 @@
 /**
  * Source-list row (Finder / Mail sidebar style): leading status slot, icon, label, trailing
  * indicators, and hover actions that replace the trailing indicators (the leading slot stays
- * visible). The single row primitive for every sidebar; metrics come from `sidebar-metrics.ts`. The row itself is a button; `actions` sit beside it so
+ * visible). The single row primitive for every sidebar; metrics come from `sidebar-metrics.ts`.
+ * The leading slot always sits in the sidebar's status column (flush with the group headers),
+ * whatever the row's indent; the icon/label start at the indent. The row itself is a button; `actions` sit beside it so
  * nested buttons stay valid. Forwards ref + extra props to the outer element so it can be a
  * Radix ContextMenu trigger.
  */
@@ -16,8 +18,9 @@ export interface SidebarItemProps extends Omit<JSX.HTMLAttributes<HTMLDivElement
   selected?: boolean;
   onSelect?: () => void;
   /**
-   * Fixed-width slot before the icon/label (e.g. a chat status indicator). Stays visible on
-   * hover. Pass it (even if it renders nothing) on every row of a list so titles line up.
+   * Status slot (e.g. a chat status indicator), placed in the status column (column 0), left of
+   * the indented icon/label. Stays visible on hover. Rows with a leading slot need indent ≥ 1
+   * (the default when `leading` is passed) so the label clears the column.
    */
   leading?: ComponentChildren;
   /** Right-side status (spinner, unread dot, time…). Hidden while hovering if `actions` exist. */
@@ -26,7 +29,7 @@ export interface SidebarItemProps extends Omit<JSX.HTMLAttributes<HTMLDivElement
   actions?: ComponentChildren;
   /** Keep actions visible (e.g. while their menu is open). */
   actionsVisible?: boolean;
-  /** Left padding level (nested rows, e.g. chats under their project). */
+  /** Left padding level (see the grid in sidebar-metrics.ts). Default 0, or 1 with `leading`. */
   indent?: SidebarIndent;
   /** Emphasised label (unread). */
   strong?: boolean;
@@ -36,11 +39,12 @@ export interface SidebarItemProps extends Omit<JSX.HTMLAttributes<HTMLDivElement
 }
 
 export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function SidebarItem(
-  { label, icon, leading, selected, onSelect, trailing, actions, actionsVisible, indent = 0, strong, editor, title, class: className, ...rest },
+  { label, icon, leading, selected, onSelect, trailing, actions, actionsVisible, indent: indentProp, strong, editor, title, class: className, ...rest },
   ref,
 ) {
+  const indent = indentProp ?? (leading !== undefined ? 1 : 0);
   const leadingSlot = leading !== undefined && (
-    <span data-slot="leading" class="flex w-4 shrink-0 items-center justify-center">
+    <span data-slot="leading" class={cn("flex items-center justify-center", sidebarClass.status)}>
       {leading}
     </span>
   );
@@ -60,7 +64,7 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
       {...rest}
     >
       {editor ? (
-        <div class={cn("flex min-w-0 flex-1 items-center gap-2 pr-1", sidebarClass.inset[indent])}>
+        <div class={cn("relative flex h-full min-w-0 flex-1 items-center gap-2 pr-1", sidebarClass.inset[indent])}>
           {leadingSlot}
           {iconSlot}
           {editor}
@@ -72,7 +76,7 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
           aria-current={selected ? "page" : undefined}
           onClick={onSelect}
           class={cn(
-            "flex h-full min-w-0 flex-1 items-center gap-2 rounded-[6px] pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+            "relative flex h-full min-w-0 flex-1 items-center gap-2 rounded-[6px] pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
             sidebarClass.inset[indent],
           )}
         >

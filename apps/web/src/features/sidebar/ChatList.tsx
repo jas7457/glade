@@ -20,6 +20,7 @@ export interface ChatListProps {
   listId: string | null;
   selectedChatId: string | null;
   limit: number;
+  /** Indent level of the chat titles (1 standalone, 2 inside a project); status sits in column 0. */
   indent?: SidebarIndent;
   emptyLabel?: string;
   onRemoved?: (chat: ChatSummary) => void;
@@ -32,7 +33,7 @@ export function visibleChatCount(chats: ChatSummary[], limit: number, expanded: 
   return Math.min(chats.length, Math.max(limit, selectedIdx + 1));
 }
 
-export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emptyLabel, onRemoved }: ChatListProps) {
+export function ChatList({ chats, listId, selectedChatId, limit, indent = 1, emptyLabel, onRemoved }: ChatListProps) {
   const [expanded, setExpanded] = useState(false);
   const count = visibleChatCount(chats, limit, expanded, selectedChatId);
   const pinnedIds = chats.filter((c) => c.pinned).map((c) => c.id);
@@ -45,7 +46,7 @@ export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emp
   const visible = chats.slice(0, count);
   const visiblePinned = visible.filter((c) => c.pinned).length;
   if (chats.length === 0 && emptyLabel) {
-    return <div class={cn("flex items-center text-fg-subtle", sidebarClass.row, sidebarClass.labelInset[indent])}>{emptyLabel}</div>;
+    return <div class={cn("flex items-center text-fg-subtle", sidebarClass.row, sidebarClass.inset[indent])}>{emptyLabel}</div>;
   }
   return (
     <SidebarList role="list">
@@ -59,7 +60,7 @@ export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emp
             {...sort?.handle}
             class={cn("relative", sort?.dragging && "opacity-40")}
           >
-            <DropLine edge={sort?.dropEdge ?? null} />
+            <DropLine edge={sort?.dropEdge ?? null} indent={indent} />
             <ChatRow
               chat={chat}
               selected={chat.id === selectedChatId}
@@ -68,7 +69,7 @@ export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emp
               pinPosition={chat.pinned && pinnedIds.length > 1 ? { first: i === 0, last: i === pinnedIds.length - 1 } : undefined}
             />
             {i === visiblePinned - 1 && i < visible.length - 1 && (
-              <div aria-hidden data-pinned-divider class="absolute right-2 -bottom-[1.5px] left-2 h-px bg-separator" />
+              <div aria-hidden data-pinned-divider class={cn("absolute right-2 -bottom-[1.5px] h-px bg-separator", sidebarClass.lineStart[indent])} />
             )}
           </div>
         );
@@ -77,7 +78,7 @@ export function ChatList({ chats, listId, selectedChatId, limit, indent = 0, emp
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          class={cn("flex h-6 items-center rounded-[6px] text-left text-[0.92rem] text-fg-muted hover:text-fg", sidebarClass.labelInset[indent])}
+          class={cn("flex h-6 items-center rounded-[6px] text-left text-[0.92rem] text-fg-muted hover:text-fg", sidebarClass.inset[indent])}
         >
           {expanded ? "Show less" : `Show more (${chats.length - count})`}
         </button>

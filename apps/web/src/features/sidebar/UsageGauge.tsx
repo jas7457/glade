@@ -8,6 +8,7 @@ import { useState } from "preact/hooks";
 import * as Popover from "@radix-ui/react-popover";
 import type { UsageLimit, UsageLimits } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
+import { floatingSurfaceClass } from "@/ui";
 import { formatPercent, formatResetsAt, formatUpdatedAgo, primaryLimit, usageLimits } from "@/state/usage";
 
 const toneText: Record<UsageLimit["severity"], string> = {
@@ -51,7 +52,7 @@ export function UsageGauge() {
           sideOffset={6}
           collisionPadding={8}
           aria-label="Usage limits"
-          class="z-50 w-[272px] rounded-[10px] bg-surface-raised/95 p-3 text-[1rem] text-fg shadow-popover backdrop-blur-xl outline-none select-none"
+          class={cn("z-50 w-[272px] rounded-[10px] p-3 text-[1rem] outline-none select-none", floatingSurfaceClass)}
         >
           <UsagePanel usage={usage} />
         </Popover.Content>

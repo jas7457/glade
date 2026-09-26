@@ -17,9 +17,11 @@ import * as DM from "@radix-ui/react-dropdown-menu";
 import * as CM from "@radix-ui/react-context-menu";
 import { Check } from "lucide-preact";
 import { cn } from "@/lib/cn";
+import { floatingSurfaceClass } from "./floating";
 
 export const menuContentClass =
-  "z-50 min-w-[180px] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-[8px] bg-surface-raised/95 backdrop-blur-xl p-[5px] text-[1rem] text-fg shadow-popover select-none outline-none";
+  "z-50 min-w-[180px] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-[8px] p-[5px] text-[1rem] select-none outline-none " +
+  floatingSurfaceClass;
 export const menuItemClass =
   "relative flex h-[22px] items-center gap-2 rounded-[4px] px-2 outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-fg data-[disabled]:opacity-40";
 

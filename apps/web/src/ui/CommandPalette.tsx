@@ -16,6 +16,7 @@ import * as RadixDialog from "@radix-ui/react-dialog";
 import { Search } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { Kbd } from "./Kbd";
+import { floatingSurfaceClass } from "./floating";
 
 export interface CommandPaletteItem {
   id: string;
@@ -125,8 +126,10 @@ export function CommandPalette({
           aria-label={label}
           style={{ width: "min(640px, calc(100vw - 32px))" }}
           class={cn(
-            "fixed top-[16vh] left-1/2 z-50 flex max-h-[min(520px,70vh)] -translate-x-1/2 flex-col overflow-hidden rounded-[12px] text-fg outline-none",
-            "bg-surface-raised/85 shadow-popover backdrop-blur-2xl backdrop-saturate-150 dark:ring-1 dark:ring-white/10",
+            "fixed top-[16vh] left-1/2 z-50 flex max-h-[min(520px,70vh)] -translate-x-1/2 flex-col overflow-hidden rounded-[12px] outline-none",
+            // Spotlight keeps a hint of translucency on top of the shared floating surface.
+            floatingSurfaceClass,
+            "bg-popover/90 backdrop-blur-2xl backdrop-saturate-150",
             "animate-[pi-pop-in_120ms_ease-out]",
           )}
         >

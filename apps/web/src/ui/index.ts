@@ -4,6 +4,7 @@
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from "./Button";
 export { IconButton, type IconButtonProps } from "./IconButton";
 export { Tooltip, TooltipProvider, type TooltipProps } from "./Tooltip";
+export { floatingSurfaceClass } from "./floating";
 export {
   Menu,
   MenuItem,

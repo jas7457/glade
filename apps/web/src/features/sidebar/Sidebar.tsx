@@ -71,7 +71,7 @@ export function Sidebar() {
               }
             >
               {projects.length === 0 ? (
-                <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
+                <SidebarItem icon={<FolderPlus />} label="Add a project…" indent={1} onSelect={openAddProject} class="text-fg-muted" />
               ) : (
                 <SidebarList>
                   {projects.map((p, i) => (

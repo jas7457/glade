@@ -122,16 +122,13 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
           <label for="project-name" class="font-medium">
             Project name
           </label>
-          <div class="relative">
-            <Folder size={14} aria-hidden class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-subtle" />
-            <TextField
-              id="project-name"
-              class="pl-7"
-              value={name}
-              placeholder={path ? folderName(path) : "Project name"}
-              onInput={(e) => setName(e.currentTarget.value)}
-            />
-          </div>
+          <TextField
+            id="project-name"
+            leadingIcon={<Folder />}
+            value={name}
+            placeholder={path ? folderName(path) : "Project name"}
+            onInput={(e) => setName(e.currentTarget.value)}
+          />
         </div>
 
         <div class="flex flex-col gap-1.5">

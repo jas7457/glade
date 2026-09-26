@@ -1,5 +1,7 @@
 import type { ComponentChildren } from "preact";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { cn } from "@/lib/cn";
+import { floatingSurfaceClass } from "./floating";
 
 export function TooltipProvider({ children }: { children: ComponentChildren }) {
   return (
@@ -24,7 +26,7 @@ export function Tooltip({ content, side = "bottom", children }: TooltipProps) {
         <RadixTooltip.Content
           side={side}
           sideOffset={6}
-          class="z-50 rounded-[5px] bg-surface-raised px-2 py-1 text-[0.85rem] text-fg shadow-popover select-none"
+          class={cn("z-50 rounded-[5px] px-1.5 py-[3px] text-[0.85rem] leading-snug select-none", floatingSurfaceClass)}
         >
           {content}
         </RadixTooltip.Content>
