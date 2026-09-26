@@ -1,5 +1,5 @@
 /**
- * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings. In the
+ * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings (+ usage gauge). In the
  * settings screen it shows the settings section list instead.
  */
 import type { ChatSummary, Project } from "@pi-ui/protocol";
@@ -14,6 +14,7 @@ import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SettingsNav } from "@/features/settings";
 import { ChatList } from "./ChatList";
 import { ProjectGroup } from "./ProjectGroup";
+import { UsageGauge } from "./UsageGauge";
 
 export const STANDALONE_CHAT_LIMIT = 10;
 
@@ -91,13 +92,15 @@ export function Sidebar() {
             </SidebarGroup>
           </div>
 
-          <div class={cn("shrink-0 border-t border-separator py-2", sidebarClass.paddingX)}>
+          <div class={cn("flex shrink-0 items-center gap-1 border-t border-separator py-2", sidebarClass.paddingX)}>
             <SidebarItem
+              class="min-w-0 flex-1"
               icon={<SettingsIcon />}
               label="Settings"
               onSelect={() => navigate(routes.settings())}
               trailing={<Kbd keys="⌘," class="border-0 bg-transparent" />}
             />
+            <UsageGauge />
           </div>
         </>
       )}

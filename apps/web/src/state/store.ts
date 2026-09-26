@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { socket } from "@/lib/socket";
 import { handleChatEvent, reloadOpenChatSessions } from "./chat-session";
 import { notify } from "./toasts";
+import { handleUsageMessage } from "./usage";
 
 export const projects = signal<Project[]>([]);
 export const chats = signal<ChatSummary[]>([]);
@@ -101,6 +102,9 @@ export function handleServerMessage(message: ServerMessage): void {
       break;
     case "chat_event":
       handleChatEvent(message.chatId, message.event);
+      break;
+    case "usage_limits":
+      handleUsageMessage(message.usage);
       break;
     case "hello":
       break;
