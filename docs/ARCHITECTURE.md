@@ -73,7 +73,7 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
-| GET    | `/fs/dirs[?path=]`            | → `DirectoryListing` (folders only; default ~) |
+| POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
 
 WebSocket `/ws`: server pushes `ServerMessage` (`chat_event`, `chat_upsert`, `chat_removed`,
 `project_upsert`, `project_removed`, `settings`, `models`). Client sends

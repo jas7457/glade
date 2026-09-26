@@ -7,9 +7,9 @@ import type {
   CreateChatRequest,
   CreateProjectRequest,
   DeepPartial,
-  DirectoryListing,
   ModelInfo,
   ModelRef,
+  PickFolderResponse,
   Project,
   PromptRequest,
   Settings,
@@ -71,7 +71,7 @@ export const api = {
   getSettings: () => request<Settings>("GET", "/settings"),
   updateSettings: (patch: DeepPartial<Settings>) => request<Settings>("PATCH", "/settings", patch),
 
-  // Filesystem (folder picker)
-  listDirectory: (path?: string) =>
-    request<DirectoryListing>("GET", `/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  // Native folder dialog on the server's machine (use `pickFolder()` from lib/native instead).
+  pickFolder: (body: { prompt?: string; defaultPath?: string } = {}) =>
+    request<PickFolderResponse>("POST", "/fs/pick-folder", body),
 };

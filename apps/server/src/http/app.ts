@@ -23,7 +23,7 @@ import {
   type UpdateProjectRequest,
 } from "@pi-ui/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
-import { listDirectories } from "../services/fs-browse.js";
+import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
 import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
 
@@ -32,9 +32,11 @@ export interface CreateAppOptions {
   security?: SecurityOptions;
   /** Built web app (`apps/web/dist`). Served with SPA fallback when it exists. */
   staticDir?: string;
+  /** Native folder dialog (injectable for tests). Default: `osascript` on macOS. */
+  pickFolder?: FolderPicker;
 }
 
-export function createApp({ service, security, staticDir }: CreateAppOptions) {
+export function createApp({ service, security, staticDir, pickFolder = createFolderPicker() }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -46,7 +48,7 @@ export function createApp({ service, security, staticDir }: CreateAppOptions) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   });
 
-  app.route("/api", apiRoutes(service));
+  app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 
   if (staticDir && existsSync(join(staticDir, "index.html"))) {
@@ -65,7 +67,7 @@ export function createApp({ service, security, staticDir }: CreateAppOptions) {
   return { app, injectWebSocket: nodeWs.injectWebSocket };
 }
 
-function apiRoutes(service: AppService): Hono {
+function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   const api = new Hono();
 
   // Projects ----------------------------------------------------------------------------------
@@ -162,7 +164,18 @@ function apiRoutes(service: AppService): Hono {
   });
 
   // Filesystem --------------------------------------------------------------------------------
-  api.get("/fs/dirs", async (c) => c.json(await listDirectories(c.req.query("path"))));
+  api.post("/fs/pick-folder", async (c) => {
+    // The body is optional: `{ prompt?, defaultPath? }`.
+    const body = (await c.req.text()).trim() ? await readBody<PickFolderOptions>(c) : {};
+    optional(body.prompt, "string", "prompt");
+    optional(body.defaultPath, "string", "defaultPath");
+    try {
+      return c.json(await pickFolder({ prompt: body.prompt, defaultPath: body.defaultPath }));
+    } catch (err) {
+      if (err instanceof FolderPickerUnavailableError) return c.json({ error: err.message }, 501);
+      throw err;
+    }
+  });
 
   api.notFound((c) => c.json({ error: "Not found" }, 404));
   return api;

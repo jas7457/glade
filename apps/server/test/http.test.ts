@@ -1,12 +1,12 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import type { ChatDetail, DirectoryListing, Project, ServerMessage } from "@pi-ui/protocol";
+import type { ChatDetail, PickFolderResponse, Project, ServerMessage } from "@pi-ui/protocol";
 import { createApp } from "../src/http/app.js";
+import { createFolderPicker, type CreateFolderPickerOptions, type OsascriptRunner } from "../src/services/folder-picker.js";
 import { hostHeaderHostname, isLoopbackOrigin } from "../src/http/security.js";
 import { createTestEnv, flush, until, type TestEnv } from "./helpers.js";
 
@@ -94,33 +94,69 @@ describe("REST API", () => {
   });
 });
 
-describe("GET /api/fs/dirs", () => {
-  it("lists visible subdirectories sorted case-insensitively", async () => {
-    const root = join(env.dir, "browse");
-    for (const d of ["beta", "Alpha", ".hidden", "gamma"]) mkdirSync(join(root, d), { recursive: true });
-    writeFileSync(join(root, "file.txt"), "x");
-    const res = await req("GET", `/api/fs/dirs?path=${encodeURIComponent(root)}`);
+describe("POST /api/fs/pick-folder", () => {
+  const withPicker = (options: CreateFolderPickerOptions) =>
+    createApp({ service: env.service, pickFolder: createFolderPicker(options) }).app;
+  const pick = (a: typeof app, body?: unknown) =>
+    a.request("/api/fs/pick-folder", {
+      method: "POST",
+      headers: { ...HOST, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  it("returns the chosen folder without a trailing slash", async () => {
+    const run = vi.fn<OsascriptRunner>().mockResolvedValue("/Users/me/code/app/\n");
+    const res = await pick(withPicker({ platform: "darwin", run }));
     expect(res.status).toBe(200);
-    const listing = (await res.json()) as DirectoryListing;
-    expect(listing.path).toBe(root);
-    expect(listing.parent).toBe(env.dir);
-    expect(listing.entries.map((e) => e.name)).toEqual(["Alpha", "beta", "gamma"]);
-    expect(listing.entries[0]!.path).toBe(join(root, "Alpha"));
+    expect((await res.json()) as PickFolderResponse).toEqual({ path: "/Users/me/code/app" });
+    const [args] = run.mock.calls[0]!;
+    expect(args[0]).toBe("-e");
+    expect(args[1]).toContain("choose folder with prompt");
+    expect(args[1]).toContain("activateIgnoringOtherApps");
   });
 
-  it("defaults to the home directory and expands ~", async () => {
-    const def = (await (await req("GET", "/api/fs/dirs")).json()) as DirectoryListing;
-    expect(def.path).toBe(homedir());
-    const tilde = (await (await req("GET", "/api/fs/dirs?path=~")).json()) as DirectoryListing;
-    expect(tilde.path).toBe(homedir());
-    const root = (await (await req("GET", "/api/fs/dirs?path=/")).json()) as DirectoryListing;
-    expect(root.parent).toBeNull();
+  it("passes prompt and default location, quoted for AppleScript", async () => {
+    const run = vi.fn<OsascriptRunner>().mockResolvedValue("/\n");
+    const res = await pick(withPicker({ platform: "darwin", run }), { prompt: 'Pick "it"', defaultPath: "/tmp/a b" });
+    expect(await res.json()).toEqual({ path: "/" });
+    const script = run.mock.calls[0]![0][1]!;
+    expect(script).toContain('choose folder with prompt "Pick \\"it\\"" default location (POSIX file "/tmp/a b")');
   });
 
-  it("rejects files and missing paths", async () => {
-    writeFileSync(join(env.dir, "f.txt"), "x");
-    expect((await req("GET", `/api/fs/dirs?path=${encodeURIComponent(join(env.dir, "f.txt"))}`)).status).toBe(400);
-    expect((await req("GET", `/api/fs/dirs?path=${encodeURIComponent(join(env.dir, "nope"))}`)).status).toBe(400);
+  it("reports cancel (-128) as cancelled", async () => {
+    const err = Object.assign(new Error("Command failed"), { stderr: "execution error: User canceled. (-128)" });
+    const res = await pick(withPicker({ platform: "darwin", run: vi.fn<OsascriptRunner>().mockRejectedValue(err) }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cancelled: true });
+  });
+
+  it("returns 500 for other osascript failures", async () => {
+    const err = Object.assign(new Error("Command failed"), { stderr: "execution error: boom (-1)" });
+    const res = await pick(withPicker({ platform: "darwin", run: vi.fn<OsascriptRunner>().mockRejectedValue(err) }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/boom/);
+  });
+
+  it("returns 501 off macOS without running anything", async () => {
+    const run = vi.fn<OsascriptRunner>();
+    const res = await pick(withPicker({ platform: "linux", run }));
+    expect(res.status).toBe(501);
+    expect(((await res.json()) as { error: string }).error).toMatch(/macOS/);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("validates the body", async () => {
+    const run = vi.fn<OsascriptRunner>();
+    expect((await pick(withPicker({ platform: "darwin", run }), { prompt: 5 })).status).toBe(400);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("requires a loopback Origin (it's a mutating request)", async () => {
+    const run = vi.fn<OsascriptRunner>();
+    const a = withPicker({ platform: "darwin", run });
+    const res = await a.request("/api/fs/pick-folder", { method: "POST", headers: { ...HOST, origin: "https://evil.com" } });
+    expect(res.status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
   });
 });
 

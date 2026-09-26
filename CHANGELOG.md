@@ -51,10 +51,15 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Settings: General, Models (defaults, title model, show/hide models), Appearance, Agent
   (pi path, arguments, process limits, auto-compaction/retry).
 
+- Create Project dialog like Codex: name the project and choose its folder with the native macOS
+  folder picker. The name fills in from the folder unless you've typed one.
+
 ### Changed
 
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Removed
+
+- The built-in folder browser (replaced by the native macOS folder picker).
 
 - Archiving chats (and the Archived Chats settings page). Chats are kept or deleted.

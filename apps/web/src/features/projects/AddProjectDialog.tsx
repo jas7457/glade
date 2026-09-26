@@ -1,15 +1,18 @@
 /**
- * "Add Project" sheet: type/paste a path (supports ~) or browse for a folder, optionally name
- * it, then open the project's new-chat screen.
+ * "Create project" sheet: name the project and choose its source folder with the native macOS
+ * folder dialog (via {@link pickFolder}). Picking a folder fills in the name unless the user typed
+ * one. When no native picker is available, the folder is typed as a path instead.
  */
 import { useState } from "preact/hooks";
 import { useNavigate } from "react-router";
+import { Folder } from "lucide-preact";
 import { routes } from "@/app/routes";
+import { pickFolder } from "@/lib/native";
 import { Button, Dialog, TextField } from "@/ui";
 import { addProject } from "@/state/actions";
 import { addProjectOpen } from "@/state/ui";
-import { FolderBrowser } from "./FolderBrowser";
-import { folderName, validateProjectPath } from "./validation";
+import { SourceFolder } from "./SourceFolder";
+import { folderName, nameAfterPick, validateProjectPath } from "./validation";
 
 export interface AddProjectDialogProps {
   open: boolean;
@@ -18,22 +21,24 @@ export interface AddProjectDialogProps {
 }
 
 export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDialogProps) {
-  const [path, setPath] = useState("");
   const [name, setName] = useState("");
-  const [browsePath, setBrowsePath] = useState<string | undefined>(undefined);
-  const [selected, setSelected] = useState<string | null>(null);
+  /** The name we last filled in from a folder; a name equal to it may be replaced on re-pick. */
+  const [autoName, setAutoName] = useState<string | null>(null);
+  const [path, setPath] = useState("");
+  const [picking, setPicking] = useState(false);
+  /** No native picker (non-macOS server): type the path instead. Remembered across opens. */
+  const [manual, setManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const validation = validateProjectPath(path);
-  const shownError = error ?? (touched && path ? validation : null);
+  const shownError = error ?? (manual && touched && path ? validation : null);
 
   const reset = () => {
-    setPath("");
     setName("");
-    setBrowsePath(undefined);
-    setSelected(null);
+    setAutoName(null);
+    setPath("");
     setError(null);
     setTouched(false);
   };
@@ -42,9 +47,39 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
     if (!o) reset();
   };
 
+  const choose = async () => {
+    if (picking) return;
+    setPicking(true);
+    setError(null);
+    try {
+      const result = await pickFolder({ prompt: "Choose the project's source folder", defaultPath: path || undefined });
+      if ("path" in result) {
+        const next = nameAfterPick(name, autoName, result.path);
+        if (next !== name) setAutoName(next);
+        setName(next);
+        setPath(result.path);
+      } else if ("unavailable" in result) {
+        setManual(true);
+        requestAnimationFrame(() => document.getElementById("project-path")?.focus());
+      }
+      // cancelled: leave everything as it was
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const remove = () => {
+    if (name === autoName) setName("");
+    setAutoName(null);
+    setPath("");
+    setError(null);
+  };
+
   const submit = async () => {
     setTouched(true);
-    if (validation || busy) return;
+    if (validation || busy || picking) return;
     setBusy(true);
     try {
       const project = await addProject(path.trim(), name.trim() || undefined);
@@ -61,81 +96,75 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
     <Dialog
       open={open}
       onOpenChange={close}
-      title="Add Project"
-      description="Chats in a project run with its folder as the working directory."
-      width={520}
+      title="Create project"
+      width={480}
       onOpenAutoFocus={(e) => {
         e.preventDefault();
-        document.getElementById("project-path")?.focus();
+        document.getElementById("project-name")?.focus();
       }}
       footer={
         <>
           <Button onClick={() => close(false)}>Cancel</Button>
-          <Button variant="primary" disabled={!!validation || busy} onClick={() => void submit()}>
-            {busy ? "Adding…" : "Add Project"}
+          <Button variant="primary" disabled={!!validation || busy || picking} onClick={() => void submit()}>
+            {busy ? "Creating…" : "Create project"}
           </Button>
         </>
       }
     >
       <form
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
       >
-        <FolderBrowser
-          path={browsePath}
-          selected={selected}
-          onNavigate={(p) => {
-            setBrowsePath(p);
-            setSelected(null);
-          }}
-          onSelect={(p) => {
-            setSelected(p);
-            if (p) {
-              setPath(p);
-              setError(null);
-            }
-          }}
-          onLoaded={(l) => {
-            if (!selected) {
-              setPath(l.path);
-              setError(null);
-            }
-          }}
-        />
-        <div class="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2">
-          <label for="project-path" class="text-right text-fg-muted">
-            Folder
+        <div class="flex flex-col gap-1.5">
+          <label for="project-name" class="font-medium">
+            Project name
           </label>
-          <TextField
-            id="project-path"
-            mono
-            value={path}
-            invalid={!!shownError}
-            placeholder="~/code/my-project"
-            onInput={(e) => {
-              setPath(e.currentTarget.value);
-              setSelected(null);
-              setError(null);
-            }}
-            onBlur={() => setTouched(true)}
-            onKeyDown={(e) => {
-              // ⌥↩ jumps the browser to the typed folder instead of submitting.
-              if (e.key === "Enter" && e.altKey && !validation) (e.preventDefault(), setBrowsePath(path.trim()));
-            }}
-          />
-          <label for="project-name" class="text-right text-fg-muted">
-            Name
-          </label>
-          <TextField id="project-name" value={name} placeholder={path ? folderName(path) : "Optional"} onInput={(e) => setName(e.currentTarget.value)} />
-          {shownError && (
-            <div role="alert" class="col-start-2 text-[0.92rem] text-danger">
-              {shownError}
-            </div>
-          )}
+          <div class="relative">
+            <Folder size={14} aria-hidden class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-subtle" />
+            <TextField
+              id="project-name"
+              class="pl-7"
+              value={name}
+              placeholder={path ? folderName(path) : "Project name"}
+              onInput={(e) => setName(e.currentTarget.value)}
+            />
+          </div>
         </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for={manual ? "project-path" : undefined} class="font-medium">
+            Source folder
+          </label>
+          {manual ? (
+            <>
+              <TextField
+                id="project-path"
+                mono
+                value={path}
+                invalid={!!shownError}
+                placeholder="~/code/my-project"
+                onInput={(e) => {
+                  setPath(e.currentTarget.value);
+                  setError(null);
+                }}
+                onBlur={() => setTouched(true)}
+              />
+              <span class="text-[0.92rem] text-fg-muted">The folder picker isn't available here. Enter the folder's path.</span>
+            </>
+          ) : (
+            <SourceFolder path={path || null} picking={picking} onPick={() => void choose()} onRemove={remove} />
+          )}
+          <span class="text-[0.92rem] text-fg-muted">Chats in this project run with this folder as their working directory.</span>
+        </div>
+
+        {shownError && (
+          <div role="alert" class="text-[0.92rem] text-danger">
+            {shownError}
+          </div>
+        )}
         <button type="submit" hidden />
       </form>
     </Dialog>

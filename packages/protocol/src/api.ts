@@ -174,12 +174,6 @@ export interface ChatDetail {
   pendingUiRequests: import("./events.js").UiRequest[];
 }
 
-export interface DirectoryListing {
-  path: string;
-  parent: string | null;
-  entries: Array<{ name: string; path: string }>;
-}
-
 export interface ApiError {
   error: string;
 }

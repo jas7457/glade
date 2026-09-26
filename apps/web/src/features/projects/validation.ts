@@ -1,4 +1,4 @@
-/** Pure helpers for the Add Project dialog. */
+/** Pure helpers for the Create Project dialog. */
 
 /** Returns an error message, or null if the path looks usable (absolute or ~-relative). */
 export function validateProjectPath(path: string): string | null {
@@ -15,10 +15,10 @@ export function folderName(path: string): string {
   return trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }
 
-/** Breadcrumb segments for a path: [{ name, path }], starting at "/". */
-export function pathSegments(path: string): Array<{ name: string; path: string }> {
-  const parts = path.split("/").filter(Boolean);
-  const out = [{ name: "/", path: "/" }];
-  parts.forEach((name, i) => out.push({ name, path: `/${parts.slice(0, i + 1).join("/")}` }));
-  return out;
+/**
+ * The project name after a folder is picked: the folder's name, unless the user typed their own
+ * (i.e. the current name is non-empty and differs from what we auto-filled last time).
+ */
+export function nameAfterPick(current: string, lastAutoFilled: string | null, folder: string): string {
+  return !current.trim() || current === lastAutoFilled ? folderName(folder) : current;
 }
