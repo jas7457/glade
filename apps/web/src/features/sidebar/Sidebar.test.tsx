@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", () => ({ api: {} }));
+vi.mock("@/lib/api", () => ({ api: { reorderProjects: vi.fn(async () => []), reorderPinnedChats: vi.fn(async () => []) } }));
 
+import { api } from "@/lib/api";
 import { TooltipProvider } from "@/ui";
 import { chats, projects } from "@/state/store";
 import { closedProjects } from "@/state/ui";
@@ -22,30 +23,140 @@ function renderSidebar(path = "/") {
   );
 }
 
+const projectOrder = (container: Element) =>
+  [...container.querySelectorAll("[data-project-id]")].map((el) => el.getAttribute("data-project-id"));
 const rowTitles = (container: HTMLElement) => [...container.querySelectorAll("[data-chat-id]")].map((el) => el.getAttribute("data-chat-id"));
 
 describe("Sidebar", () => {
   beforeEach(() => {
     closedProjects.value = new Set();
+    vi.clearAllMocks();
     projects.value = [
-      makeProject({ id: "p1", name: "Alpha", lastActivityAt: 10 }),
-      makeProject({ id: "p2", name: "Beta", lastActivityAt: 5, pinned: true }),
+      makeProject({ id: "p1", name: "Alpha", sortOrder: 1, lastActivityAt: 10 }),
+      makeProject({ id: "p2", name: "Beta", sortOrder: 0, lastActivityAt: 5 }),
     ];
     chats.value = [
-      makeChat({ id: "c1", projectId: "p1", title: "Old", lastActivityAt: 1 }),
-      makeChat({ id: "c2", projectId: "p1", title: "Newer", lastActivityAt: 3, status: "working", running: true }),
-      makeChat({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, status: "unread", unread: true }),
+      makeChat({ id: "c1", projectId: "p1", title: "Old", createdAt: 1, lastActivityAt: 9 }),
+      makeChat({ id: "c2", projectId: "p1", title: "Newer", createdAt: 3, lastActivityAt: 3, status: "working", running: true }),
+      makeChat({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, pinOrder: 0, status: "unread", unread: true }),
       makeChat({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
     ];
   });
 
-  it("lists pinned projects first, and chats pinned-first then newest-first", () => {
+  it("lists projects in manual order, and chats pinned-first then newest-created first", () => {
     const { container } = renderSidebar();
-    const projectIds = [...container.querySelectorAll("[data-project-id]")].map((el) => el.getAttribute("data-project-id"));
-    expect(projectIds).toEqual(["p2", "p1"]);
+    expect(projectOrder(container)).toEqual(["p2", "p1"]);
     const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
     expect(rowTitles(alpha)).toEqual(["c3", "c2", "c1"]);
     expect(screen.getByText("Loose")).toBeTruthy();
+  });
+
+  it("separates pinned from unpinned chats with a divider", () => {
+    const { container } = renderSidebar();
+    const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
+    const dividers = alpha.querySelectorAll("[data-pinned-divider]");
+    expect(dividers).toHaveLength(1);
+    expect(dividers[0]?.closest("[role=listitem]")?.querySelector("[data-chat-id]")?.getAttribute("data-chat-id")).toBe("c3");
+    // No divider when there's nothing pinned.
+    expect(container.querySelector("[data-project-id=p2] [data-pinned-divider]")).toBeNull();
+  });
+
+  it("offers Move Up / Move Down in the project menu, not Pin", () => {
+    const { container } = renderSidebar();
+    const beta = container.querySelector("[data-project-id=p2] [data-sort-id]") ?? container.querySelector("[data-project-id=p2]");
+    const row = within(beta as HTMLElement).getByRole("button", { name: "Beta" });
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("menuitem", { name: "Pin" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Move Up" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move Down" }));
+    expect(api.reorderProjects).toHaveBeenCalledWith(["p1", "p2"]);
+    expect(projectOrder(container)).toEqual(["p1", "p2"]);
+  });
+
+  describe("drag and drop", () => {
+    // jsdom has no layout: give each sortable item a 30px-high box in DOM order.
+    const layout = () => {
+      const els = [...document.querySelectorAll<HTMLElement>("[data-sort-group]")];
+      const groups = new Map<string, number>();
+      for (const el of els) {
+        const g = el.dataset.sortGroup as string;
+        const i = groups.get(g) ?? 0;
+        groups.set(g, i + 1);
+        el.getBoundingClientRect = () => ({ top: i * 32, bottom: i * 32 + 30, left: 0, right: 200, height: 30, width: 200, x: 0, y: i * 32, toJSON() {} });
+      }
+    };
+    const rowOf = (container: Element, name: string) => within(container as HTMLElement).getByRole("button", { name });
+
+    it("moves a project below another after passing the threshold, with an insertion line", () => {
+      const { container } = renderSidebar();
+      layout();
+      const beta = rowOf(container, "Beta");
+      fireEvent.pointerDown(beta, { button: 0, clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 12 }); // below threshold
+      expect(container.querySelector("[data-drop-line]")).toBeNull();
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 55 });
+      expect(container.querySelector("[data-project-id=p1] [data-drop-line=bottom]")).toBeTruthy();
+      expect(container.querySelector("[data-project-id=p2]")?.className).toContain("opacity-40");
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 55 });
+      fireEvent.click(beta); // the click ending a drag is swallowed
+      expect(closedProjects.value.has("p2")).toBe(false);
+      expect(api.reorderProjects).toHaveBeenCalledWith(["p1", "p2"]);
+      expect(projectOrder(container)).toEqual(["p1", "p2"]);
+      expect(container.querySelector("[data-drop-line]")).toBeNull();
+    });
+
+    it("a click without movement still toggles the project", () => {
+      const { container } = renderSidebar();
+      layout();
+      const alpha = rowOf(container, "Alpha");
+      fireEvent.pointerDown(alpha, { button: 0, clientX: 10, clientY: 40 });
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 40 });
+      fireEvent.click(alpha);
+      expect(closedProjects.value.has("p1")).toBe(true);
+      expect(api.reorderProjects).not.toHaveBeenCalled();
+    });
+
+    it("Escape cancels the drag", () => {
+      const { container } = renderSidebar();
+      layout();
+      const beta = rowOf(container, "Beta");
+      fireEvent.pointerDown(beta, { button: 0, clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 55 });
+      expect(container.querySelector("[data-drop-line]")).toBeTruthy();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(container.querySelector("[data-drop-line]")).toBeNull();
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 55 });
+      fireEvent.click(beta);
+      expect(closedProjects.value.has("p2")).toBe(false);
+      expect(api.reorderProjects).not.toHaveBeenCalled();
+      expect(projectOrder(container)).toEqual(["p2", "p1"]);
+    });
+
+    it("reorders pinned chats within their list; unpinned chats aren't draggable", () => {
+      chats.value = [
+        ...chats.value,
+        makeChat({ id: "c5", projectId: "p1", title: "Pinned two", pinned: true, pinOrder: 1 }),
+      ];
+      const { container } = renderSidebar();
+      layout();
+      const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
+      expect(rowTitles(alpha)).toEqual(["c3", "c5", "c2", "c1"]);
+      expect(alpha.querySelectorAll("[data-sort-group^='pins:']")).toHaveLength(2);
+      const row = alpha.querySelector("[data-chat-id=c5] button") as HTMLElement;
+      fireEvent.pointerDown(row, { button: 0, clientX: 10, clientY: 40 });
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
+      fireEvent.click(row);
+      expect(api.reorderPinnedChats).toHaveBeenCalledWith("p1", ["c5", "c3"]);
+      expect(rowTitles(alpha)).toEqual(["c5", "c3", "c2", "c1"]);
+
+      // Unpinned rows don't start a drag.
+      fireEvent.pointerDown(alpha.querySelector("[data-chat-id=c2] button") as HTMLElement, { button: 0, clientX: 10, clientY: 70 });
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
+      expect(container.querySelector("[data-drop-line]")).toBeNull();
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
+      expect(api.reorderPinnedChats).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("shows status indicators per chat", () => {

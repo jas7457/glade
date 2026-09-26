@@ -9,6 +9,7 @@ import type {
   CreateProjectRequest,
   DeepPartial,
   ModelInfo,
+  OpenTarget,
   ModelRef,
   PickFolderResponse,
   Project,
@@ -55,6 +56,9 @@ export const api = {
   createProject: (body: CreateProjectRequest) => request<Project>("POST", "/projects", body),
   updateProject: (id: string, body: UpdateProjectRequest) => request<Project>("PATCH", `/projects/${id}`, body),
   deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
+  /** Full list of project ids in the new order. */
+  reorderProjects: (ids: string[]) => request<Project[]>("PUT", "/projects/order", { ids }),
+  openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
 
   // Chats
   listChats: () => request<ChatSummary[]>("GET", "/chats"),
@@ -62,6 +66,9 @@ export const api = {
   getChat: (id: string) => request<ChatDetail>("GET", `/chats/${id}`),
   updateChat: (id: string, body: UpdateChatRequest) => request<ChatSummary>("PATCH", `/chats/${id}`, body),
   deleteChat: (id: string) => request<void>("DELETE", `/chats/${id}`),
+  /** Pinned chats of one list (project id, or null for standalone chats) in the new order. */
+  reorderPinnedChats: (projectId: string | null, ids: string[]) =>
+    request<ChatSummary[]>("PUT", "/chats/pin-order", { projectId, ids }),
   prompt: (id: string, body: PromptRequest) => request<void>("POST", `/chats/${id}/prompt`, body),
   abort: (id: string) => request<void>("POST", `/chats/${id}/abort`),
   setModel: (id: string, model: ModelRef) => request<void>("PUT", `/chats/${id}/model`, model),

@@ -28,7 +28,8 @@ describe("projects", () => {
   it("creates a project for an existing folder and rejects anything else", () => {
     const path = projectDir("my-app");
     const project = env.service.createProject({ path });
-    expect(project).toMatchObject({ name: "my-app", path, pinned: false });
+    expect(project).toMatchObject({ name: "my-app", path, sortOrder: 0 });
+    expect(project).not.toHaveProperty("pinned");
     expect(env.service.createProject({ path: `${path}/` }).id).toBe(project.id); // de-duplicated
     expect(env.messages).toContainEqual({ type: "project_upsert", project });
 

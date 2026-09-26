@@ -18,6 +18,7 @@ import {
   type DeepPartial,
   type ModelInfo,
   type ModelRef,
+  type OpenTarget,
   type Project,
   type PromptImage,
   type PromptRequest,
@@ -34,6 +35,7 @@ import {
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
+import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
 
@@ -48,9 +50,18 @@ function formatMB(bytes: number): string {
   return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
 }
 
+/** Default title model when `settings.models.titleModel` is unset (used only if available). */
+export const DEFAULT_TITLE_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
+
+/** True when `ids` holds exactly the ids in `expected`, each once. */
+function sameIdSet(ids: string[], expected: string[]): boolean {
+  const set = new Set(ids);
+  return set.size === ids.length && ids.length === expected.length && expected.every((id) => set.has(id));
+}
+
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 500 | 501,
+    readonly status: 400 | 404 | 409 | 424 | 500 | 501,
     message: string,
   ) {
     super(message);
@@ -75,6 +86,8 @@ export interface AppServiceOptions {
   scratchDir: string;
   /** "Reveal in Finder" (injectable for tests). Default: `open -R` on macOS. */
   revealPath?: RevealPath;
+  /** "Open in <app>" for project folders (injectable for tests). Default: `open -a` on macOS. */
+  openIn?: OpenIn;
   log?: (msg: string) => void;
 }
 
@@ -105,6 +118,18 @@ export class AppService {
       ? new UsageLimitsPoller({ fetchLimits: getUsage, broadcast: (m) => this.broadcast(m), log: options.log })
       : null;
     this.usage?.start();
+    this.recoverInterruptedRuns();
+  }
+
+  /**
+   * Runs still flagged as in progress at startup were cut off (app quit, crash, server killed).
+   * Mark them interrupted; `unread` + `lastRunFailed` make the sidebar show the failed marker.
+   */
+  private recoverInterruptedRuns(): void {
+    for (const chat of this.store.listChats()) {
+      if (!chat.runInProgress) continue;
+      this.saveChat({ ...chat, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -171,8 +196,9 @@ export class AppService {
   // Projects
   // -------------------------------------------------------------------------------------------
 
+  /** Projects in their manual order (`sortOrder` ascending). */
   listProjects(): Project[] {
-    return this.store.listProjects();
+    return [...this.store.listProjects()].sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
   createProject(req: CreateProjectRequest): Project {
@@ -188,11 +214,13 @@ export class AppService {
     const existing = this.store.listProjects().find((p) => p.path === path);
     if (existing) return existing;
     const now = Date.now();
+    const orders = this.store.listProjects().map((p) => p.sortOrder);
     const project: Project = {
       id: randomUUID(),
       name: req.name?.trim() || basename(path) || path,
       path,
-      pinned: false,
+      // New projects go to the top of the manual order.
+      sortOrder: orders.length ? Math.min(...orders) - 1 : 0,
       createdAt: now,
       lastActivityAt: now,
     };
@@ -206,11 +234,38 @@ export class AppService {
     const next: Project = {
       ...project,
       ...(req.name !== undefined && req.name.trim() ? { name: req.name.trim() } : {}),
-      ...(req.pinned !== undefined ? { pinned: req.pinned } : {}),
     };
     this.store.upsertProject(next);
     this.broadcast({ type: "project_upsert", project: next });
     return next;
+  }
+
+  /** Set the manual project order. `ids` must be exactly the current projects. */
+  reorderProjects(ids: string[]): Project[] {
+    const projects = this.store.listProjects();
+    if (!sameIdSet(ids, projects.map((p) => p.id))) {
+      throw new HttpError(400, "ids must list every project exactly once");
+    }
+    ids.forEach((id, sortOrder) => {
+      const project = this.store.getProject(id)!;
+      if (project.sortOrder === sortOrder) return;
+      const next = { ...project, sortOrder };
+      this.store.upsertProject(next);
+      this.broadcast({ type: "project_upsert", project: next });
+    });
+    return this.listProjects();
+  }
+
+  /** Open a project's folder in another app (e.g. VS Code). */
+  async openProject(id: string, app: unknown): Promise<void> {
+    const project = this.requireProject(id);
+    if (!isOpenTarget(app)) throw new HttpError(400, `Unknown app: ${String(app)}`);
+    try {
+      await (this.options.openIn ?? createOpenIn())(app satisfies OpenTarget, project.path);
+    } catch (err) {
+      if (err instanceof OpenInError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
   }
 
   /** Removes the project and all of its chats (including their session files). */
@@ -311,9 +366,39 @@ export class AppService {
       next.titleSource = "user";
       await this.live.get(id)?.session.setTitle(title).catch(() => {});
     }
-    if (req.pinned !== undefined) next.pinned = req.pinned;
+    if (req.pinned === true && !chat.pinned) {
+      // Newly pinned chats go to the top of their list's pinned group.
+      const orders = this.pinnedChats(chat.projectId).map((c) => c.pinOrder ?? 0);
+      next.pinned = true;
+      next.pinOrder = orders.length ? Math.min(...orders) - 1 : 0;
+    } else if (req.pinned === false) {
+      next.pinned = false;
+      delete next.pinOrder;
+    }
     if (req.unread !== undefined) next.unread = req.unread;
+    if (req.interrupted === false) delete next.interrupted;
     return this.saveChat(next);
+  }
+
+  /** Pinned chats of one list (a project, or standalone = null), in pin order. */
+  private pinnedChats(projectId: string | null): Chat[] {
+    return this.store
+      .listChats()
+      .filter((c) => c.pinned && c.projectId === projectId)
+      .sort((a, b) => (a.pinOrder ?? 0) - (b.pinOrder ?? 0));
+  }
+
+  /** Reorder the pinned chats of one list. `ids` must be exactly that list's pinned chats. */
+  reorderPinnedChats(projectId: string | null, ids: string[]): ChatSummary[] {
+    if (projectId !== null) this.requireProject(projectId);
+    if (!sameIdSet(ids, this.pinnedChats(projectId).map((c) => c.id))) {
+      throw new HttpError(400, "ids must list every pinned chat of that list exactly once");
+    }
+    ids.forEach((id, pinOrder) => {
+      const chat = this.store.getChat(id)!;
+      if (chat.pinOrder !== pinOrder) this.saveChat({ ...chat, pinOrder });
+    });
+    return this.pinnedChats(projectId).map((c) => this.summarize(c));
   }
 
   async deleteChat(id: string): Promise<void> {
@@ -343,7 +428,9 @@ export class AppService {
       updates.title = quickTitle(req.text);
       void this.generateTitle(id, req.text).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
     }
-    this.saveChat({ ...chat, ...updates });
+    const next: Chat = { ...chat, ...updates };
+    delete next.interrupted; // any new prompt dismisses the "interrupted" state
+    this.saveChat(next);
     if (updates.title) await live.session.setTitle(updates.title).catch(() => {});
     this.touchProject(chat.projectId);
   }
@@ -374,12 +461,18 @@ export class AppService {
     const title = await this.harness.generateTitle({
       firstMessage,
       cwd: chat.cwd,
-      model: settings.models.titleModel ?? chat.model,
+      model: settings.models.titleModel ?? (await this.defaultTitleModel()) ?? chat.model,
     });
     const current = this.store.getChat(id);
     if (!title || !current || current.titleSource !== "auto") return;
     this.saveChat({ ...current, title });
     await this.live.get(id)?.session.setTitle(title).catch(() => {});
+  }
+
+  /** Titles use a cheap, fast model by default (Haiku) when it's available. */
+  private async defaultTitleModel(): Promise<ModelRef | null> {
+    const models = await this.harness.listModels().catch(() => [] as ModelInfo[]);
+    return models.some((m) => sameModel(m, DEFAULT_TITLE_MODEL)) ? DEFAULT_TITLE_MODEL : null;
   }
 
   async abort(id: string): Promise<void> {
@@ -532,12 +625,14 @@ export class AppService {
     const chat = this.store.getChat(id);
     if (!chat) return;
     if (event.type === "run_start") {
-      this.saveChat({ ...chat, lastActivityAt: Date.now(), lastRunFailed: false });
+      const next: Chat = { ...chat, lastActivityAt: Date.now(), lastRunFailed: false, runInProgress: true };
+      delete next.interrupted;
+      this.saveChat(next);
     } else if (event.type === "run_end") {
       this.usage?.onRunEnd();
       this.clearPendingUi(live);
       live.lastUsedAt = Date.now();
-      this.saveChat({ ...chat, lastActivityAt: Date.now(), unread: chat.unread || !this.viewers.has(id) });
+      this.saveChat({ ...chat, lastActivityAt: Date.now(), runInProgress: false, unread: chat.unread || !this.viewers.has(id) });
       this.evictIdle();
     } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
       this.saveChat(chat); // pendingInputs/status changed
@@ -590,18 +685,24 @@ export class AppService {
     this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
+    const wasRunning = live.running;
     if (error) {
       this.options.log?.(`chat ${id}: agent exited: ${error.message}`);
       this.broadcast({ type: "chat_event", chatId: id, event: { type: "error", message: error.message } });
+    }
+    if (error || wasRunning) {
       this.broadcast({ type: "chat_event", chatId: id, event: { type: "state", state: { isRunning: false } } });
       this.broadcast({ type: "chat_event", chatId: id, event: { type: "run_end" } });
     }
     const chat = this.store.getChat(id);
     if (!chat) return;
-    if (error) {
+    if (error || wasRunning) {
       // A crash ends the run: flag it, and mark unread like any run that ends off screen.
+      // Dying mid-run also means the work was cut off.
       const unread = chat.unread || !this.viewers.has(id);
-      this.saveChat({ ...chat, lastRunFailed: true, unread });
+      const next: Chat = { ...chat, lastRunFailed: true, unread, runInProgress: false };
+      if (wasRunning || chat.runInProgress) next.interrupted = true;
+      this.saveChat(next);
     } else {
       this.saveChat(chat);
     }

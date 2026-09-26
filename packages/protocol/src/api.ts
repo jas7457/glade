@@ -15,9 +15,15 @@ export interface Project {
   name: string;
   /** Absolute folder path on disk. Chats in this project run with this as cwd. */
   path: string;
-  pinned: boolean;
+  /**
+   * @deprecated Project pinning is being removed (I-019): projects are ordered manually via
+   * `sortOrder`. Kept temporarily so existing code compiles; do not use in new code.
+   */
+  pinned?: boolean;
+  /** Manual position in the sidebar (ascending). New projects get the lowest value (top). */
+  sortOrder: number;
   createdAt: number;
-  /** Updated whenever one of its chats has activity. */
+  /** Updated whenever one of its chats has activity. Not used for ordering. */
   lastActivityAt: number;
 }
 
@@ -39,6 +45,12 @@ export interface Chat {
   unread: boolean;
   /** The most recent run ended with an error or the agent crashed. Cleared when a new run starts. */
   lastRunFailed?: boolean;
+  /** Position among the pinned chats of the same list (ascending). Only meaningful when pinned. */
+  pinOrder?: number;
+  /** Server-internal: a run started and hasn't finished yet (survives restarts; see I-025). */
+  runInProgress?: boolean;
+  /** The last run was cut off (app quit, crash, agent died). Cleared by any new prompt or dismissal. */
+  interrupted?: boolean;
   createdAt: number;
   lastActivityAt: number;
   /** Last model / thinking level used, so re-opening restores them. */
@@ -136,7 +148,24 @@ export interface CreateProjectRequest {
 
 export interface UpdateProjectRequest {
   name?: string;
-  pinned?: boolean;
+}
+
+/** `PUT /api/projects/order`: the full list of project ids in their new order. */
+export interface ReorderProjectsRequest {
+  ids: string[];
+}
+
+/** `PUT /api/chats/pin-order`: the pinned chats of one list (a project, or standalone = null) in order. */
+export interface ReorderPinnedChatsRequest {
+  projectId: string | null;
+  ids: string[];
+}
+
+/** Apps a project folder can be opened in (`POST /api/projects/:id/open`). */
+export type OpenTarget = "vscode";
+
+export interface OpenProjectRequest {
+  app: OpenTarget;
 }
 
 export interface CreateChatRequest {
@@ -152,6 +181,8 @@ export interface UpdateChatRequest {
   title?: string;
   pinned?: boolean;
   unread?: boolean;
+  /** Only `false` is accepted: dismiss the "interrupted" banner. */
+  interrupted?: false;
 }
 
 export interface PromptImage {

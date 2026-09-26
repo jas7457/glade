@@ -25,6 +25,53 @@ export class Store {
     this.projectsFile = new JsonFile(join(dataDir, "projects.json"), () => ({ version: 1, projects: [] }), debounceMs);
     this.chatsFile = new JsonFile(join(dataDir, "chats.json"), () => ({ version: 1, chats: [] }), debounceMs);
     this.settingsFile = new JsonFile(join(dataDir, "settings.json"), () => ({}), debounceMs);
+    this.migrate();
+  }
+
+  /**
+   * Upgrade data written by older versions (I-019): projects get a manual `sortOrder` (from their
+   * previous order: pinned first, then most recently active) and lose `pinned`; pinned chats get
+   * a `pinOrder` the same way, per list. Writes only when something changed.
+   */
+  private migrate(): void {
+    const projects = this.listProjects();
+    if (projects.some((p) => typeof p.sortOrder !== "number" || "pinned" in p)) {
+      const byPrevious = (a: Project, b: Project) =>
+        Number(b.pinned ?? false) - Number(a.pinned ?? false) || b.lastActivityAt - a.lastActivityAt;
+      const ordered = projects.filter((p) => typeof p.sortOrder === "number");
+      let next = ordered.length ? Math.max(...ordered.map((p) => p.sortOrder)) + 1 : 0;
+      const missing = new Map(
+        projects
+          .filter((p) => typeof p.sortOrder !== "number")
+          .sort(byPrevious)
+          .map((p) => [p.id, next++] as const),
+      );
+      const migrated = projects.map(({ pinned: _pinned, ...p }) => ({ ...p, sortOrder: missing.get(p.id) ?? p.sortOrder }));
+      this.projectsFile.set({ version: 1, projects: migrated });
+    }
+
+    const chats = this.listChats();
+    const needsPinOrder = (c: Chat) => c.pinned && typeof c.pinOrder !== "number";
+    const strayPinOrder = (c: Chat) => !c.pinned && c.pinOrder !== undefined;
+    if (chats.some((c) => needsPinOrder(c) || strayPinOrder(c))) {
+      const assigned = new Map<string, number>();
+      for (const listId of new Set(chats.map((c) => c.projectId))) {
+        const pinned = chats.filter((c) => c.projectId === listId && c.pinned);
+        const ordered = pinned.filter((c) => typeof c.pinOrder === "number");
+        let next = ordered.length ? Math.max(...ordered.map((c) => c.pinOrder!)) + 1 : 0;
+        for (const c of pinned.filter(needsPinOrder).sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
+          assigned.set(c.id, next++);
+        }
+      }
+      const migrated = chats.map((c) => {
+        if (strayPinOrder(c)) {
+          const { pinOrder: _pinOrder, ...rest } = c;
+          return rest;
+        }
+        return assigned.has(c.id) ? { ...c, pinOrder: assigned.get(c.id)! } : c;
+      });
+      this.chatsFile.set({ version: 1, chats: migrated });
+    }
   }
 
   // Projects ----------------------------------------------------------------------------------

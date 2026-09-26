@@ -5,6 +5,7 @@ import { defaultSessionState, defaultSettings, type ChatSummary, type Transcript
 import { TooltipProvider } from "@/ui";
 import { chats, models, projects, settings } from "@/state/store";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
+import { toasts } from "@/state/toasts";
 import { ChatView } from "./ChatView";
 import { shortenPath } from "./NewChatView";
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/api", () => ({
     getChat: vi.fn(() => new Promise(() => {})),
     updateChat: vi.fn(async () => ({})),
     prompt: vi.fn(async () => undefined),
+    openProject: vi.fn(async () => undefined),
   },
 }));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), setViewing: vi.fn() } }));
@@ -42,7 +44,7 @@ beforeEach(() => {
   settings.value = defaultSettings();
   models.value = [];
   chats.value = [chat];
-  projects.value = [{ id: "p1", name: "app", path: "/Users/me/src/app", pinned: false, createdAt: 0, lastActivityAt: 0 }];
+  projects.value = [{ id: "p1", name: "app", path: "/Users/me/src/app", sortOrder: 0, createdAt: 0, lastActivityAt: 0 }];
 });
 
 describe("ChatView", () => {
@@ -122,6 +124,43 @@ describe("ChatView", () => {
     expect(screen.queryByText(raw)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     await waitFor(() => expect(screen.getByText(raw)).toBeTruthy());
+  });
+
+  it("offers Open in VS Code for project chats only", async () => {
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Open in VS Code" }));
+    await waitFor(() => expect(api.openProject).toHaveBeenCalledWith("p1", "vscode"));
+  });
+
+  it("shows no Open in VS Code button for standalone chats", () => {
+    chats.value = [{ ...chat, projectId: null }];
+    setup();
+    expect(screen.queryByRole("button", { name: "Open in VS Code" })).toBeNull();
+  });
+
+  it("shows a toast when opening fails", async () => {
+    vi.mocked(api.openProject).mockRejectedValueOnce(new Error("Visual Studio Code is not installed"));
+    toasts.value = [];
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Open in VS Code" }));
+    await waitFor(() => expect(toasts.value[0]?.message).toContain("not installed"));
+  });
+
+  it("shows the interrupted banner with Continue and Dismiss", async () => {
+    chats.value = [{ ...chat, interrupted: true }];
+    setup();
+    expect(screen.getByText("This run was interrupted when pi-ui quit.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "Continue where you left off." }));
+    vi.mocked(api.updateChat).mockResolvedValueOnce({ ...chat, interrupted: false });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(api.updateChat).toHaveBeenCalledWith("c1", { interrupted: false }));
+    await waitFor(() => expect(screen.queryByText("This run was interrupted when pi-ui quit.")).toBeNull());
+  });
+
+  it("hides the interrupted banner otherwise", () => {
+    setup();
+    expect(screen.queryByText(/was interrupted/)).toBeNull();
   });
 
   it("shortens home paths", () => {

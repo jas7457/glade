@@ -1,6 +1,6 @@
 /**
  * Chat header bar (window drag region): editable title, project name (for project chats), live
- * status and an overflow menu (rename, pin, delete).
+ * status, "Open in VS Code" (project chats) and an overflow menu (rename, pin, delete).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -12,6 +12,7 @@ import { routes } from "@/app/routes";
 import { getChatSession, runAction } from "@/state/chat-session";
 import { projectsById } from "@/state/store";
 import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, confirm, statusLabel } from "@/ui";
+import { OpenInButton } from "./OpenInButton";
 
 export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; chatId: string }) {
   const navigate = useNavigate();
@@ -76,6 +77,7 @@ export function ChatHeader({ chat, chatId }: { chat: ChatSummary | undefined; ch
           <span>{liveLabel}</span>
         </div>
       )}
+      {project && <OpenInButton projectId={project.id} />}
       <Menu
         align="end"
         trigger={

@@ -4,6 +4,7 @@
 import { projectsById } from "@/state/store";
 import { TITLEBAR_HEIGHT } from "@/ui";
 import { Composer } from "./Composer";
+import { OpenInButton } from "./OpenInButton";
 import { columnClass } from "./Transcript";
 
 /** `/Users/me/src/x` → `~/src/x` (best effort; the server doesn't tell us $HOME). */
@@ -16,7 +17,9 @@ export function NewChatView({ projectId }: { projectId: string | null }) {
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-window">
-      <div data-tauri-drag-region style={{ height: `${TITLEBAR_HEIGHT}px` }} class="shrink-0" />
+      <div data-tauri-drag-region style={{ height: `${TITLEBAR_HEIGHT}px` }} class="flex shrink-0 items-center justify-end pr-3">
+        {project && <OpenInButton projectId={project.id} />}
+      </div>
       <div class="flex min-h-0 flex-1 flex-col justify-center pb-[12vh]">
         <div class={columnClass}>
           <div class="mb-6 text-center">

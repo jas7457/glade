@@ -29,12 +29,13 @@ import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
 import { applyChatDetail, loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
-import { settings, visibleModels } from "@/state/store";
+import { chatsById, settings, visibleModels } from "@/state/store";
 import { notify } from "@/state/toasts";
 import { Spinner, Tooltip } from "@/ui";
 import { imageFiles, isSendKey, readImageFile, type Attachment } from "./composer-utils";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ThinkingPicker } from "./Pickers";
+import { InterruptedBanner } from "./InterruptedBanner";
 import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
 import { filterCommands, mergeCommands, parseSlash } from "./slash/match";
@@ -483,8 +484,11 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     });
   };
 
+  const interrupted = chatsById.value.get(chatId)?.interrupted === true;
+
   const above = (
     <>
+      {interrupted && !state.isRunning && <InterruptedBanner chatId={chatId} />}
       {agentError && (
         <div role="alert" class="mb-2 flex items-start gap-2 rounded-[10px] border-[0.5px] border-danger/30 bg-danger/10 px-3 py-2 text-danger">
           <TriangleAlert size={14} class="mt-[2px] shrink-0" />

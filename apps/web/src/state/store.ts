@@ -33,15 +33,29 @@ export const visibleModels = computed(() => {
 export const projectsById = computed(() => new Map(projects.value.map((p) => [p.id, p])));
 export const chatsById = computed(() => new Map(chats.value.map((c) => [c.id, c])));
 
-/** Sidebar ordering: pinned first, then most recent activity. */
-export const sortedProjects = computed(() =>
-  [...projects.value].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActivityAt - a.lastActivityAt),
-);
+/** Projects in their manual order (`sortOrder` ascending); never re-sorted by activity. */
+export function compareProjects(a: Project, b: Project): number {
+  // `?? 0` guards data from a server that predates `sortOrder`.
+  return (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+}
+
+/**
+ * Chats within one list: pinned first in their manual `pinOrder`, then the rest newest-created
+ * first. Activity never moves a chat.
+ */
+export function compareChats(a: ChatSummary, b: ChatSummary): number {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  if (a.pinned) {
+    const order = (a.pinOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinOrder ?? Number.MAX_SAFE_INTEGER);
+    if (order !== 0) return order;
+  }
+  return b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+}
+
+export const sortedProjects = computed(() => [...projects.value].sort(compareProjects));
 
 export function chatsForProject(projectId: string | null): ChatSummary[] {
-  return chats.value
-    .filter((c) => c.projectId === projectId)
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActivityAt - a.lastActivityAt);
+  return chats.value.filter((c) => c.projectId === projectId).sort(compareChats);
 }
 
 // ---------------------------------------------------------------------------------------------

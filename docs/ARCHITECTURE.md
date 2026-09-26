@@ -70,10 +70,41 @@ only built-ins that don't need a chat (`/model`, `/thinking`, `/settings`).
 | Chat index (title, pin, unread, model, session ref) | `<dataDir>/chats.json`                   |
 | Settings (overrides only)       | `<dataDir>/settings.json`                                    |
 | Scratch cwd for non-project chats | `<dataDir>/scratch/`                                       |
+| Data-dir lock (running server)  | `<dataDir>/server.lock` (see below)                          |
 
 `dataDir` = `~/Library/Application Support/pi-ui` on macOS (override with `PI_UI_DATA_DIR`).
 Only chats created by pi-ui are listed; sessions started in the terminal are not imported.
 Because transcripts stay in pi's own format, a pi-ui chat can still be resumed with `pi --session`.
+
+### Data-dir lock
+
+Only one server may use a data folder (`apps/server/src/services/data-lock.ts`). Before touching
+any data, the server creates `<dataDir>/server.lock` exclusively:
+
+```json
+{ "pid": 12345, "port": 4317, "host": "127.0.0.1", "kind": "dev", "startedAt": 1790461600277 }
+```
+
+`kind` = `PI_UI_SERVER_KIND` (default `"dev"`; the desktop app sets `"desktop"`). `port`/`host`
+are rewritten with the actual address once listening (so `PI_UI_PORT=0` works). If the file
+already exists, it is **stale** and replaced when its `pid` is dead (`kill(pid, 0)` → ESRCH), the
+file is unreadable, or `GET http://host:port/api/settings` doesn't answer 2xx within ~1s.
+Otherwise the server prints one line ("The pi-ui data folder is in use by the <kind> server on
+http://host:port (pid N). Quit it first — or open that URL.") and **exits with code 3**. The lock
+is removed on shutdown and in a `process.on("exit")` hook, but only while it still holds our pid
+and `startedAt`. `PI_UI_NO_LOCK=1` skips it (tests). Desktop app: read the lock first; if it's
+live (same checks), connect to its `host:port` instead of starting a server, and treat exit
+code 3 from its own server the same way.
+
+### Ordering
+
+Projects are ordered manually by `Project.sortOrder` (ascending; new projects get min − 1, i.e.
+the top). Project pinning is gone. Chats are never re-sorted by activity: unpinned chats sort by
+`createdAt` (newest first, client-side); pinned chats sit at the top of their own list (a project,
+or standalone) ordered by `Chat.pinOrder`. The server never uses `lastActivityAt` for ordering.
+Older data is migrated when the store loads: projects get `sortOrder` from their previous order
+(pinned first, then most recent activity) and lose `pinned`; pinned chats without `pinOrder`
+get one per list (most recent activity first).
 
 ## Server API
 
@@ -81,14 +112,17 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 
 | Method | Path                          | Body / notes                                   |
 | ------ | ----------------------------- | ---------------------------------------------- |
-| GET    | `/projects`                   | → `Project[]`                                  |
-| POST   | `/projects`                   | `CreateProjectRequest` → `Project`             |
-| PATCH  | `/projects/:id`               | `UpdateProjectRequest` → `Project`             |
+| GET    | `/projects`                   | → `Project[]` sorted by `sortOrder`            |
+| POST   | `/projects`                   | `CreateProjectRequest` → `Project` (added at the top: `sortOrder` = min − 1) |
+| PATCH  | `/projects/:id`               | `UpdateProjectRequest` (`{ name? }`) → `Project` |
+| PUT    | `/projects/order`             | `ReorderProjectsRequest` `{ ids }` → `Project[]` sorted; `ids` must be exactly the set of projects (400 otherwise); sets `sortOrder` 0..n−1, `project_upsert` per changed project |
+| POST   | `/projects/:id/open`          | `OpenProjectRequest` `{ app: "vscode" }` → 204; opens the project folder (`open -a "Visual Studio Code" <path>`). 404 unknown project, 400 unknown app, 424 app not installed, 501 off macOS |
 | DELETE | `/projects/:id`               | removes project + its chats → 204              |
 | GET    | `/chats`                      | → `ChatSummary[]`                              |
 | POST   | `/chats`                      | `CreateChatRequest` → `ChatDetail`             |
 | GET    | `/chats/:id`                  | → `ChatDetail` (starts the agent if needed)    |
-| PATCH  | `/chats/:id`                  | `UpdateChatRequest` → `ChatSummary`            |
+| PATCH  | `/chats/:id`                  | `UpdateChatRequest` → `ChatSummary`. `pinned: true` puts the chat at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder`; `interrupted: false` (only value accepted) dismisses the interrupted state |
+| PUT    | `/chats/pin-order`            | `ReorderPinnedChatsRequest` `{ projectId, ids }` → `ChatSummary[]` (that list's pinned chats, in order); `ids` must be exactly the pinned chats of that list (400), unknown project 404; sets `pinOrder` 0..n−1, `chat_upsert` per changed chat |
 | DELETE | `/chats/:id`                  | → 204 (session file permanently deleted)       |
 | POST   | `/chats/:id/prompt`           | `PromptRequest` → 204 (empty text OK with images) |
 | POST   | `/chats/:id/abort`            | → 204                                          |
@@ -120,7 +154,13 @@ the server and pushed via `chat_upsert` on every change. Precedence, most urgent
 | `unread`  | A run ended while the chat wasn't on screen in a visible window           | `run_end` with no viewers            |
 | `idle`    | Nothing new                                                               | —                                    |
 
-`lastRunFailed` marks runs that ended in an error or crash (user aborts don't count). A model
+`lastRunFailed` marks runs that ended in an error or crash (user aborts don't count).
+
+**Interrupted runs**: the chat record carries `runInProgress` (set at `run_start`, cleared at
+`run_end`/abort) and is persisted, so it survives the server dying. On startup, any chat still
+flagged gets `interrupted: true` plus `unread` + `lastRunFailed` (the sidebar shows the failed
+marker without special-casing). An agent process exiting mid-run sets `interrupted` too. Any new
+prompt (e.g. the UI's "Continue") or `PATCH { interrupted: false }` clears it. A model
 asking a question in plain text can't be detected reliably; it ends the run and shows as
 `unread`. The client tells the server which chat is on screen (`viewing`), but only while the
 document is visible, so chats finishing behind a hidden window still become unread.
@@ -154,6 +194,18 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
   then navigates the window there (same origin, so the loopback Host/Origin checks pass). Quit
   sends SIGTERM; if the app dies, the closed stdin pipe stops the server. Log:
   `~/Library/Logs/io.github.jas7457.pi-ui/server.log`. Missing node/pi → native error dialog.
+- One server per data folder (`<dataDir>/server.lock`, see `services/data-lock.ts`): before
+  spawning, the app reads the lock; if its pid is alive and `GET /api/settings` answers, it points
+  the window at that server (e.g. `pnpm dev` on :4317) instead, shows a one-time notice ("Using
+  the dev server that's already running…") and leaves it running on quit. The bundled server is
+  started with `PI_UI_SERVER_KIND=desktop`; if it loses a startup race it exits with code 3 and
+  the app connects to the lock's owner. If a borrowed server goes away for ~9s the app offers
+  "Start Server" (its own).
+- Quit confirmation (`src-tauri/src/quit.rs`): ⌘Q / Dock Quit / AppleScript `quit` go through
+  `-[NSApplication terminate:]`, which tao can't veto, so the app adds
+  `applicationShouldTerminate:` to tao's app delegate. It asks our own server `GET /api/chats`;
+  if any chat is `working`/`blocked` it cancels and shows "N chats are still working. Quitting
+  stops them." [Quit] [Cancel]. No prompt when the server isn't ours or can't be reached.
 - `pnpm tauri:dev` loads the Vite dev server instead and starts no bundled server
   (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
 - Web side: `lib/desktop.ts` is the only bridge (dynamic `@tauri-apps/*` imports, no-ops in a
@@ -162,6 +214,12 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 - Closing the window hides it (agents keep running); the Dock icon reopens it; ⌘Q quits.
 
 ## Decisions
+
+- **One server per data folder** (2026-09-26): `pnpm dev` and the desktop app share the data
+  folder, so a lock file (`server.lock`) guarantees a single owner. A second server refuses with
+  exit code 3; the desktop app reuses a live server's port instead of starting its own.
+
+- **Manual project order, no project pinning** (2026-09-26, I-019): rows never jump on activity.
 
 - **Subscription usage limits read pi's Anthropic OAuth token read-only** (2026-09-26) from
   `~/.pi/agent/auth.json` and never refresh it (refreshing rotates the token and could log pi out).
@@ -191,6 +249,8 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 - **UI kit**: own components on Radix primitives (via preact/compat), styled like macOS.
 - **Markdown**: Streamdown (handles incomplete markdown while streaming) + `@streamdown/code`.
 - **Titles**: instant title from the first message, then (if enabled) replaced by a model-generated
-  title via a one-shot `pi -p`. User-edited titles are never overwritten.
+  title via a one-shot `pi -p`. User-edited titles are never overwritten. The title model is
+  `settings.models.titleModel`, or when unset `anthropic/claude-haiku-4-5` if the harness lists it,
+  else the chat's model (a default, not a stored value).
 - **Tool grouping** is a pure function with options (e.g. whether thinking breaks a group) so the
   behaviour can be changed in one place.

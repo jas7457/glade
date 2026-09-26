@@ -1,20 +1,23 @@
 /**
  * A project folder in the sidebar: a collapsible row (folder icon + name, hover "+" and "…")
- * followed by its chats (pinned first, newest first).
+ * followed by its chats (pinned first, newest first). The row is the drag handle for reordering
+ * projects (the whole group moves); "Move Up / Move Down" in its menu are the keyboard way.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Folder, FolderOpen, MoreHorizontal, Pin, Plus } from "lucide-preact";
+import { Folder, FolderOpen, MoreHorizontal, Plus } from "lucide-preact";
 import { aggregateChatStatus, type ChatSummary, type Project } from "@pi-ui/protocol";
 import { routes } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
 import { cn } from "@/lib/cn";
 import { chatsForProject } from "@/state/store";
 import { closedProjects, setProjectOpen } from "@/state/ui";
-import { removeProject, renameProject, setProjectPinned } from "@/state/actions";
+import { moveProject, removeProject, renameProject } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { ChatList } from "./ChatList";
+import { DropLine } from "./DropLine";
 import { InlineRename } from "./InlineRename";
+import type { SortBinding } from "./useSortable";
 
 export const PROJECT_CHAT_LIMIT = 5;
 
@@ -25,9 +28,22 @@ export interface ProjectGroupProps {
   selectedChatId: string | null;
   onChatRemoved?: (chat: ChatSummary) => void;
   onProjectRemoved?: (project: Project) => void;
+  /** Drag-to-reorder wiring from the project list. */
+  sort?: SortBinding;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }
 
-export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved, onProjectRemoved }: ProjectGroupProps) {
+export function ProjectGroup({
+  project,
+  selected,
+  selectedChatId,
+  onChatRemoved,
+  onProjectRemoved,
+  sort,
+  canMoveUp = false,
+  canMoveDown = false,
+}: ProjectGroupProps) {
   const navigate = useNavigate();
   const open = !closedProjects.value.has(project.id);
   const list = chatsForProject(project.id);
@@ -79,8 +95,14 @@ export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved,
       >
         Rename
       </MenuItem>
-      <MenuItem onSelect={() => void setProjectPinned(project.id, !project.pinned)}>{project.pinned ? "Unpin" : "Pin"}</MenuItem>
       <MenuItem onSelect={() => void copyPath()}>Copy Path</MenuItem>
+      <MenuSeparator />
+      <MenuItem disabled={!canMoveUp} onSelect={() => void moveProject(project.id, -1)}>
+        Move Up
+      </MenuItem>
+      <MenuItem disabled={!canMoveDown} onSelect={() => void moveProject(project.id, 1)}>
+        Move Down
+      </MenuItem>
       <MenuSeparator />
       <MenuItem destructive onSelect={() => void remove()}>
         Remove Project…
@@ -92,22 +114,22 @@ export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved,
   const aggregate = open ? "idle" : aggregateChatStatus(list.map((c) => c.status));
 
   return (
-    <div data-project-id={project.id} class={cn(sidebarClass.rows, open && sidebarClass.subgroupGap)}>
+    <div
+      data-project-id={project.id}
+      {...sort?.item}
+      class={cn("relative", sidebarClass.rows, open && sidebarClass.subgroupGap, sort?.dragging && "opacity-40")}
+    >
+      <DropLine edge={sort?.dropEdge ?? null} />
       <ContextMenu content={items} onCloseAutoFocus={onCloseAutoFocus} disabled={editing}>
         <SidebarItem
+          {...(editing ? {} : sort?.handle)}
           label={project.name}
           title={project.path}
           icon={open ? <FolderOpen /> : <Folder />}
           selected={selected}
           aria-expanded={open}
           onSelect={() => setProjectOpen(project.id, !open)}
-          trailing={
-            aggregate !== "idle" ? (
-              <StatusIndicator status={aggregate} />
-            ) : project.pinned ? (
-              <Pin size={11} aria-label="Pinned" />
-            ) : undefined
-          }
+          trailing={aggregate !== "idle" ? <StatusIndicator status={aggregate} /> : undefined}
           actionsVisible={menuOpen}
           editor={
             editing ? (
@@ -146,6 +168,7 @@ export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved,
       {open && (
         <ChatList
           chats={list}
+          listId={project.id}
           selectedChatId={selectedChatId}
           limit={PROJECT_CHAT_LIMIT}
           indent={1}

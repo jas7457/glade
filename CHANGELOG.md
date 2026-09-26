@@ -69,7 +69,17 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Claude subscription usage in the sidebar footer: current session, weekly and per-model limits
   with reset times, updated every minute and after each run; warns when a limit gets close.
 
+- Drag projects to reorder them; pinned chats can be dragged within their pinned group. Project
+  and pinned-chat menus also have Move Up / Move Down.
+- Chats cut off by quitting or a crash are marked, with a banner to Continue or Dismiss.
+- "Open in VS Code" button on project chats and the project's new-chat screen.
+- Only one pi-ui server can use the data folder at a time; a second one explains what's running.
+
 ### Changed
+
+- The sidebar no longer reorders when messages arrive: projects keep their manual order, chats are
+  newest-created first with pinned chats on top.
+- Chat titles are generated with Claude Haiku by default (cheaper; change it in Settings → Models).
 
 - The chat header no longer shows the working folder path, just the title and project.
 
@@ -89,6 +99,8 @@ Every entry corresponds to a ticked item in PLAN.md.
   "Details", instead of a wall of JSON.
 
 ### Removed
+
+- Pinning projects (projects are ordered by dragging instead).
 
 - The built-in folder browser (replaced by the native macOS folder picker).
 

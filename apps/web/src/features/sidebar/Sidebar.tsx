@@ -11,10 +11,12 @@ import { cn } from "@/lib/cn";
 import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, Titlebar, sidebarClass } from "@/ui";
 import { chatsById, chatsForProject, sortedProjects } from "@/state/store";
 import { openAddProject, toggleSidebar } from "@/state/ui";
+import { reorderProjects } from "@/state/actions";
 import { SettingsNav } from "@/features/settings";
 import { ChatList } from "./ChatList";
 import { ProjectGroup } from "./ProjectGroup";
 import { UsageGauge } from "./UsageGauge";
+import { useSortable } from "./useSortable";
 
 export const STANDALONE_CHAT_LIMIT = 10;
 
@@ -30,11 +32,16 @@ export function Sidebar() {
   const projects = sortedProjects.value;
   const standalone = chatsForProject(null);
   const newChatSelected = location.pathname === "/";
+  const projectSort = useSortable({
+    group: "projects",
+    ids: projects.map((p) => p.id),
+    onReorder: (ids) => void reorderProjects(ids),
+  });
 
   return (
     <nav aria-label="Sidebar" class="flex h-full min-h-0 flex-col">
       <Titlebar inset class="justify-end">
-        <IconButton size="sm" label="Toggle Sidebar (⌘\)" onClick={toggleSidebar}>
+        <IconButton size="sm" label="Toggle Sidebar (⌘B)" onClick={toggleSidebar}>
           <PanelLeft />
         </IconButton>
       </Titlebar>
@@ -67,10 +74,13 @@ export function Sidebar() {
                 <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
               ) : (
                 <SidebarList>
-                  {projects.map((p) => (
+                  {projects.map((p, i) => (
                     <ProjectGroup
                       key={p.id}
                       project={p}
+                      sort={projectSort.bind(p.id, i, projects.length)}
+                      canMoveUp={i > 0}
+                      canMoveDown={i < projects.length - 1}
                       selected={ctx.projectId === p.id && ctx.chatId === null}
                       selectedChatId={ctx.chatId}
                       onChatRemoved={onChatRemoved}
@@ -84,6 +94,7 @@ export function Sidebar() {
             <SidebarGroup title="Chats" collapsible>
               <ChatList
                 chats={standalone}
+                listId={null}
                 selectedChatId={ctx.chatId}
                 limit={STANDALONE_CHAT_LIMIT}
                 emptyLabel="No chats yet"

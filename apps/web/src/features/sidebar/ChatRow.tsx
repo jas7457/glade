@@ -1,7 +1,8 @@
 /**
  * One chat in the sidebar: status (spinner / unread dot / needs-input) in a fixed leading slot
  * so it stays visible on hover and titles line up, title, pin + age on the right, and a menu
- * (hover "…" button replacing the age, and right-click) with Rename, Pin, Delete.
+ * (hover "…" button replacing the age, and right-click) with Rename, Pin, Move Up/Down (pinned
+ * chats), Delete.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -9,7 +10,7 @@ import { MoreHorizontal, Pin } from "lucide-preact";
 import type { ChatSummary } from "@pi-ui/protocol";
 import { chatPath } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
-import { deleteChat, renameChat, setChatPinned, updateChat } from "@/state/actions";
+import { deleteChat, movePinnedChat, renameChat, setChatPinned, updateChat } from "@/state/actions";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
 
@@ -19,6 +20,8 @@ export interface ChatRowProps {
   indent?: SidebarIndent;
   /** Called after the chat was deleted while selected (navigate elsewhere). */
   onRemoved?: (chat: ChatSummary) => void;
+  /** Position in its pinned group (pinned chats in a group of 2+); enables Move Up / Move Down. */
+  pinPosition?: { first: boolean; last: boolean };
 }
 
 export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
@@ -31,7 +34,7 @@ export async function confirmDeleteChat(chat: ChatSummary): Promise<boolean> {
   return ok && deleteChat(chat.id);
 }
 
-export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps) {
+export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: ChatRowProps) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,6 +60,16 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
         Rename
       </MenuItem>
       <MenuItem onSelect={() => void setChatPinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
+      {pinPosition && (
+        <>
+          <MenuItem disabled={pinPosition.first} onSelect={() => void movePinnedChat(chat.id, -1)}>
+            Move Up
+          </MenuItem>
+          <MenuItem disabled={pinPosition.last} onSelect={() => void movePinnedChat(chat.id, 1)}>
+            Move Down
+          </MenuItem>
+        </>
+      )}
       {chat.status === "unread" && <MenuItem onSelect={() => void updateChat(chat.id, { unread: false })}>Mark as Read</MenuItem>}
       <MenuSeparator />
       <MenuItem destructive onSelect={() => void remove()}>

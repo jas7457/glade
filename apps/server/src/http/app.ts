@@ -15,7 +15,10 @@ import {
   type CreateProjectRequest,
   type DeepPartial,
   type ModelRef,
+  type OpenProjectRequest,
   type PromptRequest,
+  type ReorderPinnedChatsRequest,
+  type ReorderProjectsRequest,
   type Settings,
   type ThinkingLevel,
   type UiResponse,
@@ -82,8 +85,17 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.patch("/projects/:id", async (c) => {
     const body = await readBody<UpdateProjectRequest>(c);
     optional(body.name, "string", "name");
-    optional(body.pinned, "boolean", "pinned");
     return c.json(service.updateProject(c.req.param("id"), body));
+  });
+  api.put("/projects/order", async (c) => {
+    const body = await readBody<ReorderProjectsRequest>(c);
+    requireIds(body.ids);
+    return c.json(service.reorderProjects(body.ids));
+  });
+  api.post("/projects/:id/open", async (c) => {
+    const body = await readBody<OpenProjectRequest>(c);
+    await service.openProject(c.req.param("id"), body.app);
+    return c.body(null, 204);
   });
   api.delete("/projects/:id", async (c) => {
     await service.deleteProject(c.req.param("id"));
@@ -103,12 +115,23 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     if (body.images !== undefined) requireImages(body.images);
     return c.json(await service.createChat(body));
   });
+  api.put("/chats/pin-order", async (c) => {
+    const body = await readBody<ReorderPinnedChatsRequest>(c);
+    if (body.projectId !== null && typeof body.projectId !== "string") {
+      throw new HttpError(400, "projectId must be a string or null");
+    }
+    requireIds(body.ids);
+    return c.json(service.reorderPinnedChats(body.projectId, body.ids));
+  });
   api.get("/chats/:id", async (c) => c.json(await service.getChatDetail(c.req.param("id"))));
   api.patch("/chats/:id", async (c) => {
     const body = await readBody<UpdateChatRequest>(c);
     optional(body.title, "string", "title");
     optional(body.pinned, "boolean", "pinned");
     optional(body.unread, "boolean", "unread");
+    if (body.interrupted !== undefined && body.interrupted !== false) {
+      throw new HttpError(400, "interrupted can only be set to false");
+    }
     return c.json(await service.updateChat(c.req.param("id"), body));
   });
   api.delete("/chats/:id", async (c) => {
@@ -244,6 +267,12 @@ function requireString(value: unknown, name: string, allowEmpty = false): assert
 
 function optional(value: unknown, type: "string" | "boolean", name: string): void {
   if (value !== undefined && typeof value !== type) throw new HttpError(400, `${name} must be a ${type}`);
+}
+
+function requireIds(value: unknown): asserts value is string[] {
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
+    throw new HttpError(400, "ids must be an array of strings");
+  }
 }
 
 function requireModelRef(value: unknown): asserts value is ModelRef {

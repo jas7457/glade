@@ -18,7 +18,7 @@ export interface TestEnv {
   cleanup: () => Promise<void>;
 }
 
-export function createTestEnv(options: Pick<AppServiceOptions, "revealPath"> = {}): TestEnv {
+export function createTestEnv(options: Pick<AppServiceOptions, "revealPath" | "openIn"> = {}): TestEnv {
   const dir = mkdtempSync(join(tmpdir(), "pi-ui-test-"));
   const store = new Store(join(dir, "data"), 0);
   const harness = new FakeHarness();

@@ -2,6 +2,8 @@
  * Server entry point: wires config, store, harness, AppService and the HTTP/WebSocket app.
  * Harnesses are registered here (`PI_UI_HARNESS=fake` selects the fake one for UI work).
  * The desktop app runs a bundled copy of this file (see apps/desktop/scripts/bundle-server.mjs).
+ * Before anything touches the data folder we take its lock (services/data-lock.ts); if another
+ * server owns it we exit with code 3.
  */
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -11,10 +13,28 @@ import { PiHarness } from "./harness/pi/pi-harness.js";
 import type { AgentHarness } from "./harness/types.js";
 import { createApp } from "./http/app.js";
 import { AppService } from "./services/app-service.js";
+import { acquireDataLock, DataDirInUseError, EXIT_DATA_DIR_IN_USE, type DataLock } from "./services/data-lock.js";
 import { Store } from "./store/store.js";
 
 const config = loadConfig();
 const log = (msg: string) => console.log(`[pi-ui] ${msg}`);
+
+let lock: DataLock | null = null;
+if (process.env.PI_UI_NO_LOCK !== "1") {
+  try {
+    lock = await acquireDataLock(config.dataDir, {
+      kind: process.env.PI_UI_SERVER_KIND ?? "dev",
+      host: config.host,
+      port: config.port,
+    });
+  } catch (err) {
+    if (!(err instanceof DataDirInUseError)) throw err;
+    console.error(`[pi-ui] ${err.message}`);
+    process.exit(EXIT_DATA_DIR_IN_USE);
+  }
+  // Sync, so it also runs on process.exit() and uncaught errors.
+  process.on("exit", () => lock?.release());
+}
 const store = new Store(config.dataDir);
 
 const harness: AgentHarness =
@@ -38,6 +58,7 @@ const { app, injectWebSocket } = createApp({
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   const host = info.family === "IPv6" ? `[${info.address}]` : info.address;
+  lock?.update({ host: info.address, port: info.port });
   log(`listening on http://${host}:${info.port} (harness: ${harness.id}, data: ${config.dataDir})`);
 });
 injectWebSocket(server);
@@ -52,6 +73,7 @@ async function shutdown(signal: string): Promise<void> {
   try {
     server.close();
     await service.dispose();
+    lock?.release();
   } catch (err) {
     console.error("[pi-ui] shutdown failed:", err);
   }

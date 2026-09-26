@@ -26,7 +26,7 @@ export function makeProject(overrides: Partial<Project> & { id: string }): Proje
   return {
     name: `Project ${overrides.id}`,
     path: `/code/${overrides.id}`,
-    pinned: false,
+    sortOrder: 0,
     createdAt: 0,
     lastActivityAt: 0,
     ...overrides,

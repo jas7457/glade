@@ -16,7 +16,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-const project: Project = { id: "p1", name: "Proj", path: "/tmp", pinned: false, createdAt: 1, lastActivityAt: 1 };
+const project: Project = { id: "p1", name: "Proj", path: "/tmp", sortOrder: 0, createdAt: 1, lastActivityAt: 1 };
 const chat: Chat = {
   id: "c1",
   projectId: "p1",
