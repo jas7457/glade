@@ -24,3 +24,31 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Automatic chat titles: an instant title from your first message, replaced by a short
   model-generated title unless you've renamed the chat.
 - Deleting a chat moves its session file to the Trash.
+- Chat screen: editable title, project and folder in the header, live "Working…" / "Needs your
+  input" status, and a menu to rename, pin, archive or delete the chat.
+- New chat screen: type your first message and the chat is created and opened; model and
+  thinking level start from your defaults.
+- Rich transcript: formatted markdown with syntax-highlighted, copyable code blocks, collapsible
+  "Thought" sections, inline error notices, and compaction/system notes. It follows the reply as
+  it streams, and stops following when you scroll up ("Jump to latest" brings you back).
+- Tool calls are summarised in one line each ("Ran `npm test`", "Edited src/app.ts +3 −1");
+  consecutive calls collapse into "Ran N tool calls". Expand to see terminal output, file
+  contents, or a diff of the edit.
+- Composer: grows as you type, sends with Enter or ⌘Enter (per settings), accepts pasted,
+  dropped or attached images, and has model and thinking-level pickers. While the agent works you
+  can stop it (button or Esc) or queue more messages, which show above the input.
+- When the agent asks a question (choose / confirm / type / edit), it appears as a highlighted
+  card above the composer; agent crashes show as a dismissible banner.
+- App shell like a native Mac app: resizable, collapsible sidebar (⌘\\), light/dark/auto theme,
+  font size, and keyboard shortcuts (⌘N new chat, ⌘, settings).
+- Sidebar with Projects (each a folder on disk, with its chats) and standalone Chats: pin, rename
+  inline, archive, delete, "Show more", and right-click menus.
+- Status on every chat: spinner while working, amber mark when it needs your input, blue dot for
+  unread (red if the last run failed). Collapsed projects show their most urgent chat.
+- Notifications: the window title shows how many chats need attention; system notifications
+  when a background chat finishes or needs input; an in-app toast with "View" when another chat
+  finishes while you're using the app.
+- Add Project dialog with a folder browser (or paste a path, `~` supported).
+- Settings: General, Models (defaults, title model, show/hide models), Appearance, Agent
+  (pi path, arguments, process limits, auto-compaction/retry) and Archived Chats.
+

@@ -1,0 +1,179 @@
+/*
+ * Streamdown restyled to our tokens. Streamdown ships shadcn-flavoured Tailwind classes
+ * (bg-muted, border-border, text-3xl...) that don't exist in our theme or are too large for a
+ * 13px native UI, so we override by its stable `data-streamdown` attributes. Unlayered rules
+ * win over Tailwind's layered utilities.
+ */
+@layer components {
+  /* Layered so utility classes passed via `class` (e.g. text-fg-muted) still win. */
+  .pi-md {
+    font-size: 1rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+}
+.pi-md > * + * {
+  margin-top: 0.7em;
+}
+.pi-md p {
+  margin: 0;
+}
+.pi-md > :first-child {
+  margin-top: 0 !important;
+}
+.pi-md > :last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Headings: modest steps, like a native document. */
+.pi-md [data-streamdown^="heading-"] {
+  margin: 1.1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.pi-md [data-streamdown="heading-1"] { font-size: 1.4rem; }
+.pi-md [data-streamdown="heading-2"] { font-size: 1.22rem; }
+.pi-md [data-streamdown="heading-3"] { font-size: 1.08rem; }
+.pi-md [data-streamdown="heading-4"],
+.pi-md [data-streamdown="heading-5"],
+.pi-md [data-streamdown="heading-6"] { font-size: 1rem; }
+
+.pi-md [data-streamdown="strong"] { font-weight: 600; }
+
+/* Lists: outside markers with a hanging indent. */
+.pi-md [data-streamdown="unordered-list"],
+.pi-md [data-streamdown="ordered-list"] {
+  list-style-position: outside;
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.pi-md [data-streamdown="unordered-list"] { list-style-type: disc; }
+.pi-md [data-streamdown="ordered-list"] { list-style-type: decimal; }
+.pi-md [data-streamdown="list-item"] { padding: 0.12em 0; }
+.pi-md [data-streamdown="list-item"] > [data-streamdown$="-list"] { margin: 0.15em 0; padding-left: 1.4em; }
+.pi-md [data-streamdown="list-item"]::marker { color: var(--pi-fg-muted); }
+
+.pi-md [data-streamdown="link"] {
+  color: var(--pi-accent);
+  font-weight: inherit;
+  text-decoration: none;
+}
+.pi-md [data-streamdown="link"]:hover { text-decoration: underline; }
+
+.pi-md [data-streamdown="blockquote"] {
+  margin: 0.6em 0;
+  padding-left: 0.9em;
+  border-left: 3px solid var(--pi-separator);
+  color: var(--pi-fg-muted);
+  font-style: normal;
+}
+
+.pi-md [data-streamdown="horizontal-rule"] {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--pi-separator);
+}
+
+.pi-md [data-streamdown="inline-code"] {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--pi-code);
+  user-select: text;
+}
+
+/* Code blocks. */
+.pi-md [data-streamdown="code-block"] {
+  margin: 0.8em 0;
+  gap: 0;
+  padding: 0;
+  border: 0.5px solid var(--pi-separator);
+  border-radius: 8px;
+  background: var(--pi-code);
+  overflow: hidden;
+}
+.pi-md [data-streamdown="code-block-header"] {
+  height: 28px;
+  padding: 0 10px;
+  color: var(--pi-fg-subtle);
+  font-size: 0.85rem;
+}
+.pi-md [data-streamdown="code-block-header"] span { margin-left: 0; }
+.pi-md [data-streamdown="code-block-actions"] {
+  margin-top: -28px;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+.pi-md [data-streamdown="code-block-actions"] > * {
+  border: 0 !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+.pi-md [data-streamdown="code-block-copy-button"],
+.pi-md [data-streamdown="code-block-download-button"] {
+  cursor: default;
+  color: var(--pi-fg-subtle);
+  border-radius: 4px;
+}
+.pi-md [data-streamdown="code-block-copy-button"]:hover { color: var(--pi-fg); background: var(--pi-hover); }
+.pi-md [data-streamdown="code-block-body"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 2px 12px 10px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.pi-md [data-streamdown="code-block-body"] pre,
+.pi-md [data-streamdown="code-block-body"] code {
+  font-family: var(--font-mono);
+  background: transparent !important;
+  user-select: text;
+}
+/* Code in tool bodies: no header chrome, the tool row already says what it is. */
+.pi-md-bare [data-streamdown="code-block"] {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.pi-md-bare [data-streamdown="code-block-header"] { display: none; }
+.pi-md-bare [data-streamdown="code-block-actions"] { margin-top: 0; }
+.pi-md-bare [data-streamdown="code-block-body"] { padding: 8px 12px; }
+
+/* Tables: hairline outer frame, row separators only. */
+.pi-md [data-streamdown="table-wrapper"] {
+  margin: 0.8em 0;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.pi-md [data-streamdown="table-wrapper"] > div:has(> [data-streamdown="table"]) {
+  border: 0.5px solid var(--pi-separator);
+  border-radius: 8px;
+  background: transparent;
+}
+.pi-md [data-streamdown="table"] {
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.pi-md [data-streamdown="table"] > * { border-color: var(--pi-separator); }
+.pi-md [data-streamdown="table-header"] { background: var(--pi-code); }
+.pi-md [data-streamdown="table-row"] { border-color: var(--pi-separator); }
+.pi-md [data-streamdown="table-row"] + [data-streamdown="table-row"] { border-top: 0.5px solid var(--pi-separator); }
+.pi-md [data-streamdown="table-header-cell"],
+.pi-md [data-streamdown="table-cell"] {
+  padding: 5px 10px;
+  font-size: inherit;
+  text-align: left;
+  white-space: normal;
+}
+.pi-md [data-streamdown="table-header-cell"] { font-weight: 600; }
+
+.pi-md [data-streamdown="image"] { border-radius: 8px; max-width: 100%; }

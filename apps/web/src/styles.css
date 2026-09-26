@@ -124,3 +124,25 @@
     scrollbar-color: var(--pi-fg-subtle) transparent;
   }
 }
+
+/* Motion used by ui/ primitives (kept subtle, like AppKit). */
+@keyframes pi-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes pi-fade-in {
+  from { opacity: 0; }
+}
+@keyframes pi-sheet-in {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes pi-pop-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1.06); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes pi-toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

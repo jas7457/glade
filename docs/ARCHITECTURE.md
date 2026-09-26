@@ -117,6 +117,13 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 
 ## Decisions
 
+- **Session storage stays harness-owned, in the harness's default location** (2026-09-26). Every
+  harness must keep its own session format to resume conversations, so pi-ui stores only an index
+  (`chats.json`) with an opaque `sessionRef`. Considered and rejected for now: moving pi sessions
+  under our data dir (`--session-dir`), since terminal resume isn't needed, and keeping our own
+  normalized transcript copy, to avoid duplicated data. Revisit if loading history without
+  starting an agent, or search across harnesses, becomes important.
+
 - **pi flags**: never pass `--no-extensions` to pi; extensions can provide providers and auth
   (e.g. Anthropic OAuth), and model listing / title generation break without them.
 

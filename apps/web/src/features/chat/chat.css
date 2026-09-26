@@ -1,0 +1,18 @@
+/*
+ * Chat-only animations (kept here rather than in the global stylesheet).
+ */
+@keyframes pi-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+/* Text shimmer for live status labels ("Thinking…", "Working…"). */
+.pi-shimmer {
+  background: linear-gradient(90deg, var(--pi-fg-subtle) 30%, var(--pi-fg) 50%, var(--pi-fg-subtle) 70%) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pi-shimmer 2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pi-shimmer { animation: none; color: var(--pi-fg-muted); background: none; }
+}

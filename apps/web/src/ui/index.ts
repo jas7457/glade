@@ -1,0 +1,34 @@
+/**
+ * UI kit barrel. Features import primitives from "@/ui".
+ */
+export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from "./Button";
+export { IconButton, type IconButtonProps } from "./IconButton";
+export { Tooltip, TooltipProvider, type TooltipProps } from "./Tooltip";
+export {
+  Menu,
+  MenuItem,
+  MenuCheckItem,
+  MenuSeparator,
+  MenuLabel,
+  MenuPrimitive,
+  menuContentClass,
+  menuItemClass,
+  type MenuProps,
+  type MenuItemProps,
+  type MenuCheckItemProps,
+} from "./Menu";
+export { ContextMenu, type ContextMenuProps } from "./ContextMenu";
+export { Spinner } from "./Spinner";
+export { Dialog, DialogClose, type DialogProps } from "./Dialog";
+export { AlertDialog, ConfirmHost, confirm, type AlertDialogProps, type ConfirmOptions } from "./AlertDialog";
+export { TextField, TextArea, fieldClass, type TextFieldProps, type TextAreaProps } from "./TextField";
+export { Switch, SwitchField, type SwitchProps, type SwitchFieldProps } from "./Switch";
+export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";
+export { Select, type SelectProps, type SelectOption } from "./Select";
+export { Disclosure, type DisclosureProps } from "./Disclosure";
+export { Kbd, formatShortcut } from "./Kbd";
+export { Toaster } from "./Toaster";
+export { SidebarItem, type SidebarItemProps } from "./SidebarItem";
+export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./StatusIndicator";
+export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
+export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";

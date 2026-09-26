@@ -1,4 +1,33 @@
-// STUB - owned by the chat feature agent.
+/**
+ * New chat screen: centered empty state with the composer; the chat is created on first send.
+ */
+import { projectsById } from "@/state/store";
+import { TITLEBAR_HEIGHT } from "@/ui";
+import { shortenPath } from "./ChatHeader";
+import { Composer } from "./Composer";
+import { columnClass } from "./Transcript";
+
 export function NewChatView({ projectId }: { projectId: string | null }) {
-  return <div class="p-6 text-fg-muted">New chat {projectId ?? "(no project)"}</div>;
+  const project = projectId ? projectsById.value.get(projectId) : undefined;
+
+  return (
+    <div class="flex h-full min-h-0 flex-col bg-window">
+      <div data-tauri-drag-region style={{ height: `${TITLEBAR_HEIGHT}px` }} class="shrink-0" />
+      <div class="flex min-h-0 flex-1 flex-col justify-center pb-[12vh]">
+        <div class={columnClass}>
+          <div class="mb-6 text-center">
+            <h1 class="text-[1.7rem] font-semibold tracking-tight">{project ? "What should we work on?" : "New chat"}</h1>
+            {project ? (
+              <p class="mt-1 text-fg-muted" title={project.path}>
+                {project.name} · <span class="text-fg-subtle">{shortenPath(project.path)}</span>
+              </p>
+            ) : (
+              <p class="mt-1 text-fg-muted">Ask anything. Standalone chats run in a scratch folder.</p>
+            )}
+          </div>
+          <Composer projectId={projectId} placeholder={project ? `Ask pi to work on ${project.name}…` : "Ask anything…"} />
+        </div>
+      </div>
+    </div>
+  );
 }

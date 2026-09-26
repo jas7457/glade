@@ -1,0 +1,69 @@
+/**
+ * App-shell UI state that isn't server data: sidebar width/collapse (persisted in
+ * localStorage), collapsed project groups, and the "Add project" dialog.
+ */
+import { effect, signal } from "@preact/signals";
+
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 420;
+export const SIDEBAR_DEFAULT_WIDTH = 260;
+/** Dragging the handle narrower than this collapses the sidebar (like NSSplitView). */
+export const SIDEBAR_COLLAPSE_THRESHOLD = 140;
+
+/** Clamp a sidebar width to the allowed range (non-finite values fall back to the default). */
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT_WIDTH;
+  return Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
+}
+
+/** Resolve a drag of the resize handle: new width, or collapse when dragged far enough left. */
+export function resolveSidebarDrag(startWidth: number, deltaX: number): { width: number; collapsed: boolean } {
+  const raw = startWidth + deltaX;
+  if (raw < SIDEBAR_COLLAPSE_THRESHOLD) return { width: clampSidebarWidth(startWidth), collapsed: true };
+  return { width: clampSidebarWidth(raw), collapsed: false };
+}
+
+const KEY_WIDTH = "pi-ui.sidebar.width";
+const KEY_COLLAPSED = "pi-ui.sidebar.collapsed";
+const KEY_CLOSED_PROJECTS = "pi-ui.sidebar.closedProjects";
+
+function read(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function write(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export const sidebarWidth = signal(clampSidebarWidth(Number(read(KEY_WIDTH) ?? SIDEBAR_DEFAULT_WIDTH)));
+export const sidebarCollapsed = signal(read(KEY_COLLAPSED) === "1");
+/** Project ids whose chat list is collapsed in the sidebar. */
+export const closedProjects = signal<ReadonlySet<string>>(new Set(JSON.parse(read(KEY_CLOSED_PROJECTS) ?? "[]") as string[]));
+
+effect(() => write(KEY_WIDTH, String(sidebarWidth.value)));
+effect(() => write(KEY_COLLAPSED, sidebarCollapsed.value ? "1" : "0"));
+effect(() => write(KEY_CLOSED_PROJECTS, JSON.stringify([...closedProjects.value])));
+
+export function toggleSidebar(): void {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+}
+
+export function setProjectOpen(projectId: string, open: boolean): void {
+  const next = new Set(closedProjects.value);
+  if (open) next.delete(projectId);
+  else next.add(projectId);
+  closedProjects.value = next;
+}
+
+/** Whether the "Add project" dialog is showing. */
+export const addProjectOpen = signal(false);
+export function openAddProject(): void {
+  addProjectOpen.value = true;
+}
