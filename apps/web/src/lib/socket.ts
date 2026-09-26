@@ -1,8 +1,7 @@
 import { signal } from "@preact/signals";
-import type { ServerMessage } from "@pi-ui/protocol";
+import type { ClientMessage, ServerMessage } from "@pi-ui/protocol";
 
-/** Client -> server messages over the socket. */
-export type ClientMessage = { type: "viewing"; chatId: string | null };
+export type { ClientMessage };
 
 export const connectionStatus = signal<"connecting" | "open" | "closed">("connecting");
 
@@ -18,9 +17,30 @@ export class Socket {
   private readonly reconnectHandlers = new Set<() => void>();
   private retry = 0;
   private lastViewing: ClientMessage | null = null;
+  /** The chat on screen according to the router (may be hidden if the window is). */
+  private routedChatId: string | null = null;
   private stopped = false;
 
-  constructor(private readonly url = defaultUrl()) {}
+  constructor(private readonly url = defaultUrl()) {
+    // A chat only counts as "being read" while the window is visible; otherwise finished
+    // runs must still become unread.
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => this.syncViewing());
+    }
+  }
+
+  /** Report which chat is on screen (`null` for none). */
+  setViewing(chatId: string | null): void {
+    this.routedChatId = chatId;
+    this.syncViewing();
+  }
+
+  private syncViewing(): void {
+    const visible = typeof document === "undefined" || document.visibilityState === "visible";
+    const chatId = visible ? this.routedChatId : null;
+    if (this.lastViewing?.chatId === chatId && this.lastViewing !== null) return;
+    this.send({ type: "viewing", chatId });
+  }
 
   connect(): void {
     this.stopped = false;

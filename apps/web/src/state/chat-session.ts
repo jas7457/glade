@@ -113,8 +113,8 @@ export function useChatSession(chatId: string, { markViewing = true } = {}): Cha
   useEffect(() => {
     if (store.status.value === "idle" || store.status.value === "error") void loadChatSession(chatId);
     if (!markViewing) return;
-    socket.send({ type: "viewing", chatId });
-    return () => socket.send({ type: "viewing", chatId: null });
+    socket.setViewing(chatId);
+    return () => socket.setViewing(null);
   }, [chatId, markViewing]);
   return store;
 }

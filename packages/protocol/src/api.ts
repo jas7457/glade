@@ -4,6 +4,7 @@
 import type { AgentEvent, SessionState, UiResponse } from "./events.js";
 import type { ModelInfo, ModelRef, ThinkingLevel } from "./models.js";
 import type { Transcript } from "./transcript.js";
+import type { ChatStatus } from "./status.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -37,6 +38,8 @@ export interface Chat {
   archived: boolean;
   /** A run finished while the chat wasn't being viewed. */
   unread: boolean;
+  /** The most recent run ended with an error or the agent crashed. Cleared when a new run starts. */
+  lastRunFailed?: boolean;
   createdAt: number;
   lastActivityAt: number;
   /** Last model / thinking level used, so re-opening restores them. */
@@ -47,6 +50,10 @@ export interface Chat {
 /** Chat plus runtime state that isn't persisted. */
 export interface ChatSummary extends Chat {
   running: boolean;
+  /** Open agent dialogs waiting for the user. */
+  pendingInputs: number;
+  /** Derived with `deriveChatStatus` - the single field the UI should use for indicators. */
+  status: ChatStatus;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -194,3 +201,6 @@ export type ServerMessage =
   | { type: "project_removed"; projectId: string }
   | { type: "settings"; settings: Settings }
   | { type: "models"; models: ModelInfo[] };
+
+/** Client -> server messages over the WebSocket. */
+export type ClientMessage = { type: "viewing"; chatId: string | null };

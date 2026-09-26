@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import {
   applyAgentEvent,
+  deriveChatStatus,
   quickTitle,
+  sameModel,
   type AgentEvent,
   type Chat,
   type ChatDetail,
@@ -40,6 +43,10 @@ interface LiveChat {
   session: HarnessSession;
   transcript: Transcript;
   pendingUi: Map<string, UiRequest>;
+  /** Auto-close timers for dialogs with a timeout (the agent resolves them itself). */
+  uiTimers: Map<string, NodeJS.Timeout>;
+  /** Between run_start and run_end. Tracked here so it's correct while those events are handled. */
+  running: boolean;
   lastUsedAt: number;
   unsubscribe: () => void;
 }
@@ -117,9 +124,9 @@ export class AppService {
   }
 
   async listModels(force = false): Promise<ModelInfo[]> {
-    const models = await (force && "listModels" in this.harness
-      ? (this.harness as AgentHarness & { listModels(force?: boolean): Promise<ModelInfo[]> }).listModels(true)
-      : this.harness.listModels());
+    const models = await this.harness.listModels(force);
+    // A forced refresh may have changed the list; let every client know.
+    if (force) this.broadcast({ type: "models", models });
     return models;
   }
 
@@ -133,7 +140,7 @@ export class AppService {
 
   createProject(req: CreateProjectRequest): Project {
     if (!req.path?.trim()) throw new HttpError(400, "A folder path is required");
-    const path = resolve(req.path.trim().replace(/^~(?=$|\/)/, process.env.HOME ?? "~"));
+    const path = resolve(req.path.trim().replace(/^~(?=$|\/)/, homedir()));
     let isDir = false;
     try {
       isDir = statSync(path).isDirectory();
@@ -194,7 +201,10 @@ export class AppService {
   }
 
   private summarize(chat: Chat): ChatSummary {
-    return { ...chat, running: this.live.get(chat.id)?.session.getState().isRunning ?? false };
+    const live = this.live.get(chat.id);
+    const running = live?.running ?? false;
+    const pendingInputs = live?.pendingUi.size ?? 0;
+    return { ...chat, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: chat.unread }) };
   }
 
   private requireChat(id: string): Chat {
@@ -295,7 +305,7 @@ export class AppService {
     const updates: Partial<Chat> = { lastActivityAt: Date.now(), archived: false };
     if (isFirst && chat.titleSource === "auto" && req.text.trim()) {
       updates.title = quickTitle(req.text);
-      void this.generateTitle(id, req.text);
+      void this.generateTitle(id, req.text).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
     }
     this.saveChat({ ...chat, ...updates });
     if (updates.title) await live.session.setTitle(updates.title).catch(() => {});
@@ -337,8 +347,10 @@ export class AppService {
     const live = this.live.get(id);
     if (!live) throw new HttpError(404, "Chat is not running");
     live.session.respondToUi(response);
-    live.pendingUi.delete(response.id);
+    const wasPending = this.removePendingUi(live, response.id);
     this.broadcast({ type: "chat_event", chatId: id, event: { type: "ui_request_closed", id: response.id } });
+    const chat = this.store.getChat(id);
+    if (wasPending && chat) this.saveChat(chat); // pendingInputs/status changed
   }
 
   private touchProject(projectId: string | null): void {
@@ -387,6 +399,8 @@ export class AppService {
       session,
       transcript,
       pendingUi: new Map(),
+      uiTimers: new Map(),
+      running: session.getState().isRunning,
       lastUsedAt: Date.now(),
       unsubscribe: () => {},
     };
@@ -412,38 +426,78 @@ export class AppService {
     if (current.titleSource === "user" || current.title !== "New chat") {
       await session.setTitle(current.title).catch(() => {});
     }
-    this.evictIdle();
+    // Never evict the session we just opened for the caller.
+    this.evictIdle(id);
     return live;
   }
 
   private handleEvent(id: string, live: LiveChat, event: AgentEvent): void {
     live.transcript = applyAgentEvent(live.transcript, event);
-    if (event.type === "ui_request") live.pendingUi.set(event.request.id, event.request);
-    if (event.type === "ui_request_closed") live.pendingUi.delete(event.id);
+    if (event.type === "run_start") live.running = true;
+    if (event.type === "run_end") live.running = false;
+    if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
+    if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
     this.broadcast({ type: "chat_event", chatId: id, event });
 
     const chat = this.store.getChat(id);
     if (!chat) return;
     if (event.type === "run_start") {
-      this.saveChat({ ...chat, lastActivityAt: Date.now() });
+      this.saveChat({ ...chat, lastActivityAt: Date.now(), lastRunFailed: false });
     } else if (event.type === "run_end") {
-      live.pendingUi.clear();
+      this.clearPendingUi(live);
       live.lastUsedAt = Date.now();
       this.saveChat({ ...chat, lastActivityAt: Date.now(), unread: chat.unread || !this.viewers.has(id) });
       this.evictIdle();
+    } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
+      this.saveChat(chat); // pendingInputs/status changed
+    } else if (
+      (event.type === "error" || (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error")) &&
+      !chat.lastRunFailed
+    ) {
+      this.saveChat({ ...chat, lastRunFailed: true });
     } else if (event.type === "state" && (event.state.model || event.state.thinkingLevel)) {
       const next = {
         ...chat,
         model: event.state.model ?? chat.model,
         thinkingLevel: event.state.thinkingLevel ?? chat.thinkingLevel,
       };
-      if (next.model !== chat.model || next.thinkingLevel !== chat.thinkingLevel) this.saveChat(next);
+      const modelChanged = next.model !== chat.model && !sameModel(next.model, chat.model);
+      if (modelChanged || next.thinkingLevel !== chat.thinkingLevel) this.saveChat(next);
     }
+  }
+
+  private addPendingUi(chatId: string, live: LiveChat, request: UiRequest): void {
+    live.pendingUi.set(request.id, request);
+    if (request.timeoutMs === undefined) return;
+    // The agent auto-resolves timed-out dialogs without telling us; don't stay "blocked" forever.
+    const timer = setTimeout(() => {
+      live.uiTimers.delete(request.id);
+      if (!live.pendingUi.delete(request.id) || this.live.get(chatId) !== live) return;
+      this.broadcast({ type: "chat_event", chatId, event: { type: "ui_request_closed", id: request.id } });
+      const chat = this.store.getChat(chatId);
+      if (chat) this.saveChat(chat);
+    }, request.timeoutMs);
+    timer.unref();
+    live.uiTimers.set(request.id, timer);
+  }
+
+  private removePendingUi(live: LiveChat, requestId: string): boolean {
+    const timer = live.uiTimers.get(requestId);
+    if (timer) clearTimeout(timer);
+    live.uiTimers.delete(requestId);
+    return live.pendingUi.delete(requestId);
+  }
+
+  private clearPendingUi(live: LiveChat): void {
+    for (const timer of live.uiTimers.values()) clearTimeout(timer);
+    live.uiTimers.clear();
+    live.pendingUi.clear();
   }
 
   private handleExit(id: string, live: LiveChat, error: Error | null): void {
     if (this.live.get(id) !== live) return;
+    this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
     if (error) {
@@ -453,22 +507,32 @@ export class AppService {
       this.broadcast({ type: "chat_event", chatId: id, event: { type: "run_end" } });
     }
     const chat = this.store.getChat(id);
-    if (chat) this.saveChat(chat);
+    if (!chat) return;
+    if (error) {
+      // A crash ends the run: flag it, and mark unread like any run that ends off screen.
+      const unread = chat.unread || !this.viewers.has(id);
+      this.saveChat({ ...chat, lastRunFailed: true, unread });
+    } else {
+      this.saveChat(chat);
+    }
   }
 
   private async closeLive(id: string): Promise<void> {
     const live = this.live.get(id);
     if (!live) return;
+    this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
     await live.session.dispose();
   }
 
   /** Keep at most `maxIdleProcesses` idle sessions alive (least recently used go first). */
-  private evictIdle(): void {
+  private evictIdle(keepId?: string): void {
     const max = this.store.getSettings().agent.maxIdleProcesses;
     const idle = [...this.live.entries()]
-      .filter(([id, l]) => !l.session.getState().isRunning && l.pendingUi.size === 0 && !this.viewers.has(id))
+      .filter(
+        ([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && !this.viewers.has(id),
+      )
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
     const excess = idle.length - max;
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);

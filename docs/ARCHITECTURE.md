@@ -65,7 +65,7 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | GET    | `/chats/:id`                  | → `ChatDetail` (starts the agent if needed)    |
 | PATCH  | `/chats/:id`                  | `UpdateChatRequest` → `ChatSummary`            |
 | DELETE | `/chats/:id`                  | → 204 (session file moved to Trash)            |
-| POST   | `/chats/:id/prompt`           | `PromptRequest` → 204                          |
+| POST   | `/chats/:id/prompt`           | `PromptRequest` → 204 (empty text OK with images) |
 | POST   | `/chats/:id/abort`            | → 204                                          |
 | PUT    | `/chats/:id/model`            | `ModelRef` → 204                               |
 | PUT    | `/chats/:id/thinking`         | `{ level }` → 204                              |
@@ -78,6 +78,24 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 WebSocket `/ws`: server pushes `ServerMessage` (`chat_event`, `chat_upsert`, `chat_removed`,
 `project_upsert`, `project_removed`, `settings`, `models`). Client sends
 `{ type: "viewing", chatId }` so runs finishing on screen aren't marked unread.
+
+## Chat status
+
+Every `ChatSummary` carries a derived `status` (`packages/protocol/src/status.ts`), computed on
+the server and pushed via `chat_upsert` on every change. Precedence, most urgent first:
+
+| Status    | Meaning                                                                   | Source                               |
+| --------- | ------------------------------------------------------------------------- | ------------------------------------ |
+| `blocked` | Agent is paused waiting for the user (confirm/select/input/editor dialog) | pending `ui_request`s (deterministic) |
+| `working` | Agent is running                                                          | session `isRunning`                  |
+| `unread`  | A run ended while the chat wasn't on screen in a visible window           | `run_end` with no viewers            |
+| `idle`    | Nothing new                                                               | —                                    |
+
+`lastRunFailed` marks runs that ended in an error or crash (user aborts don't count). A model
+asking a question in plain text can't be detected reliably; it ends the run and shows as
+`unread`. The client tells the server which chat is on screen (`viewing`), but only while the
+document is visible, so chats finishing behind a hidden window still become unread.
+Project rows, the window title and notifications use `aggregateChatStatus` / `needsAttention`.
 
 ## Security
 
@@ -98,6 +116,9 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 `/projects/:projectId/chats/:chatId`, `/settings/:section`.
 
 ## Decisions
+
+- **pi flags**: never pass `--no-extensions` to pi; extensions can provide providers and auth
+  (e.g. Anthropic OAuth), and model listing / title generation break without them.
 
 - **pi RPC over the SDK**: process isolation per chat, crash containment, and the same shape a
   future Claude Code adapter will have (subprocess + JSON stream).

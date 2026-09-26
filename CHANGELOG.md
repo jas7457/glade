@@ -15,3 +15,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Fake agent harness so the UI can be developed and tested without a real model.
 - App data (projects, chat list, settings) stored in `~/Library/Application Support/pi-ui`.
 - Web app scaffold with macOS-style light/dark design tokens and first UI components.
+- Server API (REST + WebSocket push) serving the web app; it only accepts connections from this
+  computer.
+- Folder browser for picking project folders.
+- Chat status tracking: each chat is idle, unread, working, or blocked (waiting for your answer),
+  and failed runs are flagged. Updates are pushed live, and chats only count as read while the
+  window is visible.
+- Automatic chat titles: an instant title from your first message, replaced by a short
+  model-generated title unless you've renamed the chat.
+- Deleting a chat moves its session file to the Trash.

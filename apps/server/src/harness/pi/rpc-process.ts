@@ -14,13 +14,15 @@ export class JsonlSplitter {
 
   push(chunk: Buffer | string): void {
     this.buffer += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
+    let start = 0;
     let idx: number;
-    while ((idx = this.buffer.indexOf("\n")) !== -1) {
-      let line = this.buffer.slice(0, idx);
-      this.buffer = this.buffer.slice(idx + 1);
+    while ((idx = this.buffer.indexOf("\n", start)) !== -1) {
+      let line = this.buffer.slice(start, idx);
+      start = idx + 1;
       if (line.endsWith("\r")) line = line.slice(0, -1);
       if (line.length > 0) this.onLine(line);
     }
+    if (start > 0) this.buffer = this.buffer.slice(start);
   }
 
   end(): void {
@@ -85,6 +87,9 @@ export class PiRpcProcess extends EventEmitter<{
     const splitter = new JsonlSplitter((line) => this.handleLine(line));
     child.stdout.on("data", (chunk: Buffer) => splitter.push(chunk));
     child.stdout.on("end", () => splitter.end());
+    // Writing to a process that failed to spawn / already died raises EPIPE on stdin; without a
+    // listener that would crash the whole server. The exit handler reports the failure instead.
+    child.stdin.on("error", (err) => this.emit("stderr", `[stdin] ${err.message}\n`));
     child.stderr.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       this.stderrTail = (this.stderrTail + text).slice(-4000);

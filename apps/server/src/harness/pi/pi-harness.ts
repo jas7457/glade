@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, rmdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { promisify } from "node:util";
 import {
   clampThinkingLevel,
@@ -32,12 +33,22 @@ export interface PiHarnessOptions {
 export class PiHarness implements AgentHarness {
   readonly id = "pi";
   private modelsCache: { at: number; models: ModelInfo[] } | null = null;
+  private modelsInflight: Promise<ModelInfo[]> | null = null;
 
   constructor(private readonly options: PiHarnessOptions) {}
 
   async listModels(force = false): Promise<ModelInfo[]> {
     if (!force && this.modelsCache && Date.now() - this.modelsCache.at < 60_000) return this.modelsCache.models;
-    const proc = this.spawn(this.options.utilityCwd, ["--no-session", "--no-extensions", "--no-skills"]);
+    // Concurrent callers share one utility process.
+    this.modelsInflight ??= this.fetchModels().finally(() => {
+      this.modelsInflight = null;
+    });
+    return this.modelsInflight;
+  }
+
+  private async fetchModels(): Promise<ModelInfo[]> {
+    // Extensions stay enabled: they can register providers/models (and handle provider auth).
+    const proc = this.spawn(this.options.utilityCwd, ["--no-session", "--no-skills"]);
     try {
       const data = await proc.request<{ models: PiModel[] }>({ type: "get_available_models" });
       const models = data.models.map(translateModel);
@@ -73,6 +84,8 @@ export class PiHarness implements AgentHarness {
     } catch {
       await rm(sessionRef, { force: true });
     }
+    // Drop pi's per-cwd session folder once it's empty (fails harmlessly otherwise).
+    await rmdir(dirname(sessionRef)).catch(() => {});
   }
 
   async generateTitle({ firstMessage, cwd, model }: GenerateTitleOptions): Promise<string | null> {
@@ -82,16 +95,20 @@ export class PiHarness implements AgentHarness {
       "Reply with the title only: no quotes, no trailing punctuation.\n\n<message>\n" +
       firstMessage.slice(0, 2000) +
       "\n</message>";
-    const args = ["-p", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-context-files"];
+    // Not --no-extensions: extensions may provide the provider/auth the model needs (with them
+    // disabled, Anthropic subscription auth was rejected in testing).
+    const args = ["-p", "--no-session", "--no-tools", "--no-skills", "--no-context-files"];
     if (model) args.push("--model", modelKey(model), "--thinking", "off");
-    args.push(prompt);
+    args.push("--", prompt);
     try {
-      const { stdout } = await execFileAsync(piPath, args, { cwd, timeout: 45_000, maxBuffer: 1024 * 1024 });
+      const pending = execFileAsync(piPath, args, { cwd, timeout: 45_000, maxBuffer: 1024 * 1024 });
+      // `pi -p` reads piped stdin as extra input; close it so it doesn't wait for EOF.
+      pending.child.stdin?.end();
+      const { stdout } = await pending;
       const title = stdout
-        .trim()
         .split("\n")
-        .filter(Boolean)
-        .pop()
+        .map((l) => l.trim())
+        .find(Boolean)
         ?.replace(/^["'#*\s]+|["'*.\s]+$/g, "")
         .slice(0, 80);
       return title || null;

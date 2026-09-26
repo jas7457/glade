@@ -1,6 +1,6 @@
 /**
  * The harness abstraction. pi is the first implementation; others (e.g. Claude Code) can be
- * added by implementing these two interfaces and registering them in `harness/registry.ts`.
+ * added by implementing these two interfaces and registering them in `src/index.ts`.
  *
  * Everything crossing this boundary uses `@pi-ui/protocol` types - never harness-native ones.
  */
@@ -33,7 +33,8 @@ export interface GenerateTitleOptions {
 export interface AgentHarness {
   /** Stable identifier persisted on chats (e.g. "pi"). */
   readonly id: string;
-  listModels(): Promise<ModelInfo[]>;
+  /** Available models. Implementations may cache; `force` bypasses the cache. */
+  listModels(force?: boolean): Promise<ModelInfo[]>;
   openSession(options: OpenSessionOptions): Promise<HarnessSession>;
   /** Permanently remove a persisted session. */
   deleteSession(sessionRef: string): Promise<void>;
