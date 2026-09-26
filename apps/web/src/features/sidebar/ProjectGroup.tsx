@@ -7,7 +7,8 @@ import { useNavigate } from "react-router";
 import { Folder, FolderOpen, MoreHorizontal, Pin, Plus } from "lucide-preact";
 import { aggregateChatStatus, type ChatSummary, type Project } from "@pi-ui/protocol";
 import { routes } from "@/app/routes";
-import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm } from "@/ui";
+import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
+import { cn } from "@/lib/cn";
 import { chatsForProject } from "@/state/store";
 import { closedProjects, setProjectOpen } from "@/state/ui";
 import { removeProject, renameProject, setProjectPinned } from "@/state/actions";
@@ -91,7 +92,7 @@ export function ProjectGroup({ project, selected, selectedChatId, onChatRemoved,
   const aggregate = open ? "idle" : aggregateChatStatus(list.map((c) => c.status));
 
   return (
-    <div data-project-id={project.id}>
+    <div data-project-id={project.id} class={cn(sidebarClass.rows, open && sidebarClass.subgroupGap)}>
       <ContextMenu content={items} onCloseAutoFocus={onCloseAutoFocus} disabled={editing}>
         <SidebarItem
           label={project.name}

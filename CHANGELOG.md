@@ -56,6 +56,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Roomier sidebar with clearer grouping: taller rows, more space between sections, and
+  project chats indented under their project.
+- Settings sidebar grouped into App (General, Appearance) and AI (Models, Agent (pi)).
+- A chat's status (working, needs input, unread, failed) now shows to the left of its title
+  and stays visible when you hover the row.
+
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Removed

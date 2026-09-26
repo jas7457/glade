@@ -14,6 +14,9 @@ import { makeChat } from "@/test/fixtures";
 import { SettingsRoute } from "./SettingsView";
 import { parseArgs } from "./AgentSettings";
 import { groupModels } from "./ModelSettings";
+import { SettingsNav } from "./SettingsNav";
+import { SETTINGS_GROUPS } from "./sections";
+import { SETTINGS_SECTIONS } from "@/app/routes";
 
 const mocked = vi.mocked(api);
 
@@ -99,5 +102,30 @@ describe("helpers", () => {
       { provider: "a", id: "3", name: "X", thinkingLevels: ["off"], input: ["text"] },
     ]);
     expect(g.map(([p, ms]) => [p, ms.map((m) => m.name)])).toEqual([["a", ["X", "Y"]], ["z", ["B"]]]);
+  });
+});
+
+describe("settings navigation", () => {
+  it("puts every section in exactly one category", () => {
+    const grouped = SETTINGS_GROUPS.flatMap((g) => g.sections);
+    expect([...grouped].sort()).toEqual([...SETTINGS_SECTIONS].sort());
+  });
+
+  it("lists sections under their category headers", () => {
+    render(
+      <TooltipProvider>
+        <MemoryRouter initialEntries={["/settings/agent"]}>
+          <SettingsNav />
+        </MemoryRouter>
+      </TooltipProvider>,
+    );
+    const app = screen.getByRole("group", { name: "App" });
+    const ai = screen.getByRole("group", { name: "AI" });
+    expect(app.textContent).toContain("General");
+    expect(app.textContent).toContain("Appearance");
+    expect(ai.textContent).toContain("Models");
+    expect(ai.textContent).toContain("Agent (pi)");
+    expect(screen.getByRole("button", { name: "Agent (pi)" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "Back to App" })).toBeTruthy();
   });
 });

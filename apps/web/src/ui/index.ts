@@ -29,6 +29,8 @@ export { Disclosure, type DisclosureProps } from "./Disclosure";
 export { Kbd, formatShortcut } from "./Kbd";
 export { Toaster } from "./Toaster";
 export { SidebarItem, type SidebarItemProps } from "./SidebarItem";
+export { SidebarGroup, SidebarList, type SidebarGroupProps, type SidebarListProps } from "./Sidebar";
+export { SIDEBAR_METRICS, sidebarClass, type SidebarIndent } from "./sidebar-metrics";
 export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./StatusIndicator";
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
 export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";

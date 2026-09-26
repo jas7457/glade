@@ -7,7 +7,8 @@ import { useLocation, useNavigate } from "react-router";
 import { FolderPlus, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from "lucide-preact";
 import { routes } from "@/app/routes";
 import { routeContext } from "@/app/paths";
-import { Disclosure, IconButton, Kbd, SidebarItem, Titlebar } from "@/ui";
+import { cn } from "@/lib/cn";
+import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, Titlebar, sidebarClass } from "@/ui";
 import { chatsById, chatsForProject, sortedProjects } from "@/state/store";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SettingsNav } from "@/features/settings";
@@ -41,7 +42,7 @@ export function Sidebar() {
         <SettingsNav />
       ) : (
         <>
-          <div class="flex flex-col gap-px px-2.5 pb-2">
+          <SidebarList class={sidebarClass.paddingX}>
             <SidebarItem
               icon={<SquarePen />}
               label="New Chat"
@@ -49,13 +50,12 @@ export function Sidebar() {
               onSelect={newChat}
               trailing={<Kbd keys="⌘N" class="border-0 bg-transparent" />}
             />
-          </div>
+          </SidebarList>
 
-          <div class="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">
-            <Disclosure
-              variant="section"
-              label="Projects"
-              class="mb-3"
+          <div class={cn("min-h-0 flex-1 overflow-y-auto pb-3", sidebarClass.paddingX)}>
+            <SidebarGroup
+              title="Projects"
+              collapsible
               actions={
                 <IconButton size="sm" label="Add Project…" onClick={openAddProject}>
                   <Plus />
@@ -65,7 +65,7 @@ export function Sidebar() {
               {projects.length === 0 ? (
                 <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
               ) : (
-                <div class="flex flex-col gap-px">
+                <SidebarList>
                   {projects.map((p) => (
                     <ProjectGroup
                       key={p.id}
@@ -76,11 +76,11 @@ export function Sidebar() {
                       onProjectRemoved={onProjectRemoved}
                     />
                   ))}
-                </div>
+                </SidebarList>
               )}
-            </Disclosure>
+            </SidebarGroup>
 
-            <Disclosure variant="section" label="Chats">
+            <SidebarGroup title="Chats" collapsible>
               <ChatList
                 chats={standalone}
                 selectedChatId={ctx.chatId}
@@ -88,10 +88,10 @@ export function Sidebar() {
                 emptyLabel="No chats yet"
                 onRemoved={onChatRemoved}
               />
-            </Disclosure>
+            </SidebarGroup>
           </div>
 
-          <div class="shrink-0 border-t border-separator px-2.5 py-2">
+          <div class={cn("shrink-0 border-t border-separator py-2", sidebarClass.paddingX)}>
             <SidebarItem
               icon={<SettingsIcon />}
               label="Settings"

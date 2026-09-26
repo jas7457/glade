@@ -1,10 +1,9 @@
 /**
- * Collapsible section: a chevron + label header that shows/hides its children.
+ * Inline content disclosure: a leading chevron + label header that shows/hides its children.
  *
- *   <Disclosure label="Projects" actions={<IconButton …/>} defaultOpen>…</Disclosure>
+ *   <Disclosure label="Details" actions={<IconButton …/>} defaultOpen>…</Disclosure>
  *
- * `variant="section"` is the Finder-sidebar style (small muted header, chevron on hover);
- * `variant="inline"` has a leading chevron (content disclosure, e.g. "Details").
+ * Sidebar sections use `SidebarGroup` (ui/Sidebar.tsx) instead.
  */
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
@@ -18,9 +17,8 @@ export interface DisclosureProps {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Extra controls on the right of the header (shown on hover for `section`). */
+  /** Extra controls on the right of the header. */
   actions?: ComponentChildren;
-  variant?: "section" | "inline";
   class?: string;
   headerClass?: string;
 }
@@ -32,7 +30,6 @@ export function Disclosure({
   defaultOpen = true,
   onOpenChange,
   actions,
-  variant = "inline",
   class: className,
   headerClass,
 }: DisclosureProps) {
@@ -48,18 +45,12 @@ export function Disclosure({
 
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} class={className}>
-      <div class={cn("group/disclosure flex items-center", headerClass)}>
+      <div class={cn("flex items-center", headerClass)}>
         <Collapsible.Trigger
-          class={cn(
-            "flex min-w-0 flex-1 items-center gap-1 rounded-[5px] text-left outline-none",
-            variant === "section"
-              ? "h-6 px-2 text-[0.85rem] font-semibold text-fg-subtle"
-              : "h-6 px-1 text-fg-muted hover:text-fg",
-          )}
+          class="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-[5px] px-1 text-left text-fg-muted outline-none hover:text-fg"
         >
-          {variant === "inline" && chevron}
+          {chevron}
           <span class="min-w-0 flex-1 truncate">{label}</span>
-          {variant === "section" && <span class="opacity-0 group-hover/disclosure:opacity-100">{chevron}</span>}
         </Collapsible.Trigger>
         {actions && <div class="flex items-center">{actions}</div>}
       </div>

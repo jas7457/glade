@@ -57,6 +57,21 @@ describe("Sidebar", () => {
     expect(within(row("c1")).queryByRole("img", { name: /Working|New|Needs/ })).toBeNull();
   });
 
+  it("shows the status left of the title, outside the area hover actions replace, on every row", () => {
+    const { container } = renderSidebar();
+    for (const id of ["c1", "c2", "c3", "c4"]) {
+      const row = container.querySelector(`[data-chat-id=${id}]`) as HTMLElement;
+      // Every chat row reserves the leading slot (empty when idle) so titles line up.
+      const leading = row.querySelector("[data-slot=leading]") as HTMLElement;
+      expect(leading).toBeTruthy();
+      expect(row.querySelector("[data-slot=trailing] [data-status]")).toBeNull();
+    }
+    const working = container.querySelector("[data-chat-id=c2] [data-slot=leading]") as HTMLElement;
+    expect(within(working).getByRole("img", { name: "Working…" })).toBeTruthy();
+    const title = within(container.querySelector("[data-chat-id=c2]") as HTMLElement).getByText("Newer");
+    expect(working.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("marks the current chat as selected", () => {
     const { container } = renderSidebar("/projects/p1/chats/c2");
     expect(container.querySelector("[data-chat-id=c2]")?.hasAttribute("data-selected")).toBe(true);

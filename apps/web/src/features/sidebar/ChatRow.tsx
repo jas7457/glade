@@ -1,13 +1,14 @@
 /**
- * One chat in the sidebar: title, running spinner / unread dot / age, and a menu (hover "…"
- * button and right-click) with Rename, Pin, Delete.
+ * One chat in the sidebar: status (spinner / unread dot / needs-input) in a fixed leading slot
+ * so it stays visible on hover and titles line up, title, pin + age on the right, and a menu
+ * (hover "…" button replacing the age, and right-click) with Rename, Pin, Delete.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { MoreHorizontal, Pin } from "lucide-preact";
 import type { ChatSummary } from "@pi-ui/protocol";
 import { chatPath } from "@/app/routes";
-import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm } from "@/ui";
+import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
 import { deleteChat, renameChat, setChatPinned, updateChat } from "@/state/actions";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
@@ -15,7 +16,7 @@ import { formatRelativeTime } from "./time";
 export interface ChatRowProps {
   chat: ChatSummary;
   selected: boolean;
-  indent?: 0 | 1;
+  indent?: SidebarIndent;
   /** Called after the chat was deleted while selected (navigate elsewhere). */
   onRemoved?: (chat: ChatSummary) => void;
 }
@@ -64,10 +65,9 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
     </>
   );
 
-  const trailing =
-    chat.status !== "idle" ? (
-      <StatusIndicator status={chat.status} failed={chat.lastRunFailed} />
-    ) : (
+  // Always rendered (an empty box when idle) so titles align across rows.
+  const leading = <StatusIndicator status={chat.status} failed={chat.lastRunFailed} />;
+  const trailing = (
     <>
       {chat.pinned && <Pin size={11} aria-label="Pinned" />}
       <span>{formatRelativeTime(chat.lastActivityAt)}</span>
@@ -84,6 +84,7 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
         strong={chat.status === "unread" && !selected}
         indent={indent}
         onSelect={() => navigate(chatPath(chat))}
+        leading={leading}
         trailing={trailing}
         actionsVisible={menuOpen}
         editor={

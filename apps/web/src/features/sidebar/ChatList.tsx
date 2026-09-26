@@ -5,13 +5,14 @@
 import { useState } from "preact/hooks";
 import type { ChatSummary } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
+import { SidebarList, sidebarClass, type SidebarIndent } from "@/ui";
 import { ChatRow } from "./ChatRow";
 
 export interface ChatListProps {
   chats: ChatSummary[];
   selectedChatId: string | null;
   limit: number;
-  indent?: 0 | 1;
+  indent?: SidebarIndent;
   emptyLabel?: string;
   onRemoved?: (chat: ChatSummary) => void;
 }
@@ -27,10 +28,10 @@ export function ChatList({ chats, selectedChatId, limit, indent = 0, emptyLabel,
   const [expanded, setExpanded] = useState(false);
   const count = visibleChatCount(chats, limit, expanded, selectedChatId);
   if (chats.length === 0 && emptyLabel) {
-    return <div class={cn("flex h-7 items-center text-fg-subtle", indent ? "pl-7" : "pl-2")}>{emptyLabel}</div>;
+    return <div class={cn("flex items-center text-fg-subtle", sidebarClass.row, sidebarClass.labelInset[indent])}>{emptyLabel}</div>;
   }
   return (
-    <div role="list" class="flex flex-col gap-px">
+    <SidebarList role="list">
       {chats.slice(0, count).map((chat) => (
         <div role="listitem" key={chat.id}>
           <ChatRow chat={chat} selected={chat.id === selectedChatId} indent={indent} onRemoved={onRemoved} />
@@ -40,11 +41,11 @@ export function ChatList({ chats, selectedChatId, limit, indent = 0, emptyLabel,
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          class={cn("flex h-6 items-center rounded-[6px] text-left text-[0.92rem] text-fg-muted hover:text-fg", indent ? "pl-7" : "pl-2")}
+          class={cn("flex h-6 items-center rounded-[6px] text-left text-[0.92rem] text-fg-muted hover:text-fg", sidebarClass.labelInset[indent])}
         >
           {expanded ? "Show less" : `Show more (${chats.length - count})`}
         </button>
       )}
-    </div>
+    </SidebarList>
   );
 }
