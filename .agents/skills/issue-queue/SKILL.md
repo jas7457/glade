@@ -56,7 +56,8 @@ If they name ids, only those; otherwise all open Inbox items without open questi
    - repo path, and to read `AGENTS.md` + `docs/ARCHITECTURE.md` first;
    - the exact Inbox entries (ids, text, notes) it owns and the acceptance criteria;
    - the folders it owns and the folders it must NOT touch;
-   - **do not commit; do not edit PLAN.md or CHANGELOG.md** (the lead owns the ledger);
+   - **do not commit, and do not stage anything** (no `git add`/`git rm`; delete files with plain `rm`);
+   - **do not edit PLAN.md or CHANGELOG.md** (the lead owns the ledger);
    - write/adjust tests; run `pnpm --filter <pkg> typecheck` and `pnpm vitest run --project <proj>`;
    - verify visually for UI work (`PI_UI_HARNESS=fake pnpm dev`, chrome-devtools MCP); reuse a
      running dev server on :4317/:5317 instead of starting another;
@@ -72,6 +73,9 @@ If they name ids, only those; otherwise all open Inbox items without open questi
    report: done ids, anything left open, and anything the user should look at.
 
 ## Rules
+
+- While workers are running, the lead commits **only explicit paths** (`git commit -m … -- PLAN.md`)
+  so half-finished work that happens to be staged is never swept into a commit.
 
 - Intake never changes code. If a report is urgent, say so and ask; don't just start.
 - Keep the user's wording in `Reported:` so intent isn't lost when paraphrasing.
