@@ -164,7 +164,7 @@ prompt (e.g. the UI's "Continue") or `PATCH { interrupted: false }` clears it. A
 asking a question in plain text can't be detected reliably; it ends the run and shows as
 `unread`. The client tells the server which chat is on screen (`viewing`), but only while the
 document is visible, so chats finishing behind a hidden window still become unread.
-Project rows, the window title and notifications use `aggregateChatStatus` / `needsAttention`.
+Project rows, the window title and the desktop Dock badge use `aggregateChatStatus` / `needsAttention`.
 
 ## Security
 

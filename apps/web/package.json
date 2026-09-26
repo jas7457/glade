@@ -23,7 +23,6 @@
     "@streamdown/code": "^1.1.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
-    "@tauri-apps/plugin-notification": "^2.4.0",
     "clsx": "^2.1.1",
     "lucide-preact": "^1.48.0",
     "preact": "^10.29.8",

@@ -74,8 +74,6 @@ export interface Settings {
     busyBehavior: "steer" | "followUp";
     /** Generate a title for new chats with a model (a quick title is always set first). */
     generateTitles: boolean;
-    /** System notification when a run finishes while the window is unfocused. */
-    notifyOnComplete: boolean;
   };
   models: {
     /** Model for new chats. `null` = harness default. */
@@ -110,7 +108,6 @@ export function defaultSettings(): Settings {
       sendKey: "enter",
       busyBehavior: "steer",
       generateTitles: true,
-      notifyOnComplete: true,
     },
     models: {
       defaultModel: null,

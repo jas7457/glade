@@ -95,3 +95,16 @@ describe("Store", () => {
     expect(new Store(dir).listProjects()).toEqual([]);
   });
 });
+
+describe("settings migration", () => {
+  it("drops the removed notifyOnComplete setting", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-ui-settings-"));
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ general: { notifyOnComplete: false, sendKey: "mod-enter" } }));
+    const store = new Store(dir, 0);
+    expect(store.getSettings().general).not.toHaveProperty("notifyOnComplete");
+    expect(store.getSettings().general.sendKey).toBe("mod-enter");
+    store.flush();
+    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")).general).toEqual({ sendKey: "mod-enter" });
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -10,14 +10,13 @@ import { cn } from "@/lib/cn";
 import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
 import { chatsById, initError, initialized, loadAll } from "@/state/store";
 import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar, togglePalette } from "@/state/ui";
-import { currentChatId, setChatOpener } from "@/state/attention";
+import { currentChatId } from "@/state/attention";
 import { Sidebar } from "@/features/sidebar";
 import { AddProjectHost } from "@/features/projects";
 import { rememberAppPath } from "@/features/settings";
 import { Palette } from "@/features/palette";
 import { globalCommands } from "./commands";
 import { routeContext } from "./paths";
-import { chatPath } from "./routes";
 import { SHORTCUTS, useGlobalShortcuts } from "./shortcuts";
 
 function ResizeHandle() {
@@ -99,7 +98,6 @@ export function Layout() {
     rememberAppPath(location.pathname);
     currentChatId.value = ctx.chatId;
   }, [location.pathname, ctx.chatId]);
-  useEffect(() => setChatOpener((chat) => navigate(chatPath(chat))), [navigate]);
 
   const commandContext = { navigate: (path: string) => navigate(path), route: ctx };
   useGlobalShortcuts(globalCommands({ ...commandContext, togglePalette }));

@@ -39,19 +39,6 @@ export async function pickFolderNative(options: { prompt?: string; defaultPath?:
   return typeof path === "string" ? path : null;
 }
 
-/** Notification permission via the native notification plugin. */
-export async function nativeNotificationPermission(request: boolean): Promise<NotificationPermission> {
-  const { isPermissionGranted, requestPermission } = await import("@tauri-apps/plugin-notification");
-  if (await isPermissionGranted()) return "granted";
-  return request ? await requestPermission() : "default";
-}
-
-/** Post a native macOS notification (clicking it brings the app to the front). */
-export async function sendNativeNotification(title: string, body: string): Promise<void> {
-  const { sendNotification } = await import("@tauri-apps/plugin-notification");
-  sendNotification({ title, body });
-}
-
 /** Dock badge; 0 clears it. */
 export async function setDockBadge(count: number): Promise<void> {
   if (!isDesktop()) return;

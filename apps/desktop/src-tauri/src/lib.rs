@@ -4,7 +4,7 @@
 //!   `tauri dev` loads the Vite dev server instead (devUrl) and starts nothing.
 //! - Native chrome: overlay titlebar (tauri.conf.json), sidebar vibrancy, app menu whose custom
 //!   items are forwarded to the web app as `pi-ui:menu` events (see apps/web/src/lib/desktop.ts).
-//! - Closing the window hides it (chats keep running, notifications still arrive); clicking the
+//! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
 //! - If another server (e.g. `pnpm dev`) already owns the data folder, the window uses it
@@ -195,7 +195,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| focus_main(app)))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(ServerState::default())
         .manage(PendingHint::default())
         .on_page_load(|webview, payload| {

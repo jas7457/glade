@@ -1,5 +1,5 @@
 /**
- * Chat attention status, shown in the sidebar, window title and notifications.
+ * Chat attention status, shown in the sidebar, the window title and the Dock badge.
  *
  * Precedence (highest first):
  *   blocked  – the agent is paused waiting for the user (an extension dialog: confirm/select/input/editor).

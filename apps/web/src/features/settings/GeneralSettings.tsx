@@ -1,12 +1,9 @@
-import { useState } from "preact/hooks";
 import { FormGroup, FormRow, SegmentedControl, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
-import { ensureNotificationPermission } from "@/state/attention";
 
 export function GeneralSettings() {
   const g = settings.value.general;
-  const [permission, setPermission] = useState<string | null>(null);
   return (
     <>
       <FormGroup title="Composer">
@@ -47,23 +44,6 @@ export function GeneralSettings() {
             aria-label="Generate chat titles"
             checked={g.generateTitles}
             onCheckedChange={(generateTitles) => void updateSettings({ general: { generateTitles } })}
-          />
-        </FormRow>
-        <FormRow
-          label="Notify when a chat finishes"
-          description={
-            permission === "denied"
-              ? "Notifications are blocked. Allow them for pi-ui in System Settings › Notifications."
-              : "Show a notification when a chat finishes or needs input while pi-ui is in the background."
-          }
-        >
-          <Switch
-            aria-label="Notify when a chat finishes"
-            checked={g.notifyOnComplete}
-            onCheckedChange={(notifyOnComplete) => {
-              void updateSettings({ general: { notifyOnComplete } });
-              if (notifyOnComplete) void ensureNotificationPermission().then(setPermission);
-            }}
           />
         </FormRow>
       </FormGroup>

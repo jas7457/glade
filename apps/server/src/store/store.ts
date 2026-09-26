@@ -34,6 +34,13 @@ export class Store {
    * a `pinOrder` the same way, per list. Writes only when something changed.
    */
   private migrate(): void {
+    // I-028: system notifications were removed; drop the old toggle from stored settings.
+    const storedSettings = this.settingsFile.get() as { general?: Record<string, unknown> };
+    if (storedSettings.general && "notifyOnComplete" in storedSettings.general) {
+      const { notifyOnComplete: _removed, ...general } = storedSettings.general;
+      this.settingsFile.set({ ...storedSettings, general } as DeepPartial<Settings>);
+    }
+
     /** Shape of projects written before I-019 (may have `pinned`, may lack `sortOrder`). */
     type LegacyProject = Project & { pinned?: boolean };
     const projects = this.listProjects() as LegacyProject[];

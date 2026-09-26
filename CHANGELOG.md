@@ -116,6 +116,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Removed
 
+- System notifications and the "chat finished" pop-ups. Chat status shows in the sidebar, the window
+  title count and the Dock badge (unread, waiting for input, interrupted).
+
 - Pinning projects (projects are ordered by dragging instead).
 
 - The built-in folder browser (replaced by the native macOS folder picker).
