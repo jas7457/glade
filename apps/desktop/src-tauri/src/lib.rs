@@ -11,6 +11,7 @@
 //!   instead, shows a one-time hint, and leaves it running on quit. If it goes away while the
 //!   app is open, the app offers to start its own.
 
+mod dev;
 mod menu;
 mod quit;
 mod server;
@@ -190,6 +191,8 @@ fn stop_server(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    dev::adjust_context(&mut context);
     let app = tauri::Builder::default()
         // Must be first: a second launch just focuses the running app.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| focus_main(app)))
@@ -223,12 +226,13 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building pi-ui");
 
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => focus_main(app),
+        RunEvent::Ready => dev::on_ready(),
         RunEvent::ExitRequested { api, .. } => {
             if !quit::should_quit_now(app) {
                 api.prevent_exit();

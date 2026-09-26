@@ -208,6 +208,17 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
   stops them." [Quit] [Cancel]. No prompt when the server isn't ours or can't be reached.
 - `pnpm tauri:dev` loads the Vite dev server instead and starts no bundled server
   (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
+- Dev identity (I-031): `src-tauri/.cargo/config.toml` sets `scripts/dev-app-runner.sh` as the
+  cargo runner, so `cargo run` / `tauri dev` start the debug binary from inside a minimal
+  `target/debug/pi-ui (dev).app` (hard link + Info.plist + `icons/dev/icon.icns`, the icon with a
+  DEV band made from `icon/icon-dev.svg`) via `exec`, keeping the pid for hot-reload. A bare
+  executable has no bundle, so the Dock and switchers (AltTab reads `NSRunningApplication.icon`)
+  showed the generic exec icon. Dev builds also use their own identifier
+  `io.github.jas7457.pi-ui.dev` (`src-tauri/src/dev.rs`): the single-instance socket is keyed on it,
+  and with a shared id opening `/Applications/pi-ui.app` while `tauri dev` ran only focused the
+  dev window. `dev.rs` also undoes Tauri's dev-time Dock icon override so the Dock shows the DEV
+  icon. `pnpm tauri:install` re-registers the installed bundle with LaunchServices (`lsregister
+  -f`). Check what macOS reports with `swift apps/desktop/scripts/check-app-icon.swift`.
 - Web side: `lib/desktop.ts` is the only bridge (dynamic `@tauri-apps/*` imports, no-ops in a
   browser); `<html data-desktop>` switches the page/sidebar to transparent over the window's
   vibrancy. Menu items emit `pi-ui:menu` events handled by `useGlobalShortcuts`.

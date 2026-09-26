@@ -112,6 +112,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- pi-ui shows its icon in AltTab and the Dock. Dev builds run as "pi-ui (dev)" with a DEV icon and
+  no longer take over when you open the installed app.
+
 - The text cursor no longer touches the folder icon in the Create project name field.
 
 - The dev server no longer shows "Not found" after restarting while the web app was being rebuilt.
