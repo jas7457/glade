@@ -66,6 +66,9 @@ Every entry corresponds to a ticked item in PLAN.md.
   /thinking, /export, /stats, /settings) and your pi extension commands and skills.
 - Compacting shows a divider in the chat with how much context was freed.
 
+- Claude subscription usage in the sidebar footer: current session, weekly and per-model limits
+  with reset times, updated every minute and after each run; warns when a limit gets close.
+
 ### Changed
 
 - The chat header no longer shows the working folder path, just the title and project.

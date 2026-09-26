@@ -105,7 +105,7 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
 
 WebSocket `/ws`: server pushes `ServerMessage` (`chat_event`, `chat_upsert`, `chat_removed`,
-`project_upsert`, `project_removed`, `settings`, `models`). Client sends
+`project_upsert`, `project_removed`, `settings`, `models`, `usage_limits`). Client sends
 `{ type: "viewing", chatId }` so runs finishing on screen aren't marked unread.
 
 ## Chat status
@@ -162,6 +162,10 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 - Closing the window hides it (agents keep running); the Dock icon reopens it; ⌘Q quits.
 
 ## Decisions
+
+- **Subscription usage limits read pi's Anthropic OAuth token read-only** (2026-09-26) from
+  `~/.pi/agent/auth.json` and never refresh it (refreshing rotates the token and could log pi out).
+  The endpoint (`/api/oauth/usage`) is undocumented; failures hide the gauge.
 
 - **Desktop runs the user's own Node** (2026-09-26): the server ships as one esbuild bundle run
   with the `node` found through the login shell (pi needs Node anyway), keeping the app small.

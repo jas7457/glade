@@ -30,6 +30,8 @@ export function createWsHandler(service: AppService): (c: Context) => WSEvents {
         };
         send({ type: "hello", version: VERSION });
         unsubscribe = service.subscribe(send);
+        const usage = service.getUsageLimits();
+        if (usage) send({ type: "usage_limits", usage });
       },
       onMessage(event) {
         let message: unknown;

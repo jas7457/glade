@@ -30,10 +30,12 @@ import {
   type UiResponse,
   type UpdateChatRequest,
   type UpdateProjectRequest,
+  type UsageLimits,
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
+import { UsageLimitsPoller } from "./usage-limits.js";
 
 /** Byte size of base64 data once decoded (ignores whitespace and padding). */
 export function decodedBase64Size(data: string): number {
@@ -86,6 +88,7 @@ export class AppService {
   private readonly live = new Map<string, LiveChat>();
   private readonly opening = new Map<string, Promise<LiveChat>>();
   private readonly listeners = new Set<Listener>();
+  private readonly usage: UsageLimitsPoller | null;
   /** chatId -> number of clients currently viewing it. */
   private readonly viewers = new Map<string, number>();
   private readonly store: Store;
@@ -97,6 +100,11 @@ export class AppService {
     this.store = options.store;
     this.harness = options.harness;
     mkdirSync(options.scratchDir, { recursive: true });
+    const getUsage = this.harness.getUsageLimits?.bind(this.harness);
+    this.usage = getUsage
+      ? new UsageLimitsPoller({ fetchLimits: getUsage, broadcast: (m) => this.broadcast(m), log: options.log })
+      : null;
+    this.usage?.start();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -105,7 +113,16 @@ export class AppService {
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.usage?.setClientCount(this.listeners.size);
+    return () => {
+      this.listeners.delete(listener);
+      this.usage?.setClientCount(this.listeners.size);
+    };
+  }
+
+  /** Latest subscription usage limits (possibly stale), or null if unavailable. */
+  getUsageLimits(): UsageLimits | null {
+    return this.usage?.current() ?? null;
   }
 
   private broadcast(message: ServerMessage): void {
@@ -517,6 +534,7 @@ export class AppService {
     if (event.type === "run_start") {
       this.saveChat({ ...chat, lastActivityAt: Date.now(), lastRunFailed: false });
     } else if (event.type === "run_end") {
+      this.usage?.onRunEnd();
       this.clearPendingUi(live);
       live.lastUsedAt = Date.now();
       this.saveChat({ ...chat, lastActivityAt: Date.now(), unread: chat.unread || !this.viewers.has(id) });
@@ -611,6 +629,7 @@ export class AppService {
   }
 
   async dispose(): Promise<void> {
+    this.usage?.stop();
     await Promise.all([...this.live.keys()].map((id) => this.closeLive(id)));
     await this.harness.dispose();
     this.store.flush();

@@ -20,6 +20,7 @@ import {
   type UiResponse,
 } from "@pi-ui/protocol";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
+import { fetchAnthropicUsageLimits } from "./anthropic-usage.js";
 import { PiRpcProcess } from "./rpc-process.js";
 import {
   PiEventTranslator,
@@ -43,6 +44,8 @@ export interface PiHarnessOptions {
 
 export class PiHarness implements AgentHarness {
   readonly id = "pi";
+  /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
+  getUsageLimits = () => fetchAnthropicUsageLimits();
   private modelsCache: { at: number; models: ModelInfo[] } | null = null;
   private modelsInflight: Promise<ModelInfo[]> | null = null;
 
