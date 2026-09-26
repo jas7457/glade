@@ -15,6 +15,7 @@ mod dev;
 mod menu;
 mod quit;
 mod server;
+mod writing_tools;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -210,6 +211,7 @@ pub fn run() {
         .setup(|app| {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
                 apply_vibrancy(&window);
+                writing_tools::disable_affordance(&window);
             }
             quit::install(app.handle());
             if !tauri::is_dev() {

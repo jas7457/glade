@@ -223,6 +223,15 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
   browser); `<html data-desktop>` switches the page/sidebar to transparent over the window's
   vibrancy. Menu items emit `pi-ui:menu` events handled by `useGlobalShortcuts`.
 - Closing the window hides it (agents keep running); the Dock icon reopens it; ⌘Q quits.
+- No Writing Tools button (I-042, `src-tauri/src/writing_tools.rs`): Apple Intelligence puts a
+  floating "Write with Siri" button next to focused multi-line fields. The app hides it by making
+  the web view (wry's `WryWebView` class) answer NO to `-allowsWritingToolsAffordance`. On
+  macOS 27, `WKWebViewConfiguration.writingToolsBehavior = .none` (even set at creation) and the
+  HTML `writingsuggestions="false"` / `autocorrect="off"` attributes did not hide it. Typing,
+  spellcheck and copy/paste are unaffected, and Writing Tools should still be reachable from the
+  context menu. If a future macOS ignores the override, the only fallback is system-wide: turn
+  off Writing Tools under System Settings › Apple Intelligence & Siri. Browsers don't show the
+  button at all.
 
 ## Decisions
 
