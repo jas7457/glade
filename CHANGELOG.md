@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Click any image in a chat to see it large (←/→ between images, Copy image).
+- Message times: hover a message to see when it was sent, with Today / Yesterday dividers between days.
 - New-chat bar above the composer: pick the project, Local or a new worktree, and the branch. In
   Local mode switching branch is refused while you have uncommitted changes, with a Commit… button
   right there.
@@ -124,6 +126,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- A sub-agent's task (and later messages from the main agent) shows as a compact "Task from main"
+  card instead of a huge message from you; very long messages collapse with "Show more".
 - "Messaged …" and "Closed …" rows use the sub-agent's fun name and colour ("Messaged Kit ·
   context-bar: …"), and expand to the message itself instead of raw JSON.
 - Links in replies stand out: a soft sky-blue chip with a link icon in front.

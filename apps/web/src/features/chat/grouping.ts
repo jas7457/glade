@@ -109,7 +109,8 @@ export type RenderItem =
   | { type: "notice"; key: string; message: NoticeMessage }
   /** A shell command the user ran (`!cmd` / `!!cmd`, I-076). */
   | { type: "shell"; key: string; message: ShellMessage }
-  | { type: "turn"; key: string; parts: TurnPart[]; streaming: boolean };
+  /** `timestamp`: when the turn's first message started (I-111). */
+  | { type: "turn"; key: string; parts: TurnPart[]; streaming: boolean; timestamp: number };
 
 export interface GroupingContext {
   /** Whether the agent is currently running (decides between `pending` and `cancelled`). */
@@ -141,6 +142,7 @@ export function groupTranscript(
       key: `turn-${turn[0]!.id}`,
       parts: buildTurnParts(turn, transcript.toolResults, context, options),
       streaming: turn.some((m) => m.streaming),
+      timestamp: turn[0]!.timestamp,
     });
     turn = [];
   };

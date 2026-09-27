@@ -9,11 +9,16 @@
  *
  * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
  * elapsed time; streamed reply text is revealed smoothly (smooth-text.ts).
+ *
+ * In a sub-agent's own transcript its task and the parent's messages are cards (DelegatedCard,
+ * delegated.ts, I-109). Messages show their time on hover and a divider marks each new day
+ * (MessageTime.tsx, I-111); images open in a lightbox (I-110).
  */
+import { Fragment } from "preact";
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
-import { subagentSessionsOf, type NoticeMessage } from "@glade/protocol";
+import { subagentSessionsOf, type AgentColor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
 import { sessions } from "@/state/store";
@@ -24,6 +29,12 @@ import { ImageThumb, UserBubble } from "./UserBubble";
 import { AgentSpawnCard } from "./AgentSpawnCard";
 import { linkAgentSpawns } from "./agent-spawns";
 import { SpawnLinksContext, type SpawnLinksValue } from "./spawn-context";
+import { sessionAgentIdentity } from "./agent-identity";
+import { delegatedMessage, taskMessageId } from "./delegated";
+import { DelegatedCard } from "./DelegatedCard";
+import { DayDivider, MessageTime } from "./MessageTime";
+import { dayDividers } from "./message-time";
+import { useImageLightbox } from "./ImageLightbox";
 import { ShellCard } from "./ShellCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
@@ -64,6 +75,18 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const items = useMemo(
     () => groupTranscript(transcript, { isRunning }, grouping).filter((i) => !(i.type === "user" && links.hidden.has(i.message.id))),
     [transcript, isRunning, grouping, links],
+  );
+  const dividers = useMemo(() => dayDividers(items.map(itemTimestamp), Date.now()), [items]);
+
+  // A sub-agent's own transcript (I-109): its task and the parent's messages become cards.
+  const session = allSessions.find((s) => s.id === chatId);
+  const isSubagent = session?.kind === "subagent";
+  const parentTitle = isSubagent ? (allSessions.find((s) => s.id === session.parentSessionId)?.title ?? null) : null;
+  const subagentColor = isSubagent ? sessionAgentIdentity(session).color : null;
+  const taskId = useMemo(() => (isSubagent ? taskMessageId(transcript.messages, session.agent?.task) : null), [isSubagent, transcript.messages, session?.agent?.task]);
+  const delegation = useMemo<Delegation | null>(
+    () => (isSubagent ? { taskId, parentTitle, color: subagentColor } : null),
+    [isSubagent, taskId, parentTitle, subagentColor],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -123,8 +146,11 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
         {placeholder}
         <div ref={contentRef} class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}>
           <SpawnLinksContext.Provider value={spawnValue}>
-            {items.map((item) => (
-              <ItemView key={item.key} item={item} chatId={chatId} />
+            {items.map((item, i) => (
+              <Fragment key={item.key}>
+                {dividers[i] && <DayDivider label={dividers[i]} />}
+                <ItemView item={item} chatId={chatId} delegation={delegation} />
+              </Fragment>
             ))}
           </SpawnLinksContext.Provider>
           {working.mounted && <WorkingIndicator key="working" visible={working.visible} label={working.label} startedAt={state.runStartedAt ?? null} />}
@@ -144,26 +170,53 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   );
 }
 
-function ItemView({ item, chatId }: { item: RenderItem; chatId: string }) {
+/** How a sub-agent's transcript shows what its parent delegated (I-109). */
+interface Delegation {
+  taskId: string | null;
+  parentTitle: string | null;
+  color: AgentColor | null;
+}
+
+function itemTimestamp(item: RenderItem): number {
+  return item.type === "turn" ? item.timestamp : item.message.timestamp;
+}
+
+function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: string; delegation: Delegation | null }) {
   switch (item.type) {
-    case "user":
+    case "user": {
+      const delegated = delegation ? delegatedMessage(item.message, delegation.taskId) : null;
+      if (delegated) {
+        return <DelegatedCard message={delegated} timestamp={item.message.timestamp} parentTitle={delegation!.parentTitle} color={delegation!.color} />;
+      }
       return <UserBubble message={item.message} />;
+    }
     case "notice":
       return <NoticeRow message={item.message} />;
     case "shell":
       return <ShellCard message={item.message} chatId={chatId} />;
     case "turn":
-      return (
-        <div class="mt-4 flex flex-col first:mt-0" data-role="assistant">
-          {item.parts.map((part) => (
-            <PartView key={part.key} part={part} />
-          ))}
-        </div>
-      );
+      return <TurnView parts={item.parts} timestamp={item.timestamp} />;
   }
 }
 
-function PartView({ part }: { part: TurnPart }) {
+function TurnView({ parts, timestamp }: { parts: TurnPart[]; timestamp: number }) {
+  const images = useMemo(() => parts.flatMap((p) => (p.type === "image" ? [p.image] : [])), [parts]);
+  const { open, lightbox } = useImageLightbox(images);
+  let imageIndex = 0;
+  return (
+    <div class="group/msg relative mt-4 flex flex-col first:mt-0" data-role="assistant">
+      {parts.map((part) => {
+        const index = part.type === "image" ? imageIndex++ : -1;
+        return <PartView key={part.key} part={part} onOpenImage={index === -1 ? undefined : () => open(index)} />;
+      })}
+      {/* Last child, so jump-to-message's part indices still match (I-093). */}
+      <MessageTime timestamp={timestamp} class="absolute -top-4 left-0" />
+      {lightbox}
+    </div>
+  );
+}
+
+function PartView({ part, onOpenImage }: { part: TurnPart; onOpenImage?: () => void }) {
   switch (part.type) {
     case "text":
       return <ReplyText text={part.text} streaming={part.streaming} />;
@@ -174,7 +227,11 @@ function PartView({ part }: { part: TurnPart }) {
     case "toolGroup":
       return <ToolGroup part={part} />;
     case "image":
-      return <ImageThumb image={part.image} class="my-1.5 max-h-80" />;
+      return (
+        <div class="my-1.5 flex">
+          <ImageThumb image={part.image} class="max-h-80" onOpen={onOpenImage} />
+        </div>
+      );
     case "error":
       return <ErrorNotice kind={part.kind} message={part.message} details={part.details} />;
   }

@@ -93,7 +93,8 @@ const HIGHLIGHT_MS = 2200;
  * one per render item), inside a turn the part's element, and for a user message its bubble.
  */
 export function jumpElement(column: HTMLElement, target: JumpTarget): HTMLElement | null {
-  const item = column.children[target.itemIndex];
+  // Day dividers (I-111) are column children too; they're marked `data-aux` and don't count.
+  const item = [...column.children].filter((el) => !(el instanceof HTMLElement && el.dataset.aux))[target.itemIndex];
   if (!(item instanceof HTMLElement)) return null;
   if (target.partIndex !== null) {
     const part = item.children[target.partIndex];

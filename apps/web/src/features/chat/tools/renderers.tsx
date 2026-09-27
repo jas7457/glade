@@ -8,6 +8,7 @@ import type { DiffLine, ToolCallBlock, ToolKind, ToolResult } from "@glade/proto
 import { Bot, FilePen, FilePlus, FileText, FolderOpen, Globe, History, MessagesSquare, Plug, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { CodeView, Markdown } from "../Markdown";
+import { imageSrc, useImageLightbox } from "../ImageLightbox";
 import type { ToolCallStatus } from "../grouping";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 
@@ -46,15 +47,22 @@ function OutputText({ text, error, class: className }: { text: string; error?: b
 }
 
 function ResultImages({ result }: { result: ToolResult | undefined }) {
+  // Click opens the image large (I-110).
+  const { open, lightbox } = useImageLightbox(result?.images ?? NO_IMAGES);
   if (!result?.images?.length) return null;
   return (
     <div class="flex flex-wrap gap-2 p-2">
       {result.images.map((img, i) => (
-        <img key={i} src={`data:${img.mimeType};base64,${img.data}`} class="max-h-60 rounded-[6px] border-[0.5px] border-separator" alt="" />
+        <button key={i} type="button" aria-label="Open image" onClick={() => open(i)} class="flex rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          <img src={imageSrc(img)} class="max-h-60 rounded-[6px] border-[0.5px] border-separator" alt="" />
+        </button>
       ))}
+      {lightbox}
     </div>
   );
 }
+
+const NO_IMAGES: never[] = [];
 
 // ---------------------------------------------------------------------------------------------
 // shell
