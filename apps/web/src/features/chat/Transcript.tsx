@@ -1,8 +1,9 @@
 /**
  * Scrolling transcript for one chat. Reusable anywhere: give it a `chatId`.
  *
- * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles, assistant turns
- * (markdown, thinking, tool rows/groups, errors) and notices. Sticks to the bottom while
+ * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles (sub-agent reports
+ * as cards, AgentMessageCard.tsx), assistant turns (markdown, thinking, tool rows/groups,
+ * errors) and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
  *
  * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
@@ -11,12 +12,13 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, Terminal, TriangleAlert } from "lucide-preact";
-import type { ImageBlock, NoticeMessage, UserMessage } from "@glade/protocol";
+import { parseAgentMessage, type ImageBlock, type NoticeMessage, type UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
 import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
+import { AgentMessageCard } from "./AgentMessageCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
@@ -150,6 +152,9 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
     .join("\n\n");
+  // Sub-agent reports arrive as prompts but aren't the user's words (I-075).
+  const agentMessage = useMemo(() => (images.length === 0 ? parseAgentMessage(text) : null), [text, images.length]);
+  if (agentMessage) return <AgentMessageCard message={agentMessage} />;
   return (
     <div class="mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
       {images.length > 0 && (
@@ -256,14 +261,18 @@ export function WorkingIndicator({ visible, label, startedAt }: { visible: boole
     return () => clearTimeout(timer);
   }, [visible]);
   const now = useNow(startedAt !== null, startedAt);
+  // A soft rainbow sweep (I-077); thinking gets a calmer violet/blue one.
+  const thinking = label === "Thinking…";
   return (
     <div
       class={cn("mt-4 flex h-7 items-center gap-2 transition-opacity duration-150", !shown && "opacity-0")}
       aria-hidden={!shown}
       data-testid="working-indicator"
     >
-      <Spinner size={13} />
-      <span class="pi-shimmer" aria-live="polite">
+      <span class={cn("flex", thinking ? "pi-thinking-color" : "pi-rainbow-color")}>
+        <Spinner size={13} class="text-current" />
+      </span>
+      <span class={thinking ? "pi-thinking-text" : "pi-rainbow"} aria-live="polite">
         {label}
       </span>
       {startedAt !== null && <span class="text-fg-subtle tabular-nums">{formatDuration(now - startedAt)}</span>}

@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/preact";
 import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
-import { ToolCallRow, ToolGroup } from "./ToolViews";
+import { currentKind, groupKinds, ToolCallRow, ToolGroup } from "./ToolViews";
 import type { ToolCallPart, ToolGroupPart } from "../grouping";
 
 Element.prototype.scrollTo ??= function () {};
@@ -210,5 +210,49 @@ describe("ToolGroup / ToolCallRow", () => {
     fireEvent.click(row);
     expect(container.textContent).toContain('"goal": "tidy up"');
     expect(container.textContent).toContain("all tidy");
+  });
+});
+
+describe("tool colours (I-077)", () => {
+  const part = (kind: ToolKind, status: ToolCallPart["status"], id: string = kind): ToolCallPart => ({
+    type: "tool",
+    key: id,
+    call: call(kind, {}, { id }),
+    result: undefined,
+    status,
+  });
+
+  it("tones a row by its kind, and red when it failed", () => {
+    const { container, rerender } = render(<ToolCallRow part={part("read", "done")} />);
+    expect(container.querySelector(".pi-tone-icon")?.getAttribute("data-tone")).toBe("read");
+    rerender(<ToolCallRow part={part("read", "error")} />);
+    expect(container.querySelector(".pi-tone-icon")?.getAttribute("data-tone")).toBe("danger");
+  });
+
+  it("picks the running call's kind for a group's shimmer", () => {
+    expect(currentKind([part("shell", "done", "a"), part("read", "running", "b"), part("edit", "pending", "c")])).toBe("read");
+    expect(currentKind([part("shell", "done", "a"), part("edit", "streaming", "c")])).toBe("edit");
+    expect(currentKind([part("shell", "done", "a")])).toBeNull();
+  });
+
+  it("lists a group's distinct kinds in order, write counting as edit", () => {
+    expect(groupKinds([part("shell", "done", "a"), part("write", "done", "b"), part("edit", "done", "c"), part("shell", "done", "d")])).toEqual(["shell", "edit"]);
+  });
+
+  it("shows the group's kinds and shimmers its label only while running", () => {
+    const group = (calls: ToolCallPart[]): ToolGroupPart => ({
+      type: "toolGroup",
+      key: "g",
+      calls,
+      items: calls,
+      active: calls.some((c) => c.status === "running"),
+      errorCount: 0,
+    });
+    const { container, rerender } = render(<ToolGroup part={group([part("shell", "done", "a"), part("read", "running", "b")])} />);
+    expect(container.querySelector("[data-tone=read] .pi-tone-shimmer, .pi-tone-shimmer")).not.toBeNull();
+    expect(container.querySelector(".pi-tone-shimmer")?.closest("[data-tone]")?.getAttribute("data-tone")).toBe("read");
+    rerender(<ToolGroup part={group([part("shell", "done", "a"), part("read", "done", "b")])} />);
+    expect(container.querySelector(".pi-tone-shimmer")).toBeNull();
+    expect(Array.from(container.querySelectorAll(".pi-tone-icon.size-4")).map((e) => e.getAttribute("data-tone"))).toEqual(["shell", "read"]);
   });
 });

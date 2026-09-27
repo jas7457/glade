@@ -1,11 +1,12 @@
 /*
- * Chat-only animations (kept here rather than in the global stylesheet).
+ * Chat-only animations and colour helpers (kept here rather than in the global stylesheet).
+ * Colours come from the tokens in styles.css (I-077).
  */
 @keyframes pi-shimmer {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }
 }
-/* Text shimmer for live status labels ("Thinking…", "Working…"). */
+/* Text shimmer for live labels (a thinking block in history streaming, …). */
 .pi-shimmer {
   background: linear-gradient(90deg, var(--pi-fg-subtle) 30%, var(--pi-fg) 50%, var(--pi-fg-subtle) 70%) 0 0 / 200% 100%;
   -webkit-background-clip: text;
@@ -13,6 +14,96 @@
   color: transparent;
   animation: pi-shimmer 2s linear infinite;
 }
+
+/*
+ * The run's status label: a soft gradient sweeping through the text. The gradient repeats every
+ * 200% of the label's width and starts and ends on the same colour, so moving it by one tile
+ * (-200%) loops without a seam.
+ */
+@keyframes pi-sweep {
+  from { background-position: 0% 0; }
+  to { background-position: -200% 0; }
+}
+.pi-rainbow,
+.pi-thinking-text {
+  background-image: linear-gradient(90deg, var(--pi-rainbow));
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pi-sweep 6s linear infinite;
+}
+.pi-thinking-text {
+  background-image: linear-gradient(90deg, var(--pi-thinking-gradient));
+  animation-duration: 4s;
+}
+/* The spinner next to the label picks up the same hues. */
+.pi-rainbow-color { animation: pi-rainbow-color 6s linear infinite; }
+.pi-thinking-color { animation: pi-thinking-color 4s linear infinite; }
+@keyframes pi-rainbow-color {
+  0%, 100% { color: var(--pi-tool-task); }
+  17% { color: var(--pi-tool-edit); }
+  33% { color: var(--pi-tool-shell); }
+  50% { color: var(--pi-tool-web); }
+  67% { color: var(--pi-tool-read); }
+  83% { color: var(--pi-tool-search); }
+}
+@keyframes pi-thinking-color {
+  0%, 100% { color: var(--pi-tool-search); }
+  50% { color: var(--pi-tool-read); }
+}
+
+/*
+ * Tool kinds (I-077): an element with data-tone="<kind>" gets --pi-tone; its icon square,
+ * verb and shimmer use it. write shares edit's colour; unknown kinds are "other".
+ */
+[data-tone] { --pi-tone: var(--pi-tool-other); }
+[data-tone="shell"] { --pi-tone: var(--pi-tool-shell); }
+[data-tone="read"] { --pi-tone: var(--pi-tool-read); }
+[data-tone="write"],
+[data-tone="edit"] { --pi-tone: var(--pi-tool-edit); }
+[data-tone="search"] { --pi-tone: var(--pi-tool-search); }
+[data-tone="list"] { --pi-tone: var(--pi-tool-list); }
+[data-tone="web"] { --pi-tone: var(--pi-tool-web); }
+[data-tone="task"] { --pi-tone: var(--pi-tool-task); }
+[data-tone="danger"] { --pi-tone: var(--pi-danger); }
+[data-tone="warning"] { --pi-tone: var(--pi-warning); }
+
+/*
+ * A small rounded square tinted with the tone, holding a tone-coloured icon. Layered so size
+ * utilities passed with it still win.
+ */
+@layer components {
+  .pi-tone-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    color: var(--pi-tone);
+    background: color-mix(in srgb, var(--pi-tone) var(--pi-tool-tint), var(--pi-window));
+  }
+}
+.pi-tone-text { color: var(--pi-tone); }
+
+/* A running group's label: a gentle sweep in the running tool's colour (not the rainbow). */
+.pi-tone-shimmer {
+  background: linear-gradient(90deg, var(--pi-fg-muted) 30%, var(--pi-tone) 50%, var(--pi-fg-muted) 70%) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pi-shimmer 2.4s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pi-shimmer { animation: none; color: var(--pi-fg-muted); background: none; }
+  /* Static gradient (the global rule would otherwise stop it at an arbitrary frame). */
+  .pi-rainbow,
+  .pi-thinking-text { animation: none; background-size: 100% 100%; }
+  .pi-rainbow-color,
+  .pi-thinking-color { animation: none; }
+  .pi-tone-shimmer { animation: none; color: var(--pi-tone); background: none; }
 }

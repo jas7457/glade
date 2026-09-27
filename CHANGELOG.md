@@ -102,6 +102,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- More colour in chats: teal inline code, coloured list markers and links, a rainbow "Working…"
+  (violet-blue "Thinking…"), and tool calls coloured by kind (shell green, read blue, edit amber…).
+- Sub-agent reports show as a compact card you can expand, rendered as Markdown, instead of a long
+  raw-text message.
 - The "Title model" setting is now "Small model": one quick model for naming chats, summaries and
   search. Your choice carries over.
 - Tool calls are described in an agent-neutral way (shell, read, edit, search…), so other agents'

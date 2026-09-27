@@ -1,0 +1,95 @@
+/**
+ * A sub-agent report delivered to this chat (I-075): "[agent-teams] <name> finished: …",
+ * "… message from <name>: …" or "… <name> exited: …" arrive as user prompts, but they aren't the
+ * user's words. Shown as a compact, left-aligned card, collapsed to one line (who + a preview);
+ * expanding renders the body as Markdown with a copy button, and the "still open" note as a
+ * muted footnote. The text is recognized with `parseAgentMessage` (protocol), so live messages
+ * and history look the same.
+ */
+import { memo } from "preact/compat";
+import { useState } from "preact/hooks";
+import { Bot, Check, ChevronRight, Copy, MessageSquare, OctagonAlert } from "lucide-preact";
+import type { AgentMessage } from "@glade/protocol";
+import { cn } from "@/lib/cn";
+import { IconButton } from "@/ui";
+import { Markdown } from "./Markdown";
+import "./chat.css";
+
+const kinds = {
+  finished: { icon: Bot, tone: "task", title: (from: string) => <><Name>{from}</Name> finished</> },
+  message: { icon: MessageSquare, tone: "read", title: (from: string) => <>Message from <Name>{from}</Name></> },
+  exited: { icon: OctagonAlert, tone: "warning", title: (from: string) => <><Name>{from}</Name> exited</> },
+} as const;
+
+function Name({ children }: { children: string }) {
+  return <span class="font-medium text-fg-strong">{children}</span>;
+}
+
+/**
+ * One line of a Markdown body for the collapsed row: the first line of prose (headings like
+ * "## Summary" say little, so they're used only when there's nothing else), syntax stripped.
+ */
+export function agentPreview(body: string): string {
+  const lines = body.split("\n").filter((l) => l.trim() && !/^\s*(```|---+\s*$|\|[-:| ]+\|\s*$)/.test(l));
+  const line = lines.find((l) => !/^\s*#{1,6}\s/.test(l)) ?? lines[0] ?? "";
+  return line
+    .trim()
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^>\s*/, "")
+    .replace(/^([-*+]|\d+[.)])\s+/, "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+}
+
+export const AgentMessageCard = memo(function AgentMessageCard({ message, defaultOpen = false }: { message: AgentMessage; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [copied, setCopied] = useState(false);
+  const { icon: Icon, tone, title } = kinds[message.kind];
+  const body = message.body.trim();
+  const preview = agentPreview(body);
+  const copy = () => {
+    void navigator.clipboard?.writeText(body).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div
+      class="mt-6 overflow-hidden rounded-[10px] border-[0.5px] border-separator bg-surface first:mt-0"
+      data-role="agent-message"
+      data-kind={message.kind}
+    >
+      <div class="group/row flex items-center gap-1 pr-1.5 hover:bg-hover">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          class="flex h-8 min-w-0 flex-1 items-center gap-2 pl-2.5 text-left outline-none"
+        >
+          <span class="pi-tone-icon" data-tone={tone} aria-hidden="true">
+            <Icon size={12} strokeWidth={2.25} />
+          </span>
+          <span class="shrink-0 text-fg-muted">{title(message.from)}</span>
+          {preview && !open && <span class="min-w-0 flex-1 truncate text-fg-subtle">{preview}</span>}
+          {(open || !preview) && <span class="flex-1" />}
+          <ChevronRight
+            size={12}
+            strokeWidth={2.5}
+            class={cn("shrink-0 text-fg-subtle transition-transform", open && "rotate-90")}
+          />
+        </button>
+        {open && body && (
+          <IconButton label={copied ? "Copied" : "Copy"} size="sm" onClick={copy}>
+            {copied ? <Check /> : <Copy />}
+          </IconButton>
+        )}
+      </div>
+      {open && (
+        <div class="border-t-[0.5px] border-separator px-3.5 py-2.5">
+          {body ? <Markdown text={body} /> : <div class="text-fg-subtle italic">(empty)</div>}
+          {message.note && <p class="selectable mt-2.5 text-[0.88rem] leading-[1.45] text-fg-subtle">{message.note}</p>}
+        </div>
+      )}
+    </div>
+  );
+});

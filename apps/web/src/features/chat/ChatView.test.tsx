@@ -38,6 +38,14 @@ function setup(transcript?: Transcript, running = false) {
   return store;
 }
 
+function setupWithMessages(texts: string[]) {
+  setup({
+    messages: texts.map((text, i) => ({ id: `u${i}`, role: "user" as const, content: [{ type: "text" as const, text }], timestamp: i })),
+    toolResults: {},
+  });
+  return { container: document.body };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetChatSessions();
@@ -101,6 +109,17 @@ describe("ChatView", () => {
     expect(screen.getByText("list files")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Ran 2 tool calls/ })).toBeTruthy();
     expect(screen.getByText("done").closest("[data-streamdown=strong], strong")).not.toBeNull();
+  });
+
+  it("shows sub-agent reports as collapsed cards, not user bubbles (I-075)", () => {
+    const { container } = setupWithMessages([
+      "[agent-teams] harness-core finished:\n## Summary\n\nAll **done**.",
+      "I mean: [agent-teams] x finished:\nnot a report",
+    ]);
+    const cards = container.querySelectorAll("[data-role=agent-message]");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.textContent).toContain("harness-core finished");
+    expect(container.querySelectorAll("[data-role=user]")).toHaveLength(1);
   });
 
   it("shows a working indicator while running with nothing streaming", () => {

@@ -9,6 +9,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage } from "@glade/protocol";
 import type { AgentInfo, AgentStatus, SessionAgentState } from "@glade/protocol";
 import { JsonFile } from "../store/json-file.js";
 
@@ -196,31 +197,30 @@ export function buildRolePrompt(opts: { name: string; teammates: string[]; agent
   ].join("\n");
 }
 
-/** Prompt text delivered to a session: a message from another agent. */
+/** Prompt text delivered to a session: a message from another agent (format shared via protocol, I-075). */
 export function messageText(from: string, text: string): string {
-  return `[agent-teams] message from ${from}:\n${text}`;
+  return formatAgentMessage(from, text);
 }
 
 /** Prompt text delivered to the parent when a sub-agent reports. */
 export function doneText(record: AgentRecord, summary: string): string {
-  return `[agent-teams] ${record.name} finished:\n${summary}${openNote(record)}`;
+  return formatAgentFinished(record.name, summary, openNote(record));
 }
 
 /** Prompt text delivered to the parent when a sub-agent stopped without reporting. */
 export function exitedText(name: string, reason: string): string {
-  return `[agent-teams] ${name} exited:\n${reason}`;
+  return formatAgentExited(name, reason);
 }
 
 /** After a result, tell the parent what happens to the sub-agent so it acts on it. */
 function openNote(record: AgentRecord): string {
-  if (record.closing || record.closed) return "";
-  if (record.userEngaged) return `\n\n(${record.name}'s tab stays open because the user has typed in it. Leave it to the user.)`;
-  const idle = `${Math.round(IDLE_CLOSE_MS / 60_000)} idle minutes`;
-  return (
-    `\n\n(${record.name} is still open${record.keepOpenReason ? ` — kept open for: ${record.keepOpenReason}` : ""}. ` +
-    `If that follow-up is still planned, send it now with message_agent. Otherwise call close_agent. ` +
-    `It closes automatically after ${idle}.)`
-  );
+  return agentOpenNote({
+    name: record.name,
+    closing: record.closing || record.closed,
+    userEngaged: record.userEngaged,
+    keepOpenReason: record.keepOpenReason,
+    idleMinutes: Math.round(IDLE_CLOSE_MS / 60_000),
+  });
 }
 
 function agentStatus(record: AgentRecord, running: boolean | null): AgentStatus {

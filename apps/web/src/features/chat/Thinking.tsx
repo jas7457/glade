@@ -20,7 +20,7 @@ export const ThinkingView = memo(function ThinkingView({ text, streaming = false
         class="group/row -mx-1.5 flex h-7 w-[calc(100%+12px)] items-center gap-2 rounded-control px-1.5 text-left outline-none hover:bg-hover"
       >
         <Brain size={14} class="shrink-0 text-fg-subtle" />
-        <span class={cn("flex-1 text-fg-muted", streaming && "pi-shimmer")}>{streaming ? "Thinking…" : "Thought"}</span>
+        <span class={cn("flex-1 text-fg-muted", streaming && "pi-thinking-text")}>{streaming ? "Thinking…" : "Thought"}</span>
         <ChevronRight
           size={12}
           strokeWidth={2.5}

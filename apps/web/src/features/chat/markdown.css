@@ -28,8 +28,9 @@
 /* Headings: modest steps, like a native document. */
 .pi-md [data-streamdown^="heading-"] {
   margin: 1.1em 0 0.4em;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 1.3;
+  color: var(--pi-md-heading);
 }
 .pi-md [data-streamdown="heading-1"] { font-size: 1.4rem; }
 .pi-md [data-streamdown="heading-2"] { font-size: 1.22rem; }
@@ -38,7 +39,7 @@
 .pi-md [data-streamdown="heading-5"],
 .pi-md [data-streamdown="heading-6"] { font-size: 1rem; }
 
-.pi-md [data-streamdown="strong"] { font-weight: 600; }
+.pi-md [data-streamdown="strong"] { font-weight: 600; color: var(--pi-md-strong); }
 
 /* Lists: outside markers with a hanging indent. */
 .pi-md [data-streamdown="unordered-list"],
@@ -51,10 +52,11 @@
 .pi-md [data-streamdown="ordered-list"] { list-style-type: decimal; }
 .pi-md [data-streamdown="list-item"] { padding: 0.12em 0; }
 .pi-md [data-streamdown="list-item"] > [data-streamdown$="-list"] { margin: 0.15em 0; padding-left: 1.4em; }
-.pi-md [data-streamdown="list-item"]::marker { color: var(--pi-fg-muted); }
+.pi-md [data-streamdown="list-item"]::marker { color: var(--pi-md-bullet); }
+.pi-md [data-streamdown="ordered-list"] > [data-streamdown="list-item"]::marker { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .pi-md [data-streamdown="link"] {
-  color: var(--pi-accent);
+  color: var(--pi-md-link);
   font-weight: inherit;
   text-decoration: none;
 }
@@ -63,7 +65,7 @@
 .pi-md [data-streamdown="blockquote"] {
   margin: 0.6em 0;
   padding-left: 0.9em;
-  border-left: 3px solid var(--pi-separator);
+  border-left: 3px solid var(--pi-md-quote);
   color: var(--pi-fg-muted);
   font-style: normal;
 }
@@ -79,7 +81,8 @@
   font-size: 0.9em;
   padding: 0.1em 0.35em;
   border-radius: 4px;
-  background: var(--pi-code);
+  color: var(--pi-md-code);
+  background: var(--pi-md-code-bg);
   user-select: text;
 }
 
@@ -164,7 +167,7 @@
   font-size: 0.95rem;
 }
 .pi-md [data-streamdown="table"] > * { border-color: var(--pi-separator); }
-.pi-md [data-streamdown="table-header"] { background: var(--pi-code); }
+.pi-md [data-streamdown="table-header"] { background: var(--pi-md-table-head); }
 .pi-md [data-streamdown="table-row"] { border-color: var(--pi-separator); }
 .pi-md [data-streamdown="table-row"] + [data-streamdown="table-row"] { border-top: 0.5px solid var(--pi-separator); }
 .pi-md [data-streamdown="table-header-cell"],
@@ -174,6 +177,6 @@
   text-align: left;
   white-space: normal;
 }
-.pi-md [data-streamdown="table-header-cell"] { font-weight: 600; }
+.pi-md [data-streamdown="table-header-cell"] { font-weight: 600; color: var(--pi-md-heading); }
 
 .pi-md [data-streamdown="image"] { border-radius: 8px; max-width: 100%; }

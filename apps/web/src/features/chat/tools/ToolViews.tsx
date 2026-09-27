@@ -5,11 +5,14 @@
  *   <ToolGroup part>     "Ran 4 tool calls · 12s" — click to expand into individual rows
  *
  * Durations (I-070) come from the server's timing stamps and tick live while running; old
- * history has none and shows none.
+ * history has none and shows none. Each tool kind has a colour (I-077, `data-tone` in chat.css):
+ * the icon square and verb of a row, the kind icons of a group, and a running group's shimmer.
  */
+import type { ComponentType } from "preact";
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
-import { ChevronRight, CircleX, Layers } from "lucide-preact";
+import { ChevronRight, CircleX, Layers, type LucideProps } from "lucide-preact";
+import type { ToolKind } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/ui";
 import { formatDuration, groupDuration, toolDuration, useNow } from "../duration";
@@ -43,6 +46,67 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** A tool icon in a small square tinted with its kind's colour (chat.css `.pi-tone-icon`). */
+function ToneIcon({ icon: Icon, tone, class: className }: { icon: ComponentType<LucideProps>; tone: ToolKind | "danger"; class?: string }) {
+  return (
+    <span class={cn("pi-tone-icon", className)} data-tone={tone} aria-hidden="true">
+      <Icon size={12} strokeWidth={2.25} />
+    </span>
+  );
+}
+
+/** The kind of the call running now (else the last one still pending/streaming). */
+export function currentKind(calls: ToolCallPart[]): ToolKind | null {
+  let pending: ToolKind | null = null;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i]!;
+    if (c.status === "running") return c.call.kind;
+    if (pending === null && isActiveStatus(c.status)) pending = c.call.kind;
+  }
+  return pending;
+}
+
+/** Distinct kinds of a group's calls, in order of first use (write counts as edit). */
+export function groupKinds(calls: ToolCallPart[], max = 6): ToolKind[] {
+  const kinds: ToolKind[] = [];
+  for (const c of calls) {
+    const kind = c.call.kind === "write" ? "edit" : c.call.kind;
+    if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return kinds.slice(0, max);
+}
+
+/** "Ran **6** tool calls": the count stands out; while running the label shimmers in the running tool's colour. */
+function GroupLabel({ count, active, shimmer }: { count: number; active: boolean; shimmer: boolean }) {
+  const label = groupLabel(count, active);
+  const at = label.indexOf(String(count));
+  if (shimmer || at === -1) return <span class={cn(shimmer && "pi-tone-shimmer")}>{label}</span>;
+  return (
+    <span>
+      {label.slice(0, at)}
+      <span class="font-medium text-fg-strong tabular-nums">{count}</span>
+      {label.slice(at + String(count).length)}
+    </span>
+  );
+}
+
+/** Small icons of the kinds a group used. */
+function KindStack({ kinds }: { kinds: ToolKind[] }) {
+  if (kinds.length === 0) return null;
+  return (
+    <span class="ml-1.5 flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+      {kinds.map((kind) => {
+        const Icon = rendererFor(kind).icon;
+        return (
+          <span key={kind} class="pi-tone-icon size-4 rounded-[4px]" data-tone={kind}>
+            <Icon size={10} strokeWidth={2.25} />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false }: { part: ToolCallPart; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   const { call, result, status } = part;
@@ -61,9 +125,9 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   return (
     <div class="tool-call" data-status={status}>
       <button type="button" class={rowClass} aria-expanded={open} disabled={!expandable} onClick={() => setOpen(!open)}>
-        <Icon size={14} class={cn("shrink-0", status === "error" ? "text-danger" : "text-fg-subtle")} />
-        <span class={cn("min-w-0 flex-1 truncate", status === "cancelled" && "opacity-60")}>
-          <span class="text-fg-muted">{summary.verb}</span>
+        <ToneIcon icon={Icon} tone={status === "error" ? "danger" : call.kind} class={cn(status === "cancelled" && "opacity-60")} />
+        <span class={cn("min-w-0 flex-1 truncate", status === "cancelled" && "opacity-60")} data-tone={status === "error" ? "danger" : call.kind}>
+          <span class="pi-tone-text">{summary.verb}</span>
           {summary.subject && (
             <>
               {" "}
@@ -105,15 +169,19 @@ export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: 
   const firstStart = results.reduce<number | null>((min, r) => (r?.startedAt !== undefined && (min === null || r.startedAt < min) ? r.startedAt : min), null);
   const now = useNow(part.active && firstStart !== null, firstStart);
   const duration = groupDuration(results, now, part.active);
+  const current = part.active ? currentKind(part.calls) : null;
+  const kinds = groupKinds(part.calls);
   return (
     <div class="tool-group">
       <button type="button" class={rowClass} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Layers size={14} class={cn("shrink-0", part.errorCount ? "text-danger" : "text-fg-subtle")} />
-        <span class="min-w-0 flex-1 truncate text-fg-muted">
-          {groupLabel(count, part.active)}
+        <ToneIcon icon={Layers} tone={current ?? (part.errorCount ? "danger" : "other")} />
+        <span class="min-w-0 truncate text-fg-muted" data-tone={current ?? undefined}>
+          <GroupLabel count={count} active={part.active} shimmer={current !== null} />
           {duration !== null && (part.active || duration >= 1000) && <span class="tabular-nums"> · {formatDuration(duration)}</span>}
           {part.errorCount > 0 && <span class="text-danger"> · {part.errorCount} failed</span>}
         </span>
+        <KindStack kinds={kinds} />
+        <span class="flex-1" />
         {part.active && <Spinner size={12} />}
         <Chevron open={open} />
       </button>

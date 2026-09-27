@@ -10,3 +10,4 @@ export * from "./search.js";
 export * from "./folder.js";
 export * from "./agents.js";
 export * from "./harness.js";
+export * from "./agent-messages.js";

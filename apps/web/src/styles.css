@@ -84,6 +84,36 @@
   --pi-dialog-shadow: 0 4px 12px rgb(0 0 0 / 0.08), 0 24px 64px -12px rgb(0 0 0 / 0.35);
   --pi-backdrop: rgb(0 0 0 / 0.28);
   --pi-danger-fill: #e5484d;
+  /*
+   * Chat colour (I-077). Markdown accents (features/chat/markdown.css): inline code, list
+   * markers, links, headings, quote border, table header. Text colours meet WCAG AA on the
+   * window background.
+   */
+  --pi-md-code: #0a7067;
+  --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 9%, transparent);
+  --pi-md-bullet: var(--pi-accent);
+  --pi-md-link: #0064d1;
+  --pi-md-heading: var(--pi-fg-strong);
+  --pi-md-strong: var(--pi-fg-strong);
+  --pi-md-quote: color-mix(in srgb, var(--pi-accent) 45%, transparent);
+  --pi-md-table-head: color-mix(in srgb, var(--pi-accent) 5%, var(--pi-code));
+  /*
+   * Tool kinds: icon (in a tinted square), verb, and the running group's shimmer. Applied via
+   * `data-tone="<kind>"` (features/chat/chat.css); write uses edit's colour.
+   */
+  --pi-tool-shell: #1a7f37;
+  --pi-tool-read: #0969da;
+  --pi-tool-edit: #9a6200;
+  --pi-tool-search: #8250df;
+  --pi-tool-list: #0f766e;
+  --pi-tool-web: #0e7490;
+  --pi-tool-task: #bf3989;
+  --pi-tool-other: rgb(0 0 0 / 0.55);
+  /* Tint behind a tool icon: this much of the tool colour mixed into the window colour. */
+  --pi-tool-tint: 13%;
+  /* Live status labels: "Working…" sweeps a soft rainbow, "Thinking…" a violet/blue one. */
+  --pi-rainbow: #dc2626, #b45309, #15803d, #0e7490, #1d4ed8, #7c3aed, #be185d, #dc2626;
+  --pi-thinking-gradient: #7c3aed, #1d4ed8, #0e7490, #1d4ed8, #7c3aed;
   --pi-font-size: 13px;
   color-scheme: light;
 }
@@ -117,6 +147,21 @@
   --pi-dialog-shadow: 0 4px 16px rgb(0 0 0 / 0.35), 0 28px 72px -12px rgb(0 0 0 / 0.7);
   --pi-backdrop: rgb(0 0 0 / 0.5);
   --pi-danger-fill: #d9363e;
+  --pi-md-code: #5fd4c4;
+  --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 11%, transparent);
+  --pi-md-link: #4ea4ff;
+  --pi-md-table-head: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-code));
+  --pi-tool-shell: #56d364;
+  --pi-tool-read: #58a6ff;
+  --pi-tool-edit: #e3b341;
+  --pi-tool-search: #bc8cff;
+  --pi-tool-list: #3fc9b5;
+  --pi-tool-web: #4cc9e8;
+  --pi-tool-task: #f778ba;
+  --pi-tool-other: rgb(255 255 255 / 0.55);
+  --pi-tool-tint: 16%;
+  --pi-rainbow: #ff7b72, #ffa657, #7ee787, #56d4dd, #79c0ff, #d2a8ff, #ff9bce, #ff7b72;
+  --pi-thinking-gradient: #d2a8ff, #79c0ff, #56d4dd, #79c0ff, #d2a8ff;
   color-scheme: dark;
 }
 
