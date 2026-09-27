@@ -57,12 +57,36 @@
 .pi-md [data-streamdown="list-item"]::marker { color: var(--pi-md-bullet); }
 .pi-md [data-streamdown="ordered-list"] > [data-streamdown="list-item"]::marker { font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/*
+ * Links (I-104): a soft sky-blue chip led by a chain icon, so a link is obvious at a glance even
+ * next to violet inline code. The icon is a CSS mask (lucide "link") so it follows the text colour.
+ */
 .pi-md [data-streamdown="link"] {
   color: var(--pi-md-link);
   font-weight: inherit;
   text-decoration: none;
+  background: color-mix(in srgb, var(--pi-md-link) 12%, transparent);
+  border-radius: 5px;
+  padding: 0.05em 0.4em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
-.pi-md [data-streamdown="link"]:hover { text-decoration: underline; }
+.pi-md [data-streamdown="link"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.78em;
+  height: 0.78em;
+  margin-right: 0.28em;
+  vertical-align: -0.06em;
+  background: currentColor;
+  opacity: 0.85;
+  -webkit-mask: var(--pi-link-icon) center / contain no-repeat;
+  mask: var(--pi-link-icon) center / contain no-repeat;
+}
+.pi-md [data-streamdown="link"]:hover { text-decoration: underline; text-underline-offset: 2px; }
+.pi-md {
+  --pi-link-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/><path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/></svg>");
+}
 
 .pi-md [data-streamdown="blockquote"] {
   margin: 0.6em 0;

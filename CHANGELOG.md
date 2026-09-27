@@ -112,6 +112,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Links in replies stand out: a soft sky-blue chip with a link icon in front.
 - The agent's chat tools have their own colour and readable rows ("Found 3 chats for …", "Opened
   chat …").
 - Sub-agent reports no longer end up in chat titles or summaries, and search shows them as agent

@@ -107,7 +107,7 @@
   --pi-md-code: var(--pi-agent-violet);
   --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 9%, transparent);
   --pi-md-bullet: var(--pi-agent-sky);
-  --pi-md-link: #0064d1;
+  --pi-md-link: var(--pi-agent-sky); /* I-104 */
   --pi-md-heading: var(--pi-fg-strong);
   --pi-md-strong: var(--pi-fg-strong);
   --pi-md-quote: color-mix(in srgb, var(--pi-accent) 45%, transparent);
@@ -180,7 +180,7 @@
   --pi-danger-tint: color-mix(in srgb, var(--pi-danger) 14%, transparent);
   --pi-md-code: var(--pi-agent-violet);
   --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 13%, transparent);
-  --pi-md-link: #4ea4ff;
+  --pi-md-link: var(--pi-agent-sky);
   --pi-md-table-head: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-code));
   --pi-tool-shell: #56d364;
   --pi-tool-read: #58a6ff;
