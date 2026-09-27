@@ -37,11 +37,15 @@
   --color-popover-border: var(--pi-popover-border);
   /* Tab strips (ui/TabStrip.tsx): the bar behind inactive tabs; the active tab uses bg-window. */
   --color-tabbar: var(--pi-tabbar);
+  /* Modals (ui/Dialog.tsx, ui/AlertDialog.tsx): dimmed backdrop and the destructive button fill. */
+  --color-backdrop: var(--pi-backdrop);
+  --color-danger-fill: var(--pi-danger-fill);
 
   --radius-control: 6px;
   --radius-panel: 10px;
   --shadow-popover: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 10px 30px -6px rgb(0 0 0 / 0.25);
   --shadow-floating: var(--pi-popover-shadow);
+  --shadow-dialog: var(--pi-dialog-shadow);
 }
 
 :root {
@@ -76,6 +80,10 @@
   --pi-popover-border: rgb(0 0 0 / 0.12);
   --pi-popover-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 12px 32px -6px rgb(0 0 0 / 0.28);
   --pi-tabbar: color-mix(in srgb, var(--pi-sidebar) 70%, var(--pi-window));
+  /* Modals: the popover surface, a deeper shadow, a dimmed backdrop, a softer destructive red. */
+  --pi-dialog-shadow: 0 4px 12px rgb(0 0 0 / 0.08), 0 24px 64px -12px rgb(0 0 0 / 0.35);
+  --pi-backdrop: rgb(0 0 0 / 0.28);
+  --pi-danger-fill: #e5484d;
   --pi-font-size: 13px;
   color-scheme: light;
 }
@@ -106,6 +114,9 @@
   --pi-popover-border: rgb(255 255 255 / 0.16);
   --pi-popover-shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 14px 36px -6px rgb(0 0 0 / 0.6);
   --pi-tabbar: color-mix(in srgb, #000 22%, var(--pi-window));
+  --pi-dialog-shadow: 0 4px 16px rgb(0 0 0 / 0.35), 0 28px 72px -12px rgb(0 0 0 / 0.7);
+  --pi-backdrop: rgb(0 0 0 / 0.5);
+  --pi-danger-fill: #d9363e;
   color-scheme: dark;
 }
 
@@ -184,11 +195,12 @@ html[data-desktop] [data-sidebar] {
  * CSS `translate` property; repeating the -50% here would double it for the animation's
  * duration (panels opened shifted left, then jumped to the centre).
  */
-@keyframes pi-sheet-in {
-  from { opacity: 0; transform: translateY(-12px); }
-}
 @keyframes pi-pop-in {
   from { opacity: 0; transform: scale(1.06); }
+}
+/* Modals: a small scale + fade, anchored at the panel's top edge (`origin-top`). */
+@keyframes pi-dialog-in {
+  from { opacity: 0; transform: scale(0.96); }
 }
 @keyframes pi-toast-in {
   from { opacity: 0; transform: translateX(24px); }

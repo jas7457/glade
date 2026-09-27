@@ -59,11 +59,12 @@ export function ProjectGroup({
   const remove = async () => {
     const count = list.length;
     const ok = await confirm({
-      title: `Remove “${project.name}”?`,
+      title: "Remove project?",
+      subject: project.name,
       message:
         count > 0
-          ? `Its ${count} chat${count === 1 ? "" : "s"} will be deleted. The folder on disk is not touched.`
-          : "The folder on disk is not touched.",
+          ? `and its ${count} chat${count === 1 ? "" : "s"} will be deleted. The folder on disk isn't touched.`
+          : "will be removed from Glade. The folder on disk isn't touched.",
       confirmLabel: "Remove",
       destructive: true,
     });

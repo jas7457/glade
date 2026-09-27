@@ -32,8 +32,9 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
 
   const onDelete = async () => {
     const ok = await confirm({
-      title: `Delete “${title || "this chat"}”?`,
-      message: "The conversation will be permanently deleted. This can't be undone.",
+      title: "Delete chat?",
+      subject: title || "Untitled",
+      message: "will be permanently deleted. This can't be undone.",
       confirmLabel: "Delete",
       destructive: true,
     });

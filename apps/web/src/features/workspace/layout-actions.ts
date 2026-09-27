@@ -85,8 +85,9 @@ export async function closeTab(session: SessionSummary, navigate: Navigate, opts
   if (hasHistory(session) || children.length > 0) {
     const agents = children.length === 1 ? "its sub-agent" : `its ${children.length} sub-agents`;
     const ok = await confirm({
-      title: `Close “${tabTitle(session)}”?`,
-      message: `The conversation${children.length ? ` and ${agents}` : ""} will be permanently deleted. This can't be undone.`,
+      title: "Close tab?",
+      subject: tabTitle(session),
+      message: `${children.length ? `and ${agents} ` : ""}will be permanently deleted. This can't be undone.`,
       confirmLabel: "Close Tab",
       destructive: true,
     });
@@ -117,8 +118,9 @@ async function closeLastTab(session: SessionSummary, navigate: Navigate): Promis
   const workspace = workspacesById.value.get(session.workspaceId);
   if (!workspace) return false;
   const ok = await confirm({
-    title: `Delete “${workspace.title || tabTitle(session)}”?`,
-    message: "This is the last tab, so the whole chat will be deleted. This can't be undone.",
+    title: "Delete chat?",
+    subject: workspace.title || tabTitle(session),
+    message: "will be permanently deleted, since this is its last tab. This can't be undone.",
     confirmLabel: "Delete Chat",
     destructive: true,
   });

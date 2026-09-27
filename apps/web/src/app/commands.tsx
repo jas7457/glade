@@ -223,8 +223,9 @@ export function buildCommands(ctx: CommandContext): Command[] {
         const chat = current();
         if (!chat) return;
         const ok = await confirm({
-          title: `Delete “${chat.title || "Untitled"}”?`,
-          message: "The conversation will be permanently deleted. This can't be undone.",
+          title: "Delete chat?",
+          subject: chat.title || "Untitled",
+          message: "will be permanently deleted. This can't be undone.",
           confirmLabel: "Delete",
           destructive: true,
         });

@@ -18,7 +18,7 @@ const variants: Record<ButtonVariant, string> = {
   secondary:
     "bg-control text-fg shadow-[0_0_0_0.5px_var(--pi-separator),0_1px_1px_rgb(0_0_0/0.06)] hover:bg-hover active:bg-selected",
   ghost: "text-fg hover:bg-hover active:bg-selected",
-  danger: "bg-danger text-white shadow-sm hover:brightness-110 active:brightness-95",
+  danger: "bg-danger-fill text-white shadow-sm hover:brightness-110 active:brightness-95",
 };
 
 const sizes: Record<ButtonSize, string> = {

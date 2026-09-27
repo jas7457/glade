@@ -20,8 +20,8 @@ export {
 } from "./Menu";
 export { ContextMenu, type ContextMenuProps } from "./ContextMenu";
 export { Spinner } from "./Spinner";
-export { Dialog, DialogClose, type DialogProps } from "./Dialog";
-export { AlertDialog, ConfirmHost, confirm, type AlertDialogProps, type ConfirmOptions } from "./AlertDialog";
+export { Dialog, DialogClose, DialogIcon, dialogClass, type DialogProps, type DialogTone } from "./Dialog";
+export { AlertDialog, ConfirmHost, confirm, shortenSubject, type AlertDialogProps, type ConfirmOptions } from "./AlertDialog";
 export { TextField, TextArea, fieldClass, type TextFieldProps, type TextAreaProps } from "./TextField";
 export { Switch, SwitchField, type SwitchProps, type SwitchFieldProps } from "./Switch";
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";

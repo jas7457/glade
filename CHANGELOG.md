@@ -152,6 +152,9 @@ Every entry corresponds to a ticked item in PLAN.md.
   and stays visible when you hover the row.
 
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
+- Dialogs look cleaner: confirmations are wider and left-aligned with a short heading, the chat or
+  project name in the text (long names are shortened), a red icon for destructive actions and
+  compact buttons on the right. Create project and every confirmation share the same design.
 
 ### Fixed
 

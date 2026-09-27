@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/preact";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { useState } from "preact/hooks";
-import { ConfirmHost, confirm } from "./AlertDialog";
+import { ConfirmHost, confirm, shortenSubject } from "./AlertDialog";
+import { Button } from "./Button";
+import { Dialog, dialogClass } from "./Dialog";
 import { SegmentedControl } from "./SegmentedControl";
 import { formatShortcut } from "./Kbd";
 import { Toaster } from "./Toaster";
@@ -25,6 +27,76 @@ describe("confirm()", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     expect(await result!).toBe(false);
+  });
+});
+
+describe("AlertDialog", () => {
+  const open = async (options: Parameters<typeof confirm>[0]) => {
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = confirm(options);
+    });
+    return { result, dialog: await screen.findByRole("alertdialog") };
+  };
+
+  it("destructive: focuses Cancel first, shows the subject in the body and a trash icon", async () => {
+    render(<ConfirmHost />);
+    const { result, dialog } = await open({
+      title: "Delete chat?",
+      subject: "Casual greeting and checking in",
+      message: "will be permanently deleted. This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Cancel"));
+    expect(screen.getByRole("heading", { name: "Delete chat?" })).toBeTruthy();
+    expect(dialog.textContent).toContain("“Casual greeting and checking in” will be permanently deleted.");
+    expect(dialog.querySelector("svg")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await result).toBe(false);
+  });
+
+  it("non-destructive: focuses the default button, so Enter confirms", async () => {
+    render(<ConfirmHost />);
+    const { result } = await open({ title: "Continue?", confirmLabel: "Continue" });
+    const button = screen.getByRole("button", { name: "Continue" });
+    await waitFor(() => expect(document.activeElement).toBe(button));
+    // Enter on a focused button activates it (a click in the browser).
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.click(button);
+    expect(await result).toBe(true);
+  });
+
+  it("Escape cancels", async () => {
+    render(<ConfirmHost />);
+    const { result, dialog } = await open({ title: "Delete?", confirmLabel: "Delete", destructive: true });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(await result).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("shortens very long subjects", () => {
+    expect(shortenSubject("short")).toBe("short");
+    const long = "x".repeat(200);
+    expect(shortenSubject(long)).toHaveLength(80);
+    expect(shortenSubject(long).endsWith("…")).toBe(true);
+  });
+});
+
+describe("Dialog", () => {
+  it("renders title, description, body and footer with the shared parts; Escape closes", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <Dialog open onOpenChange={onOpenChange} title="Create project" description="Pick a folder" footer={<Button>Cancel</Button>}>
+        <p>Body</p>
+      </Dialog>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getByRole("heading", { name: "Create project" }).className).toBe(dialogClass.title);
+    expect(dialog.textContent).toContain("Pick a folder");
+    expect(screen.getByRole("button", { name: "Cancel" }).parentElement!.className).toBe(dialogClass.footer);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
 

@@ -129,8 +129,8 @@ describe("WorkspaceView", () => {
     const router = renderAt("/projects/p/chats/w");
     fireEvent.click(screen.getByRole("button", { name: "Close Tab 2" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog.textContent).toContain("Delete “Workspace”?");
-    expect(dialog.textContent).toContain("This is the last tab, so the whole chat will be deleted.");
+    expect(dialog.textContent).toContain("Delete chat?");
+    expect(dialog.textContent).toContain("“Workspace” will be permanently deleted, since this is its last tab.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Chat" }));
     await waitFor(() => expect(api.deleteWorkspace).toHaveBeenCalledWith("w"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p"));
@@ -143,7 +143,7 @@ describe("WorkspaceView", () => {
     const router = renderAt("/projects/p/chats/w");
     fireEvent.keyDown(window, { key: "w", metaKey: true });
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog.textContent).toContain("This is the last tab");
+    expect(dialog.textContent).toContain("since this is its last tab");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(api.deleteWorkspace).not.toHaveBeenCalled();

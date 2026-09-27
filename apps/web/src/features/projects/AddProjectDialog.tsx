@@ -97,7 +97,6 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
       open={open}
       onOpenChange={close}
       title="Create project"
-      width={480}
       onOpenAutoFocus={(e) => {
         e.preventDefault();
         document.getElementById("project-name")?.focus();
