@@ -66,6 +66,24 @@ function fakeSessionFor(harness: FakeHarness, sessionRef: string | null): FakeSe
 }
 
 describe("two servers on one data folder (I-062)", () => {
+  it("a manual Mark as Unread survives while the other server shows the chat (I-073)", async () => {
+    const { a, b } = pair();
+    const created = await a.service.createWorkspace({ projectId: null, prompt: "hello" });
+    const sid = created.session.session.id;
+    await until(() => b.service.listSessions().some((s) => s.id === sid), 4000);
+    await until(() => !a.service.listSessions().find((s) => s.id === sid)?.running, 4000);
+    b.service.setViewing(sid, true);
+    await a.service.updateSession(sid, { unread: true });
+    await until(() => b.service.listSessions().find((s) => s.id === sid)?.unread === true, 4000);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(a.store.getSession(sid)).toMatchObject({ unread: true, markedUnread: true });
+    // A new view clears it.
+    b.service.setViewing(sid, false);
+    b.service.setViewing(sid, true);
+    await until(() => a.store.getSession(sid)?.unread === false, 4000);
+    expect(a.store.getSession(sid)?.markedUnread).toBeUndefined();
+  });
+
   it("a chat created in one server appears in the other via the watcher", async () => {
     const { a, b } = pair();
     const created = await a.service.createWorkspace({ projectId: null, prompt: "hello" });

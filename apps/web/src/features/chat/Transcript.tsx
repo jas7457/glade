@@ -143,7 +143,8 @@ function PartView({ part }: { part: TurnPart }) {
 /** Assistant reply text; revealed smoothly while it streams (I-072). */
 function ReplyText({ text, streaming }: { text: string; streaming: boolean }) {
   const shown = useSmoothText(text, streaming);
-  return <Markdown text={shown} streaming={streaming} class="my-1.5" />;
+  // Still revealing after the message ended: keep tolerating unterminated markdown until done.
+  return <Markdown text={shown} streaming={streaming || shown.length < text.length} class="my-1.5" />;
 }
 
 export const UserBubble = memo(function UserBubble({ message }: { message: UserMessage }) {

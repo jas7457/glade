@@ -87,8 +87,13 @@ export interface Session {
   harness: string;
   /** Harness specific reference to the persisted session (for pi: the session .jsonl path). */
   sessionRef: string | null;
-  /** A run finished while the session wasn't being viewed. */
+  /** A run finished while the session wasn't being viewed, or the user marked it unread. */
   unread: boolean;
+  /**
+   * The user marked it unread ("Mark as Unread", I-073). Such a mark is only cleared by a new
+   * view (opening the chat), never because the chat happens to be on screen somewhere.
+   */
+  markedUnread?: boolean;
   /** The most recent run ended with an error or the agent crashed. Cleared when a new run starts. */
   lastRunFailed?: boolean;
   /** Server-internal: a run started and hasn't finished yet (survives restarts; see I-025). */

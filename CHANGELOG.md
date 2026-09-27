@@ -178,6 +178,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Long replies no longer appear as one big block after the agent thinks: the text streams in at a
+  steady pace from the start.
+- A chat you mark as unread stays unread even when it's open in another Glade window or server.
 - Status dots stay visible on the highlighted row in the ⌘K palette.
 
 - Finished sub-agents close their tab (the conversation is deleted; its result stays in the parent

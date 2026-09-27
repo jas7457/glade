@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { h } from "preact";
 import { act, render, screen } from "@testing-library/preact";
-import { advance, DRAIN_MS, retarget, revealedText, useSmoothText, type RevealState } from "./smooth-text";
+import { advance, drainTime, DRAIN_MS, MAX_DRAIN_MS, REVEAL_CHARS_PER_MS, retarget, revealedText, useSmoothText, type RevealState } from "./smooth-text";
 
 const start: RevealState = { shown: 0, target: 0, rate: 0 };
 
 describe("smooth text reveal", () => {
-  it("drains a big delta linearly over DRAIN_MS", () => {
-    let s = retarget(start, 400);
+  it("drains a backlog linearly over the given time", () => {
+    let s = retarget(start, 400, DRAIN_MS);
     s = advance(s, DRAIN_MS / 4);
     expect(s.shown).toBeCloseTo(100);
     s = advance(s, DRAIN_MS / 4);
@@ -23,6 +23,16 @@ describe("smooth text reveal", () => {
     expect(s.shown).toBeCloseTo(50);
     expect(advance(s, DRAIN_MS).shown).toBe(250);
     expect(advance(s, DRAIN_MS / 2).shown).toBeCloseTo(150);
+  });
+
+  it("paces big backlogs (I-079): small ones in DRAIN_MS, bursts at REVEAL_CHARS_PER_MS, never over MAX_DRAIN_MS", () => {
+    expect(drainTime(50)).toBe(DRAIN_MS);
+    expect(drainTime(2000)).toBe(2000 / REVEAL_CHARS_PER_MS);
+    expect(drainTime(50_000)).toBe(MAX_DRAIN_MS);
+    // A 2000-char burst (Opus after thinking) is still being revealed half a second later.
+    const s = retarget(start, 2000);
+    expect(advance(s, 500).shown).toBeCloseTo(500 * REVEAL_CHARS_PER_MS);
+    expect(advance(s, drainTime(2000)).shown).toBe(2000);
   });
 
   it("clamps when the text shrinks (replaced)", () => {
@@ -74,5 +84,26 @@ describe("useSmoothText", () => {
     rerender(h(Probe, { text: "Hello, world and more", streaming: true }));
     await act(async () => void vi.advanceTimersByTime(DRAIN_MS + 50));
     expect(shown()).toBe("Hello, world and more");
+  });
+
+  it("paces a burst that arrives after the reply started (I-079)", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const { rerender } = render(h(Probe, { text: "Hi", streaming: true }));
+    await act(async () => void vi.advanceTimersByTime(DRAIN_MS));
+    const burst = "Hi" + "x".repeat(2000);
+    rerender(h(Probe, { text: burst, streaming: true }));
+    await act(async () => void vi.advanceTimersByTime(DRAIN_MS));
+    // Not popped in within DRAIN_MS: still well short of the burst.
+    expect(shown().length).toBeLessThan(500);
+    await act(async () => void vi.advanceTimersByTime(drainTime(2000)));
+    expect(shown()).toBe(burst);
+  });
+
+  it("catches up text that was already there when it mounted mid-stream within DRAIN_MS", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const text = "y".repeat(1500);
+    render(h(Probe, { text, streaming: true }));
+    await act(async () => void vi.advanceTimersByTime(DRAIN_MS + 50));
+    expect(shown()).toBe(text);
   });
 });

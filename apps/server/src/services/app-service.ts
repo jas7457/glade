@@ -299,7 +299,11 @@ export class AppService {
     else this.viewers.set(sessionId, count);
     if (viewing) {
       const session = this.store.getSession(sessionId);
-      if (session?.unread) this.saveSession({ ...session, unread: false });
+      if (session?.unread) {
+        const next: Session = { ...session, unread: false };
+        delete next.markedUnread;
+        this.saveSession(next);
+      }
     }
   }
 
@@ -725,7 +729,12 @@ export class AppService {
       session = this.requireSession(id);
     }
     const next: Session = { ...session };
-    if (req.unread !== undefined) next.unread = req.unread;
+    if (req.unread !== undefined) {
+      next.unread = req.unread;
+      // I-073: a manual mark survives while the chat stays on screen (in this or another server).
+      if (req.unread) next.markedUnread = true;
+      else delete next.markedUnread;
+    }
     if (req.interrupted === false) delete next.interrupted;
     return this.saveSession(next);
   }
@@ -1416,7 +1425,7 @@ export class AppService {
     }
     for (const workspaceId of removedWorkspaces) this.broadcast({ type: "workspace_removed", workspaceId });
     for (const session of change.sessions.upserted) {
-      if (session.unread && this.viewers.has(session.id)) {
+      if (session.unread && !session.markedUnread && this.viewers.has(session.id)) {
         this.saveSession({ ...session, unread: false });
         continue;
       }
