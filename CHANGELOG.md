@@ -209,6 +209,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Paragraphs in replies have space between them again, so separate paragraphs are easy to tell apart.
 - New sub-agents no longer pop the side pane open just because you opened an earlier one; the pane
   closes once its last agent is gone and only opens when you click an agent.
 - Reopening a chat no longer adds a duplicate title entry to pi's session file each time.

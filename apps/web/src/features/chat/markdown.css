@@ -12,11 +12,13 @@
     overflow-wrap: anywhere;
   }
 }
+/*
+ * Space between blocks (paragraphs, lists, code…). Paragraph margins are already 0 from the CSS
+ * reset; a `.pi-md p { margin: 0 }` rule here used to outrank this one and glue paragraphs together
+ * (I-095).
+ */
 .pi-md > * + * {
   margin-top: 0.7em;
-}
-.pi-md p {
-  margin: 0;
 }
 .pi-md > :first-child {
   margin-top: 0 !important;
