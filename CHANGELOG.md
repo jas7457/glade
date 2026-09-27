@@ -112,6 +112,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Internal: the server's core was split into small focused modules (no visible change); future
+  features and parallel work are safer.
 - Web searches and fetches, messages to sub-agents and MCP tool calls now have their own colours
   and readable summaries ("Searched the web for …", "Messaged reviewer: …", "Called
   chrome-devtools › take_snapshot") instead of a grey raw tool name.

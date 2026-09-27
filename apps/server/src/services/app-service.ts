@@ -1,288 +1,136 @@
-import { randomUUID } from "node:crypto";
-import { mkdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import {
-  AGENT_ENV,
-  LEGACY_AGENT_ENV,
-  activeElsewhereMessage,
-  DEFAULT_IMAGE_LIMITS,
-  MAX_ACTIVE_AGENTS,
-  THINKING_LEVELS,
-  applyAgentEvent,
-  compareSessions,
-  defaultSessionState,
-  deriveChatStatus,
-  emptyTranscript,
-  firstMainSession,
-  messageText as transcriptText,
-  parseAttachedFiles,
-  quickTitle,
-  rollupWorkspace,
-  sameModel,
-  type AgentEvent,
-  type AttachmentUploadResponse,
-  type CloseAgentResponse,
-  type CompactResult,
-  type CreateProjectRequest,
-  type CreateSessionRequest,
-  type CreateWorkspaceRequest,
-  type CreateWorkspaceResponse,
-  type DeepPartial,
-  type GenerateTitleResponse,
-  type ListAgentsResponse,
-  type MessageAgentRequest,
-  type HarnessInfo,
-  type ModelInfo,
-  type ModelRef,
-  type OpenTarget,
-  type Project,
-  type PromptImage,
-  type PromptRequest,
-  type ShellRequest,
-  type ShellResponse,
-  type ReportDoneRequest,
-  type ReportDoneResponse,
-  type ServerMessage,
-  type Session,
-  type SessionDetail,
-  type SessionSummary,
-  type Settings,
-  type SlashCommand,
-  type SpawnAgentRequest,
-  type SpawnAgentResponse,
-  type ThinkingLevel,
-  type Transcript,
-  type UiRequest,
-  type UiResponse,
-  type UpdateProjectRequest,
-  type UpdateSessionRequest,
-  type UpdateWorkspaceRequest,
-  type UsageLimits,
-  type Workspace,
-  type WorkspaceDetail,
-  type WorkspaceSummary,
+import { mkdirSync } from "node:fs";
+import type {
+  AttachmentUploadResponse,
+  CloseAgentResponse,
+  CompactResult,
+  CreateProjectRequest,
+  CreateSessionRequest,
+  CreateWorkspaceRequest,
+  CreateWorkspaceResponse,
+  DeepPartial,
+  GenerateTitleResponse,
+  HarnessInfo,
+  ListAgentsResponse,
+  MessageAgentRequest,
+  ModelInfo,
+  ModelRef,
+  Project,
+  PromptRequest,
+  ReportDoneRequest,
+  ReportDoneResponse,
+  Session,
+  SessionDetail,
+  SessionSummary,
+  Settings,
+  ShellRequest,
+  ShellResponse,
+  SlashCommand,
+  SpawnAgentRequest,
+  SpawnAgentResponse,
+  ThinkingLevel,
+  UiResponse,
+  UpdateProjectRequest,
+  UpdateSessionRequest,
+  UpdateWorkspaceRequest,
+  UsageLimits,
+  WorkspaceDetail,
+  WorkspaceSummary,
 } from "@glade/protocol";
-import type { HarnessRegistry } from "../harness/registry.js";
-import { canGenerateTitles, conversationExcerpt, generateTitleWith } from "../harness/title.js";
-import type { AgentHarness, HarnessSession, SessionText, SessionTextMessage } from "../harness/types.js";
-import type { Store, StoreChange } from "../store/store.js";
-import {
-  AgentRegistry,
-  AgentTokens,
-  CLOSE_GRACE_MS,
-  IDLE_CLOSE_MS,
-  MAIN_AGENT,
-  agentInfo,
-  buildRolePrompt,
-  doneText,
-  exitedText,
-  messageText,
-  normalizeAgentName,
-  sessionAgentState,
-  spawnedAgentRef,
-  type AgentRecord,
-} from "./agents.js";
-import { pickAgentIdentity, type AgentIdentity } from "./agent-names.js";
-import { LeaseManager, type LeaseInfo } from "./leases.js";
-import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
-import { createRevealPath, type RevealPath } from "./reveal.js";
-import { AttachmentStore } from "./attachments.js";
-import type { ServerRegistry } from "./server-registry.js";
+import type { SessionText } from "../harness/types.js";
+import { AgentTeam } from "./app/agent-team.js";
+import { createAppContext, type AppContext, type AppServiceOptions, type Listener } from "./app/context.js";
+import { LeaseSync } from "./app/lease-sync.js";
+import { LivePool } from "./app/live-pool.js";
+import { Projects } from "./app/projects.js";
+import { Records } from "./app/records.js";
+import { SessionActions } from "./app/session-actions.js";
+import { Sessions, type NewSessionKind } from "./app/sessions.js";
+import { Titles } from "./app/titles.js";
+import { Workspaces } from "./app/workspaces.js";
+import type { AttachmentStore } from "./attachments.js";
+import { LeaseManager } from "./leases.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
 
-/** Byte size of base64 data once decoded (ignores whitespace and padding). */
-export function decodedBase64Size(data: string): number {
-  const clean = data.replace(/\s/g, "");
-  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
-  return Math.floor((clean.length * 3) / 4) - padding;
-}
-
-function formatMB(bytes: number): string {
-  return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
-}
-
-/** Default small model when `settings.models.smallModel` is unset (used only if available). */
-export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
-
-/** True when `ids` holds exactly the ids in `expected`, each once. */
-function sameIdSet(ids: string[], expected: string[]): boolean {
-  const set = new Set(ids);
-  return set.size === ids.length && ids.length === expected.length && expected.every((id) => set.has(id));
-}
-
-export class HttpError extends Error {
-  constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409 | 424 | 429 | 500 | 501,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-/** 409: another server sharing the data folder runs this session right now (I-062). */
-export class ActiveElsewhereError extends HttpError {
-  constructor(readonly lease: LeaseInfo) {
-    super(409, activeElsewhereMessage({ serverKind: lease.serverKind }));
-  }
-}
-
-/** A run whose server went away is marked interrupted after it looked orphaned this long. */
-const ORPHAN_GRACE_MS = 1500;
-/** Deliveries to a session busy in another server are retried this long. */
-const ELSEWHERE_RETRY_MS = 30 * 60_000;
-
-interface LiveSession {
-  /** The harness running it (`Session.harness`). */
-  harness: AgentHarness;
-  session: HarnessSession;
-  transcript: Transcript;
-  pendingUi: Map<string, UiRequest>;
-  /** Auto-close timers for dialogs with a timeout (the agent resolves them itself). */
-  uiTimers: Map<string, NodeJS.Timeout>;
-  /** Between run_start and run_end. Tracked here so it's correct while those events are handled. */
-  running: boolean;
-  /** When the current run started (I-070), `null` when idle. */
-  runStartedAt: number | null;
-  lastUsedAt: number;
-  /** When a prompt was last sent. */
-  lastPromptAt: number;
-  /** A prompt was sent and its run hasn't started (or ended) yet: refuse take-overs meanwhile. */
-  awaitingRun: boolean;
-  /** Ids of the user's shell commands still running (I-076): keep the process alive meanwhile. */
-  shells: Set<string>;
-  unsubscribe: () => void;
-}
-
-export interface AppServiceOptions {
-  store: Store;
-  /**
-   * Installed harnesses (I-064). Sessions run in the harness that created them
-   * (`Session.harness`); new chats and app-level things (model list, usage limits) use the default.
-   */
-  harnesses: HarnessRegistry;
-  scratchDir: string;
-  /** "Reveal in Finder" (injectable for tests). Default: `open -R` on macOS. */
-  revealPath?: RevealPath;
-  /** "Open in <app>" for project folders (injectable for tests). Default: `open -a` on macOS. */
-  openIn?: OpenIn;
-  log?: (msg: string) => void;
-  /** App data folder; sub-agent records are kept in `agents.json` there (memory only if unset). */
-  dataDir?: string;
-  /** This server's base URL, handed to agents as `GLADE_URL` (see {@link AppService.setServerUrl}). */
-  serverUrl?: string;
-  /** Called after a session's run settles (e.g. to refresh the search index). */
-  onRunEnd?: (sessionId: string) => void;
-  /**
-   * I-062: this server's entry in the data folder's server registry. When given, the service
-   * shares the folder with other servers: session leases (only one server runs a session's
-   * agent), and the store's files are watched so other servers' changes reach our clients.
-   */
-  registry?: ServerRegistry;
-  /** Lease scan interval (ms; tests lower it). */
-  leaseScanMs?: number;
-  /** Attached files (I-090). Default: `<dataDir>/attachments`. */
-  attachments?: AttachmentStore;
-}
-
-/**
- * How a session is created. `subagent` sessions are for the agent API (I-037); `register` runs
- * once the session record exists, before its agent starts (the agent API records the sub-agent
- * there so the process starts with its role).
- */
-export type NewSessionKind =
-  | { kind: "main" }
-  | {
-      kind: "subagent";
-      parentSessionId: string;
-      agentName: string;
-      /** Fun name + colour (I-084). */
-      identity?: AgentIdentity;
-      register?: (session: Session) => void;
-    };
-
-type Listener = (message: ServerMessage) => void;
+export { ActiveElsewhereError, HttpError } from "./app/errors.js";
+export { decodedBase64Size } from "./app/session-actions.js";
+export { DEFAULT_SMALL_MODEL } from "./app/titles.js";
+export type { AppServiceOptions } from "./app/context.js";
+export type { NewSessionKind } from "./app/sessions.js";
 
 /**
  * Owns projects, workspaces, their sessions and the pool of live agent processes (one per
  * session). HTTP routes and the WebSocket are thin layers over this class, which keeps it easy
  * to test with the fake harness.
+ *
+ * A facade (I-094): the work is done by the modules in `./app/` (records, live pool, lease sync,
+ * sessions, session actions, titles, workspaces, projects, agent team), which share one
+ * `AppContext`. This class creates and wires them and keeps the public API in one place.
  */
 export class AppService {
-  /** sessionId -> live agent. */
-  private readonly live = new Map<string, LiveSession>();
-  private readonly opening = new Map<string, Promise<LiveSession>>();
-  private readonly listeners = new Set<Listener>();
-  private readonly usage: UsageLimitsPoller | null;
-  /** sessionId -> number of clients currently viewing it. */
-  private readonly viewers = new Map<string, number>();
-  private readonly store: Store;
-  private readonly harnesses: HarnessRegistry;
-  /** Files written by `exportSession` this run; the only paths `revealPath` will show. */
-  private readonly exported = new Set<string>();
   /** Files attached by reference (I-090), per session; removed with the session. */
   readonly attachments: AttachmentStore;
-  /** Agent API (I-037): sub-agent records, per-process tokens, timers, delivery queues. */
-  private readonly agents: AgentRegistry;
-  private readonly tokens = new AgentTokens();
-  private readonly agentTimers = new Map<string, NodeJS.Timeout>();
-  private readonly deliveries = new Map<string, Promise<void>>();
-  private serverUrl: string | null;
-  /** Session leases shared with other servers on the data folder (null = single server, tests). */
-  private readonly leases: LeaseManager | null;
-  /** sessionId -> when its run first looked orphaned (flagged running, no server runs it). */
-  private readonly orphanSince = new Map<string, number>();
+  private readonly ctx: AppContext;
+  private readonly records: Records;
+  private readonly pool: LivePool;
+  private readonly leaseSync: LeaseSync;
+  private readonly titles: Titles;
+  private readonly actions: SessionActions;
+  private readonly sessions: Sessions;
+  private readonly workspaces: Workspaces;
+  private readonly projects: Projects;
+  private readonly team: AgentTeam;
   private readonly unwatch: Array<() => void> = [];
-  private disposed = false;
 
-  constructor(private readonly options: AppServiceOptions) {
-    this.store = options.store;
-    this.harnesses = options.harnesses;
-    this.agents = new AgentRegistry(options.dataDir);
-    this.attachments = options.attachments ?? new AttachmentStore(join(options.dataDir ?? options.store.dataDir, "attachments"));
-    this.serverUrl = options.serverUrl ?? null;
+  constructor(options: AppServiceOptions) {
+    const ctx = createAppContext(options);
+    this.ctx = ctx;
+    this.attachments = ctx.attachments;
     mkdirSync(options.scratchDir, { recursive: true });
     // Usage limits are the default harness's account (the gauge is app-wide).
-    this.usage = this.harnesses.list().some((h) => h.getUsageLimits)
+    ctx.usage = ctx.harnesses.list().some((h) => h.getUsageLimits)
       ? new UsageLimitsPoller({
           fetchLimits: async () => {
-            const harness = this.harnesses.default();
+            const harness = ctx.harnesses.default();
             return harness.getUsageLimits ? harness.getUsageLimits() : null;
           },
-          broadcast: (m) => this.broadcast(m),
+          broadcast: (m) => ctx.broadcast(m),
           log: options.log,
         })
       : null;
-    this.usage?.start();
-    this.leases = options.registry
+    ctx.usage?.start();
+    ctx.leases = options.registry
       ? new LeaseManager(options.dataDir ?? options.store.dataDir, options.registry, {
           scanMs: options.leaseScanMs,
-          onForeignChange: (ids) => this.pushSessions(ids),
-          onTakeoverRequest: (id) => this.handleTakeoverRequest(id),
-          onScan: () => this.checkOrphanedRuns(),
+          onForeignChange: (ids) => this.records.pushSessions(ids),
+          onTakeoverRequest: (id) => this.leaseSync.handleTakeoverRequest(id),
+          onScan: () => this.leaseSync.checkOrphanedRuns(),
         })
       : null;
-    if (this.leases) {
-      this.unwatch.push(this.store.onExternalChange((change) => this.applyExternalChange(change)));
-      this.unwatch.push(this.agents.onExternalChange((ids) => this.pushSessions(ids)));
-      if (this.agents.file) this.store.watchFile(this.agents.file);
-      this.store.watch();
-      this.leases.start();
-    }
-    this.recoverInterruptedRuns();
-  }
 
-  /**
-   * Runs still flagged as in progress at startup were cut off (app quit, crash, server killed).
-   * Mark them interrupted; `unread` + `lastRunFailed` make the sidebar show the failed marker.
-   */
-  private recoverInterruptedRuns(): void {
-    for (const session of this.store.listSessions()) {
-      if (!session.runInProgress) continue;
-      // Still running in another server on this data folder (I-062).
-      if (this.leases?.isLeased(session.id)) continue;
-      this.saveSession({ ...session, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
+    // Modules, lowest layer first; calls up the layers go through hooks.
+    this.records = new Records(ctx);
+    this.pool = new LivePool(ctx, this.records, {
+      closeAgentSession: (id) => this.team.closeAgentSession(id),
+      deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
+    });
+    this.leaseSync = new LeaseSync(ctx, this.records, this.pool);
+    this.titles = new Titles(ctx, this.records, { updateWorkspace: (id, req) => this.workspaces.updateWorkspace(id, req) });
+    this.actions = new SessionActions(ctx, this.records, this.pool, this.leaseSync, this.titles);
+    this.sessions = new Sessions(ctx, this.records, this.pool, this.leaseSync, this.actions, {
+      deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
+    });
+    this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions);
+    this.projects = new Projects(ctx, this.records, this.workspaces);
+    this.team = new AgentTeam(ctx, this.records, this.pool, this.actions, this.sessions);
+
+    if (ctx.leases) {
+      this.unwatch.push(ctx.store.onExternalChange((change) => this.leaseSync.applyExternalChange(change)));
+      this.unwatch.push(ctx.agents.onExternalChange((ids) => this.records.pushSessions(ids)));
+      if (ctx.agents.file) ctx.store.watchFile(ctx.agents.file);
+      ctx.store.watch();
+      ctx.leases.start();
     }
+    this.leaseSync.recoverInterruptedRuns();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -290,40 +138,32 @@ export class AppService {
   // -------------------------------------------------------------------------------------------
 
   subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    this.usage?.setClientCount(this.listeners.size);
+    const { listeners, usage } = this.ctx;
+    listeners.add(listener);
+    usage?.setClientCount(listeners.size);
     return () => {
-      this.listeners.delete(listener);
-      this.usage?.setClientCount(this.listeners.size);
+      listeners.delete(listener);
+      usage?.setClientCount(listeners.size);
     };
   }
 
   /** Latest subscription usage limits (possibly stale), or null if unavailable. */
   getUsageLimits(): UsageLimits | null {
-    return this.usage?.current() ?? null;
-  }
-
-  private broadcast(message: ServerMessage): void {
-    for (const listener of this.listeners) {
-      try {
-        listener(message);
-      } catch (err) {
-        this.options.log?.(`listener failed: ${(err as Error).message}`);
-      }
-    }
+    return this.ctx.usage?.current() ?? null;
   }
 
   /** Track which sessions are on screen, so finished runs there don't get marked unread. */
   setViewing(sessionId: string, viewing: boolean): void {
-    const count = (this.viewers.get(sessionId) ?? 0) + (viewing ? 1 : -1);
-    if (count <= 0) this.viewers.delete(sessionId);
-    else this.viewers.set(sessionId, count);
+    const { viewers } = this.ctx;
+    const count = (viewers.get(sessionId) ?? 0) + (viewing ? 1 : -1);
+    if (count <= 0) viewers.delete(sessionId);
+    else viewers.set(sessionId, count);
     if (viewing) {
-      const session = this.store.getSession(sessionId);
+      const session = this.ctx.store.getSession(sessionId);
       if (session?.unread) {
         const next: Session = { ...session, unread: false };
         delete next.markedUnread;
-        this.saveSession(next);
+        this.records.saveSession(next);
       }
     }
   }
@@ -333,1505 +173,236 @@ export class AppService {
   // -------------------------------------------------------------------------------------------
 
   getSettings(): Settings {
-    return this.store.getSettings();
+    return this.ctx.store.getSettings();
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
-    const settings = this.store.updateSettings(patch);
-    this.broadcast({ type: "settings", settings });
+    const settings = this.ctx.store.updateSettings(patch);
+    this.ctx.broadcast({ type: "settings", settings });
     return settings;
   }
 
   /** The installed harnesses, the default first (`GET /api/harnesses`, I-065). */
   listHarnesses(): HarnessInfo[] {
-    return this.harnesses.info();
+    return this.ctx.harnesses.info();
   }
 
   /** The default harness's models (what the model settings and new chats offer). */
   async listModels(force = false): Promise<ModelInfo[]> {
-    const models = await this.harnesses.default().listModels(force);
+    const models = await this.ctx.harnesses.default().listModels(force);
     // A forced refresh may have changed the list; let every client know.
-    if (force) this.broadcast({ type: "models", models });
+    if (force) this.ctx.broadcast({ type: "models", models });
     return models;
   }
 
   // -------------------------------------------------------------------------------------------
-  // Projects
+  // Projects (app/projects.ts)
   // -------------------------------------------------------------------------------------------
 
-  /** Projects in their manual order (`sortOrder` ascending). */
   listProjects(): Project[] {
-    return [...this.store.listProjects()].sort((a, b) => a.sortOrder - b.sortOrder);
+    return this.projects.listProjects();
   }
 
   createProject(req: CreateProjectRequest): Project {
-    if (!req.path?.trim()) throw new HttpError(400, "A folder path is required");
-    const path = resolve(req.path.trim().replace(/^~(?=$|\/)/, homedir()));
-    let isDir = false;
-    try {
-      isDir = statSync(path).isDirectory();
-    } catch {
-      /* missing */
-    }
-    if (!isDir) throw new HttpError(400, `Not a folder: ${path}`);
-    const existing = this.store.listProjects().find((p) => p.path === path);
-    if (existing) return existing;
-    const now = Date.now();
-    const orders = this.store.listProjects().map((p) => p.sortOrder);
-    const project: Project = {
-      id: randomUUID(),
-      name: req.name?.trim() || basename(path) || path,
-      path,
-      // New projects go to the top of the manual order.
-      sortOrder: orders.length ? Math.min(...orders) - 1 : 0,
-      createdAt: now,
-      lastActivityAt: now,
-    };
-    this.store.upsertProject(project);
-    this.broadcast({ type: "project_upsert", project });
-    return project;
+    return this.projects.createProject(req);
   }
 
   updateProject(id: string, req: UpdateProjectRequest): Project {
-    const project = this.requireProject(id);
-    const next: Project = {
-      ...project,
-      ...(req.name !== undefined && req.name.trim() ? { name: req.name.trim() } : {}),
-    };
-    this.store.upsertProject(next);
-    this.broadcast({ type: "project_upsert", project: next });
-    return next;
+    return this.projects.updateProject(id, req);
   }
 
-  /** Set the manual project order. `ids` must be exactly the current projects. */
   reorderProjects(ids: string[]): Project[] {
-    const projects = this.store.listProjects();
-    if (!sameIdSet(ids, projects.map((p) => p.id))) {
-      throw new HttpError(400, "ids must list every project exactly once");
-    }
-    ids.forEach((id, sortOrder) => {
-      const project = this.store.getProject(id)!;
-      if (project.sortOrder === sortOrder) return;
-      const next = { ...project, sortOrder };
-      this.store.upsertProject(next);
-      this.broadcast({ type: "project_upsert", project: next });
-    });
-    return this.listProjects();
+    return this.projects.reorderProjects(ids);
   }
 
-  /** Open a project's folder in another app (e.g. VS Code). */
-  async openProject(id: string, app: unknown): Promise<void> {
-    const project = this.requireProject(id);
-    if (!isOpenTarget(app)) throw new HttpError(400, `Unknown app: ${String(app)}`);
-    try {
-      await (this.options.openIn ?? createOpenIn())(app satisfies OpenTarget, project.path);
-    } catch (err) {
-      if (err instanceof OpenInError) throw new HttpError(err.status, err.message);
-      throw err;
-    }
+  openProject(id: string, app: unknown): Promise<void> {
+    return this.projects.openProject(id, app);
   }
 
-  /** Removes the project and all of its workspaces (including their session files). */
-  async deleteProject(id: string): Promise<void> {
-    this.requireProject(id);
-    for (const workspace of this.store.listWorkspaces().filter((w) => w.projectId === id)) {
-      await this.deleteWorkspace(workspace.id);
-    }
-    this.store.removeProject(id);
-    this.broadcast({ type: "project_removed", projectId: id });
-  }
-
-  private requireProject(id: string): Project {
-    const project = this.store.getProject(id);
-    if (!project) throw new HttpError(404, "Project not found");
-    return project;
+  deleteProject(id: string): Promise<void> {
+    return this.projects.deleteProject(id);
   }
 
   // -------------------------------------------------------------------------------------------
-  // Records, summaries and pushes
-  // -------------------------------------------------------------------------------------------
-
-  private requireWorkspace(id: string): Workspace {
-    const workspace = this.store.getWorkspace(id);
-    if (!workspace) throw new HttpError(404, "Workspace not found");
-    return workspace;
-  }
-
-  private requireSession(id: string): Session {
-    const session = this.store.getSession(id);
-    if (!session) throw new HttpError(404, "Session not found");
-    return session;
-  }
-
-  /** The harness that runs `session` (I-064); 409 when it isn't installed in this server. */
-  private requireHarness(session: Session): AgentHarness {
-    const harness = this.harnesses.get(session.harness);
-    if (!harness) {
-      throw new HttpError(409, `This chat was created with the "${session.harness}" agent, which isn't available in this Glade server`);
-    }
-    return harness;
-  }
-
-  private summarizeSession(session: Session): SessionSummary {
-    const live = this.live.get(session.id);
-    // Run by another server (I-062): its lease says whether it's working / waiting for input.
-    const elsewhere = live ? null : (this.leases?.foreignLease(session.id) ?? null);
-    const running = live?.running ?? elsewhere?.running ?? false;
-    const pendingInputs = live?.pendingUi.size ?? elsewhere?.pendingInputs ?? 0;
-    const summary: SessionSummary = { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
-    if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) {
-      summary.activeElsewhere = { serverKind: elsewhere.serverKind, since: elsewhere.since };
-    }
-    const agent = session.kind === "subagent" ? this.agents.get(session.id) : undefined;
-    if (agent) summary.agent = sessionAgentState(agent, running);
-    if (session.kind === "main") {
-      const spawned = this.agents.childrenOf(session.id);
-      if (spawned.length) summary.spawnedAgents = spawned.map(spawnedAgentRef);
-    }
-    return summary;
-  }
-
-  private summarizeWorkspace(workspace: Workspace): WorkspaceSummary {
-    return rollupWorkspace(workspace, this.store.listSessions(workspace.id).map((s) => this.summarizeSession(s)));
-  }
-
-  /** Main sessions first, then sub-agents; each by creation. */
-  private sessionsOf(workspaceId: string): SessionSummary[] {
-    const all = this.store.listSessions(workspaceId).sort(compareSessions);
-    return [...all.filter((s) => s.kind === "main"), ...all.filter((s) => s.kind !== "main")].map((s) => this.summarizeSession(s));
-  }
-
-  /** Persist + push a workspace (with its rolled-up status). */
-  private saveWorkspace(workspace: Workspace): WorkspaceSummary {
-    this.store.upsertWorkspace(workspace);
-    const summary = this.summarizeWorkspace(workspace);
-    this.broadcast({ type: "workspace_upsert", workspace: summary });
-    return summary;
-  }
-
-  /** Push the workspace again because one of its sessions changed. `touch` bumps its activity. */
-  private refreshWorkspace(workspaceId: string, touch = false): void {
-    const workspace = this.store.getWorkspace(workspaceId);
-    if (!workspace) return;
-    this.saveWorkspace(touch ? { ...workspace, lastActivityAt: Date.now() } : workspace);
-  }
-
-  /** Persist + push a session, then its workspace (status roll-up). */
-  private saveSession(session: Session, { touch = false } = {}): SessionSummary {
-    this.store.upsertSession(session);
-    this.syncLease(session.id);
-    const summary = this.summarizeSession(session);
-    this.broadcast({ type: "session_upsert", session: summary });
-    this.refreshWorkspace(session.workspaceId, touch);
-    return summary;
-  }
-
-  private emitSessionEvent(session: Pick<Session, "id" | "workspaceId">, event: AgentEvent): void {
-    this.broadcast({ type: "session_event", sessionId: session.id, workspaceId: session.workspaceId, event });
-  }
-
-  // -------------------------------------------------------------------------------------------
-  // Workspaces
+  // Workspaces (app/workspaces.ts)
   // -------------------------------------------------------------------------------------------
 
   listWorkspaces(): WorkspaceSummary[] {
-    return this.store.listWorkspaces().map((w) => this.summarizeWorkspace(w));
-  }
-
-  /** All sessions (or one workspace's), main sessions first. */
-  listSessions(workspaceId?: string): SessionSummary[] {
-    if (workspaceId !== undefined) {
-      this.requireWorkspace(workspaceId);
-      return this.sessionsOf(workspaceId);
-    }
-    return this.store.listWorkspaces().flatMap((w) => this.sessionsOf(w.id));
-  }
-
-  /**
-   * A session's conversation as plain user/assistant text, read from its persisted data without
-   * starting an agent (chat tools, I-091): the harness's `readSessionText`, else its transcript.
-   * `null` when there's nothing persisted (yet) or the harness can't read it.
-   */
-  async readSessionText(sessionId: string): Promise<SessionText | null> {
-    const session = this.requireSession(sessionId);
-    const harness = this.harnesses.get(session.harness);
-    if (!harness || !session.sessionRef) return null;
-    if (harness.readSessionText) return harness.readSessionText(session.sessionRef).catch(() => null);
-    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
-    if (!transcript) return null;
-    const messages: SessionTextMessage[] = [];
-    for (const m of transcript.messages) {
-      if (m.role !== "user" && m.role !== "assistant") continue;
-      const text = transcriptText(m).trim();
-      if (text) messages.push({ role: m.role, text, timestamp: m.timestamp });
-    }
-    return { name: null, messages };
-  }
-
-  /**
-   * Ask every connected window to show a session, like a ⌘K pick (`open_chat` push, I-091).
-   * Returns how many clients were told.
-   */
-  requestOpenChat(sessionId: string): number {
-    const session = this.requireSession(sessionId);
-    this.broadcast({ type: "open_chat", workspaceId: session.workspaceId, sessionId: session.id, sessionKind: session.kind });
-    return this.listeners.size;
+    return this.workspaces.listWorkspaces();
   }
 
   getWorkspaceDetail(id: string): WorkspaceDetail {
-    const workspace = this.requireWorkspace(id);
-    return { workspace: this.summarizeWorkspace(workspace), sessions: this.sessionsOf(id) };
+    return this.workspaces.getWorkspaceDetail(id);
   }
 
-  /** A new workspace with its first main session (started, and prompted if a prompt is given). */
-  async createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
-    const project = req.projectId ? this.requireProject(req.projectId) : null;
-    const now = Date.now();
-    const workspace: Workspace = {
-      id: randomUUID(),
-      projectId: project?.id ?? null,
-      title: req.prompt ? quickTitle(req.prompt) : "New chat",
-      titleSource: "auto",
-      cwd: project?.path ?? this.options.scratchDir,
-      pinned: false,
-      createdAt: now,
-      lastActivityAt: now,
-      layout: null,
-    };
-    this.store.upsertWorkspace(workspace);
-    try {
-      const session = await this.createSession(workspace.id, req);
-      return { ...this.getWorkspaceDetail(workspace.id), session };
-    } catch (err) {
-      // Don't leave a broken, empty workspace behind.
-      await this.deleteWorkspace(workspace.id).catch(() => {});
-      throw err;
-    }
+  createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
+    return this.workspaces.createWorkspace(req);
   }
 
-  async updateWorkspace(id: string, req: UpdateWorkspaceRequest): Promise<WorkspaceSummary> {
-    const workspace = this.requireWorkspace(id);
-    const next: Workspace = { ...workspace };
-    if (req.title !== undefined) {
-      const title = req.title.trim();
-      if (!title) throw new HttpError(400, "Title cannot be empty");
-      next.title = title;
-      next.titleSource = "user";
-      // With a single tab, the tab and the workspace are the same thing to the user.
-      const main = this.store.listSessions(id).filter((s) => s.kind === "main");
-      if (main.length === 1) await this.renameSession(main[0]!, title);
-    }
-    if (req.pinned === true && !workspace.pinned) {
-      // Newly pinned workspaces go to the top of their list's pinned group.
-      const orders = this.pinnedWorkspaces(workspace.projectId).map((w) => w.pinOrder ?? 0);
-      next.pinned = true;
-      next.pinOrder = orders.length ? Math.min(...orders) - 1 : 0;
-    } else if (req.pinned === false) {
-      next.pinned = false;
-      delete next.pinOrder;
-    }
-    if (req.layout !== undefined) next.layout = req.layout;
-    return this.saveWorkspace(next);
+  updateWorkspace(id: string, req: UpdateWorkspaceRequest): Promise<WorkspaceSummary> {
+    return this.workspaces.updateWorkspace(id, req);
   }
 
-  /** Pinned workspaces of one list (a project, or standalone = null), in pin order. */
-  private pinnedWorkspaces(projectId: string | null): Workspace[] {
-    return this.store
-      .listWorkspaces()
-      .filter((w) => w.pinned && w.projectId === projectId)
-      .sort((a, b) => (a.pinOrder ?? 0) - (b.pinOrder ?? 0));
-  }
-
-  /** Reorder the pinned workspaces of one list. `ids` must be exactly that list's pinned workspaces. */
   reorderPinnedWorkspaces(projectId: string | null, ids: string[]): WorkspaceSummary[] {
-    if (projectId !== null) this.requireProject(projectId);
-    if (!sameIdSet(ids, this.pinnedWorkspaces(projectId).map((w) => w.id))) {
-      throw new HttpError(400, "ids must list every pinned workspace of that list exactly once");
-    }
-    ids.forEach((id, pinOrder) => {
-      const workspace = this.store.getWorkspace(id)!;
-      if (workspace.pinOrder !== pinOrder) this.saveWorkspace({ ...workspace, pinOrder });
-    });
-    return this.pinnedWorkspaces(projectId).map((w) => this.summarizeWorkspace(w));
+    return this.workspaces.reorderPinnedWorkspaces(projectId, ids);
   }
 
-  /** Delete a workspace, stopping its agents and permanently deleting all of its session files. */
-  async deleteWorkspace(id: string): Promise<void> {
-    this.requireWorkspace(id);
-    await this.takeLeases(this.store.listSessions(id));
-    for (const session of this.store.listSessions(id)) {
-      await this.disposeSession(session);
-      this.forgetAgent(session.id);
-    }
-    this.agents.removeWhere((r) => r.workspaceId === id); // incl. closed ones whose tab is gone
-    this.store.removeWorkspace(id);
-    this.broadcast({ type: "workspace_removed", workspaceId: id });
+  deleteWorkspace(id: string): Promise<void> {
+    return this.workspaces.deleteWorkspace(id);
   }
 
   // -------------------------------------------------------------------------------------------
-  // Sessions
+  // Sessions (app/sessions.ts) and what the user does in them (app/session-actions.ts)
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * Add a session to a workspace and start its agent (plus the first prompt, if given). Main
-   * sessions are tabs the user opens; `subagent` sessions are spawned by another session of the
-   * same workspace (agent API, I-037).
-   */
-  async createSession(workspaceId: string, req: CreateSessionRequest, how: NewSessionKind = { kind: "main" }): Promise<SessionDetail> {
-    this.requireWorkspace(workspaceId);
-    if (how.kind === "subagent") {
-      const parent = this.requireSession(how.parentSessionId);
-      if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
-    }
-    const settings = this.store.getSettings();
-    // Sub-agents run in their parent's harness; other new sessions in the default one.
-    const harness = how.kind === "subagent" ? this.requireHarness(this.requireSession(how.parentSessionId)) : this.harnesses.default();
-    const now = Date.now();
-    const session: Session = {
-      id: randomUUID(),
-      workspaceId,
-      kind: how.kind,
-      parentSessionId: how.kind === "subagent" ? how.parentSessionId : null,
-      agentName: how.kind === "subagent" ? how.agentName : null,
-      ...(how.kind === "subagent" && how.identity ? { agentDisplayName: how.identity.displayName, agentColor: how.identity.color } : {}),
-      title: how.kind === "subagent" ? how.agentName : req.prompt ? quickTitle(req.prompt) : "New chat",
-      titleSource: how.kind === "subagent" ? "user" : "auto",
-      harness: harness.id,
-      sessionRef: null,
-      unread: false,
-      createdAt: now,
-      lastActivityAt: now,
-      model: req.model ?? settings.models.defaultModel,
-      thinkingLevel: req.thinkingLevel ?? settings.models.defaultThinkingLevel,
-    };
-    this.saveSession(session);
-    if (how.kind === "subagent") how.register?.(session);
-    try {
-      const live = await this.ensureLive(session.id);
-      if (req.prompt?.trim() || req.images?.length) {
-        await this.sendPrompt(session.id, { text: req.prompt ?? "", images: req.images }, live);
-      }
-    } catch (err) {
-      await this.disposeSession(this.store.getSession(session.id) ?? session).catch(() => {});
-      this.forgetAgent(session.id);
-      this.store.removeSession(session.id);
-      this.broadcast({ type: "session_removed", sessionId: session.id, workspaceId });
-      this.refreshWorkspace(workspaceId);
-      throw err;
-    }
-    return this.getSessionDetail(session.id);
+  listSessions(workspaceId?: string): SessionSummary[] {
+    return this.sessions.listSessions(workspaceId);
   }
 
-  async getSessionDetail(id: string): Promise<SessionDetail> {
-    const session = this.requireSession(id);
-    const offline = (await this.closedAgentDetail(session)) ?? (await this.elsewhereDetail(session));
-    if (offline) return offline;
-    const live = await this.ensureLive(id);
-    return {
-      session: this.summarizeSession(this.requireSession(id)),
-      transcript: live.transcript,
-      state: { ...live.session.getState(), runStartedAt: live.running ? live.runStartedAt : null },
-      pendingUiRequests: [...live.pendingUi.values()],
-    };
+  readSessionText(sessionId: string): Promise<SessionText | null> {
+    return this.sessions.readSessionText(sessionId);
   }
 
-  /**
-   * A closed sub-agent (its process crashed or stopped) is shown from its session file without
-   * starting it again (I-054); typing in it starts it. `null` when it should be started as usual.
-   */
-  private async closedAgentDetail(session: Session): Promise<SessionDetail | null> {
-    const harness = this.harnesses.get(session.harness);
-    if (!this.isDormantAgent(session.id) || !session.sessionRef || !harness?.readTranscript) return null;
-    const transcript = await harness.readTranscript(session.sessionRef).catch(() => null);
-    if (!transcript) return null;
-    const state = { ...defaultSessionState(), model: session.model, ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}) };
-    return { session: this.summarizeSession(session), transcript, state, pendingUiRequests: [] };
+  requestOpenChat(sessionId: string): number {
+    return this.sessions.requestOpenChat(sessionId);
   }
 
-  /**
-   * A session another server runs (I-062) is shown from its session file; viewing it doesn't
-   * take it over (typing in it does, once it's idle there). `null` when it isn't leased elsewhere.
-   */
-  private async elsewhereDetail(session: Session): Promise<SessionDetail | null> {
-    if (!this.leases || this.live.has(session.id) || this.opening.has(session.id)) return null;
-    if (!this.leases.foreignLeaseNow(session.id)) return null;
-    const harness = this.harnesses.get(session.harness);
-    const transcript = (session.sessionRef && (await harness?.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
-    const summary = this.summarizeSession(session);
-    const state = {
-      ...defaultSessionState(),
-      model: session.model,
-      ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-      isRunning: summary.running,
-    };
-    return { session: summary, transcript, state, pendingUiRequests: [] };
+  createSession(workspaceId: string, req: CreateSessionRequest, how: NewSessionKind = { kind: "main" }): Promise<SessionDetail> {
+    return this.sessions.createSession(workspaceId, req, how);
   }
 
-  /** Not running here but leased by another live server (I-062). */
-  private isElsewhere(id: string): boolean {
-    return !!this.leases && !this.live.has(id) && !this.opening.has(id) && !!this.leases.foreignLeaseNow(id);
+  getSessionDetail(id: string): Promise<SessionDetail> {
+    return this.sessions.getSessionDetail(id);
   }
 
-  /** A closed sub-agent without a running process (viewing it shouldn't start one). */
-  private isDormantAgent(id: string): boolean {
-    return !!this.agents.get(id)?.closed && !this.live.has(id) && !this.opening.has(id);
+  updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {
+    return this.sessions.updateSession(id, req);
   }
 
-  async updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {
-    let session = this.requireSession(id);
-    if (req.title !== undefined) {
-      const title = req.title.trim();
-      if (!title) throw new HttpError(400, "Title cannot be empty");
-      await this.renameSession(session, title);
-      session = this.requireSession(id);
-    }
-    const next: Session = { ...session };
-    if (req.unread !== undefined) {
-      next.unread = req.unread;
-      // I-073: a manual mark survives while the chat stays on screen (in this or another server).
-      if (req.unread) next.markedUnread = true;
-      else delete next.markedUnread;
-    }
-    if (req.interrupted === false) delete next.interrupted;
-    return this.saveSession(next);
+  deleteSession(id: string): Promise<void> {
+    return this.sessions.deleteSession(id);
   }
 
-  private async renameSession(session: Session, title: string): Promise<void> {
-    this.saveSession({ ...session, title, titleSource: "user" });
-    await this.live.get(session.id)?.session.setTitle(title).catch(() => {});
+  saveAttachment(id: string, name: string, body: ReadableStream<Uint8Array> | null): Promise<AttachmentUploadResponse> {
+    return this.actions.saveAttachment(id, name, body);
   }
 
-  /**
-   * Close a tab: stops the agent and permanently deletes the session file, plus any sub-agents
-   * it spawned. The last main session can't be deleted (delete the workspace instead).
-   */
-  async deleteSession(id: string): Promise<void> {
-    const session = this.requireSession(id);
-    const siblings = this.store.listSessions(session.workspaceId);
-    if (session.kind === "main" && siblings.filter((s) => s.kind === "main").length <= 1) {
-      throw new HttpError(409, "A workspace needs at least one main session; delete the workspace instead");
-    }
-    const doomed = [session, ...this.descendantsOf(session.id, siblings)];
-    const doomedIds = new Set(doomed.map((s) => s.id));
-    await this.takeLeases(doomed);
-    for (const s of doomed) {
-      await this.disposeSession(s);
-      const agent = this.agents.get(s.id);
-      if (agent && !doomedIds.has(agent.parentSessionId)) {
-        if (!agent.closed && agent.doneAt === null) {
-          this.deliver(agent.parentSessionId, exitedText(agent.name, "Exited before calling report_done (the user closed its tab)."), "followUp");
-        }
-        // Its parent keeps seeing it as closed (list_agents; close_agent says "already closed").
-        this.clearAgentTimer(s.id);
-        this.tokens.revoke(s.id);
-        this.agents.update(s.id, { closing: false, closed: true, removed: true });
-      } else {
-        this.forgetAgent(s.id);
-      }
-      this.store.removeSession(s.id);
-      this.broadcast({ type: "session_removed", sessionId: s.id, workspaceId: s.workspaceId });
-    }
-    this.agents.removeWhere((r) => doomedIds.has(r.parentSessionId));
-    this.refreshWorkspace(session.workspaceId);
+  prompt(id: string, req: PromptRequest): Promise<void> {
+    return this.actions.prompt(id, req);
   }
 
-  /** Sub-agents spawned by `id`, recursively. */
-  private descendantsOf(id: string, sessions: Session[]): Session[] {
-    const children = sessions.filter((s) => s.parentSessionId === id);
-    return children.flatMap((c) => [c, ...this.descendantsOf(c.id, sessions)]);
+  generateSessionTitle(id: string): Promise<GenerateTitleResponse> {
+    return this.titles.generateSessionTitle(id);
   }
 
-  /** Stop a session's agent and delete its file (the record is left to the caller). */
-  private async disposeSession(session: Session): Promise<void> {
-    await this.closeLive(session.id);
-    const harness = this.harnesses.get(session.harness);
-    if (session.sessionRef && harness) await harness.deleteSession(session.sessionRef).catch(() => {});
-    else if (session.sessionRef) this.options.log?.(`kept the session file of ${session.id}: its harness "${session.harness}" isn't installed`);
-    this.viewers.delete(session.id);
-    this.leases?.release(session.id);
-    await this.attachments.removeSession(session.id).catch(() => {});
+  abort(id: string): Promise<void> {
+    return this.actions.abort(id);
   }
 
-  /** Save a file attached by reference (I-090) for session `id`; its path goes into the prompt. */
-  async saveAttachment(id: string, name: string, body: ReadableStream<Uint8Array> | null): Promise<AttachmentUploadResponse> {
-    this.requireSession(id);
-    return this.attachments.save(id, name, body);
+  runShell(id: string, req: ShellRequest): Promise<ShellResponse> {
+    return this.actions.runShell(id, req);
   }
 
-  /** A prompt from the user (the HTTP API). */
-  async prompt(id: string, req: PromptRequest): Promise<void> {
-    this.requireSession(id);
-    this.assertNotBusyElsewhere(id);
-    // Typing in a sub-agent's tab means the user is using it: never close it automatically.
-    const agent = this.agents.get(id);
-    if (agent && (!agent.userEngaged || agent.closed || agent.closing)) {
-      this.clearAgentTimer(id);
-      this.updateAgent(id, { userEngaged: true, closed: false, closing: false });
-    }
-    const live = await this.ensureLive(id);
-    await this.sendPrompt(id, req, live);
+  abortShell(id: string): Promise<void> {
+    return this.actions.abortShell(id);
   }
 
-  private async sendPrompt(id: string, req: PromptRequest, live: LiveSession): Promise<void> {
-    if (!req.text.trim() && !req.images?.length) throw new HttpError(400, "Message is empty");
-    await this.checkImageSizes(req.images, live);
-    const isFirst = !live.transcript.messages.some((m) => m.role === "user");
-    live.lastUsedAt = Date.now();
-    live.lastPromptAt = Date.now();
-    live.awaitingRun = true;
-    const behavior = req.behavior ?? this.store.getSettings().general.busyBehavior;
-    await live.session.prompt({ ...req, behavior });
-    const session = this.requireSession(id);
-    const next: Session = { ...session, lastActivityAt: Date.now() };
-    delete next.interrupted; // any new prompt dismisses the "interrupted" state
-    // Titles come from what the user typed, not the `Attached file:` lines (I-090).
-    const typed = parseAttachedFiles(req.text).text;
-    const retitle = isFirst && session.titleSource === "auto" && !!typed.trim();
-    if (retitle) {
-      next.title = quickTitle(typed);
-      void this.generateTitle(id, typed).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
-    }
-    this.saveSession(next, { touch: true });
-    if (retitle) {
-      this.followTitle(next);
-      await live.session.setTitle(next.title).catch(() => {});
-    }
-    this.touchProject(this.store.getWorkspace(session.workspaceId)?.projectId ?? null);
+  setModel(id: string, model: ModelRef): Promise<void> {
+    return this.actions.setModel(id, model);
   }
 
-  /** An `auto` workspace title follows the title of its first main session. */
-  private followTitle(session: Session): void {
-    const workspace = this.store.getWorkspace(session.workspaceId);
-    if (!workspace || workspace.titleSource !== "auto" || workspace.title === session.title) return;
-    if (firstMainSession(this.store.listSessions(workspace.id), workspace.id)?.id !== session.id) return;
-    this.saveWorkspace({ ...workspace, title: session.title });
+  setThinkingLevel(id: string, level: ThinkingLevel): Promise<void> {
+    return this.actions.setThinkingLevel(id, level);
   }
 
-  /**
-   * Reject images over the model's size limit with a clear message instead of letting the
-   * provider fail the run. Clients downscale before sending, so this is only a safety net.
-   */
-  private async checkImageSizes(images: PromptImage[] | undefined, live: LiveSession): Promise<void> {
-    if (!images?.length) return;
-    const model = live.session.getState().model;
-    const models = model ? await live.harness.listModels().catch(() => [] as ModelInfo[]) : [];
-    const limits = models.find((m) => sameModel(m, model))?.imageLimits ?? DEFAULT_IMAGE_LIMITS;
-    images.forEach((image, i) => {
-      const bytes = decodedBase64Size(image.data);
-      if (bytes > limits.maxBytes) {
-        const which = images.length > 1 ? `Image ${i + 1}` : "The image";
-        throw new HttpError(400, `${which} is too large (${formatMB(bytes)}); this model accepts images up to ${formatMB(limits.maxBytes)}`);
-      }
-    });
+  listCommands(id: string): Promise<SlashCommand[]> {
+    return this.actions.listCommands(id);
   }
 
-  private async generateTitle(id: string, firstMessage: string): Promise<void> {
-    const settings = this.store.getSettings();
-    const session = this.store.getSession(id);
-    const harness = session && this.harnesses.get(session.harness);
-    if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
-    const workspace = this.store.getWorkspace(session.workspaceId);
-    if (!workspace) return;
-    // The chat's own harness writes its title (the small model is one of its models).
-    const title = await generateTitleWith(harness, {
-      firstMessage,
-      cwd: workspace.cwd,
-      model: settings.models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model,
-    });
-    const current = this.store.getSession(id);
-    if (!title || !current || current.titleSource !== "auto") return;
-    const next = { ...current, title };
-    this.saveSession(next);
-    this.followTitle(next);
-    await this.live.get(id)?.session.setTitle(title).catch(() => {});
+  compact(id: string, instructions?: string): Promise<CompactResult> {
+    return this.actions.compact(id, instructions);
   }
 
-  /**
-   * `/name` without a title (I-074): name the session from its conversation (first user message +
-   * the latest few texts) with the small model, applied like a rename (`titleSource: "user"`;
-   * while it's the workspace's only main tab the workspace is renamed with it).
-   */
-  async generateSessionTitle(id: string): Promise<GenerateTitleResponse> {
-    const session = this.requireSession(id);
-    const harness = this.requireHarness(session);
-    if (!canGenerateTitles(harness)) throw new HttpError(501, `${harness.info.label} can't generate titles`);
-    const workspace = this.requireWorkspace(session.workspaceId);
-    const messages = await this.conversationText(session, harness);
-    const excerpt = conversationExcerpt(messages);
-    const firstMessage = messages.find((m) => m.role === "user" && m.text.trim())?.text;
-    if (!excerpt || !firstMessage) throw new HttpError(409, "Nothing to name yet: this chat has no messages");
-    const title = await generateTitleWith(harness, {
-      firstMessage,
-      excerpt,
-      cwd: workspace.cwd,
-      model: await this.smallModelFor(harness, session),
-    });
-    if (!title) throw new HttpError(500, "The model didn't come up with a title");
-    const current = this.requireSession(id);
-    const mainTabs = this.store.listSessions(current.workspaceId).filter((s) => s.kind === "main");
-    if (current.kind === "main" && mainTabs.length <= 1) await this.updateWorkspace(current.workspaceId, { title });
-    else await this.renameSession(current, title);
-    return { title, session: this.summarizeSession(this.requireSession(id)) };
+  exportSession(id: string, options: { reveal?: boolean } = {}): Promise<{ path: string }> {
+    return this.actions.exportSession(id, options);
   }
 
-  /** The user/assistant texts of a session: live transcript, else its persisted data. */
-  private async conversationText(session: Session, harness: AgentHarness): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
-    const fromTranscript = (t: Transcript) =>
-      t.messages.flatMap((m) => (m.role === "user" || m.role === "assistant" ? [{ role: m.role, text: transcriptText(m) }] : []));
-    const live = this.live.get(session.id);
-    if (live) return fromTranscript(live.transcript);
-    if (!session.sessionRef) return [];
-    if (harness.readSessionText) {
-      const text = await harness.readSessionText(session.sessionRef).catch(() => null);
-      if (text) return text.messages;
-    }
-    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
-    return transcript ? fromTranscript(transcript) : [];
-  }
-
-  /**
-   * The small model for quick tasks (titles, `/name`; I-074): `settings.models.smallModel`, else
-   * Haiku when the harness lists it, else the session's model.
-   */
-  private async smallModelFor(harness: AgentHarness, session: Session): Promise<ModelRef | null> {
-    return this.store.getSettings().models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model;
-  }
-
-  /** Quick tasks use a cheap, fast model by default (Haiku) when it's available. */
-  private async defaultSmallModel(harness: AgentHarness): Promise<ModelRef | null> {
-    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => sameModel(m, DEFAULT_SMALL_MODEL)) ? DEFAULT_SMALL_MODEL : null;
-  }
-
-  async abort(id: string): Promise<void> {
-    this.requireSession(id);
-    const live = this.live.get(id);
-    if (live) return live.session.abort();
-    const elsewhere = this.leases?.foreignLeaseNow(id);
-    if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) throw new ActiveElsewhereError(elsewhere);
-  }
-
-  /**
-   * `!cmd` / `!!cmd` (I-076): run a shell command in the session's folder. Answers once it has
-   * started; output and the result arrive as `shell_*` events. Allowed while the agent runs.
-   */
-  async runShell(id: string, req: ShellRequest): Promise<ShellResponse> {
-    const command = req.command.trim();
-    if (!command) throw new HttpError(400, "command is empty");
-    const record = this.requireSession(id);
-    const harness = this.requireHarness(record);
-    if (!harness.info.capabilities.shell) throw new HttpError(501, `${harness.info.label} can't run shell commands`);
-    this.assertNotBusyElsewhere(id);
-    const live = await this.ensureLive(id);
-    if (!live.session.runShell) throw new HttpError(501, `${harness.info.label} can't run shell commands`);
-    const shellId = `shell-${randomUUID()}`;
-    live.lastUsedAt = Date.now();
-    void live.session
-      .runShell({ id: shellId, command, shareWithAgent: req.shareWithAgent })
-      .catch((err: Error) => this.options.log?.(`shell command failed: ${err.message}`));
-    return { id: shellId };
-  }
-
-  /** Stop the session's running shell command(s) (I-076). */
-  async abortShell(id: string): Promise<void> {
-    this.requireSession(id);
-    const live = this.live.get(id);
-    if (!live) return;
-    if (!live.session.abortShell) throw new HttpError(501, `${live.harness.info.label} can't run shell commands`);
-    await live.session.abortShell();
-  }
-
-  async setModel(id: string, model: ModelRef): Promise<void> {
-    this.requireSession(id);
-    const live = await this.ensureLive(id);
-    await live.session.setModel(model);
-  }
-
-  async setThinkingLevel(id: string, level: ThinkingLevel): Promise<void> {
-    this.requireSession(id);
-    const live = await this.ensureLive(id);
-    await live.session.setThinkingLevel(level);
-  }
-
-  // -------------------------------------------------------------------------------------------
-  // Slash-command support (Glade's own built-ins run in the web app; see docs/ARCHITECTURE.md)
-  // -------------------------------------------------------------------------------------------
-
-  /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
-  async listCommands(id: string): Promise<SlashCommand[]> {
-    const session = this.requireSession(id);
-    const harness = this.requireHarness(session);
-    if ((this.isDormantAgent(id) || this.isElsewhere(id)) && harness.listFolderCommands) {
-      // Don't start a closed sub-agent just for its slash menu; its folder's commands are the same.
-      const workspace = this.requireWorkspace(session.workspaceId);
-      return harness.listFolderCommands(workspace.cwd);
-    }
-    const live = await this.ensureLive(id);
-    return live.session.listCommands ? live.session.listCommands() : [];
-  }
-
-  async compact(id: string, instructions?: string): Promise<CompactResult> {
-    this.requireSession(id);
-    const live = await this.ensureLive(id);
-    if (!live.session.compact) throw new HttpError(409, "This agent can't compact its context");
-    if (live.running) throw new HttpError(409, "Wait for the current reply to finish before compacting");
-    if (live.session.getState().isCompacting) throw new HttpError(409, "Already compacting");
-    live.lastUsedAt = Date.now();
-    return live.session.compact(instructions?.trim() || undefined);
-  }
-
-  /** Export the session to an HTML file; optionally reveal it in Finder. */
-  async exportSession(id: string, options: { reveal?: boolean } = {}): Promise<{ path: string }> {
-    this.requireSession(id);
-    const live = await this.ensureLive(id);
-    if (!live.session.exportHtml) throw new HttpError(409, "This agent can't export chats");
-    const path = await live.session.exportHtml();
-    this.exported.add(path);
-    if (options.reveal) await this.revealPath(path);
-    return { path };
-  }
-
-  /** Reveal a file this server exported (arbitrary paths are refused). */
-  async revealPath(path: string): Promise<void> {
-    // Exported files, and files attached by reference (I-090).
-    if (!this.exported.has(path) && !(await this.attachments.isAttachment(path))) throw new HttpError(404, "Unknown file");
-    await (this.options.revealPath ?? createRevealPath())(path);
+  revealPath(path: string): Promise<void> {
+    return this.actions.revealPath(path);
   }
 
   respondToUi(id: string, response: UiResponse): void {
-    const session = this.requireSession(id);
-    const live = this.live.get(id);
-    if (!live) throw new HttpError(404, "Session is not running");
-    live.session.respondToUi(response);
-    const wasPending = this.removePendingUi(live, response.id);
-    this.emitSessionEvent(session, { type: "ui_request_closed", id: response.id });
-    if (wasPending) this.saveSession(session); // pendingInputs/status changed
-  }
-
-  private touchProject(projectId: string | null): void {
-    if (!projectId) return;
-    const project = this.store.getProject(projectId);
-    if (!project) return;
-    const next = { ...project, lastActivityAt: Date.now() };
-    this.store.upsertProject(next);
-    this.broadcast({ type: "project_upsert", project: next });
+    this.actions.respondToUi(id, response);
   }
 
   // -------------------------------------------------------------------------------------------
-  // Agent API (I-037): sub-agents as `subagent` sessions; see http/agents.ts
+  // Agent API (I-037, app/agent-team.ts): sub-agents as `subagent` sessions; see http/agents.ts
   // -------------------------------------------------------------------------------------------
 
   /** This server's base URL for agents (`GLADE_URL`); set once listening. Applies to new processes. */
   setServerUrl(url: string): void {
-    this.serverUrl = url.replace(/\/+$/, "");
+    this.ctx.serverUrl = url.replace(/\/+$/, "");
   }
 
-  /**
-   * Environment for a session's new agent process: its identity for the agent API, under the
-   * `GLADE_*` names and (for older agent-teams versions) the pre-rename `PI_UI_*` ones.
-   */
-  private agentEnv(session: Session): Record<string, string> {
-    if (!this.serverUrl) return {};
-    const values: Partial<Record<keyof typeof AGENT_ENV, string>> = {
-      url: this.serverUrl,
-      sessionId: session.id,
-      token: this.tokens.issue(session.id),
-    };
-    const agent = this.agents.get(session.id);
-    if (agent) values.agentName = agent.name;
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(values) as Array<[keyof typeof AGENT_ENV, string]>) {
-      env[AGENT_ENV[key]] = value;
-      env[LEGACY_AGENT_ENV[key]] = value;
-    }
-    return env;
-  }
-
-  /** The session a token belongs to (401 for unknown, revoked or stale tokens). */
   authenticateAgent(token: string | undefined): Session {
-    const sessionId = token ? this.tokens.sessionFor(token) : undefined;
-    const session = sessionId ? this.store.getSession(sessionId) : undefined;
-    if (!session) throw new HttpError(401, "Invalid agent token");
-    return session;
+    return this.team.authenticateAgent(token);
   }
 
-  /** Start a sub-agent in the caller's workspace (same folder); its first prompt is the task. */
-  async spawnAgent(callerId: string, req: SpawnAgentRequest): Promise<SpawnAgentResponse> {
-    const caller = this.requireSession(callerId);
-    if (caller.kind !== "main") throw new HttpError(403, "Sub-agents can't spawn agents");
-    const name = normalizeAgentName(req.name ?? "");
-    if (!name || name === MAIN_AGENT) throw new HttpError(400, `Invalid agent name "${req.name}"`);
-    const task = req.task?.trim();
-    if (!task) throw new HttpError(400, "task is required");
-    const keepOpenReason = req.keepOpenReason?.trim() || null;
-    if (req.keepOpen && !keepOpenReason) {
-      throw new HttpError(400, "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.");
-    }
-    // Precedence (I-078): the spawn request / agent definition → the sub-agent settings → the parent's.
-    const harness = this.requireHarness(caller);
-    const settingsModels = this.store.getSettings().models;
-    const model = req.model
-      ? await this.resolveModel(harness, req.model)
-      : ((await this.availableModel(harness, settingsModels.subagentModel)) ?? caller.model);
-    if (req.thinking !== undefined && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
-      throw new HttpError(400, `thinking must be one of ${THINKING_LEVELS.join(", ")}`);
-    }
-    const thinkingLevel = (req.thinking as ThinkingLevel | undefined) ?? settingsModels.subagentThinkingLevel ?? caller.thinkingLevel;
-
-    // No awaits from here until the record is registered, so parallel spawns can't overshoot.
-    if (this.agents.findActive(caller.id, name)) throw new HttpError(409, `An agent named "${name}" is already running. Pick another name.`);
-    const active = this.agents.activeIn(caller.workspaceId);
-    if (active.length >= MAX_ACTIVE_AGENTS) {
-      throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
-    }
-    const identity = pickAgentIdentity(active);
-    const agent = req.agent?.trim() || null;
-    const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
-    const systemPrompt = buildRolePrompt({
-      name,
-      teammates: active.filter((r) => r.parentSessionId === caller.id).map((r) => r.name),
-      agent,
-      agentPrompt: req.agentPrompt,
-    });
-    let record: AgentRecord | undefined;
-    const detail = await this.createSession(
-      caller.workspaceId,
-      { prompt: task, model, thinkingLevel },
-      {
-        kind: "subagent",
-        parentSessionId: caller.id,
-        agentName: name,
-        identity,
-        register: (session) => {
-          record = this.agents.upsert({
-            sessionId: session.id,
-            parentSessionId: caller.id,
-            workspaceId: caller.workspaceId,
-            name,
-            displayName: identity.displayName,
-            color: identity.color,
-            agent,
-            task,
-            systemPrompt,
-            tools,
-            autoClose: !req.keepOpen,
-            keepOpenReason: req.keepOpen ? keepOpenReason : null,
-            userEngaged: false,
-            spawnedAt: Date.now(),
-            doneAt: null,
-            result: null,
-            closing: false,
-            closed: false,
-          });
-          this.pushSessions([caller.id]); // its spawnedAgents changed
-        },
-      },
-    );
-    return { agent: agentInfo(this.agents.get(detail.session.id) ?? record!, detail.session.running) };
+  spawnAgent(callerId: string, req: SpawnAgentRequest): Promise<SpawnAgentResponse> {
+    return this.team.spawnAgent(callerId, req);
   }
 
-  /** `model` when the harness lists it, else `null` (a setting's model from another harness). */
-  private async availableModel(harness: AgentHarness, model: ModelRef | null): Promise<ModelRef | null> {
-    if (!model) return null;
-    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => sameModel(m, model)) ? model : null;
-  }
-
-  /** `provider/id`, or a bare id matched against the harness's models. */
-  private async resolveModel(harness: AgentHarness, value: string): Promise<ModelRef> {
-    const slash = value.indexOf("/");
-    if (slash > 0 && slash < value.length - 1) return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
-    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    const match = models.find((m) => m.id === value);
-    if (!match) throw new HttpError(400, `Unknown model "${value}"`);
-    return { provider: match.provider, id: match.id };
-  }
-
-  /** Message the parent (`to: "main"`, sub-agents only) or an active sub-agent of the team. */
   messageAgent(callerId: string, req: MessageAgentRequest): void {
-    const caller = this.requireSession(callerId);
-    const self = this.agents.get(caller.id);
-    const text = req.text?.trim();
-    if (!text) throw new HttpError(400, "text is required");
-    if (req.to === MAIN_AGENT) {
-      if (!self) throw new HttpError(400, 'You are the main session; message a sub-agent by name');
-      this.deliver(self.parentSessionId, messageText(self.name, req.text), "steer");
-      return;
-    }
-    const target = this.agents.findActive(self ? self.parentSessionId : caller.id, normalizeAgentName(req.to ?? ""));
-    if (!target || target.sessionId === caller.id) throw new HttpError(404, `No active agent named "${req.to}".`);
-    this.deliver(target.sessionId, messageText(self?.name ?? MAIN_AGENT, req.text), "steer");
+    this.team.messageAgent(callerId, req);
   }
 
-  /** The caller's team: its sub-agents (main) or its teammates (sub-agent). */
   listAgents(callerId: string): ListAgentsResponse {
-    const caller = this.requireSession(callerId);
-    const self = this.agents.get(caller.id);
-    const team = this.agents.childrenOf(self ? self.parentSessionId : caller.id);
-    return {
-      self: { sessionId: caller.id, role: self ? "subagent" : "main", name: self?.name ?? null },
-      agents: team.map((r) => agentInfo(r, this.live.get(r.sessionId)?.running ?? null)),
-    };
+    return this.team.listAgents(callerId);
   }
 
-  /**
-   * Close one of the caller's sub-agents (its tab and conversation go away): now if it's idle,
-   * else when its turn ends (30s at most). Closing an already closed agent is fine (idempotent).
-   */
-  async closeAgent(callerId: string, name: string): Promise<CloseAgentResponse> {
-    this.requireSession(callerId);
-    const target = this.agents.findLatest(callerId, normalizeAgentName(name ?? ""));
-    if (!target) throw new HttpError(404, `No agent named "${name}".`);
-    if (target.removed || !this.store.getSession(target.sessionId)) {
-      if (!target.removed) this.agents.update(target.sessionId, { closing: false, closed: true, removed: true });
-      return { closed: true, alreadyClosed: true };
-    }
-    if (!this.live.get(target.sessionId)?.running) {
-      await this.closeAgentSession(target.sessionId);
-      return { closed: true };
-    }
-    if (!target.closing) this.updateAgent(target.sessionId, { closing: true });
-    if (!this.agentTimers.has(target.sessionId) || !target.closing) {
-      this.setAgentTimer(target.sessionId, CLOSE_GRACE_MS, () => void this.closeAgentSession(target.sessionId));
-    }
-    return { closed: false };
+  closeAgent(callerId: string, name: string): Promise<CloseAgentResponse> {
+    return this.team.closeAgent(callerId, name);
   }
 
-  /** A sub-agent's result: delivered to its parent; the sub-agent stops after this turn unless kept open. */
   reportAgentDone(callerId: string, req: ReportDoneRequest): ReportDoneResponse {
-    this.requireSession(callerId);
-    const self = this.agents.get(callerId);
-    if (!self) throw new HttpError(403, "Only sub-agents can report_done");
-    const summary = req.summary?.trim();
-    if (!summary) throw new HttpError(400, "summary is required");
-    const closing = self.autoClose && !req.keepOpen && !self.userEngaged;
-    const record = this.updateAgent(callerId, { doneAt: Date.now(), result: summary, closing })!;
-    this.deliver(self.parentSessionId, doneText(record, summary), "followUp");
-    if (closing) {
-      // Normally at the end of the current turn (run_end); right away if it isn't running.
-      if (!this.live.get(callerId)?.running) void this.closeAgentSession(callerId);
-    } else if (!self.userEngaged) {
-      this.setAgentTimer(callerId, IDLE_CLOSE_MS, () => {
-        const current = this.agents.get(callerId);
-        if (current && !current.closed && !current.userEngaged && !this.live.get(callerId)?.running) void this.closeAgentSession(callerId);
-      });
-    }
-    return { closing };
-  }
-
-  /** Update a sub-agent's record and push its session (the browser shows its state, I-054). */
-  private updateAgent(sessionId: string, patch: Partial<AgentRecord>): AgentRecord | undefined {
-    const record = this.agents.update(sessionId, patch);
-    const session = this.store.getSession(sessionId);
-    if (record && session) this.saveSession(session);
-    return record;
-  }
-
-  /**
-   * Close a sub-agent for good (I-055): stop its process and delete its session, like closing a
-   * cmux pane; its result has been delivered to the parent. The record stays (closed, removed)
-   * so list_agents shows it and close_agent is idempotent.
-   */
-  private async closeAgentSession(sessionId: string): Promise<void> {
-    this.clearAgentTimer(sessionId);
-    const record = this.agents.get(sessionId);
-    if (!record || record.removed) return;
-    this.agents.update(sessionId, { closing: false, closed: true, removed: true });
-    const session = this.store.getSession(sessionId);
-    if (!session) return;
-    await this.disposeSession(session);
-    this.tokens.revoke(sessionId);
-    if (!this.store.getSession(sessionId)) return; // deleted meanwhile
-    this.store.removeSession(sessionId);
-    this.broadcast({ type: "session_removed", sessionId, workspaceId: session.workspaceId });
-    this.refreshWorkspace(session.workspaceId);
-  }
-
-  /**
-   * Send `text` to a session as a prompt (a follow-up or steer if it's running), in order per
-   * target. Failures are logged; the caller's request has already succeeded.
-   */
-  private deliver(targetId: string, text: string, behavior: "steer" | "followUp"): void {
-    const previous = this.deliveries.get(targetId) ?? Promise.resolve();
-    const next = previous
-      .then(async () => {
-        const giveUpAt = Date.now() + ELSEWHERE_RETRY_MS;
-        for (;;) {
-          if (!this.store.getSession(targetId) || this.disposed) return;
-          try {
-            const live = await this.ensureLive(targetId);
-            await this.sendPrompt(targetId, { text, behavior }, live);
-            return;
-          } catch (err) {
-            // The target runs in another server on this data folder (I-062): wait until it's free.
-            if (!(err instanceof ActiveElsewhereError) || Date.now() > giveUpAt) throw err;
-            await new Promise((r) => setTimeout(r, 2000).unref());
-          }
-        }
-      })
-      .catch((err: Error) => this.options.log?.(`agent-teams: delivery to ${targetId} failed: ${err.message}`));
-    this.deliveries.set(targetId, next);
-    void next.finally(() => {
-      if (this.deliveries.get(targetId) === next) this.deliveries.delete(targetId);
-    });
+    return this.team.reportAgentDone(callerId, req);
   }
 
   /** Wait for queued deliveries (tests). */
-  async settleAgentDeliveries(): Promise<void> {
-    while (this.deliveries.size) await Promise.all([...this.deliveries.values()]);
-  }
-
-  private setAgentTimer(sessionId: string, ms: number, fn: () => void): void {
-    this.clearAgentTimer(sessionId);
-    const timer = setTimeout(() => {
-      this.agentTimers.delete(sessionId);
-      fn();
-    }, ms);
-    timer.unref();
-    this.agentTimers.set(sessionId, timer);
-  }
-
-  private clearAgentTimer(sessionId: string): void {
-    const timer = this.agentTimers.get(sessionId);
-    if (timer) clearTimeout(timer);
-    this.agentTimers.delete(sessionId);
-  }
-
-  /** Drop a deleted session's sub-agent record (tokens go with its process). */
-  private forgetAgent(sessionId: string): void {
-    this.clearAgentTimer(sessionId);
-    this.tokens.revoke(sessionId);
-    this.agents.remove(sessionId);
+  settleAgentDeliveries(): Promise<void> {
+    return this.team.settleAgentDeliveries();
   }
 
   // -------------------------------------------------------------------------------------------
-  // Live session pool (one agent process per session)
+  // Live session pool (app/live-pool.ts) and lifecycle
   // -------------------------------------------------------------------------------------------
 
   /** Number of agent processes currently alive (for tests/diagnostics). */
   get liveCount(): number {
-    return this.live.size;
+    return this.pool.liveCount;
   }
 
-  private ensureLive(id: string): Promise<LiveSession> {
-    const existing = this.live.get(id);
-    // Our lease can only be lost if another server judged us gone (e.g. we hung); then restart.
-    const lost = !!existing && !!this.leases && !this.leases.holds(id);
-    if (existing && !lost) {
-      existing.lastUsedAt = Date.now();
-      return Promise.resolve(existing);
-    }
-    let pending = this.opening.get(id);
-    if (!pending) {
-      pending = (async () => {
-        if (lost) await this.closeLive(id);
-        return this.openLive(id);
-      })().finally(() => this.opening.delete(id));
-      this.opening.set(id, pending);
-    }
-    return pending;
-  }
-
-  /**
-   * Claim the session's lease before starting its process (I-062). Waits briefly for another
-   * server to hand over an idle session; a session it's busy with fails with 409.
-   */
-  private async acquireLease(id: string): Promise<void> {
-    if (!this.leases) return;
-    const blocking = await this.leases.acquire(id);
-    if (blocking) throw new ActiveElsewhereError(blocking);
-  }
-
-  /** Take the leases of sessions about to be deleted (all or nothing), so no server still runs them. */
-  private async takeLeases(sessions: Session[]): Promise<void> {
-    if (!this.leases) return;
-    const taken: string[] = [];
-    try {
-      for (const session of sessions) {
-        if (this.live.has(session.id) || !this.leases.foreignLeaseNow(session.id)) continue;
-        await this.acquireLease(session.id);
-        taken.push(session.id);
-      }
-    } catch (err) {
-      for (const id of taken) this.leases.release(id);
-      throw err;
-    }
-  }
-
-  /** 409 when another server is working on (or waiting for input in) this session right now. */
-  private assertNotBusyElsewhere(id: string): void {
-    if (!this.leases || this.live.has(id)) return;
-    const lease = this.leases.foreignLeaseNow(id);
-    if (lease && (lease.running || lease.pendingInputs > 0)) throw new ActiveElsewhereError(lease);
-  }
-
-  /** Tell other servers whether this session is working / waiting for input (its lease). */
-  private syncLease(id: string): void {
-    const live = this.live.get(id);
-    if (live && this.leases) this.leases.setState(id, { running: live.running, pendingInputs: live.pendingUi.size });
-  }
-
-  /**
-   * Another server wants a session we hold (I-062). Hand it over when our process is idle (stop
-   * it; closeLive releases the lease); refuse while it's busy or about to be.
-   */
-  private handleTakeoverRequest(id: string): void {
-    if (!this.leases || this.disposed) return;
-    const live = this.live.get(id);
-    if (this.opening.has(id)) return this.leases.refuseTakeover(id);
-    if (!live) return this.leases.release(id);
-    const busy =
-      live.running ||
-      live.pendingUi.size > 0 ||
-      live.shells.size > 0 ||
-      this.deliveries.has(id) ||
-      live.session.getState().isCompacting ||
-      (live.awaitingRun && Date.now() - live.lastPromptAt < 5000);
-    if (busy) return this.leases.refuseTakeover(id);
-    void this.closeLive(id);
-  }
-
-  /** Push sessions again (and their workspaces) because something outside our records changed. */
-  private pushSessions(ids: string[]): void {
-    if (this.disposed) return;
-    const workspaces = new Set<string>();
-    for (const id of ids) {
-      const session = this.store.getSession(id);
-      if (!session) continue;
-      this.broadcast({ type: "session_upsert", session: this.summarizeSession(session) });
-      workspaces.add(session.workspaceId);
-    }
-    for (const wid of workspaces) {
-      const workspace = this.store.getWorkspace(wid);
-      if (workspace) this.broadcast({ type: "workspace_upsert", workspace: this.summarizeWorkspace(workspace) });
-    }
-  }
-
-  /**
-   * Another server changed the shared files (I-062): push the changes to our clients. Sessions
-   * removed there stop here too; a run that ends unread while our clients view it is read.
-   */
-  private applyExternalChange(change: StoreChange): void {
-    if (this.disposed) return;
-    for (const project of change.projects.upserted) this.broadcast({ type: "project_upsert", project });
-    for (const projectId of change.projects.removed) this.broadcast({ type: "project_removed", projectId });
-    const removedWorkspaces = new Set(change.workspaces.removed);
-    const touched = new Set<string>(change.workspaces.upserted.map((w) => w.id));
-    for (const session of change.sessions.removed) {
-      if (this.live.has(session.id)) void this.closeLive(session.id);
-      this.viewers.delete(session.id);
-      this.clearAgentTimer(session.id);
-      this.tokens.revoke(session.id);
-      if (removedWorkspaces.has(session.workspaceId)) continue;
-      this.broadcast({ type: "session_removed", sessionId: session.id, workspaceId: session.workspaceId });
-      touched.add(session.workspaceId);
-    }
-    for (const workspaceId of removedWorkspaces) this.broadcast({ type: "workspace_removed", workspaceId });
-    for (const session of change.sessions.upserted) {
-      if (session.unread && !session.markedUnread && this.viewers.has(session.id)) {
-        this.saveSession({ ...session, unread: false });
-        continue;
-      }
-      this.broadcast({ type: "session_upsert", session: this.summarizeSession(session) });
-      touched.add(session.workspaceId);
-    }
-    for (const workspaceId of touched) {
-      const workspace = removedWorkspaces.has(workspaceId) ? undefined : this.store.getWorkspace(workspaceId);
-      if (workspace) this.broadcast({ type: "workspace_upsert", workspace: this.summarizeWorkspace(workspace) });
-    }
-    if (change.settings) this.broadcast({ type: "settings", settings: this.store.getSettings() });
-  }
-
-  /**
-   * Runs flagged in progress that no server runs any more (their server quit or crashed while
-   * we kept going) are interrupted, like at startup. Waits a moment to rule out a handover.
-   */
-  private checkOrphanedRuns(): void {
-    if (!this.leases || this.disposed) return;
-    const now = Date.now();
-    const seen = new Set<string>();
-    for (const session of this.store.listSessions()) {
-      if (!session.runInProgress || this.live.has(session.id) || this.opening.has(session.id)) continue;
-      if (this.leases.foreignLease(session.id)) continue;
-      seen.add(session.id);
-      const since = this.orphanSince.get(session.id) ?? now;
-      this.orphanSince.set(session.id, since);
-      if (now - since < ORPHAN_GRACE_MS || this.leases.isLeased(session.id)) continue;
-      this.orphanSince.delete(session.id);
-      this.saveSession({ ...session, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
-    }
-    for (const id of [...this.orphanSince.keys()]) if (!seen.has(id)) this.orphanSince.delete(id);
-  }
-
-  private async openLive(id: string): Promise<LiveSession> {
-    const record = this.requireSession(id);
-    const workspace = this.requireWorkspace(record.workspaceId);
-    const harness = this.requireHarness(record);
-    await this.acquireLease(id);
-    try {
-      return await this.startLive(id, record, workspace, harness);
-    } catch (err) {
-      if (!this.live.has(id)) this.leases?.release(id);
-      throw err;
-    }
-  }
-
-  private async startLive(id: string, record: Session, workspace: Workspace, harness: AgentHarness): Promise<LiveSession> {
-    mkdirSync(workspace.cwd, { recursive: true });
-    const agent = this.agents.get(id);
-    let session: HarnessSession;
-    try {
-      session = await harness.openSession({
-        cwd: workspace.cwd,
-        sessionRef: record.sessionRef,
-        model: record.model,
-        thinkingLevel: record.thinkingLevel,
-        env: this.agentEnv(record),
-        ...(agent ? { appendSystemPrompt: agent.systemPrompt, ...(agent.tools ? { tools: agent.tools } : {}) } : {}),
-      });
-    } catch (err) {
-      this.tokens.revoke(id);
-      throw err;
-    }
-    const transcript = await session.loadTranscript();
-    const live: LiveSession = {
-      harness,
-      session,
-      transcript,
-      pendingUi: new Map(),
-      uiTimers: new Map(),
-      running: session.getState().isRunning,
-      runStartedAt: session.getState().isRunning ? Date.now() : null,
-      lastUsedAt: Date.now(),
-      lastPromptAt: 0,
-      awaitingRun: false,
-      shells: new Set(),
-      unsubscribe: () => {},
-    };
-    const offEvent = session.onEvent((event) => this.handleEvent(id, live, event));
-    const offExit = session.onExit((error) => this.handleExit(id, live, error));
-    live.unsubscribe = () => {
-      offEvent();
-      offExit();
-    };
-    this.live.set(id, live);
-
-    // Persist the session reference / effective model once known.
-    const state = session.getState();
-    const current = this.requireSession(id);
-    if (current.sessionRef !== session.sessionRef || !current.model) {
-      this.saveSession({
-        ...current,
-        sessionRef: session.sessionRef ?? current.sessionRef,
-        model: current.model ?? state.model,
-        thinkingLevel: current.thinkingLevel ?? state.thinkingLevel,
-      });
-    }
-    if (current.titleSource === "user" || current.title !== "New chat") {
-      await session.setTitle(current.title).catch(() => {});
-    }
-    // Never evict the session we just opened for the caller.
-    this.evictIdle(id);
-    return live;
-  }
-
-  private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
-    const event = stampEvent(rawEvent);
-    live.transcript = applyAgentEvent(live.transcript, event);
-    if (event.type === "run_start") {
-      live.running = true;
-      live.runStartedAt = event.at ?? Date.now();
-    }
-    if (event.type === "run_end") {
-      live.running = false;
-      live.runStartedAt = null;
-    }
-    if (event.type === "run_start" || event.type === "run_end") live.awaitingRun = false;
-    if (event.type === "shell_start") live.shells.add(event.id);
-    if (event.type === "shell_end") {
-      live.shells.delete(event.id);
-      live.lastUsedAt = Date.now();
-    }
-    if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
-    if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
-
-    const session = this.store.getSession(id);
-    if (!session) return;
-    this.emitSessionEvent(session, event);
-
-    if (event.type === "run_start") {
-      const next: Session = { ...session, lastActivityAt: Date.now(), lastRunFailed: false, runInProgress: true };
-      delete next.interrupted;
-      this.saveSession(next, { touch: true });
-    } else if (event.type === "run_end") {
-      this.options.onRunEnd?.(id);
-      this.usage?.onRunEnd();
-      this.clearPendingUi(live);
-      live.lastUsedAt = Date.now();
-      this.saveSession(
-        { ...session, lastActivityAt: Date.now(), runInProgress: false, unread: session.unread || !this.viewers.has(id) },
-        { touch: true },
-      );
-      if (this.agents.get(id)?.closing) void this.closeAgentSession(id);
-      this.evictIdle();
-    } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
-      this.saveSession(session); // pendingInputs/status changed
-    } else if (
-      (event.type === "error" || (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error")) &&
-      !session.lastRunFailed
-    ) {
-      this.saveSession({ ...session, lastRunFailed: true });
-    } else if (event.type === "state" && (event.state.model || event.state.thinkingLevel)) {
-      const next = {
-        ...session,
-        model: event.state.model ?? session.model,
-        thinkingLevel: event.state.thinkingLevel ?? session.thinkingLevel,
-      };
-      const modelChanged = next.model !== session.model && !sameModel(next.model, session.model);
-      if (modelChanged || next.thinkingLevel !== session.thinkingLevel) this.saveSession(next);
-    }
-  }
-
-  private addPendingUi(sessionId: string, live: LiveSession, request: UiRequest): void {
-    live.pendingUi.set(request.id, request);
-    if (request.timeoutMs === undefined) return;
-    // The agent auto-resolves timed-out dialogs without telling us; don't stay "blocked" forever.
-    const timer = setTimeout(() => {
-      live.uiTimers.delete(request.id);
-      if (!live.pendingUi.delete(request.id) || this.live.get(sessionId) !== live) return;
-      const session = this.store.getSession(sessionId);
-      if (!session) return;
-      this.emitSessionEvent(session, { type: "ui_request_closed", id: request.id });
-      this.saveSession(session);
-    }, request.timeoutMs);
-    timer.unref();
-    live.uiTimers.set(request.id, timer);
-  }
-
-  private removePendingUi(live: LiveSession, requestId: string): boolean {
-    const timer = live.uiTimers.get(requestId);
-    if (timer) clearTimeout(timer);
-    live.uiTimers.delete(requestId);
-    return live.pendingUi.delete(requestId);
-  }
-
-  private clearPendingUi(live: LiveSession): void {
-    for (const timer of live.uiTimers.values()) clearTimeout(timer);
-    live.uiTimers.clear();
-    live.pendingUi.clear();
-  }
-
-  private handleExit(id: string, live: LiveSession, error: Error | null): void {
-    if (this.live.get(id) !== live) return;
-    this.clearPendingUi(live);
-    live.unsubscribe();
-    this.live.delete(id);
-    this.tokens.revoke(id);
-    const wasRunning = live.running;
-    const session = this.store.getSession(id);
-    if (!session) {
-      this.leases?.release(id);
-      return;
-    }
-    const agent = this.agents.get(id);
-    if (agent && !agent.closed) {
-      this.clearAgentTimer(id);
-      this.agents.update(id, { closed: true, closing: false }); // pushed with the session below
-      if (agent.doneAt === null) {
-        this.deliver(agent.parentSessionId, exitedText(agent.name, "Process ended without calling report_done (crashed)."), "followUp");
-      }
-    }
-    if (error) {
-      this.options.log?.(`session ${id}: agent exited: ${error.message}`);
-      this.emitSessionEvent(session, { type: "error", message: error.message });
-    }
-    if (error || wasRunning) {
-      this.emitSessionEvent(session, { type: "state", state: { isRunning: false } });
-      this.emitSessionEvent(session, { type: "run_end" });
-      // A crash ends the run: flag it, and mark unread like any run that ends off screen.
-      // Dying mid-run also means the work was cut off.
-      const unread = session.unread || !this.viewers.has(id);
-      const next: Session = { ...session, lastRunFailed: true, unread, runInProgress: false };
-      if (wasRunning || session.runInProgress) next.interrupted = true;
-      this.saveSession(next);
-    } else {
-      this.saveSession(session);
-    }
-    this.releaseLease(id);
-  }
-
-  /** Give a session's lease back once its process is gone; its record is written first. */
-  private releaseLease(id: string): void {
-    if (!this.leases) return;
-    this.store.flush();
-    this.leases.release(id);
-  }
-
-  /**
-   * Stop a session's agent process. Unless `quiet` (server shutdown: the run stays flagged so
-   * it shows as interrupted next start), clients are told it stopped: events after this point are
-   * no longer forwarded, so without a final `state`/`run_end` a tab would stay on "Working…".
-   */
-  private async closeLive(id: string, { quiet = false } = {}): Promise<void> {
-    const live = this.live.get(id);
-    if (!live) return;
-    const dialogs = [...live.pendingUi.keys()];
-    this.clearPendingUi(live);
-    live.unsubscribe();
-    this.live.delete(id);
-    this.tokens.revoke(id);
-    const session = this.store.getSession(id);
-    if (session && !quiet) {
-      for (const dialog of dialogs) this.emitSessionEvent(session, { type: "ui_request_closed", id: dialog });
-      if (live.running) this.emitSessionEvent(session, { type: "run_end" });
-      this.emitSessionEvent(session, { type: "state", state: { isRunning: false } });
-      if (live.running || dialogs.length || session.runInProgress) this.saveSession({ ...session, runInProgress: false });
-    }
-    await live.session.dispose();
-    // Only if no new process started meanwhile (e.g. reopened right away).
-    if (!this.live.has(id) && !this.opening.has(id)) this.releaseLease(id);
-  }
-
-  /** Keep at most `maxIdleProcesses` idle sessions alive (least recently used go first). */
-  private evictIdle(keepId?: string): void {
-    const max = this.store.getSettings().agent.maxIdleProcesses;
-    const idle = [...this.live.entries()]
-      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && !this.viewers.has(id))
-      .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
-    const excess = idle.length - max;
-    for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);
+  /** Stop a session's agent process (the multi-server tests call this). */
+  private closeLive(id: string): Promise<void> {
+    return this.pool.closeLive(id);
   }
 
   /** Drop every session lease we hold (synchronous; the exit hook, when dispose() didn't run). */
   releaseLeases(): void {
-    this.leases?.releaseAll();
+    this.ctx.leases?.releaseAll();
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true;
-    this.leases?.stop();
+    const { ctx } = this;
+    ctx.disposed = true;
+    ctx.leases?.stop();
     for (const off of this.unwatch.splice(0)) off();
-    this.usage?.stop();
-    for (const timer of this.agentTimers.values()) clearTimeout(timer);
-    this.agentTimers.clear();
-    this.agents.flush();
-    await Promise.all([...this.live.keys()].map((id) => this.closeLive(id, { quiet: true })));
-    await this.harnesses.dispose();
-    this.store.dispose();
-    this.leases?.releaseAll();
-  }
-}
-
-/** Timing stamps on run/tool/shell events (I-070): harnesses don't send them, the server adds them once. */
-function stampEvent(event: AgentEvent): AgentEvent {
-  switch (event.type) {
-    case "run_start":
-    case "tool_start":
-    case "tool_end":
-    case "shell_start": // I-076
-    case "shell_end":
-      return event.at === undefined ? { ...event, at: Date.now() } : event;
-    default:
-      return event;
+    ctx.usage?.stop();
+    ctx.agentTimers.clearAll();
+    ctx.agents.flush();
+    await Promise.all([...ctx.live.keys()].map((id) => this.pool.closeLive(id, { quiet: true })));
+    await ctx.harnesses.dispose();
+    ctx.store.dispose();
+    ctx.leases?.releaseAll();
   }
 }

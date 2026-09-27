@@ -20,6 +20,15 @@
 | `apps/web`          | Preact UI. Vite dev server on 127.0.0.1:5317 proxies `/api` and `/ws`.               |
 | `apps/desktop`      | Tauri v2 macOS shell (`src-tauri/`): runs the bundled server, native chrome/menus.   |
 
+Server core (I-094): `services/app-service.ts` is `AppService`, a thin facade and the only API
+http/* and ws use. It creates one `AppContext` (`services/app/context.ts`: shared maps, registry,
+leases, broadcast) and wires the modules in `services/app/`: records (lookups, summaries, save and
+push) → live-pool (agent processes, events, exits, eviction) → lease-sync (multi-server leases,
+external changes, orphaned runs) → titles → session-actions (prompt, shell, model, commands, dialogs,
+attachments) → sessions (create, read, update, delete) → workspaces → projects, with agent-team (the
+agent API and delivery queue) on top. Modules import only lower layers; the few upward calls (the
+pool and sessions to the agent team, titles to workspaces) are hooks the facade wires.
+
 ## Harnesses
 
 `apps/server/src/harness/types.ts` defines `AgentHarness` (`info` = label + capabilities, list
