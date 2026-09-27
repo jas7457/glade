@@ -44,8 +44,22 @@ export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
   web: (i, active) =>
     i.url
       ? { verb: verb(active, "Fetched", "Fetching"), subject: truncate(i.url), mono: true }
-      : { verb: verb(active, "Searched the web for", "Searching the web for"), subject: truncate(i.query ?? ""), mono: false },
+      : i.query !== undefined || i.description === undefined
+        ? { verb: verb(active, "Searched the web for", "Searching the web for"), subject: truncate(i.query ?? ""), mono: false }
+        : { verb: verb(active, "Read web results", "Reading web results"), subject: truncate(i.description), mono: false },
   task: (i, active) => ({ verb: verb(active, "Ran task", "Running task"), subject: truncate(i.description ?? ""), mono: false }),
+  agent: (i, active) => {
+    if (i.agentAction === "list") return { verb: verb(active, "Listed agents", "Listing agents"), subject: "", mono: false };
+    if (i.agentAction === "close") return { verb: verb(active, "Closed", "Closing"), subject: i.agentName ?? "", mono: false };
+    const text = i.description ? `: ${i.description}` : "";
+    return { verb: verb(active, "Messaged", "Messaging"), subject: truncate(`${i.agentName ?? ""}${text}`), mono: false };
+  },
+  mcp: (i, active) => {
+    if (i.tool) return { verb: verb(active, "Called", "Calling"), subject: i.server ? `${i.server} › ${i.tool}` : i.tool, mono: true };
+    if (i.query) return { verb: verb(active, "Searched MCP tools for", "Searching MCP tools for"), subject: truncate(i.query), mono: false };
+    if (i.description === "script") return { verb: verb(active, "Ran MCP script", "Running MCP script"), subject: "", mono: false };
+    return { verb: "MCP", subject: truncate([i.server, i.description].filter(Boolean).join(" · ")), mono: false };
+  },
 };
 
 /** Preview of arbitrary args: string/number values joined, truncated. */

@@ -32,13 +32,26 @@ const FIXTURES: Array<{ name: string; args: Json; kind: string; input: unknown }
   { name: "find", args: { pattern: "**/*.test.ts", path: "apps", limit: 50 }, kind: "search", input: { pattern: "**/*.test.ts", path: "apps" } },
   { name: "ls", args: { path: "src", limit: 100 }, kind: "list", input: { path: "src" } },
   { name: "ls", args: {}, kind: "list", input: {} },
-  // Extension tools have no canonical shape: shown from their raw name/args.
-  { name: "web_search", args: { queries: ["a", "b"] }, kind: "other", input: undefined },
+  // ext-kit web tools (I-089).
+  { name: "web_search", args: { queries: ["a", "b"] }, kind: "web", input: { query: "a · b" } },
+  { name: "web_search", args: { query: "q" }, kind: "web", input: { query: "q" } },
+  { name: "fetch_content", args: { url: "https://x.dev" }, kind: "web", input: { url: "https://x.dev" } },
+  { name: "fetch_content", args: { urls: ["https://a", "https://b"] }, kind: "web", input: { url: "https://a (+1 more)" } },
+  { name: "get_search_content", args: { responseId: "r", findText: "Source:" }, kind: "web", input: { description: 'looking for "Source:"' } },
+  { name: "source_check", args: { claim: "c" }, kind: "web", input: { query: "c" } },
   // ext-kit agent-teams: spawn_agent is a task (I-084); the rest stay other.
   { name: "spawn_agent", args: { name: "reviewer", task: "\n  Review the diff.  \nDetails…" }, kind: "task", input: { agentName: "reviewer", description: "Review the diff." } },
   { name: "spawn_agent", args: {}, kind: "task", input: {} },
-  { name: "message_agent", args: { to: "x", text: "y" }, kind: "other", input: undefined },
-  { name: "mcp__chrome_devtools", args: { tool: "take_snapshot" }, kind: "other", input: undefined },
+  // The other agent-teams tools and MCP (I-089).
+  { name: "message_agent", args: { to: "x", text: "y\nmore" }, kind: "agent", input: { agentAction: "message", agentName: "x", description: "y" } },
+  { name: "close_agent", args: { name: "x" }, kind: "agent", input: { agentAction: "close", agentName: "x" } },
+  { name: "list_agents", args: {}, kind: "agent", input: { agentAction: "list" } },
+  { name: "mcp__chrome_devtools", args: { tool: "take_snapshot" }, kind: "mcp", input: { server: "chrome-devtools", tool: "take_snapshot" } },
+  { name: "mcp", args: { search: "screenshot" }, kind: "mcp", input: { query: "screenshot" } },
+  { name: "mcp", args: { server: "chrome-devtools" }, kind: "mcp", input: { server: "chrome-devtools", description: "listed tools" } },
+  { name: "mcpScript", args: { code: "…" }, kind: "mcp", input: { description: "script" } },
+  // Anything else has no canonical shape: shown from its raw name/args.
+  { name: "some_extension_tool", args: { a: 1 }, kind: "other", input: undefined },
 ];
 
 describe("pi tool mapping", () => {
@@ -198,7 +211,7 @@ describe("live events", () => {
   it("other tools stream raw deltas only", () => {
     const { out } = run([
       start,
-      update({ type: "toolcall_start", contentIndex: 0, id: "o1", toolName: "web_search" }),
+      update({ type: "toolcall_start", contentIndex: 0, id: "o1", toolName: "some_extension_tool" }),
       update({ type: "toolcall_delta", contentIndex: 0, delta: '{"query":"x"}' }),
     ]);
     expect(out[1]).toMatchObject({ type: "block_start", block: { kind: "other" } });

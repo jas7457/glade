@@ -106,6 +106,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Web searches and fetches, messages to sub-agents and MCP tool calls now have their own colours
+  and readable summaries ("Searched the web for …", "Messaged reviewer: …", "Called
+  chrome-devtools › take_snapshot") instead of a grey raw tool name.
 - Finished "Ran 3 tool calls" rows are coloured like single tool calls, by the kind of tool they
   used most (green for commands, blue for reads, …), instead of grey.
 - Replies use the same softer palette as agents: inline code is violet and list numbers and bullets

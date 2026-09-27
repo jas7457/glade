@@ -31,9 +31,11 @@ export type ToolKind =
   | "list" // list a folder
   | "web" // fetch a URL or search the web
   | "task" // delegate to a sub-agent
+  | "agent" // talk to / manage sub-agents (message, close, list; I-089)
+  | "mcp" // call a tool on an MCP server (I-089)
   | "other";
 
-export const TOOL_KINDS: readonly ToolKind[] = ["shell", "read", "write", "edit", "search", "list", "web", "task", "other"];
+export const TOOL_KINDS: readonly ToolKind[] = ["shell", "read", "write", "edit", "search", "list", "web", "task", "agent", "mcp", "other"];
 
 /** One exact-text replacement of an `edit` call. */
 export interface ToolEdit {
@@ -68,8 +70,14 @@ export interface ToolInput {
   query?: string;
   /** task: what the sub-agent was asked to do (short); shell: optional description. */
   description?: string;
-  /** task: the spawned agent's name (links the call to its sub-agent session, I-084). */
+  /** task: the spawned agent's name (links the call to its sub-agent session, I-084); agent: the agent addressed. */
   agentName?: string;
+  /** agent: what was done (I-089). */
+  agentAction?: "message" | "close" | "list";
+  /** mcp: the MCP server (I-089). */
+  server?: string;
+  /** mcp: the tool called on it; web/mcp without a canonical shape: see `description`. */
+  tool?: string;
 }
 
 export interface ToolCallBlock {

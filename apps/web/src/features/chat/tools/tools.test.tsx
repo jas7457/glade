@@ -38,6 +38,14 @@ describe("summarizeToolCall", () => {
     expect(summary("web", { url: "https://example.com" })).toBe("Fetched https://example.com");
     expect(summary("web", { query: "preact signals" }, true)).toBe("Searching the web for preact signals");
     expect(summary("task", { description: "Review the diff" })).toBe("Ran task Review the diff");
+    // I-089: web results lookups, agent-teams and MCP.
+    expect(summary("web", { description: 'looking for "Source:"' })).toBe('Read web results looking for "Source:"');
+    expect(summary("agent", { agentAction: "message", agentName: "reviewer", description: "Please check" })).toBe("Messaged reviewer: Please check");
+    expect(summary("agent", { agentAction: "close", agentName: "reviewer" }, true)).toBe("Closing reviewer");
+    expect(summary("agent", { agentAction: "list" })).toBe("Listed agents");
+    expect(summary("mcp", { server: "chrome-devtools", tool: "take_snapshot" })).toBe("Called chrome-devtools › take_snapshot");
+    expect(summary("mcp", { query: "screenshot" })).toBe("Searched MCP tools for screenshot");
+    expect(summary("mcp", { description: "script" }, true)).toBe("Running MCP script");
   });
 
   it("truncates long / multi-line commands", () => {

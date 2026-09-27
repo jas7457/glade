@@ -45,7 +45,9 @@
 [data-tone="search"] { --pi-tone: var(--pi-tool-search); }
 [data-tone="list"] { --pi-tone: var(--pi-tool-list); }
 [data-tone="web"] { --pi-tone: var(--pi-tool-web); }
-[data-tone="task"] { --pi-tone: var(--pi-tool-task); }
+[data-tone="task"],
+[data-tone="agent"] { --pi-tone: var(--pi-tool-task); }
+[data-tone="mcp"] { --pi-tone: var(--pi-tool-mcp); }
 [data-tone="danger"] { --pi-tone: var(--pi-danger); }
 [data-tone="warning"] { --pi-tone: var(--pi-warning); }
 

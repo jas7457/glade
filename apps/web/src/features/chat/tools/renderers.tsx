@@ -5,7 +5,7 @@
  */
 import type { ComponentType } from "preact";
 import type { DiffLine, ToolCallBlock, ToolKind, ToolResult } from "@glade/protocol";
-import { Bot, FilePen, FilePlus, FileText, FolderOpen, Globe, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
+import { Bot, FilePen, FilePlus, FileText, FolderOpen, Globe, MessagesSquare, Plug, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { CodeView } from "../Markdown";
 import type { ToolCallStatus } from "../grouping";
@@ -205,6 +205,9 @@ export const toolRenderers: Record<ToolKind, ToolRenderer> = {
   list: { icon: FolderOpen, Body: PlainOutputBody },
   web: { icon: Globe, Body: PlainOutputBody },
   task: { icon: Bot, Body: PlainOutputBody },
+  // Agent messages and MCP calls show their args too (the message text, the tool's arguments).
+  agent: { icon: MessagesSquare, Body: DefaultBody },
+  mcp: { icon: Plug, Body: DefaultBody },
   other: fallbackRenderer,
 };
 

@@ -123,6 +123,7 @@
   --pi-tool-list: #0f766e;
   --pi-tool-web: #0e7490;
   --pi-tool-task: #bf3989;
+  --pi-tool-mcp: #4f46e5;
   --pi-tool-other: rgb(0 0 0 / 0.55);
   /* Tint behind a tool icon: this much of the tool colour mixed into the window colour. */
   --pi-tool-tint: 13%;
@@ -187,6 +188,7 @@
   --pi-tool-list: #3fc9b5;
   --pi-tool-web: #4cc9e8;
   --pi-tool-task: #f778ba;
+  --pi-tool-mcp: #a5a8ff;
   --pi-tool-other: rgb(255 255 255 / 0.55);
   --pi-tool-tint: 16%;
   --pi-agent-coral: #ff8f6b;

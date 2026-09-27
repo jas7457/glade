@@ -4,8 +4,9 @@
  * pi's built-in tools (`bash`, `powershell`, `read`, `write`, `edit`, `grep`, `find`, `ls`) get a
  * canonical {@link ToolKind} and a normalized {@link ToolInput}; the edit tool's display diff
  * (`details.diff`) becomes normalized {@link DiffLine}s. ext-kit's `spawn_agent` is a `task`
- * (`agentName` + the task's first line). Other extension tools (web_search, message_agent,
- * MCP…) stay `other` and are shown from their raw name/args. Pure; no I/O.
+ * (`agentName` + the task's first line). ext-kit's web tools are `web`, its agent-teams tools
+ * `agent`, and MCP tools (`mcp`, `mcpScript`, `mcp__<server>`) `mcp` (I-089). Anything else stays
+ * `other` and is shown from its raw name/args. Pure; no I/O.
  */
 import type { DiffLine, ToolCallBlock, ToolEdit, ToolInput, ToolKind } from "@glade/protocol";
 
@@ -22,11 +23,59 @@ const KINDS = new Map<string, ToolKind>([
   ["ls", "list"],
   // ext-kit agent-teams (I-084): shown as the spawned agent's card.
   ["spawn_agent", "task"],
+  // ext-kit web tools, agent-teams tools and the MCP adapter (I-089).
+  ["web_search", "web"],
+  ["fetch_content", "web"],
+  ["get_search_content", "web"],
+  ["source_check", "web"],
+  ["message_agent", "agent"],
+  ["close_agent", "agent"],
+  ["list_agents", "agent"],
+  ["mcp", "mcp"],
+  ["mcpScript", "mcp"],
 ]);
 
 /** Canonical kind of a pi tool (by name). */
 export function piToolKind(name: string): ToolKind {
-  return KINDS.get(name) ?? "other";
+  return KINDS.get(name) ?? (name.startsWith("mcp__") ? "mcp" : "other");
+}
+
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);
+
+/** web: a search's query (one or several), a fetched URL, or what a results lookup looked for. */
+function webInput(name: string, a: Args): ToolInput {
+  const urls = [str(a.url), ...strList(a.urls)].filter((u): u is string => !!u);
+  const queries = [str(a.query), ...strList(a.queries)].filter((q): q is string => !!q);
+  switch (name) {
+    case "fetch_content":
+      return compact({ url: urls.length > 1 ? `${urls[0]} (+${urls.length - 1} more)` : urls[0] });
+    case "source_check":
+      return compact({ query: str(a.claim) ?? queries[0] });
+    case "get_search_content": {
+      const find = Array.isArray(a.findText) ? strList(a.findText).join(", ") : str(a.findText);
+      return compact({ description: find ? `looking for "${find}"` : str(a.query) ?? str(a.url) ?? "saved results" });
+    }
+    default:
+      return compact({ query: queries.join(" · ") || undefined });
+  }
+}
+
+/** agent: who was messaged/closed, and a preview of the message. */
+function agentInput(name: string, a: Args): ToolInput {
+  if (name === "list_agents") return { agentAction: "list" };
+  if (name === "close_agent") return compact({ agentAction: "close", agentName: str(a.name) });
+  return compact({ agentAction: "message", agentName: str(a.to), description: firstLine(a.text) });
+}
+
+/** mcp: the server and tool, or what the gateway call did (search, describe, a script…). */
+function mcpInput(name: string, a: Args): ToolInput {
+  if (name.startsWith("mcp__")) return compact({ server: name.slice("mcp__".length).replace(/_/g, "-"), tool: str(a.tool) });
+  if (name === "mcpScript") return compact({ description: "script" });
+  if (str(a.tool)) return compact({ server: str(a.server), tool: str(a.tool) });
+  if (str(a.search)) return compact({ query: str(a.search) });
+  if (str(a.describe)) return compact({ description: `described ${str(a.describe)}` });
+  if (str(a.action)) return compact({ server: str(a.server), description: str(a.action) });
+  return compact({ server: str(a.server ?? a.connect), description: str(a.server ?? a.connect) ? "listed tools" : "status" });
 }
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
@@ -97,6 +146,12 @@ export function piToolInput(name: string, args: Args | undefined, options: PiToo
       return compact({ path: str(a.path) });
     case "task":
       return compact({ agentName: str(a.name), description: str(firstLine(a.task)) });
+    case "web":
+      return webInput(name, a);
+    case "agent":
+      return agentInput(name, a);
+    case "mcp":
+      return mcpInput(name, a);
     default:
       return undefined;
   }
