@@ -36,7 +36,8 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/** Shared JSON request helper; feature-specific clients (e.g. `lib/api-search.ts`) build on it. */
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     headers: body !== undefined ? { "content-type": "application/json" } : undefined,
