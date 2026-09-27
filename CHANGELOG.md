@@ -106,6 +106,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Replies use the same softer palette as agents: inline code is violet and list numbers and bullets
+  are sky blue.
 - Sub-agent chips above the composer have a fixed width, so they no longer jump around as their
   latest message changes.
 - Sub-agents get a fun name and their own colour ("Maya · reviewer"). They show as small chips

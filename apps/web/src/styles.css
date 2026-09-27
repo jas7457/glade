@@ -103,9 +103,10 @@
    * markers, links, headings, quote border, table header. Text colours meet WCAG AA on the
    * window background.
    */
-  --pi-md-code: #0a7067;
+  /* Inline code violet and list markers sky blue, from the agent palette (I-087). */
+  --pi-md-code: var(--pi-agent-violet);
   --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 9%, transparent);
-  --pi-md-bullet: var(--pi-accent);
+  --pi-md-bullet: var(--pi-agent-sky);
   --pi-md-link: #0064d1;
   --pi-md-heading: var(--pi-fg-strong);
   --pi-md-strong: var(--pi-fg-strong);
@@ -175,8 +176,8 @@
   --pi-danger-fill: #d9363e;
   --pi-warning-tint: color-mix(in srgb, var(--pi-warning) 14%, transparent);
   --pi-danger-tint: color-mix(in srgb, var(--pi-danger) 14%, transparent);
-  --pi-md-code: #5fd4c4;
-  --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 11%, transparent);
+  --pi-md-code: var(--pi-agent-violet);
+  --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 13%, transparent);
   --pi-md-link: #4ea4ff;
   --pi-md-table-head: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-code));
   --pi-tool-shell: #56d364;
