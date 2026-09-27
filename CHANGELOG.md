@@ -112,6 +112,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The agent's chat tools have their own colour and readable rows ("Found 3 chats for …", "Opened
+  chat …").
+- Sub-agent reports no longer end up in chat titles or summaries, and search shows them as agent
+  messages rather than your words.
 - Sub-agent chips are narrower and left-aligned, and start with the agent's status (spinner, check,
   needs input, failed) instead of a coloured dot.
 - Internal: the server's core was split into small focused modules (no visible change); future

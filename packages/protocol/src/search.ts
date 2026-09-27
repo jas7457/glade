@@ -38,9 +38,12 @@ export interface SearchHit {
   project: string | null;
   /** Best matching passage (a message, the title or the summary). */
   snippet: HighlightedText;
-  /** Where the snippet comes from. */
-  matchedIn: "title" | "summary" | "user" | "assistant";
-  /** The matched message, for `user`/`assistant` matches whose timestamp is known (I-093). */
+  /**
+   * Where the snippet comes from. `agent`: a sub-agent's report/message delivered to the chat as
+   * a prompt (I-100), not the user's own words.
+   */
+  matchedIn: "title" | "summary" | "user" | "assistant" | "agent";
+  /** The matched message, for `user`/`assistant`/`agent` matches whose timestamp is known (I-093). */
   message?: MessageAnchor;
   /** Higher is better. Only meaningful within one response. */
   score: number;

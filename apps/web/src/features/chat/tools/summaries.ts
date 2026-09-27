@@ -15,7 +15,8 @@ export interface ToolSummary {
 }
 
 type Args = Record<string, unknown>;
-type Summarizer = (input: ToolInput, active: boolean) => ToolSummary;
+/** `output` is the call's result text once it has one (only the chat tools read it). */
+type Summarizer = (input: ToolInput, active: boolean, output?: string) => ToolSummary;
 
 const MAX_SUBJECT = 120;
 
@@ -60,7 +61,40 @@ export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
     if (i.description === "script") return { verb: verb(active, "Ran MCP script", "Running MCP script"), subject: "", mono: false };
     return { verb: "MCP", subject: truncate([i.server, i.description].filter(Boolean).join(" · ")), mono: false };
   },
+  chat: (i, active, output) => {
+    if (i.chatAction === "find") {
+      const query = i.query ? `"${truncate(i.query)}"` : "";
+      const count = active ? undefined : foundChats(output);
+      if (count === undefined) return { verb: verb(active, "Searched chats for", "Searching chats for"), subject: query, mono: false };
+      return { verb: `Found ${count === 0 ? "no" : count} ${count === 1 ? "chat" : "chats"} for`, subject: query, mono: false };
+    }
+    const title = active ? undefined : chatTitle(output);
+    const subject = title ? `"${truncate(title)}"` : (i.chatId ?? "");
+    if (i.chatAction === "open") {
+      const hidden = !active && !!output?.startsWith("No Glade window is open");
+      return { verb: hidden ? "No window to show chat" : verb(active, "Opened chat", "Opening chat"), subject, mono: !title };
+    }
+    return { verb: verb(active, "Read chat", "Reading chat"), subject, mono: !title };
+  },
 };
+
+/**
+ * Chat tools' results (ext-kit agent-teams, I-099): `N chat(s) (…):` / `No chats found for "…".`
+ * from find_chats; read_chat starts with `"<title>" — …`, open_chat says `Opened "<title>" in
+ * Glade.` (or `No Glade window is open; "<title>" will not be shown…`).
+ */
+function foundChats(output: string | undefined): number | undefined {
+  if (!output) return undefined;
+  if (output.startsWith("No chats found for ")) return 0;
+  const m = /^(\d+) chat\(s\)/.exec(output);
+  return m ? Number(m[1]) : undefined;
+}
+
+function chatTitle(output: string | undefined): string | undefined {
+  const first = output?.split("\n", 1)[0] ?? "";
+  const m = /^"(.+)" — /.exec(first) ?? /^Opened "(.+)" in Glade\.$/.exec(first) ?? /^No Glade window is open; "(.+)" will not be shown/.exec(first);
+  return m?.[1] || undefined;
+}
 
 /** Preview of arbitrary args: string/number values joined, truncated. */
 export function argsPreview(args: Args): string {
@@ -94,10 +128,15 @@ export function partialArgs(argsText: string | undefined): Args {
   return out;
 }
 
-export function summarizeToolCall(call: Pick<ToolCallBlock, "name" | "kind" | "input" | "args" | "argsText">, active: boolean): ToolSummary {
+export function summarizeToolCall(
+  call: Pick<ToolCallBlock, "name" | "kind" | "input" | "args" | "argsText">,
+  active: boolean,
+  /** The result's text, when the call has one (a few kinds summarize what they found). */
+  output?: string,
+): ToolSummary {
   // Looked up defensively: a kind this build doesn't know renders like `other`.
   const summarizer = call.kind === "other" ? undefined : (toolSummarizers[call.kind] as Summarizer | undefined);
-  if (summarizer) return summarizer(call.input ?? {}, active);
+  if (summarizer) return summarizer(call.input ?? {}, active, output);
   return { verb: call.name, subject: argsPreview(call.args ?? partialArgs(call.argsText)), mono: false };
 }
 

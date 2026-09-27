@@ -50,6 +50,10 @@ const FIXTURES: Array<{ name: string; args: Json; kind: string; input: unknown }
   { name: "mcp", args: { search: "screenshot" }, kind: "mcp", input: { query: "screenshot" } },
   { name: "mcp", args: { server: "chrome-devtools" }, kind: "mcp", input: { server: "chrome-devtools", description: "listed tools" } },
   { name: "mcpScript", args: { code: "…" }, kind: "mcp", input: { description: "script" } },
+  // ext-kit's Glade chat tools (I-099).
+  { name: "find_chats", args: { query: "toolbar button", limit: 3 }, kind: "chat", input: { chatAction: "find", query: "toolbar button" } },
+  { name: "read_chat", args: { id: "s-1", limit: 10 }, kind: "chat", input: { chatAction: "read", chatId: "s-1" } },
+  { name: "open_chat", args: { id: "s-1" }, kind: "chat", input: { chatAction: "open", chatId: "s-1" } },
   // Anything else has no canonical shape: shown from its raw name/args.
   { name: "some_extension_tool", args: { a: 1 }, kind: "other", input: undefined },
 ];

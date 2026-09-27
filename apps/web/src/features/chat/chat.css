@@ -48,6 +48,7 @@
 [data-tone="task"],
 [data-tone="agent"] { --pi-tone: var(--pi-tool-task); }
 [data-tone="mcp"] { --pi-tone: var(--pi-tool-mcp); }
+[data-tone="chat"] { --pi-tone: var(--pi-tool-chat); }
 [data-tone="danger"] { --pi-tone: var(--pi-danger); }
 [data-tone="warning"] { --pi-tone: var(--pi-warning); }
 

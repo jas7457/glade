@@ -5,6 +5,7 @@
 import {
   firstMainSession,
   messageText as transcriptText,
+  parseAgentMessage,
   sameModel,
   type GenerateTitleResponse,
   type ModelInfo,
@@ -48,6 +49,8 @@ export class Titles {
     const session = this.ctx.store.getSession(id);
     const harness = session && this.ctx.harnesses.get(session.harness);
     if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
+    // A sub-agent's report/message isn't the user's words (I-100).
+    if (parseAgentMessage(firstMessage)) return;
     const workspace = this.ctx.store.getWorkspace(session.workspaceId);
     if (!workspace) return;
     // The chat's own harness writes its title (the small model is one of its models).
@@ -76,7 +79,7 @@ export class Titles {
     const workspace = this.records.requireWorkspace(session.workspaceId);
     const messages = await this.conversationText(session, harness);
     const excerpt = conversationExcerpt(messages);
-    const firstMessage = messages.find((m) => m.role === "user" && m.text.trim())?.text;
+    const firstMessage = messages.find((m) => m.role === "user" && m.text.trim() && !parseAgentMessage(m.text))?.text;
     if (!excerpt || !firstMessage) throw new HttpError(409, "Nothing to name yet: this chat has no messages");
     const title = await generateTitleWith(harness, {
       firstMessage,

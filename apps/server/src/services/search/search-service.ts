@@ -31,6 +31,7 @@ import {
   type WorkspaceSummary,
 } from "@glade/protocol";
 import { JsonFile } from "../../store/json-file.js";
+import { agentMessageText, isAgentMessage } from "./agent-text.js";
 import { cleanSummary, finderPrompt, parseFinderReply, summaryPrompt, type FinderCandidate } from "./finder.js";
 import { TextIndex, type FieldInput } from "./text-index.js";
 import type { SmallModel, SessionTextMessage, SessionTextReader } from "./types.js";
@@ -216,7 +217,7 @@ export class SearchService {
 
     const candidates: FinderCandidate[] = ids.map((id, i) => {
       const { session, workspace, project } = ctx.resolve(id)!;
-      const opening = this.cache.get().sessions[id]?.messages.find((m) => m.role === "user")?.text ?? null;
+      const opening = this.cache.get().sessions[id]?.messages.find((m) => m.role === "user" && !isAgentMessage(m))?.text ?? null;
       return {
         label: `c${i + 1}`,
         title: session.title || workspace.title,
@@ -359,7 +360,10 @@ export class SearchService {
     if (summary) fields.push({ kind: "summary", text: summary });
     for (const m of text?.messages ?? []) {
       // The timestamp locates the message in the web transcript (I-093); 0 = unknown.
-      fields.push({ kind: m.role, text: m.text, ...(m.timestamp > 0 ? { message: { role: m.role, timestamp: m.timestamp } } : {}) });
+      const message = m.timestamp > 0 ? { message: { role: m.role, timestamp: m.timestamp } } : {};
+      // Sub-agent reports delivered as prompts aren't the user's words (I-100).
+      const agent = m.role === "user" ? agentMessageText(m.text) : null;
+      fields.push(agent !== null ? { kind: "agent", text: agent, ...message } : { kind: m.role, text: m.text, ...message });
     }
     this.index.set(session.id, fields);
     this.indexed.set(session.id, key);

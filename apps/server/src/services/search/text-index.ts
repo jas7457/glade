@@ -1,7 +1,8 @@
 /**
  * In-memory BM25 index over chat sessions (I-045). Pure (no I/O), so ranking is unit-testable.
  *
- * Each session is a set of fields (title, summary, one per user/assistant message). A field is
+ * Each session is a set of fields (title, summary, one per user/assistant message; sub-agent
+ * reports delivered as prompts are `agent` fields, I-100). A field is
  * scored with BM25 (per-kind average length) times a kind weight; a session scores its best field
  * plus a damped bonus for the others, so one strongly matching message beats many weak ones.
  *
@@ -12,12 +13,12 @@
  */
 import type { HighlightedText, MessageAnchor } from "@glade/protocol";
 
-export type FieldKind = "title" | "summary" | "user" | "assistant";
+export type FieldKind = "title" | "summary" | "user" | "assistant" | "agent";
 
 export interface FieldInput {
   kind: FieldKind;
   text: string;
-  /** The message this field is (user/assistant fields), reported with hits (I-093). */
+  /** The message this field is (user/assistant/agent fields), reported with hits (I-093). */
   message?: MessageAnchor;
 }
 
@@ -46,7 +47,7 @@ export interface SearchOptions {
   exclude?: ReadonlySet<string>;
 }
 
-const WEIGHT: Record<FieldKind, number> = { title: 3, summary: 2, user: 1.3, assistant: 1 };
+const WEIGHT: Record<FieldKind, number> = { title: 3, summary: 2, user: 1.3, assistant: 1, agent: 0.9 };
 const K1 = 1.2;
 const B = 0.75;
 const PREFIX_WEIGHT = 0.6;
@@ -91,6 +92,7 @@ export class TextIndex {
     summary: { total: 0, count: 0 },
     user: { total: 0, count: 0 },
     assistant: { total: 0, count: 0 },
+    agent: { total: 0, count: 0 },
   };
 
   get size(): number {

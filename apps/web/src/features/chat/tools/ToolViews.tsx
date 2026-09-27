@@ -126,7 +126,7 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const [open, setOpen] = useState(defaultOpen);
   const { call, result, status } = part;
   const active = isActiveStatus(status);
-  const summary = summarizeToolCall(call, active);
+  const summary = summarizeToolCall(call, active, result?.status === "error" ? undefined : result?.output);
   const renderer = rendererFor(call.kind);
   const Icon = renderer.icon;
   const Badge = renderer.Badge;

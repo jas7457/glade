@@ -5,7 +5,8 @@
  * canonical {@link ToolKind} and a normalized {@link ToolInput}; the edit tool's display diff
  * (`details.diff`) becomes normalized {@link DiffLine}s. ext-kit's `spawn_agent` is a `task`
  * (`agentName` + the task's first line). ext-kit's web tools are `web`, its agent-teams tools
- * `agent`, and MCP tools (`mcp`, `mcpScript`, `mcp__<server>`) `mcp` (I-089). Anything else stays
+ * `agent`, and MCP tools (`mcp`, `mcpScript`, `mcp__<server>`) `mcp` (I-089); its Glade chat tools
+ * (`find_chats`, `read_chat`, `open_chat`) are `chat` (I-099). Anything else stays
  * `other` and is shown from its raw name/args. Pure; no I/O.
  */
 import type { DiffLine, ToolCallBlock, ToolEdit, ToolInput, ToolKind } from "@glade/protocol";
@@ -33,6 +34,10 @@ const KINDS = new Map<string, ToolKind>([
   ["list_agents", "agent"],
   ["mcp", "mcp"],
   ["mcpScript", "mcp"],
+  // ext-kit's Glade chat tools (I-099).
+  ["find_chats", "chat"],
+  ["read_chat", "chat"],
+  ["open_chat", "chat"],
 ]);
 
 /** Canonical kind of a pi tool (by name). */
@@ -65,6 +70,12 @@ function agentInput(name: string, a: Args): ToolInput {
   if (name === "list_agents") return { agentAction: "list" };
   if (name === "close_agent") return compact({ agentAction: "close", agentName: str(a.name) });
   return compact({ agentAction: "message", agentName: str(a.to), description: firstLine(a.text) });
+}
+
+/** chat: the search query, or the chat read/opened (its title is only in the result). */
+function chatInput(name: string, a: Args): ToolInput {
+  if (name === "find_chats") return compact({ chatAction: "find", query: str(a.query) });
+  return compact({ chatAction: name === "open_chat" ? "open" : "read", chatId: str(a.id) });
 }
 
 /** mcp: the server and tool, or what the gateway call did (search, describe, a script…). */
@@ -152,6 +163,8 @@ export function piToolInput(name: string, args: Args | undefined, options: PiToo
       return agentInput(name, a);
     case "mcp":
       return mcpInput(name, a);
+    case "chat":
+      return chatInput(name, a);
     default:
       return undefined;
   }

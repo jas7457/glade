@@ -9,6 +9,7 @@
  *   // or simply: await generateTitleWith(harness, { firstMessage, cwd, model })
  *   // a whole conversation: { firstMessage, excerpt: conversationExcerpt(messages), cwd, model }
  */
+import { parseAgentMessage } from "@glade/protocol";
 import type { AgentHarness, GenerateTitleOptions, SessionTextMessage } from "./types.js";
 
 const TITLE_RULES = "Reply with the title only: no quotes, no trailing punctuation.";
@@ -44,14 +45,21 @@ type ExcerptMessage = Pick<SessionTextMessage, "role" | "text">;
 /**
  * A compact excerpt of a conversation for titling it: the first user message plus the latest few
  * user/assistant texts (tool output and thinking are not in `messages`), each shortened, capped
- * at {@link EXCERPT_MAX_CHARS}. `""` when there's no text.
+ * at {@link EXCERPT_MAX_CHARS}. `""` when there's no text. Sub-agent reports/messages delivered as
+ * prompts aren't the user's words (I-100): they never count as the first message and are labelled
+ * `Agent <name>` instead of `User`.
  */
 export function conversationExcerpt(messages: readonly ExcerptMessage[], maxChars = EXCERPT_MAX_CHARS): string {
-  const texts = messages.map((m) => ({ role: m.role, text: m.text.trim() })).filter((m) => m.text);
-  const firstIndex = texts.findIndex((m) => m.role === "user");
+  const texts = messages
+    .map((m) => ({ role: m.role, text: m.text.trim(), agent: m.role === "user" ? parseAgentMessage(m.text.trim()) : null }))
+    .filter((m) => m.text);
+  const firstIndex = texts.findIndex((m) => m.role === "user" && !m.agent);
   if (firstIndex < 0) return "";
-  const line = (m: ExcerptMessage, max: number) =>
-    `${m.role === "user" ? "User" : "Assistant"}: ${m.text.length > max ? `${m.text.slice(0, max)}…` : m.text}`;
+  const line = (m: (typeof texts)[number], max: number) => {
+    const who = m.agent ? `Agent ${m.agent.from}` : m.role === "user" ? "User" : "Assistant";
+    const text = m.agent ? m.agent.body.trim() : m.text;
+    return `${who}: ${text.length > max ? `${text.slice(0, max)}…` : text}`;
+  };
   const first = line(texts[firstIndex]!, EXCERPT_FIRST_CHARS);
   let budget = maxChars - first.length;
   const recent: string[] = [];

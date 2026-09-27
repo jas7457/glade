@@ -33,9 +33,10 @@ export type ToolKind =
   | "task" // delegate to a sub-agent
   | "agent" // talk to / manage sub-agents (message, close, list; I-089)
   | "mcp" // call a tool on an MCP server (I-089)
+  | "chat" // find, read or open the user's other chats (I-099)
   | "other";
 
-export const TOOL_KINDS: readonly ToolKind[] = ["shell", "read", "write", "edit", "search", "list", "web", "task", "agent", "mcp", "other"];
+export const TOOL_KINDS: readonly ToolKind[] = ["shell", "read", "write", "edit", "search", "list", "web", "task", "agent", "mcp", "chat", "other"];
 
 /** One exact-text replacement of an `edit` call. */
 export interface ToolEdit {
@@ -78,6 +79,10 @@ export interface ToolInput {
   server?: string;
   /** mcp: the tool called on it; web/mcp without a canonical shape: see `description`. */
   tool?: string;
+  /** chat: what was done (I-099); `find` uses `query`. */
+  chatAction?: "find" | "read" | "open";
+  /** chat: the chat read/opened (session or workspace id). Its title is only in the result. */
+  chatId?: string;
 }
 
 export interface ToolCallBlock {

@@ -107,6 +107,14 @@ describe("finder prompt + reply", () => {
     expect(p).toContain("User: first");
     expect(p).toContain("Assistant (last reply): last reply");
     expect(p).not.toContain("early");
+    // Sub-agent reports aren't the user's words (I-100).
+    const q = summaryPrompt("T", [
+      { role: "user", text: "fix the toolbar", timestamp: 0 },
+      { role: "user", text: "[agent-teams] reviewer finished:\nLooks fine.", timestamp: 0 },
+      { role: "assistant", text: "done", timestamp: 0 },
+    ]);
+    expect(q).toContain("User: fix the toolbar");
+    expect(q).not.toContain("Looks fine");
     expect(cleanSummary('\n"Summary: Adds a button."\n')).toBe("Adds a button.");
     expect(cleanSummary("  ")).toBeNull();
   });

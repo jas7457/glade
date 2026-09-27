@@ -48,6 +48,27 @@ describe("summarizeToolCall", () => {
     expect(summary("mcp", { description: "script" }, true)).toBe("Running MCP script");
   });
 
+  it("summarizes the chat tools from their input and result (I-099)", () => {
+    const chat = (input: ToolInput, output?: string, active = false) => {
+      const s = summarizeToolCall(call("chat", input), active, output);
+      return `${s.verb} ${s.subject}`.trim();
+    };
+    const find: ToolInput = { chatAction: "find", query: "toolbar button" };
+    expect(chat(find, undefined, true)).toBe('Searching chats for "toolbar button"');
+    expect(chat(find)).toBe('Searched chats for "toolbar button"');
+    expect(chat(find, "3 chat(s) (keyword matches):\n\n1. …")).toBe('Found 3 chats for "toolbar button"');
+    expect(chat(find, "1 chat(s) (picked by x):\n\n1. …")).toBe('Found 1 chat for "toolbar button"');
+    expect(chat(find, 'No chats found for "toolbar button".')).toBe('Found no chats for "toolbar button"');
+    const read: ToolInput = { chatAction: "read", chatId: "s-1" };
+    expect(chat(read, undefined, true)).toBe("Reading chat s-1");
+    expect(chat(read, '"Add a "new" button" — project glade, last active 2026-09-27\nid: s-1 (workspace w-1)')).toBe('Read chat "Add a "new" button"');
+    expect(chat(read, "Unexpected output")).toBe("Read chat s-1");
+    const open: ToolInput = { chatAction: "open", chatId: "s-1" };
+    expect(chat(open, 'Opened "Toolbar" in Glade.')).toBe('Opened chat "Toolbar"');
+    expect(chat(open, 'No Glade window is open; "Toolbar" will not be shown. Tell the user its title instead.')).toBe('No window to show chat "Toolbar"');
+    expect(chat(open)).toBe("Opened chat s-1");
+  });
+
   it("truncates long / multi-line commands", () => {
     const s = summarizeToolCall(call("shell", { command: `echo ${"x".repeat(300)}\nsecond` }), false);
     expect(s.subject.length).toBeLessThanOrEqual(120);

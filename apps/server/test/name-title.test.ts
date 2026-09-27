@@ -23,6 +23,13 @@ describe("conversationExcerpt", () => {
     expect(conversationExcerpt([a("no user text")])).toBe("");
   });
 
+  it("never takes a sub-agent report as the first message and labels it (I-100)", () => {
+    const report = u("[agent-teams] reviewer finished:\nAll good.\n\n(reviewer is still open. If that follow-up is still planned, send it now with message_agent. Otherwise call close_agent. It closes automatically after 10 idle minutes.)");
+    expect(conversationExcerpt([report, u("ship it"), a("done")])).toBe("User: ship it\n\nAssistant: done");
+    expect(conversationExcerpt([u("fix it"), a("ok"), report])).toBe("User: fix it\n\nAssistant: ok\n\nAgent reviewer: All good.");
+    expect(conversationExcerpt([report, a("thanks")])).toBe("");
+  });
+
   it("shortens long messages and stays under the cap", () => {
     const messages = [u("x".repeat(5000)), ...Array.from({ length: 10 }, (_, i) => a(`${i}`.repeat(2000)))];
     const excerpt = conversationExcerpt(messages, 3000);

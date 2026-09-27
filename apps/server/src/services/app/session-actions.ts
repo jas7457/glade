@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_IMAGE_LIMITS,
+  parseAgentMessage,
   parseAttachedFiles,
   quickTitle,
   sameModel,
@@ -84,7 +85,8 @@ export class SessionActions {
     delete next.interrupted; // any new prompt dismisses the "interrupted" state
     // Titles come from what the user typed, not the `Attached file:` lines (I-090).
     const typed = parseAttachedFiles(req.text).text;
-    const retitle = isFirst && session.titleSource === "auto" && !!typed.trim();
+    // Sub-agent reports/messages aren't the user's words (I-100).
+    const retitle = isFirst && session.titleSource === "auto" && !!typed.trim() && !parseAgentMessage(req.text);
     if (retitle) {
       next.title = quickTitle(typed);
       void this.titles.generateTitle(id, typed).catch((err: Error) => this.ctx.options.log?.(`title generation failed: ${err.message}`));

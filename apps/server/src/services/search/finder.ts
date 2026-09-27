@@ -4,6 +4,7 @@
  *   candidates labelled `c1…cN` (labels keep the reply short and stop the model inventing ids).
  * - `summaryPrompt` / `cleanSummary`: a one-line summary of a conversation.
  */
+import { isAgentMessage } from "./agent-text.js";
 import type { SessionTextMessage } from "./types.js";
 
 export interface FinderCandidate {
@@ -79,9 +80,12 @@ export function parseFinderReply(reply: string, labels: ReadonlySet<string>): Fi
   return { matches, confident: (data as { confident?: unknown }).confident === true && matches.length > 0 };
 }
 
-/** Conversation excerpt for the summary prompt: user messages plus the last reply, within `budget` characters. */
+/**
+ * Conversation excerpt for the summary prompt: user messages plus the last reply, within `budget`
+ * characters. Sub-agent reports delivered as prompts aren't the user's words and are left out (I-100).
+ */
 export function summaryPrompt(title: string, messages: readonly SessionTextMessage[], budget = 6000): string {
-  const users = messages.filter((m) => m.role === "user");
+  const users = messages.filter((m) => m.role === "user" && !isAgentMessage(m));
   const lastReply = [...messages].reverse().find((m) => m.role === "assistant");
   const parts: string[] = [];
   let left = budget;

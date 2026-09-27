@@ -140,6 +140,22 @@ describe("SearchService.search", () => {
     expect((await search.search("ideas")).hits[0]).toMatchObject({ sessionId: "a", matchedIn: "title" });
   });
 
+  it("indexes sub-agent reports as agent messages, not the user's words (I-100)", async () => {
+    reader.write("ref-c", [
+      ["user", "Write a migration adding an index on users.email"],
+      ["user", "[agent-teams] reviewer finished:\nThe rollback script is missing.\n\n(reviewer's tab stays open because the user has typed in it. Leave it to the user.)"],
+      ["assistant", "Done."],
+    ]);
+    const res = await make().search("rollback");
+    expect(res.hits).toHaveLength(1);
+    expect(res.hits[0]).toMatchObject({ sessionId: "c", matchedIn: "agent" });
+    expect(res.hits[0]!.snippet.text).toContain("reviewer finished:");
+    expect(res.hits[0]!.snippet.text).not.toContain("[agent-teams]");
+    expect(res.hits[0]!.snippet.text).not.toContain("tab stays open");
+    // The user's own words still match as `user`.
+    expect((await services[0]!.search("migration")).hits[0]).toMatchObject({ sessionId: "c", matchedIn: "user" });
+  });
+
   it("persists extracted text so a restart doesn't re-read unchanged files", async () => {
     await make().search("x");
     services[0]!.dispose();
@@ -187,6 +203,20 @@ describe("SearchService summaries", () => {
 });
 
 describe("SearchService.ask", () => {
+  it("describes a chat by what the user typed, not a sub-agent report (I-100)", async () => {
+    settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
+    reader.write("ref-a", [
+      ["user", "[agent-teams] message from main:\nPlease review the toolbar."],
+      ["user", "hey"],
+      ["assistant", "Hi!"],
+    ]);
+    const fast = vi.fn<SmallModel>(async () => '{"matches":[],"confident":false}');
+    await make(fast).ask("toolbar");
+    const prompt = fast.mock.calls[0]![0].prompt;
+    expect(prompt).toContain("starts with: hey");
+    expect(prompt).not.toContain("starts with: [agent-teams]");
+  });
+
   it("lets the small model pick among keyword + recent candidates", async () => {
     settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
     const fast = vi.fn<SmallModel>(async ({ prompt }) => {
