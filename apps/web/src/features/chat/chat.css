@@ -28,7 +28,14 @@
 }
 .pi-rainbow,
 .pi-thinking-text {
-  background: linear-gradient(90deg, var(--pi-fg-subtle) 38%, var(--pi-rainbow), var(--pi-fg-subtle) 62%) 0 0 / 250% 100%;
+  /*
+   * Two layers moving together: the rainbow band, and on top a grey veil that is solid outside the
+   * band and fades out towards its middle, so the colours are brightest in the centre and melt
+   * into the grey at the sides.
+   */
+  background:
+    linear-gradient(90deg, var(--pi-shimmer-base) 38%, transparent 47%, transparent 53%, var(--pi-shimmer-base) 62%) 0 0 / 250% 100%,
+    linear-gradient(90deg, var(--pi-shimmer-base) 38%, var(--pi-rainbow), var(--pi-shimmer-base) 62%) 0 0 / 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
