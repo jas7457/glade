@@ -117,9 +117,7 @@
   /* Tint behind a tool icon: this much of the tool colour mixed into the window colour. */
   --pi-tool-tint: 13%;
   /* Colours of the band that sweeps across live status labels ("Working…", I-081). */
-  --pi-rainbow: #dc2626, #b45309, #15803d, #0e7490, #1d4ed8, #7c3aed, #be185d, #dc2626;
-  /* Opaque equivalent of --pi-fg-subtle on the window: the shimmer's grey veil must fully cover. */
-  --pi-shimmer-base: #a6a6a6;
+  --pi-rainbow: #dc2626, #b45309, #15803d, #0e7490, #1d4ed8, #7c3aed, #be185d;
   --pi-font-size: 13px;
   color-scheme: light;
 }
@@ -168,8 +166,7 @@
   --pi-tool-task: #f778ba;
   --pi-tool-other: rgb(255 255 255 / 0.55);
   --pi-tool-tint: 16%;
-  --pi-rainbow: #ff7b72, #ffa657, #7ee787, #56d4dd, #79c0ff, #d2a8ff, #ff9bce, #ff7b72;
-  --pi-shimmer-base: #626262;
+  --pi-rainbow: #ff7b72, #ffa657, #7ee787, #56d4dd, #79c0ff, #d2a8ff, #ff9bce;
   color-scheme: dark;
 }
 

@@ -16,30 +16,18 @@
 }
 
 /*
- * The run's status label ("Working…", "Thinking…", "Compacting context…"; I-081): grey text like
- * .pi-shimmer, but the band that sweeps across it is a small rainbow instead of white. The
- * gradient tile is 250% of the label with the band in its middle; moving the tile from 100% to 0%
- * carries the band from just left of the text to just right of it.
+ * The run's status label ("Working…", "Thinking…", "Compacting context…"; I-081): the same recipe
+ * as a running tool group's label (.pi-tone-shimmer), with the rainbow in place of one colour:
+ * muted grey text, a gradient that swells into the rainbow and back, twice the label's width and
+ * swept all the way past it, so each pass is followed by a natural pause.
  */
-/* The band crosses in the first ~1.4 s, then rests off the text for ~0.8 s before the next pass. */
-@keyframes pi-band-sweep {
-  0% { background-position: 100% 0; }
-  64%, 100% { background-position: 0% 0; }
-}
 .pi-rainbow,
 .pi-thinking-text {
-  /*
-   * Two layers moving together: the rainbow band, and on top a grey veil that is solid outside the
-   * band and fades out towards its middle, so the colours are brightest in the centre and melt
-   * into the grey at the sides.
-   */
-  background:
-    linear-gradient(90deg, var(--pi-shimmer-base) 38%, transparent 47%, transparent 53%, var(--pi-shimmer-base) 62%) 0 0 / 250% 100%,
-    linear-gradient(90deg, var(--pi-shimmer-base) 38%, var(--pi-rainbow), var(--pi-shimmer-base) 62%) 0 0 / 250% 100%;
+  background: linear-gradient(90deg, var(--pi-fg-muted) 30%, var(--pi-rainbow), var(--pi-fg-muted) 70%) 0 0 / 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: pi-band-sweep 2.2s linear infinite;
+  animation: pi-shimmer 2.4s linear infinite;
 }
 /* The spinner next to the label stays plain. */
 .pi-rainbow-color,
