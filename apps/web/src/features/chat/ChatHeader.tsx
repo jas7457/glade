@@ -1,7 +1,7 @@
 /**
  * Chat header bar (window drag region): the workspace's editable title, project name (for
  * project chats), where it works (I-107: `Local · ⑂ main` / `Worktree · ⑂ glade/x`, live
- * branch), the shown session's live status, the changes button (I-097: changed-file count;
+ * branch), the agent it runs on when that isn't the default one (I-119), the shown session's live status, the changes button (I-097: changed-file count;
  * toggles the changes panel), "Open in VS Code" (the chat's own folder, I-106) and an overflow
  * menu (rename, pin, delete the workspace).
  */
@@ -18,6 +18,7 @@ import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HE
 import { changedCount } from "@/features/changes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { setChangesPanelOpen } from "@/features/workspace/layout-actions";
+import { ChatAgentBadge } from "./ChatAgentBadge";
 import { ChatLocation } from "./ChatLocation";
 import { OpenInButton } from "./OpenInButton";
 
@@ -70,8 +71,9 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
             {project.name}
           </span>
         )}
-        <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline">
+        <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline gap-1.5">
           {chat && <ChatLocation workspace={chat} class="self-center" />}
+          <ChatAgentBadge sessionId={sessionId} class="self-center" />
         </span>
       </div>
       {liveLabel && (

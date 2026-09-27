@@ -744,6 +744,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
               <QueuedText text={q.text} />
             </div>
           ))}
+          {/* Stopping a run keeps the queue (pi and ACP alike): say when it will be sent. */}
+          {!state.isRunning && <div class="text-[0.8rem] text-fg-subtle">Stopped: queued messages are sent after your next message</div>}
         </div>
       )}
     </>

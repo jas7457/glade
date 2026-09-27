@@ -144,6 +144,7 @@ describe("Composer (existing chat)", () => {
     store.state.value = { ...store.state.value, queue: { steering: ["earlier steer"], followUp: [] } };
     renderAt(<Composer chatId="c1" />);
     expect(screen.getByText("earlier steer")).toBeTruthy();
+    expect(screen.queryByText(/queued messages are sent after/)).toBeNull();
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
     const box = screen.getByRole("textbox", { name: "Message" });
     fireEvent.input(box, { target: { value: "also do this" } });
@@ -151,6 +152,14 @@ describe("Composer (existing chat)", () => {
     await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "also do this", images: undefined, behavior: "steer" }));
     fireEvent.keyDown(box, { key: "Escape" });
     expect(api.abort).toHaveBeenCalledWith("c1");
+  });
+
+  it("says when messages still queued after a stop will be sent", () => {
+    const store = readyChat("c1");
+    store.state.value = { ...store.state.value, queue: { steering: [], followUp: ["do this next"] } };
+    renderAt(<Composer chatId="c1" />);
+    expect(screen.getByText("do this next")).toBeTruthy();
+    expect(screen.getByText("Stopped: queued messages are sent after your next message")).toBeTruthy();
   });
 
   it("restores the text when sending fails", async () => {

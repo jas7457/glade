@@ -20,8 +20,9 @@ import { changesApi } from "@/features/changes/api";
 import { refreshChanges, useChangesAutoRefresh } from "@/features/changes";
 import { resetChangesState } from "@/features/changes/changes-state";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { projects, workspaces } from "@/state/store";
-import { makeProject, makeWorkspace } from "@/test/fixtures";
+import { projects, sessions, workspaces } from "@/state/store";
+import { harnesses } from "@/state/harnesses";
+import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
 import { TooltipProvider } from "@/ui";
 import { ChatHeader } from "./ChatHeader";
 import { OpenInButton } from "./OpenInButton";
@@ -71,6 +72,8 @@ beforeEach(() => {
   resetChatSessions();
   projects.value = [makeProject({ id: "p", name: "sample-repo", path: "/repo" })];
   workspaces.value = [local, worktreeChat];
+  sessions.value = [];
+  harnesses.value = null;
 });
 
 describe("chat location line (I-107)", () => {
@@ -119,6 +122,33 @@ describe("chat location line (I-107)", () => {
     await act(async () => {});
     expect(location()).toBeNull();
     expect(screen.queryByText("Local")).toBeNull();
+  });
+});
+
+describe("agent badge (I-119)", () => {
+  const caps = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
+  beforeEach(() => {
+    status.mockResolvedValue(repo("main"));
+    harnesses.value = [
+      { id: "pi", label: "pi", isDefault: true, capabilities: caps },
+      { id: "acp-fake", label: "Fake ACP", isDefault: false, capabilities: { ...caps, models: false } },
+    ];
+  });
+
+  it("shows the agent next to the location when the chat doesn't use the default one", async () => {
+    sessions.value = [makeSession({ id: "s", workspaceId: "local", harness: "acp-fake" })];
+    renderHeader(local);
+    await waitFor(() => expect(location()?.textContent).toBe("Local·main"));
+    const badge = document.querySelector<HTMLElement>("[title^='Runs on']");
+    expect(badge?.textContent).toBe("Fake ACP");
+    expect(badge?.title).toBe("Runs on Fake ACP (ACP)");
+  });
+
+  it("shows nothing for the default agent", async () => {
+    sessions.value = [makeSession({ id: "s", workspaceId: "local", harness: "pi" })];
+    renderHeader(local);
+    await waitFor(() => expect(location()?.textContent).toBe("Local·main"));
+    expect(document.querySelector("[title^='Runs on']")).toBeNull();
   });
 });
 

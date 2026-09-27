@@ -4,7 +4,7 @@
  * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles (sub-agent reports
  * as cards, AgentMessageCard.tsx), sub-agent spawns as agent cards that also absorb the agent's
  * later messages (AgentSpawnCard.tsx, agent-spawns.ts, I-084), assistant turns (markdown, thinking, tool rows/groups,
- * errors), the user's shell commands (ShellCard.tsx) and notices. Sticks to the bottom while
+ * errors), the user's shell commands (ShellCard.tsx), plans (PlanCard.tsx) and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
  *
  * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
@@ -17,7 +17,7 @@
 import { Fragment } from "preact";
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
+import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
 import { subagentSessionsOf, type AgentColor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
@@ -36,6 +36,7 @@ import { DayDivider, MessageTime } from "./MessageTime";
 import { dayDividers } from "./message-time";
 import { useImageLightbox } from "./ImageLightbox";
 import { ShellCard } from "./ShellCard";
+import { PlanCard } from "./PlanCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
@@ -191,6 +192,8 @@ function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: stri
       return <UserBubble message={item.message} />;
     }
     case "notice":
+      // A plan (I-119) is a checklist card; other notices are divider rows.
+      if (item.message.kind === "plan" && item.message.plan) return <PlanCard entries={item.message.plan} />;
       return <NoticeRow message={item.message} />;
     case "shell":
       return <ShellCard message={item.message} chatId={chatId} />;
@@ -273,7 +276,7 @@ export function ErrorNotice({ kind, message, details }: { kind: "error" | "abort
   );
 }
 
-const noticeIcons = { info: Info, warning: TriangleAlert, error: CircleAlert, compaction: Scissors } as const;
+const noticeIcons = { info: Info, warning: TriangleAlert, error: CircleAlert, compaction: Scissors, plan: ListChecks } as const;
 
 export const NoticeRow = memo(function NoticeRow({ message }: { message: NoticeMessage }) {
   const Icon = noticeIcons[message.kind];

@@ -344,7 +344,8 @@ describe("worktree workspaces", () => {
     expect(readFileSync(join(ws.cwd, "a.txt"), "utf8")).toBe("edited\n");
     expect(readFileSync(join(ws.cwd, "new.txt"), "utf8")).toBe("untracked\n");
     expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("edited\n");
-  });
+    // Many git processes: give it room when the machine is busy (timed out once under load).
+  }, 30_000);
 
   it("removes the worktree when the first session fails to start", async () => {
     env.harness.openSession = () => Promise.reject(new Error("boom"));

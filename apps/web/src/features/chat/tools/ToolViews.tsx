@@ -142,12 +142,14 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const duration = toolDuration(result, now);
   // Finished calls under a second show nothing (a column of "0s" is noise); running ones tick.
   const showDuration = duration !== null && (running || duration >= 1000);
+  // Stopped before it ran, or the user said no to it (I-119): muted, not an error.
+  const dimmed = status === "cancelled" || status === "rejected";
 
   return (
     <div class="tool-call" data-status={status}>
       <button type="button" class={rowClass} aria-expanded={open} disabled={!expandable} onClick={() => setOpen(!open)}>
-        <ToneIcon icon={Icon} tone={status === "error" ? "danger" : call.kind} class={cn(status === "cancelled" && "opacity-60")} />
-        <span class={cn("min-w-0 flex-1 truncate", status === "cancelled" && "opacity-60")} data-tone={status === "error" ? "danger" : call.kind}>
+        <ToneIcon icon={Icon} tone={status === "error" ? "danger" : call.kind} class={cn(dimmed && "opacity-60")} />
+        <span class={cn("min-w-0 flex-1 truncate", dimmed && "opacity-60")} data-tone={status === "error" ? "danger" : call.kind}>
           <span class="pi-tone-text">{summary.verb}</span>
           {agent ? (
             <>
@@ -166,6 +168,7 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
         {active && <Spinner size={12} />}
         {status === "error" && <CircleX size={13} class="shrink-0 text-danger" aria-label="Failed" />}
         {status === "cancelled" && <span class="text-[0.85rem] text-fg-subtle">Cancelled</span>}
+        {status === "rejected" && <span class="text-[0.85rem] text-fg-subtle">Rejected</span>}
         {expandable && <Chevron open={open} />}
       </button>
       {open && (

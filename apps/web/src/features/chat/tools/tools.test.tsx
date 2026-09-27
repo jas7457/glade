@@ -4,7 +4,7 @@ import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 import { currentKind, dominantKind, groupKinds, ToolCallRow, ToolGroup } from "./ToolViews";
-import type { ToolCallPart, ToolGroupPart } from "../grouping";
+import { toolCallStatus, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { SpawnLinksContext } from "../spawn-context";
 import { NO_SPAWN_LINKS } from "../agent-spawns";
 
@@ -131,7 +131,7 @@ const part = (id: string, status: ToolCallPart["status"] = "done", output = "hi"
   type: "tool",
   key: id,
   call: { type: "toolCall", id, name: "x_shell", kind: "shell", input: { command: `echo ${id}` }, args: {} },
-  result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "x_shell", status: status === "cancelled" ? "done" : status, output },
+  result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "x_shell", status: status === "cancelled" ? "done" : status === "rejected" ? "error" : status, output },
   status,
 });
 
@@ -258,6 +258,14 @@ describe("tool colours (I-077)", () => {
     expect(container.querySelector(".pi-tone-icon")?.getAttribute("data-tone")).toBe("read");
     rerender(<ToolCallRow part={part("read", "error")} />);
     expect(container.querySelector(".pi-tone-icon")?.getAttribute("data-tone")).toBe("danger");
+  });
+
+  it("shows a call the user rejected as Rejected, muted, not as a failure (I-119)", () => {
+    const { container } = render(<ToolCallRow part={part("shell", "rejected")} />);
+    expect(container.querySelector(".pi-tone-icon")?.getAttribute("data-tone")).toBe("shell");
+    expect(container.textContent).toContain("Rejected");
+    expect(screen.queryByLabelText("Failed")).toBeNull();
+    expect(toolCallStatus(call("shell", {}, { id: "r" }), { toolCallId: "r", toolName: "x", status: "error", output: "", rejected: true }, false)).toBe("rejected");
   });
 
   it("picks the running call's kind for a group's shimmer", () => {

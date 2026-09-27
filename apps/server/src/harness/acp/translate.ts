@@ -8,7 +8,7 @@
  * - `tool_call` adds a normalized tool block (`tools.ts`) + `tool_start`; `tool_call_update`
  *   re-sends the block when its title/kind/input changed and the result as `tool_update` /
  *   `tool_end` (completed → done, failed → error).
- * - `plan` becomes one info notice per turn, updated in place.
+ * - `plan` becomes one `plan` notice (a checklist) per turn, updated in place.
  * - Everything else (commands, modes, usage, config options, session info) is the session's
  *   business (`acp-session.ts`); `user_message_chunk` only occurs in history replays, which Glade
  *   ignores (it keeps its own copy of the transcript).
@@ -22,6 +22,7 @@ import {
   type AssistantMessage,
   type ContentBlock,
   type ImageBlock,
+  type PlanEntry,
   type PromptImage,
   type StopReason,
   type TextBlock,
@@ -46,6 +47,8 @@ export class AcpTranslator {
   private current: { message: AssistantMessage; acpMessageId: string | null } | null = null;
   private readonly tools = new Map<string, ToolEntry>();
   private planId: string | null = null;
+  /** Tool calls the user rejected in the permission card: they fail as "rejected", not as errors. */
+  private readonly rejected = new Set<string>();
 
   constructor(
     /** Prefix for message ids, unique per agent process so ids never clash with saved history. */
@@ -100,6 +103,11 @@ export class AcpTranslator {
     return this.toolCallUpdate(toolCall);
   }
 
+  /** The user rejected the permission request for this tool call. */
+  rejectTool(toolCallId: string): void {
+    this.rejected.add(toolCallId);
+  }
+
   /** What's known about a tool call (for the permission card). */
   toolState(toolCallId: string): AcpToolState | undefined {
     return this.tools.get(toolCallId)?.state;
@@ -140,9 +148,15 @@ export class AcpTranslator {
     for (const [id, tool] of this.tools) {
       if (tool.state.status === "completed" || tool.state.status === "failed") continue;
       const result = acpToolResult(tool.state);
-      events.push({ type: "tool_end", toolCallId: id, result: { ...result, status: "error", output: result.output || (stopReason === "aborted" ? "Stopped" : "Unfinished") } });
+      const rejected = this.rejected.has(id);
+      events.push({
+        type: "tool_end",
+        toolCallId: id,
+        result: { ...result, status: "error", output: result.output || (rejected ? "" : stopReason === "aborted" ? "Stopped" : "Unfinished"), ...(rejected ? { rejected } : {}) },
+      });
     }
     this.tools.clear();
+    this.rejected.clear();
     if (this.current || errorMessage) {
       const message = this.current?.message ?? { id: this.nextId("a"), role: "assistant" as const, content: [], timestamp: this.now() };
       if (!this.current) events.push({ type: "message_start", message: { ...message, streaming: true } });
@@ -225,7 +239,8 @@ export class AcpTranslator {
   }
 
   private result(entry: ToolEntry): AgentEvent[] {
-    const result = acpToolResult(entry.state);
+    let result = acpToolResult(entry.state);
+    if (result.status === "error" && this.rejected.has(entry.state.toolCallId)) result = { ...result, rejected: true };
     if (result.status === "running") return result.output || result.images ? [{ type: "tool_update", toolCallId: entry.state.toolCallId, result }] : [];
     return [{ type: "tool_end", toolCallId: entry.state.toolCallId, result }];
   }
@@ -236,8 +251,12 @@ export class AcpTranslator {
       events.push(...this.closeMessage());
       this.planId = this.nextId("plan");
     }
-    const lines = plan.entries.map((e) => `${e.status === "completed" ? "☑" : e.status === "in_progress" ? "▸" : "☐"} ${e.content}`);
-    events.push({ type: "message_end", message: { id: this.planId, role: "notice", kind: "info", text: `Plan\n${lines.join("\n")}`, timestamp: this.now() } });
+    const entries: PlanEntry[] = plan.entries.map((e) => ({ content: e.content, status: e.status }));
+    const lines = entries.map((e) => `${e.status === "completed" ? "☑" : e.status === "in_progress" ? "▸" : "☐"} ${e.content}`);
+    events.push({
+      type: "message_end",
+      message: { id: this.planId, role: "notice", kind: "plan", text: `Plan\n${lines.join("\n")}`, plan: entries, timestamp: this.now() },
+    });
     return events;
   }
 

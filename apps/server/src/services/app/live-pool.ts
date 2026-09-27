@@ -11,6 +11,7 @@ import {
   sameModel,
   type AgentEvent,
   type Session,
+  type Transcript,
   type UiRequest,
   type Workspace,
 } from "@glade/protocol";
@@ -271,7 +272,9 @@ export class LivePool {
     }
     if (error) {
       this.ctx.options.log?.(`session ${id}: agent exited: ${error.message}`);
-      this.records.emitSessionEvent(session, { type: "error", message: error.message });
+      // The harness may already have ended the run with this error in the transcript (ACP, I-119):
+      // don't repeat it as a banner above the composer.
+      if (!endedWithError(live.transcript, error.message)) this.records.emitSessionEvent(session, { type: "error", message: error.message });
     }
     if (error || wasRunning) {
       this.records.emitSessionEvent(session, { type: "state", state: { isRunning: false } });
@@ -354,4 +357,10 @@ function stampEvent(event: AgentEvent): AgentEvent {
     default:
       return event;
   }
+}
+
+/** Whether the transcript's last message is an assistant reply that failed with `message`. */
+function endedWithError(transcript: Transcript, message: string): boolean {
+  const last = transcript.messages.at(-1);
+  return last?.role === "assistant" && last.stopReason === "error" && last.errorMessage?.trim() === message.trim();
 }

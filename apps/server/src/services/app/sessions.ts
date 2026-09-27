@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  activeMainSessionId,
   defaultSessionState,
   emptyTranscript,
   messageText as transcriptText,
@@ -15,6 +16,7 @@ import {
   type SessionState,
   type SessionSummary,
   type UpdateSessionRequest,
+  type Workspace,
 } from "@glade/protocol";
 import type { SessionText, SessionTextMessage } from "../../harness/types.js";
 import type { AgentIdentity } from "../agent-names.js";
@@ -105,19 +107,20 @@ export class Sessions {
    */
   async createSession(workspaceId: string, req: CreateSessionRequest, how: NewSessionKind = { kind: "main" }): Promise<SessionDetail> {
     const { records } = this;
-    records.requireWorkspace(workspaceId);
+    const workspace = records.requireWorkspace(workspaceId);
     if (how.kind === "subagent") {
       const parent = records.requireSession(how.parentSessionId);
       if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
     }
     const settings = this.ctx.store.getSettings();
-    // Sub-agents run in their parent's harness; other new sessions in the chosen or the default one.
+    // Sub-agents run in their parent's harness; other new sessions in the chosen one, else the
+    // harness of the workspace's focused tab (a new tab keeps the chat's agent), else the default.
     const harness =
       how.kind === "subagent"
         ? records.requireHarness(records.requireSession(how.parentSessionId))
         : req.harness
           ? this.ctx.harnesses.get(req.harness)
-          : this.ctx.harnesses.default();
+          : this.workspaceHarness(workspace);
     if (!harness) throw new HttpError(400, `The agent "${req.harness}" isn't installed`);
     // Harnesses without Glade's model picker (ACP agents, I-119) choose their own model.
     const usesModels = harness.info.capabilities.models !== false;
@@ -155,6 +158,13 @@ export class Sessions {
       throw err;
     }
     return this.getSessionDetail(session.id);
+  }
+
+  /** The harness of a workspace's focused main tab when it's installed, else the default one. */
+  private workspaceHarness(workspace: Workspace) {
+    const focused = activeMainSessionId(workspace, this.ctx.store.listSessions(workspace.id));
+    const harness = focused ? this.ctx.store.getSession(focused)?.harness : undefined;
+    return (harness ? this.ctx.harnesses.get(harness) : undefined) ?? this.ctx.harnesses.default();
   }
 
   async getSessionDetail(id: string): Promise<SessionDetail> {

@@ -122,7 +122,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   const close = (session: SessionSummary | undefined, focused: boolean) => {
     if (session) void closeTab(session, navigate, { focused });
   };
-  const newTab = () => void openNewTab(workspaceId, navigate);
+  const newTab = () => void openNewTab(workspaceId, navigate, sessionId);
 
   useTabShortcuts({
     "new-tab": newTab,

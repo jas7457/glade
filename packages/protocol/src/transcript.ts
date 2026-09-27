@@ -147,13 +147,22 @@ export interface AssistantMessage {
   streaming?: boolean;
 }
 
-/** Non-conversational entries worth showing inline (compaction, extension notes...). */
+/** Non-conversational entries worth showing inline (compaction, extension notes, plans...). */
 export interface NoticeMessage {
   id: string;
   role: "notice";
-  kind: "info" | "warning" | "error" | "compaction";
+  kind: "info" | "warning" | "error" | "compaction" | "plan";
+  /** Plain text (for `plan`: a text version of the checklist, for search and copy). */
   text: string;
+  /** `kind: "plan"`: the agent's plan as a checklist, re-sent whole (same id) when it changes (I-119). */
+  plan?: PlanEntry[];
   timestamp: number;
+}
+
+/** One step of an agent's plan (ACP `plan` updates; any harness may send one). */
+export interface PlanEntry {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 /** How a shell command the user ran (`!cmd` / `!!cmd`, I-076) ended. */
@@ -217,6 +226,8 @@ export interface ToolResult {
   /** When the tool started / finished (epoch ms; I-070). Absent when unknown (e.g. old history). */
   startedAt?: number;
   endedAt?: number;
+  /** The user rejected it when the agent asked for permission (I-119; `status` is `error`). */
+  rejected?: boolean;
 }
 
 export interface Transcript {

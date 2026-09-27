@@ -8,7 +8,7 @@
  */
 import { signal } from "@preact/signals";
 import type { SessionSummary, WorkspaceLayout } from "@glade/protocol";
-import { subagentSessionsOf } from "@glade/protocol";
+import { activeMainSessionId, subagentSessionsOf } from "@glade/protocol";
 import { chatPath, routes } from "@/app/routes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { createSession, deleteSession, updateWorkspace } from "@/state/actions";
@@ -68,13 +68,19 @@ export function hideSubagentPane(workspaceId: string): void {
   if (workspacesById.value.get(workspaceId)?.layout?.subagentPaneOpen) void saveLayout(workspaceId, { subagentPaneOpen: false });
 }
 
-/** "+" / ⌘T: a new conversation in the workspace's folder, focused and added at the end. */
-export async function openNewTab(workspaceId: string, navigate: Navigate): Promise<string | null> {
-  const order = mainSessionsFor(workspaceId).map((s) => s.id);
-  const detail = await createSession(workspaceId);
+/**
+ * "+" / ⌘T: a new conversation in the workspace's folder, focused and added at the end. It runs
+ * in the same agent as the tab it's opened from (`fromSessionId`, else the workspace's focused tab).
+ */
+export async function openNewTab(workspaceId: string, navigate: Navigate, fromSessionId?: string | null): Promise<string | null> {
+  const main = mainSessionsFor(workspaceId);
+  const order = main.map((s) => s.id);
+  const workspace = workspacesById.value.get(workspaceId);
+  const fromId = fromSessionId ?? (workspace ? activeMainSessionId(workspace, main) : null);
+  const harness = main.find((s) => s.id === fromId)?.harness;
+  const detail = await createSession(workspaceId, harness ? { harness } : {});
   if (!detail) return null;
   const id = detail.session.id;
-  const workspace = workspacesById.value.get(workspaceId);
   if (workspace) navigate(chatPath(workspace, id), { replace: true });
   void saveLayout(workspaceId, { mainOrder: [...order.filter((x) => x !== id), id], activeMainSessionId: id });
   return id;

@@ -110,9 +110,24 @@ describe("WorkspaceView", () => {
     const router = renderAt("/projects/p/chats/w");
     fireEvent.click(screen.getByRole("button", { name: /New Tab/ }));
     await waitFor(() => expect(router.state.location.search).toBe("?tab=m3"));
-    expect(api.createSession).toHaveBeenCalledWith("w", {});
+    expect(api.createSession).toHaveBeenCalledWith("w", { harness: "fake" });
     expect(mainTabs().map((t) => t.textContent)).toEqual(["Fix login", "Tab 2", "New chat"]);
     expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, mainOrder: ["m1", "m2", "m3"], activeMainSessionId: "m3" } });
+  });
+
+  it("a new tab (+ / ⌘T) runs in the focused tab's agent (I-119)", async () => {
+    sessions.value = sessions.value.map((s) => (s.id === "m2" ? { ...s, harness: "acp-fake" } : s));
+    const created = makeSession({ id: "m3", workspaceId: "w", title: "New chat", createdAt: 5, harness: "acp-fake" });
+    vi.mocked(api.createSession).mockResolvedValue({
+      session: created,
+      transcript: { messages: [], toolResults: {} },
+      state: getChatSession("m3").state.value,
+      pendingUiRequests: [],
+    });
+    const router = renderAt("/projects/p/chats/w?tab=m2");
+    fireEvent.keyDown(window, { key: "t", metaKey: true });
+    await waitFor(() => expect(router.state.location.search).toBe("?tab=m3"));
+    expect(api.createSession).toHaveBeenCalledWith("w", { harness: "acp-fake" });
   });
 
   it("closes a tab (asking when it has history) and focuses its neighbour", async () => {

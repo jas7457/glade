@@ -11,7 +11,8 @@
  * usage), because Glade keeps its own copy of the transcript (`transcript-store.ts`), saved after
  * every finished message, tool call and run. Permission requests become `permission` dialogs
  * answered with `respondToUi`; file reads/writes are confined to the chat's folder (`fs.ts`).
- * Messages sent while a turn runs are queued as follow-ups (ACP has no steering).
+ * Messages sent while a turn runs are queued as follow-ups (ACP has no steering); like pi, they're
+ * sent after a run that finishes, and stay queued when it's stopped or fails.
  */
 import { RequestError, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type {
@@ -140,10 +141,7 @@ export class AcpSession implements HarnessSession {
   }
 
   async abort(): Promise<void> {
-    if (this.queue.length) {
-      this.queue.length = 0;
-      this.emitQueue();
-    }
+    // Queued follow-ups stay queued (like pi): they're sent after the next run that finishes.
     const turn = this.turn;
     if (!turn || turn.done) return;
     turn.aborted = true;
@@ -177,8 +175,10 @@ export class AcpSession implements HarnessSession {
     const pending = this.permissions.get(response.id);
     if (!pending) return;
     this.permissions.delete(response.id);
-    if ("value" in response && pending.request.options.some((o) => o.id === response.value)) {
-      pending.resolve({ outcome: { outcome: "selected", optionId: response.value } });
+    const option = "value" in response ? pending.request.options.find((o) => o.id === response.value) : undefined;
+    if (option) {
+      if (pending.request.toolCallId && option.kind.startsWith("reject")) this.translator.rejectTool(pending.request.toolCallId);
+      pending.resolve({ outcome: { outcome: "selected", optionId: option.id } });
     } else {
       pending.resolve({ outcome: { outcome: "cancelled" } });
     }
@@ -277,7 +277,9 @@ export class AcpSession implements HarnessSession {
     if (this.turn === turn) this.turn = null;
     this.emit({ type: "state", state: { isRunning: false } });
     this.emit({ type: "run_end" });
-    const next = this.disposed ? undefined : this.queue.shift();
+    // Like pi, a stopped or failed run doesn't send the queued follow-ups; they wait for the next run.
+    const finished = !turn.aborted && !("error" in end) && end.stopReason !== "cancelled" && end.stopReason !== "refusal";
+    const next = this.disposed || !finished ? undefined : this.queue.shift();
     if (next) {
       this.emitQueue();
       void this.runTurn(next);

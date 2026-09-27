@@ -671,3 +671,9 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   anything fails, the worktree and branch are removed.
 - Dialogs (I-114): one grid in `ui/Dialog` (20px padding, a single column, buttons on its right edge);
   confirms have no icon; destructive actions are red text on a plain button, Cancel is the default.
+- ACP harness (I-119): each ACP agent in `Settings.harnesses.acp.agents` is a harness `acp-<id>`
+  resolved live by `HarnessRegistry({ dynamic })`; the process starts on the first prompt; Glade keeps
+  the transcript in `<dataDir>/acp-sessions` (`session/load` / `session/resume` only restore the
+  agent's context; replayed updates are ignored); fs access is confined to the chat's folder;
+  `capabilities.models === false` hides the model/thinking pickers. New sessions in a workspace
+  inherit its focused tab's harness. Plans are a harness-neutral `NoticeMessage.kind: "plan"`.

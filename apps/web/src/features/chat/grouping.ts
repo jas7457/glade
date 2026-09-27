@@ -44,8 +44,9 @@ export const DEFAULT_GROUPING_OPTIONS: GroupingOptions = {
  *  - `pending`:   arguments complete, execution not started yet
  *  - `running` / `done` / `error`: from the tool result
  *  - `cancelled`: never got a result and the run is over (aborted / failed)
+ *  - `rejected`: the user said no when the agent asked for permission (I-119)
  */
-export type ToolCallStatus = "streaming" | "pending" | "running" | "done" | "error" | "cancelled";
+export type ToolCallStatus = "streaming" | "pending" | "running" | "done" | "error" | "cancelled" | "rejected";
 
 export interface ToolCallPart {
   type: "tool";
@@ -122,7 +123,7 @@ export function isActiveStatus(status: ToolCallStatus): boolean {
 }
 
 export function toolCallStatus(call: ToolCallBlock, result: ToolResult | undefined, isRunning: boolean): ToolCallStatus {
-  if (result) return result.status;
+  if (result) return result.rejected ? "rejected" : result.status;
   if (!isRunning) return "cancelled";
   return call.args === undefined ? "streaming" : "pending";
 }

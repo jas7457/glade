@@ -154,12 +154,23 @@ describe("ACP harness", () => {
     expect((await session.loadTranscript()).toolResults.e1?.status).toBe("done");
   });
 
-  it("shows a plan as one notice updated in place", async () => {
-    const { session, run } = await openSession(harness());
+  it("shows a plan as one checklist notice updated in place", async () => {
+    const { session, events, run } = await openSession(harness());
     await run("plan");
     const notices = (await session.loadTranscript()).messages.filter((m) => m.role === "notice");
     expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      kind: "plan",
+      plan: [
+        { content: "Step one", status: "completed" },
+        { content: "Step two", status: "in_progress" },
+      ],
+    });
     expect(messageText(notices[0]!)).toBe("Plan\n☑ Step one\n▸ Step two");
+    // Both updates carried the same id (the card updates in place).
+    const ids = events.flatMap((e) => (e.type === "message_end" && e.message.role === "notice" ? [e.message.id] : []));
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(1);
   });
 
   it("asks the user for permission and returns the chosen option", async () => {
@@ -184,6 +195,17 @@ describe("ACP harness", () => {
     expect((await session.loadTranscript()).toolResults.p1?.status).toBe("done");
     const answer = agentLog().find((m) => m.method === undefined && (m.result as { outcome?: unknown })?.outcome);
     expect(answer?.result).toEqual({ outcome: { outcome: "selected", optionId: "always" } });
+  });
+
+  it("marks a tool call the user rejected as rejected, not failed", async () => {
+    const { session, events } = await openSession(harness());
+    await session.prompt({ text: "permission" });
+    await until(() => events.some((e) => e.type === "ui_request"), 5000);
+    const request = (events.find((e) => e.type === "ui_request") as { request: UiRequest }).request;
+    session.respondToUi({ id: request.id, value: "reject" });
+    await until(() => events.some((e) => e.type === "run_end"), 5000);
+    expect(await lastText(session)).toBe("chose:reject");
+    expect((await session.loadTranscript()).toolResults.p1).toMatchObject({ status: "error", rejected: true });
   });
 
   it("answers a pending permission request `cancelled` when the run is stopped", async () => {
@@ -255,6 +277,26 @@ describe("ACP harness", () => {
     await until(() => events.filter((e) => e.type === "run_end").length === 2, 5000);
     const texts = (await assistants(session)).map((m) => messageText(m));
     expect(texts).toEqual(["slow done", "Hello there!"]);
+    expect(session.getState().queue.followUp).toEqual([]);
+  });
+
+  it("keeps queued messages when the run is stopped and sends them after the next run (like pi)", async () => {
+    const { session, events, run } = await openSession(harness());
+    await session.prompt({ text: "wait" });
+    await until(() => events.some((e) => e.type === "block_delta"), 5000);
+    await session.prompt({ text: "hello" });
+    await session.abort();
+    await until(() => events.some((e) => e.type === "run_end"), 5000);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events.filter((e) => e.type === "run_start")).toHaveLength(1);
+    expect(session.getState().queue.followUp).toEqual(["hello"]);
+    // The next message runs first, then the queued one.
+    await run("refuse");
+    await until(() => events.filter((e) => e.type === "run_end").length === 2, 5000);
+    expect(session.getState().queue.followUp).toEqual(["hello"]); // a failed run doesn't send it either
+    await run("slow");
+    await until(() => events.filter((e) => e.type === "run_end").length === 4, 5000);
+    expect((await assistants(session)).map((m) => messageText(m)).slice(-2)).toEqual(["slow done", "Hello there!"]);
     expect(session.getState().queue.followUp).toEqual([]);
   });
 
@@ -404,6 +446,37 @@ describe("ACP chats through the app service", () => {
       await until(() => !service.listSessions(created.workspace.id)[0]!.running, 5000);
       detail = await service.getSessionDetail(session.id);
       expect(detail.transcript.messages.map((m) => messageText(m)).at(-1)).toBe("chose:allow");
+
+      // A new tab without a harness keeps the chat's agent (not the default one); an explicit one wins.
+      const tab = await service.createSession(created.workspace.id, {});
+      expect(tab.session.harness).toBe("acp-fake");
+      const piTab = await service.createSession(created.workspace.id, { harness: "pi" });
+      expect(piTab.session.harness).toBe("pi");
+      await service.updateWorkspace(created.workspace.id, { layout: { activeMainSessionId: piTab.session.id } });
+      expect((await service.createSession(created.workspace.id, {})).session.harness).toBe("pi");
+      // A workspace with no sessions yet (a new chat) uses the default harness.
+      expect((await service.createWorkspace({ projectId: null })).session.session.harness).toBe("pi");
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("shows a crash once: in the transcript, without a duplicate error banner", async () => {
+    const store = new Store(join(dir, "data"), 0);
+    store.updateSettings({ harnesses: { acp: { agents: [config()] } } });
+    const provider = new AcpHarnessProvider(() => store.getSettings().harnesses.acp.agents, { transcriptsDir: join(dir, "acp-sessions") });
+    const service = new AppService({ store, harnesses: new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { dynamic: () => provider.list() }), scratchDir: cwd });
+    const events: AgentEvent[] = [];
+    service.subscribe((m) => {
+      if (m.type === "session_event") events.push(m.event);
+    });
+    try {
+      const created = await service.createWorkspace({ projectId: null, harness: "acp-fake", prompt: "crash" });
+      const id = created.session.session.id;
+      await until(() => service.liveCount === 0, 5000);
+      expect(events.some((e) => e.type === "message_end" && e.message.role === "assistant" && /fake crash/.test(e.message.errorMessage ?? ""))).toBe(true);
+      expect(events.some((e) => e.type === "error")).toBe(false);
+      expect(store.getSession(id)?.lastRunFailed).toBe(true);
     } finally {
       await service.dispose();
     }
