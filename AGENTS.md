@@ -121,7 +121,7 @@ The user develops Glade with the installed app (`/Applications/Glade.app`). The 
   (`GLADE_PORT`, `GLADE_SERVER_KIND`, … are stripped, see `harness/pi/child-env.ts`).
 - **Updating the app**: `pnpm tauri:install` builds and swaps the new bundle into
   `/Applications/Glade.app` without quitting the running app (I-082); the new version starts the
-  next time the user quits and reopens Glade. Agents don't install; the lead/user does, after integrating a round. To test a
+  next time the user quits and reopens Glade. Agents don't install; the lead does, only when the user asks for it. To test a
   release build next to the installed app, run its binary with a temp data folder and its own
   identifier: `GLADE_APP_IDENTIFIER=io.github.jas7457.glade.<agent> GLADE_DATA_DIR=/tmp/…
   apps/desktop/src-tauri/target/release/bundle/macos/Glade.app/Contents/MacOS/glade`.
