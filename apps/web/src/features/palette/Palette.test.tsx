@@ -21,6 +21,7 @@ import { paletteOpen, sidebarCollapsed } from "@/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
 import type { RouteContext } from "@/app/paths";
 import { makeWorkspace, makeProject } from "@/test/fixtures";
+import { pendingJump } from "@/features/chat/jump-to-message";
 import { Palette } from "./Palette";
 
 const noRoute: RouteContext = { workspaceId: null, projectId: null, isSettings: false };
@@ -156,6 +157,20 @@ describe("Palette: message search and Ask (I-045/I-046)", () => {
     fireEvent.click(rows[0]!);
     expect(navigate).toHaveBeenCalledWith("/chats/c2?tab=s2");
     expect(paletteOpen.value).toBe(false);
+    expect(pendingJump.value).toBeNull(); // no anchor on this hit
+  });
+
+  it("opening a message hit asks the transcript to jump to the matched message (I-093)", async () => {
+    pendingJump.value = null;
+    const message = { role: "assistant", timestamp: 1234 } as const;
+    vi.mocked(searchChats).mockResolvedValue({ query: "coupon", hits: [hit({ message })] });
+    const { navigate, input } = renderPalette();
+    type(input(), "coupon");
+    await waitFor(() => expect(screen.getByRole("group", { name: "Messages" })).toBeTruthy());
+    fireEvent.click(within(screen.getByRole("group", { name: "Messages" })).getByRole("option"));
+    expect(navigate).toHaveBeenCalledWith("/chats/c2?tab=s2");
+    expect(pendingJump.value).toMatchObject({ sessionId: "s2", message });
+    pendingJump.value = null;
   });
 
   it("enters Ask mode with ? and opens a confident match directly", async () => {
@@ -163,7 +178,9 @@ describe("Palette: message search and Ask (I-045/I-046)", () => {
       query: "q",
       confident: true,
       model: "anthropic/claude-haiku-4-5",
-      matches: [{ workspaceId: "c1", sessionId: "s1", sessionKind: "main", title: "Fix login bug", project: "Alpha", summary: null, reason: "r", updatedAt: 5 }],
+      matches: [
+        { workspaceId: "c1", sessionId: "s1", sessionKind: "main", title: "Fix login bug", project: "Alpha", summary: null, reason: "r", updatedAt: 5, message: { role: "user", timestamp: 7 } },
+      ],
     } satisfies AskResponse);
     const { navigate, input } = renderPalette();
     type(input(), "?the chat about signing in");
@@ -173,6 +190,8 @@ describe("Palette: message search and Ask (I-045/I-046)", () => {
     expect(askChats).toHaveBeenCalledWith("the chat about signing in");
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/projects/p1/chats/c1?tab=s1"));
     expect(paletteOpen.value).toBe(false);
+    expect(pendingJump.value).toMatchObject({ sessionId: "s1", message: { role: "user", timestamp: 7 } });
+    pendingJump.value = null;
   });
 
   it("Tab switches to Ask; unsure answers are listed with reasons; Backspace goes back", async () => {

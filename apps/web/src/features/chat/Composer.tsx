@@ -16,6 +16,12 @@
  * File mentions (I-044): typing `@` at the start or after whitespace opens a file menu for the
  * chat's folder; picking inserts `@relative/path` (folders complete stepwise).
  *
+ * Attachments (I-090): the paperclip, drag-and-drop and paste accept any file. Images go inline
+ * with the prompt (downscaled; as files when the model can't take images); other files are shown
+ * as chips and, on send, uploaded to the session's attachments folder and referenced by path
+ * (`Attached file: …` lines, state/attachments.ts). A new chat with files is created first, then
+ * prompted, since uploads belong to a session.
+ *
  * Shell mode (I-076, harnesses with the `shell` capability): text starting with `!` runs as a
  * shell command in the chat's folder instead of being sent (`!cmd` shares the output with the
  * agent for its next prompt, `!!cmd` doesn't); the box gets the shell tone and a hint, and the
@@ -27,7 +33,9 @@ import { useNavigate } from "react-router";
 import { ArrowUp, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
+  MAX_ATTACHMENT_BYTES,
   activeElsewhereMessage,
+  parseAttachedFiles,
   clampThinkingLevel,
   sameModel,
   type FileEntry,
@@ -42,12 +50,23 @@ import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { createWorkspace } from "@/state/actions";
+import { attachFilesToText } from "@/state/attachments";
 import { harnessCapabilities } from "@/state/harnesses";
 import { harnessDefaults, models as allModels, sessionsById, settings, visibleModels, workspacesById } from "@/state/store";
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
-import { Spinner, Tooltip } from "@/ui";
-import { imageFiles, isSendKey, parseShellInput, readImageFile, type Attachment, type ShellInput } from "./composer-utils";
+import { Chip, Spinner, Tooltip } from "@/ui";
+import {
+  formatBytes,
+  isSendKey,
+  parseShellInput,
+  readImageFile,
+  splitAttachableFiles,
+  type Attachment,
+  type PendingFile,
+  type ShellInput,
+} from "./composer-utils";
+import { fileIcon } from "./UserBubble";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ThinkingPicker } from "./Pickers";
 import { InterruptedBanner } from "./InterruptedBanner";
@@ -99,8 +118,8 @@ export interface ComposerBoxProps {
   thinkingLevel: ThinkingLevel;
   thinkingLevels: ThinkingLevel[];
   onThinkingChange: (level: ThinkingLevel) => void;
-  /** Resolve true to clear the input. */
-  onSend: (text: string, images: PromptImage[]) => Promise<boolean>;
+  /** Resolve true to clear the input. `files` = attached by reference (I-090), in order. */
+  onSend: (text: string, images: PromptImage[], files: File[]) => Promise<boolean>;
   onStop?: () => void;
   /** Rendered above the input box (queue chips, dialogs, banners). */
   above?: ComponentChildren;
@@ -120,6 +139,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const busy = loading || !!lockedReason;
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [images, setImages] = useState<Attachment[]>([]);
+  const [files, setFiles] = useState<PendingFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -172,6 +192,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   useEffect(() => {
     setText(drafts.get(draftKey) ?? "");
     setImages([]);
+    setFiles([]);
   }, [draftKey]);
 
   useEffect(() => {
@@ -199,22 +220,22 @@ export function ComposerBox(props: ComposerBoxProps) {
     else drafts.delete(draftKey);
   };
 
-  const addFiles = async (files: File[]) => {
-    if (files.length === 0) return;
-    if (!supportsImages) {
-      notify("warning", "The selected model doesn't accept images.");
-      return;
-    }
+  /** Attach dropped/picked/pasted files: images inline, everything else by reference (I-090). */
+  const addFiles = async (list: FileList | File[] | null | undefined) => {
+    const { images: imageList, files: others, tooLarge } = splitAttachableFiles(list, supportsImages, MAX_ATTACHMENT_BYTES);
+    for (const file of tooLarge) notify("error", `${file.name} is too large to attach (${formatBytes(file.size)}; the limit is ${formatBytes(MAX_ATTACHMENT_BYTES)}).`);
+    if (others.length) setFiles((prev) => [...prev, ...others]);
+    if (imageList.length === 0) return;
     try {
       const limits = modelInfo(props.models, props.model)?.imageLimits ?? DEFAULT_IMAGE_LIMITS;
-      const read = await Promise.all(files.map((file) => readImageFile(file, limits)));
+      const read = await Promise.all(imageList.map((file) => readImageFile(file, limits)));
       setImages((prev) => [...prev, ...read]);
     } catch (err) {
       notify("error", `Could not attach image: ${(err as Error).message}`);
     }
   };
 
-  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0);
+  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0);
 
   /** Insert `/name ` and keep typing arguments. */
   const complete = (command: SlashCommand) => {
@@ -289,6 +310,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
     const sentText = text.trim();
     const sentImages = images;
+    const sentFiles = files;
     const builtin = builtinFor(sentText);
     if (builtin) {
       // Runs here instead of being sent (attached images stay for the next message).
@@ -300,13 +322,16 @@ export function ComposerBox(props: ComposerBoxProps) {
     // Optimistically clear; restore if it failed.
     updateText("");
     setImages([]);
+    setFiles([]);
     const ok = await props.onSend(
       sentText,
       sentImages.map(({ mimeType, data }) => ({ mimeType, data })),
+      sentFiles.map((f) => f.file),
     );
     if (!ok) {
       updateText(sentText);
       setImages(sentImages);
+      setFiles(sentFiles);
     }
   };
 
@@ -389,17 +414,17 @@ export function ComposerBox(props: ComposerBoxProps) {
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
           setDragging(false);
-          const files = imageFiles(e.dataTransfer?.files);
-          if (files.length) {
+          const dropped = Array.from(e.dataTransfer?.files ?? []);
+          if (dropped.length) {
             e.preventDefault();
-            void addFiles(files);
+            if (!busy) void addFiles(dropped);
           }
         }}
       >
         {menuOpen && <SlashMenu groups={groups} activeIndex={active} onHover={setActiveIndex} onPick={complete} />}
         {mentionOpen && <MentionMenu entries={fileEntries} activeIndex={mentionActive} onHover={setMentionIndex} onPick={pickMention} />}
-        {images.length > 0 && (
-          <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attachments">
+        {(images.length > 0 || files.length > 0) && (
+          <div class="flex flex-wrap items-center gap-2 px-3 pt-3" aria-label="Attachments">
             {images.map((img) => (
               <div key={img.id} class="group/att relative">
                 <img
@@ -417,6 +442,18 @@ export function ComposerBox(props: ComposerBoxProps) {
                 </button>
               </div>
             ))}
+            {files.map((f) => {
+              const Icon = fileIcon(f.name);
+              return (
+                <Chip
+                  key={f.id}
+                  icon={<Icon />}
+                  label={f.name}
+                  title={`${f.name} · ${formatBytes(f.file.size)}`}
+                  onRemove={() => setFiles((prev) => prev.filter((p) => p.id !== f.id))}
+                />
+              );
+            })}
           </div>
         )}
         {shellInput && (
@@ -451,39 +488,36 @@ export function ComposerBox(props: ComposerBoxProps) {
           onKeyUp={syncCaret}
           onClick={syncCaret}
           onPaste={(e) => {
-            const files = imageFiles(e.clipboardData?.files);
-            if (files.length) {
+            const pasted = Array.from(e.clipboardData?.files ?? []);
+            if (pasted.length) {
               e.preventDefault();
-              void addFiles(files);
+              void addFiles(pasted);
             }
           }}
         />
         <div class="flex items-center gap-1 px-2 pt-1 pb-2">
-          {supportsImages && (
-            <>
-              <Tooltip content="Attach images">
-                <button
-                  type="button"
-                  aria-label="Attach images"
-                  class="inline-flex size-6 items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Paperclip size={14} />
-                </button>
-              </Tooltip>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                multiple
-                hidden
-                onChange={(e) => {
-                  void addFiles(imageFiles(e.currentTarget.files));
-                  e.currentTarget.value = "";
-                }}
-              />
-            </>
-          )}
+          <Tooltip content="Attach files">
+            <button
+              type="button"
+              aria-label="Attach files"
+              disabled={busy}
+              class="inline-flex size-6 items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40"
+              onClick={() => fileRef.current?.click()}
+            >
+              <Paperclip size={14} />
+            </button>
+          </Tooltip>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            data-testid="attach-input"
+            onChange={(e) => {
+              void addFiles(Array.from(e.currentTarget.files ?? []));
+              e.currentTarget.value = "";
+            }}
+          />
           <ModelPicker
             value={props.model}
             models={props.models}
@@ -534,6 +568,22 @@ export function ComposerBox(props: ComposerBoxProps) {
 // Existing chat
 // ---------------------------------------------------------------------------------------------
 
+/** A queued message's text without its `Attached file:` lines (I-090), plus a file count. */
+function QueuedText({ text }: { text: string }) {
+  const parsed = parseAttachedFiles(text);
+  return (
+    <>
+      <span class="truncate">{parsed.text}</span>
+      {parsed.files.length > 0 && (
+        <span class="flex shrink-0 items-center gap-0.5 text-fg-subtle">
+          <Paperclip size={11} />
+          {parsed.files.length}
+        </span>
+      )}
+    </>
+  );
+}
+
 function modelInfo(models: ModelInfo[], ref: ModelRef | null): ModelInfo | undefined {
   return ref ? models.find((m) => sameModel(m, ref)) : undefined;
 }
@@ -576,11 +626,11 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     ...state.queue.followUp.map((text) => ({ kind: "Follow-up", text })),
   ];
 
-  const onSend = (text: string, images: PromptImage[]) =>
+  const onSend = (text: string, images: PromptImage[], files: File[]) =>
     runAction(
-      () =>
+      async () =>
         api.prompt(chatId, {
-          text,
+          text: await attachFilesToText(chatId, text, files),
           images: images.length ? images : undefined,
           // Steer vs follow-up only exists for harnesses with message queues (I-065).
           behavior: store.state.value.isRunning && capabilities.steering ? settings.value.general.busyBehavior : undefined,
@@ -650,7 +700,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
           {queued.map((q, i) => (
             <div key={i} class="flex max-w-[85%] items-center gap-1.5 rounded-full bg-selected px-2.5 py-0.5 text-[0.88rem] text-fg-muted">
               <span class="shrink-0 text-fg-subtle">{q.kind}</span>
-              <span class="truncate">{q.text}</span>
+              <QueuedText text={q.text} />
             </div>
           ))}
         </div>
@@ -727,17 +777,28 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
   const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaultLevel);
 
-  const onSend = async (text: string, images: PromptImage[]) => {
+  const onSend = async (text: string, images: PromptImage[], files: File[]) => {
     setBusy(true);
     try {
+      const withFiles = files.length > 0;
       const created = await createWorkspace({
         projectId,
-        prompt: text,
-        images: images.length ? images : undefined,
+        // Files are uploaded into the new session's folder, so it's created first, then prompted.
+        prompt: withFiles ? undefined : text,
+        images: !withFiles && images.length ? images : undefined,
         // Following the harness default: send no model, so the harness decides (its settings apply).
         model: followsHarness ? null : model,
         thinkingLevel: model ? thinkingLevel : null,
       });
+      if (withFiles) {
+        const sessionId = created.session.session.id;
+        const sent = await runAction(
+          async () => api.prompt(sessionId, { text: await attachFilesToText(sessionId, text, files), images: images.length ? images : undefined }),
+          "Could not send message",
+        );
+        // The chat exists either way; keep the text in its composer when sending failed.
+        if (!sent && text) drafts.set(`chat:${sessionId}`, text);
+      }
       navigate(chatPath(created.workspace));
       return true;
     } catch (err) {

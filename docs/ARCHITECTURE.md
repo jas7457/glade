@@ -610,3 +610,18 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **Closed sub-agents are deleted** (I-055, user decision 2026-09-26): closing a sub-agent removes
   its tab and conversation, like a cmux pane; its report_done summary lives on in the parent chat.
   There is no "finished agents" list. Only crashed ones keep their tab (shown without restarting).
+
+### Attachments, chat tools and search jumps (I-090–I-093)
+
+- Non-image attachments are uploaded (`POST /sessions/:id/attachments?name=`) to
+  `<dataDir>/attachments/<sessionId>/` and referenced by path with `Attached file:` lines (format in
+  `protocol/attachments.ts`); the web turns them into chips. New chats with files are created
+  first, then prompted. Attachments are deleted with their session.
+- Agent API `POST /agents/chats/find|read|open` (I-091): find = the ⌘K Ask pipeline plus keyword
+  hits, the caller's own chat excluded unless `includeSelf`; read = summary + last N user/assistant
+  messages, bounded (`CHAT_TOOLS_LIMITS`), starts no agent; open = pushes `open_chat` and windows
+  navigate to it like a ⌘K pick. ext-kit's agent-teams exposes them as `find_chats`, `read_chat`,
+  `open_chat` (Glade backend only).
+- Search hits locate messages by role + timestamp (`MessageAnchor`), not by transcript message id:
+  harness ids are positional and change between streaming, reloads and compaction. The web resolves
+  the anchor against the loaded transcript (`features/chat/jump-to-message.ts`).

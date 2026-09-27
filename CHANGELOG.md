@@ -7,6 +7,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Attach any file (PDFs, logs, zips, code…) with the paperclip, drag-and-drop or paste. The agent
+  gets its path and reads it itself; your message shows the files as chips you can reveal in Finder.
+- `@` file mentions show as small file and folder chips in sent messages.
+- Opening a message result from ⌘K search jumps to that exact message and highlights it.
+- The agent can find, read and open your other chats ("open the chat where we talked about the
+  sidebar") with new `find_chats`, `read_chat` and `open_chat` tools.
 - The Mac app reopens where you left off: the last chat (and tab) or settings page. Sidebar width
   and collapsed projects are remembered across restarts too.
 - Run shell commands from the composer: `!command` runs it in the chat's folder and the agent sees

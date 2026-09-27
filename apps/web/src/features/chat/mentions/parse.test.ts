@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMention, findMention, mentionText } from "./parse";
+import { applyMention, findMention, mentionText, splitMentions } from "./parse";
 
 describe("findMention", () => {
   it("finds @query at the start or after whitespace, ending at the caret", () => {
@@ -25,5 +25,27 @@ describe("mentionText / applyMention", () => {
     const m = findMention(text, 10)!;
     expect(applyMention(text, m, { path: "Composer.tsx", kind: "file" })).toEqual({ text: "read @Composer.tsx please", caret: 19 });
     expect(applyMention("@s", findMention("@s", 2)!, { path: "src", kind: "dir" })).toEqual({ text: "@src/", caret: 5 });
+  });
+});
+
+describe("splitMentions (I-092)", () => {
+  const join = (segs: ReturnType<typeof splitMentions>) => segs.map((s) => (s.type === "text" ? s.text : s.raw)).join("");
+
+  it("finds files, folders and quoted paths; the text round-trips", () => {
+    const text = 'look at @src/app.ts and @docs/ plus @"my docs/read me.md", thanks';
+    const segs = splitMentions(text);
+    expect(segs.filter((s) => s.type === "mention")).toEqual([
+      { type: "mention", raw: "@src/app.ts", path: "src/app.ts", kind: "file" },
+      { type: "mention", raw: "@docs/", path: "docs", kind: "dir" },
+      { type: "mention", raw: '@"my docs/read me.md"', path: "my docs/read me.md", kind: "file" },
+    ]);
+    expect(join(segs)).toBe(text);
+  });
+  it("leaves emails, bare words and trailing punctuation alone", () => {
+    expect(splitMentions("mail me@example.com or @everyone")).toEqual([{ type: "text", text: "mail me@example.com or @everyone" }]);
+    const segs = splitMentions("@README.md, then (@a/b.ts).");
+    expect(segs.filter((s) => s.type === "mention").map((s) => (s.type === "mention" ? s.path : ""))).toEqual(["README.md"]);
+    expect(join(segs)).toBe("@README.md, then (@a/b.ts).");
+    expect(join(splitMentions("line\n@x/y.ts"))).toBe("line\n@x/y.ts");
   });
 });

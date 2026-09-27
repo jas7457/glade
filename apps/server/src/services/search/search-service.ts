@@ -20,6 +20,7 @@ import {
   modelKey,
   type AskMatch,
   type AskResponse,
+  type MessageAnchor,
   type ModelInfo,
   type ModelRef,
   type Project,
@@ -96,6 +97,15 @@ const MAX_MESSAGE_CHARS = 20_000;
 const FRESH_MS = 1000;
 const SUMMARY_RETRY_MS = 10 * 60_000;
 const CANDIDATES = 20;
+
+/** Options of {@link SearchService.search} and {@link SearchService.ask}. */
+export interface SearchQueryOptions {
+  /** Session ids to leave out (e.g. the asking agent's own chat, so it can't win). */
+  exclude?: ReadonlySet<string> | readonly string[];
+}
+
+const toSet = (ids: SearchQueryOptions["exclude"]): ReadonlySet<string> | undefined =>
+  ids === undefined ? undefined : ids instanceof Set ? ids : new Set(ids as readonly string[]);
 const RECENT_PAD = 25;
 
 export class SearchService {
@@ -147,13 +157,13 @@ export class SearchService {
   // -------------------------------------------------------------------------------------------
 
   /** Full-text search (every query word must occur somewhere in the chat). */
-  async search(query: string, limit = 20): Promise<SearchResponse> {
+  async search(query: string, limit = 20, opts: SearchQueryOptions = {}): Promise<SearchResponse> {
     const q = query.trim();
     if (!q) return { query, hits: [] };
     await this.ensureFresh();
     const ctx = this.context();
     const hits: SearchHit[] = [];
-    for (const hit of this.index.search(q, { mode: "all", limit: limit * 2 })) {
+    for (const hit of this.index.search(q, { mode: "all", limit: limit * 2, exclude: toSet(opts.exclude) })) {
       const found = ctx.resolve(hit.sessionId);
       if (!found) continue;
       const { session, workspace, project } = found;
@@ -167,6 +177,7 @@ export class SearchService {
         project: project?.name ?? null,
         snippet: hit.snippet,
         matchedIn: hit.kind,
+        ...(hit.message ? { message: hit.message } : {}),
         score: hit.score,
         updatedAt: session.lastActivityAt,
       });
@@ -176,16 +187,19 @@ export class SearchService {
   }
 
   /** Natural-language chat finder: the small model picks the best matches among candidates. */
-  async ask(query: string, limit = 3): Promise<AskResponse> {
+  async ask(query: string, limit = 3, opts: SearchQueryOptions = {}): Promise<AskResponse> {
     const q = query.trim();
     if (!q) return { query, matches: [], confident: false, model: null };
     await this.ensureFresh();
     const ctx = this.context();
-    const keyword = this.index.search(q, { mode: "any", limit: CANDIDATES }).filter((h) => ctx.resolve(h.sessionId));
+    const exclude = toSet(opts.exclude);
+    const keyword = this.index.search(q, { mode: "any", limit: CANDIDATES, exclude }).filter((h) => ctx.resolve(h.sessionId));
     const ids = keyword.map((h) => h.sessionId);
     const excerpts = new Map(keyword.map((h) => [h.sessionId, h.kind === "title" ? null : h.snippet.text]));
+    const anchors = new Map<string, MessageAnchor>();
+    for (const h of keyword) if (h.message) anchors.set(h.sessionId, h.message);
     // Paraphrased requests may share no words with the chat: offer the most recent chats too.
-    const recent = ctx.sessions.filter((s) => !ids.includes(s.id)).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    const recent = ctx.sessions.filter((s) => !ids.includes(s.id) && !exclude?.has(s.id)).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     for (const s of recent) {
       if (ids.length >= RECENT_PAD) break;
       ids.push(s.id);
@@ -193,7 +207,7 @@ export class SearchService {
 
     const fallback = (): AskResponse => ({
       query,
-      matches: keyword.slice(0, limit).map((h) => this.askMatch(ctx, h.sessionId, "")!).filter(Boolean),
+      matches: keyword.slice(0, limit).map((h) => this.askMatch(ctx, h.sessionId, "", anchors)!).filter(Boolean),
       confident: false,
       model: null,
     });
@@ -222,7 +236,7 @@ export class SearchService {
       query,
       matches: parsed.matches
         .slice(0, limit)
-        .map((m) => this.askMatch(ctx, byLabel.get(m.label)!, m.reason))
+        .map((m) => this.askMatch(ctx, byLabel.get(m.label)!, m.reason, anchors))
         .filter((m): m is AskMatch => m !== null),
       confident: parsed.confident,
       model: model ? modelKey(model) : "default",
@@ -343,7 +357,10 @@ export class SearchService {
     if (this.indexed.get(session.id) === key) return;
     const fields: FieldInput[] = [{ kind: "title", text: titles.join("\n") }];
     if (summary) fields.push({ kind: "summary", text: summary });
-    for (const m of text?.messages ?? []) fields.push({ kind: m.role, text: m.text });
+    for (const m of text?.messages ?? []) {
+      // The timestamp locates the message in the web transcript (I-093); 0 = unknown.
+      fields.push({ kind: m.role, text: m.text, ...(m.timestamp > 0 ? { message: { role: m.role, timestamp: m.timestamp } } : {}) });
+    }
     this.index.set(session.id, fields);
     this.indexed.set(session.id, key);
   }
@@ -431,7 +448,12 @@ export class SearchService {
     };
   }
 
-  private askMatch(ctx: ReturnType<SearchService["context"]>, sessionId: string, reason: string): AskMatch | null {
+  private askMatch(
+    ctx: ReturnType<SearchService["context"]>,
+    sessionId: string,
+    reason: string,
+    anchors: ReadonlyMap<string, MessageAnchor>,
+  ): AskMatch | null {
     const found = ctx.resolve(sessionId);
     if (!found) return null;
     const { session, workspace, project } = found;
@@ -443,6 +465,7 @@ export class SearchService {
       project: project?.name ?? null,
       summary: this.summaryOf(session.id),
       reason,
+      ...(anchors.has(session.id) ? { message: anchors.get(session.id)! } : {}),
       updatedAt: session.lastActivityAt,
     };
   }

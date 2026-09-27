@@ -14,6 +14,16 @@ export interface HighlightedText {
   highlights: Array<[start: number, end: number]>;
 }
 
+/**
+ * Locates a message in a session's transcript (I-093): its role and timestamp (ms epoch), the
+ * same values as `ChatMessage.role`/`timestamp`. Harness-assigned message ids are positional and
+ * change between live streaming, reloads and compaction, so hits point at messages this way.
+ */
+export interface MessageAnchor {
+  role: "user" | "assistant";
+  timestamp: number;
+}
+
 export interface SearchHit {
   workspaceId: string;
   sessionId: string;
@@ -30,6 +40,8 @@ export interface SearchHit {
   snippet: HighlightedText;
   /** Where the snippet comes from. */
   matchedIn: "title" | "summary" | "user" | "assistant";
+  /** The matched message, for `user`/`assistant` matches whose timestamp is known (I-093). */
+  message?: MessageAnchor;
   /** Higher is better. Only meaningful within one response. */
   score: number;
   /** Last activity of the session (ms epoch). */
@@ -58,6 +70,8 @@ export interface AskMatch {
   summary: string | null;
   /** Why the model picked it (short). Empty for keyword fallback results. */
   reason: string;
+  /** The message behind the keyword excerpt for this chat, when there was one (I-093). */
+  message?: MessageAnchor;
   updatedAt: number;
 }
 

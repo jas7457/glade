@@ -10,18 +10,21 @@
  * `any` mode (candidate retrieval for the chat finder) ranks sessions matching any word. Common
  * English stop words are dropped from the query unless nothing else is left.
  */
-import type { HighlightedText } from "@glade/protocol";
+import type { HighlightedText, MessageAnchor } from "@glade/protocol";
 
 export type FieldKind = "title" | "summary" | "user" | "assistant";
 
 export interface FieldInput {
   kind: FieldKind;
   text: string;
+  /** The message this field is (user/assistant fields), reported with hits (I-093). */
+  message?: MessageAnchor;
 }
 
 interface Field {
   kind: FieldKind;
   text: string;
+  message?: MessageAnchor;
   tf: Map<string, number>;
   len: number;
 }
@@ -32,11 +35,15 @@ export interface IndexHit {
   /** The best matching field (for the snippet). */
   kind: FieldKind;
   snippet: HighlightedText;
+  /** The best field's message, if it is one. */
+  message?: MessageAnchor;
 }
 
 export interface SearchOptions {
   mode?: "all" | "any";
   limit?: number;
+  /** Session ids to leave out. */
+  exclude?: ReadonlySet<string>;
 }
 
 const WEIGHT: Record<FieldKind, number> = { title: 3, summary: 2, user: 1.3, assistant: 1 };
@@ -67,11 +74,11 @@ export function queryTerms(query: string): string[] {
   return content.length ? content : all;
 }
 
-function makeField({ kind, text }: FieldInput): Field {
+function makeField({ kind, text, message }: FieldInput): Field {
   const tf = new Map<string, number>();
   const tokens = tokenize(text);
   for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
-  return { kind, text, tf, len: tokens.length };
+  return { kind, text, tf, len: tokens.length, ...(message ? { message } : {}) };
 }
 
 export class TextIndex {
@@ -136,7 +143,7 @@ export class TextIndex {
     return out;
   }
 
-  search(query: string, { mode = "all", limit = 20 }: SearchOptions = {}): IndexHit[] {
+  search(query: string, { mode = "all", limit = 20, exclude }: SearchOptions = {}): IndexHit[] {
     const words = queryTerms(query);
     if (!words.length || !this.fieldCount) return [];
     const expanded = words.map((w) => this.expand(w).map(([term, weight]) => ({ term, weight, idf: this.idf(term) })));
@@ -145,6 +152,7 @@ export class TextIndex {
 
     const hits: Array<{ sessionId: string; score: number; field: Field }> = [];
     for (const [sessionId, fields] of this.sessions) {
+      if (exclude?.has(sessionId)) continue;
       const found = new Set<number>();
       let best: { field: Field; score: number } | null = null;
       let rest = 0;
@@ -186,6 +194,7 @@ export class TextIndex {
       score: Math.round(score * 1000) / 1000,
       kind: field.kind,
       snippet: makeSnippet(field.text, words),
+      ...(field.message ? { message: field.message } : {}),
     }));
   }
 

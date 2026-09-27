@@ -2,7 +2,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultSettings, type AskResponse, type ModelInfo, type SearchResponse, type Project, type SessionSummary, type Settings, type WorkspaceSummary } from "@glade/protocol";
+import { defaultSettings, type AskResponse, type MessageAnchor, type ModelInfo, type SearchResponse, type Project, type SessionSummary, type Settings, type WorkspaceSummary } from "@glade/protocol";
+import { parsePiSessionText } from "../src/harness/pi/session-reader.js";
+import { transcriptFromPiSession } from "../src/harness/pi/transcript-file.js";
 import { searchRoutes } from "../src/http/search.js";
 import { SearchService, type SearchAppSource } from "../src/services/search/search-service.js";
 import type { SmallModel, SessionText, SessionTextReader } from "../src/services/search/types.js";
@@ -228,5 +230,87 @@ describe("search routes", () => {
     expect(((await ask.json()) as AskResponse).matches[0]!.sessionId).toBe("b");
     const bad = await routes.request("/search/ask", { method: "POST", body: JSON.stringify({ query: " " }) });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("message anchors (I-093)", () => {
+  const line = (o: object) => JSON.stringify(o);
+  const msg = (id: string, parentId: string | null, message: object) => line({ type: "message", id, parentId, timestamp: "2026-09-26T10:00:00.000Z", message });
+  // A pi session file: two user prompts, a tool-using assistant turn and a final reply.
+  const PI_FILE = [
+    line({ type: "session", version: 3, id: "s", timestamp: "2026-09-26T10:00:00.000Z", cwd: "/tmp" }),
+    msg("e1", null, { role: "user", content: [{ type: "text", text: "Please refactor the payment gateway" }], timestamp: 1727000000100 }),
+    msg("e2", "e1", {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Looking at the gateway module." },
+        { type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+      ],
+      timestamp: 1727000000200,
+    }),
+    msg("e3", "e2", { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "zebra.ts" }], isError: false, timestamp: 1727000000300 }),
+    msg("e4", "e3", { role: "assistant", content: [{ type: "text", text: "Split it into a retry-aware adapter." }], timestamp: 1727000000400 }),
+    msg("e5", "e4", { role: "user", content: "now add pagination to invoices", timestamp: 1727000000500 }),
+  ].join("\n");
+
+  const piReader: SessionTextReader = {
+    stat: async () => ({ mtimeMs: 1, size: PI_FILE.length }),
+    read: async () => parsePiSessionText(PI_FILE),
+  };
+  const makePi = () => {
+    sessions = [session("p", "Payments")];
+    const s = new SearchService({ app, dataDir: dir, readers: { mem: piReader }, pollMs: 0, debounceMs: 0, now: () => clock });
+    services.push(s);
+    return s;
+  };
+  /** The id the web transcript gives the message a hit points at (role + timestamp). */
+  const transcriptIdOf = (anchor: MessageAnchor | undefined) =>
+    transcriptFromPiSession(PI_FILE).messages.find((m) => anchor && m.role === anchor.role && m.timestamp === anchor.timestamp)?.id;
+  const transcript = transcriptFromPiSession(PI_FILE);
+
+  it("user hits point at the matched user message", async () => {
+    const hit = (await makePi().search("pagination invoices")).hits[0]!;
+    expect(hit).toMatchObject({ matchedIn: "user", message: { role: "user", timestamp: 1727000000500 } });
+    expect(transcriptIdOf(hit.message)).toBe(transcript.messages.find((m) => m.role === "user" && m.timestamp === 1727000000500)!.id);
+  });
+
+  it("assistant hits point at the matched assistant message (not the first of the turn)", async () => {
+    const hit = (await makePi().search("retry adapter")).hits[0]!;
+    expect(hit).toMatchObject({ matchedIn: "assistant", message: { role: "assistant", timestamp: 1727000000400 } });
+    const id = transcriptIdOf(hit.message);
+    expect(id).toBeDefined();
+    expect(transcript.messages.findIndex((m) => m.id === id)).toBe(transcript.messages.length - 2);
+  });
+
+  it("title hits and unknown timestamps carry no anchor", async () => {
+    expect((await makePi().search("payments")).hits[0]).not.toHaveProperty("message");
+    sessions = [session("b", "Checkout flow")];
+    // The shared fixture reader stores timestamp 0.
+    expect((await make().search("null coupon")).hits[0]).not.toHaveProperty("message");
+  });
+
+  it("ask matches carry the keyword excerpt's message", async () => {
+    const res = await makePi().ask("pagination on invoices");
+    expect(res.matches[0]).toMatchObject({ sessionId: "p", message: { role: "user", timestamp: 1727000000500 } });
+  });
+});
+
+describe("exclude option", () => {
+  it("search leaves out excluded sessions", async () => {
+    const s = make();
+    expect((await s.search("coupon")).hits.map((h) => h.sessionId)).toEqual(["b"]);
+    expect((await s.search("coupon", 20, { exclude: ["b"] })).hits).toEqual([]);
+  });
+
+  it("ask drops excluded sessions from keyword candidates and recent padding", async () => {
+    settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
+    const fast = vi.fn<SmallModel>(async () => '{"matches":[]}');
+    await make(fast).ask("checkout crash", 3, { exclude: new Set(["b", "c"]) });
+    const prompt = fast.mock.calls[0]![0].prompt;
+    expect(prompt).toContain('"Casual greeting"');
+    expect(prompt).not.toContain('"Checkout flow"');
+    expect(prompt).not.toContain('"Database work"');
+    // Keyword fallback too.
+    expect((await make().ask("checkout crash", 3, { exclude: ["b"] })).matches).toEqual([]);
   });
 });

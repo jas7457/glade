@@ -10,6 +10,7 @@ import { Hono, type Context } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import {
+  MAX_ATTACHMENT_BYTES,
   THINKING_LEVELS,
   type CreateProjectRequest,
   type CreateSessionRequest,
@@ -32,6 +33,7 @@ import { HttpError, type AppService } from "../services/app-service.js";
 import type { FolderInfoService } from "../services/folder-info.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
 import { RevealUnavailableError } from "../services/reveal.js";
+import { AttachmentError } from "../services/attachments.js";
 import { folderRoutes } from "./folder.js";
 import { searchRoutes } from "./search.js";
 import { createAgentsRoutes } from "./agents.js";
@@ -74,7 +76,7 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
   if (folderInfo) app.route("/api", folderRoutes(folderInfo));
   if (search) app.route("/api", searchRoutes(search));
   // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
-  app.route("/api/agents", createAgentsRoutes(service));
+  app.route("/api/agents", createAgentsRoutes(service, search));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 
@@ -210,6 +212,19 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
     await service.prompt(c.req.param("id"), body);
     return c.body(null, 204);
+  });
+  // Files attached by reference (I-090): raw bytes, `?name=` the file name → AttachmentUploadResponse.
+  api.post("/sessions/:id/attachments", async (c) => {
+    const name = c.req.query("name");
+    requireString(name, "name");
+    const declared = Number(c.req.header("content-length") ?? 0);
+    if (declared > MAX_ATTACHMENT_BYTES) return c.json({ error: "Files can be at most 50 MB" }, 413);
+    try {
+      return c.json(await service.saveAttachment(c.req.param("id"), name, c.req.raw.body));
+    } catch (err) {
+      if (err instanceof AttachmentError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
   });
   api.post("/sessions/:id/abort", async (c) => {
     await service.abort(c.req.param("id"));

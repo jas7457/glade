@@ -6,12 +6,16 @@
  * Also searches inside chats (I-045: a "Messages" group with snippets, from `GET /api/search`)
  * and has an "Ask" mode (I-046): type `?` first or press Tab, describe the chat, Return. A fast
  * model picks the best matches; a confident answer opens the chat directly.
+ *
+ * Opening a message hit (or an Ask result found by keyword) jumps to the matched message
+ * (I-093, `features/chat/jump-to-message.ts`); title/summary hits open the chat as usual.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { AskResponse, SearchHit } from "@glade/protocol";
+import type { AskResponse, MessageAnchor, SearchHit } from "@glade/protocol";
 import { CommandPalette, Spinner, type CommandPaletteSection } from "@/ui";
 import { COMMAND_GROUPS, isAvailable, type Command, type CommandContext, type CommandPrompt, buildCommands } from "@/app/commands";
 import { chatPath } from "@/app/routes";
+import { requestJump } from "@/features/chat/jump-to-message";
 import { askChats, searchChats } from "@/lib/api-search";
 import { workspacesById } from "@/state/store";
 import { paletteOpen } from "@/state/ui";
@@ -85,10 +89,11 @@ function PalettePanel({ context }: PaletteProps) {
     paletteOpen.value = next;
   };
 
-  const openChat = (workspaceId: string, sessionId: string, kind: "main" | "subagent") => {
+  const openChat = (workspaceId: string, sessionId: string, kind: "main" | "subagent", message?: MessageAnchor) => {
     const workspace = workspacesById.value.get(workspaceId);
     if (!workspace) return;
     setOpen(false);
+    if (message) requestJump(sessionId, message);
     context.navigate(chatPath(workspace, kind === "main" ? sessionId : null));
   };
 
@@ -102,7 +107,7 @@ function PalettePanel({ context }: PaletteProps) {
         if (seq !== askSeq.current) return;
         const best = result.matches[0];
         if (result.confident && best && workspacesById.value.has(best.workspaceId)) {
-          openChat(best.workspaceId, best.sessionId, best.sessionKind);
+          openChat(best.workspaceId, best.sessionId, best.sessionKind, best.message);
           return;
         }
         setAsk({ status: "done", result });
@@ -152,11 +157,11 @@ function PalettePanel({ context }: PaletteProps) {
     if (id === ASK_ENTRY_ID) return enterAskMode(query.trim(), true);
     if (id.startsWith("msg:")) {
       const hit = hits.find((h) => `msg:${h.sessionId}` === id);
-      return hit && openChat(hit.workspaceId, hit.sessionId, hit.sessionKind);
+      return hit && openChat(hit.workspaceId, hit.sessionId, hit.sessionKind, hit.message);
     }
     if (id.startsWith("ask:") && ask.status === "done") {
       const match = ask.result.matches.find((m) => `ask:${m.sessionId}` === id);
-      return match && openChat(match.workspaceId, match.sessionId, match.sessionKind);
+      return match && openChat(match.workspaceId, match.sessionId, match.sessionKind, match.message);
     }
     const command = commands.find((c) => c.id === id);
     if (!command) return;

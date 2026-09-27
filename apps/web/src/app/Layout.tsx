@@ -17,6 +17,7 @@ import { rememberAppPath } from "@/features/settings";
 import { Palette } from "@/features/palette";
 import { globalCommands } from "./commands";
 import { useLastRoute } from "./lastRoute";
+import { useOpenChatRequests } from "./openChatRequests";
 import { routeContext } from "./paths";
 import { SHORTCUTS, useGlobalShortcuts } from "./shortcuts";
 
@@ -100,6 +101,7 @@ export function Layout() {
     currentWorkspaceId.value = ctx.workspaceId;
   }, [location.pathname, ctx.workspaceId]);
   useLastRoute();
+  useOpenChatRequests();
 
   const commandContext = { navigate: (path: string) => navigate(path), route: ctx };
   useGlobalShortcuts(globalCommands({ ...commandContext, togglePalette }));

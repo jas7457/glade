@@ -1,0 +1,35 @@
+/*
+ * Brief highlight of the message a search hit opened (I-093, jump-to-message.ts): an accent
+ * tint overlay slightly larger than the element that fades out. An overlay (not the element's
+ * own background) so user bubbles keep their fill.
+ */
+.pi-jump-highlight {
+  position: relative;
+}
+
+.pi-jump-highlight::after {
+  content: "";
+  position: absolute;
+  inset: -6px -8px;
+  border-radius: 12px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--pi-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pi-accent) 35%, transparent);
+  animation: pi-jump-highlight 2.2s ease-out forwards;
+}
+
+@keyframes pi-jump-highlight {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-jump-highlight::after {
+    animation-timing-function: steps(1, end);
+  }
+}

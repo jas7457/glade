@@ -13,14 +13,14 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
-import { parseAgentMessage, subagentSessionsOf, type ImageBlock, type NoticeMessage, type UserMessage } from "@glade/protocol";
+import { subagentSessionsOf, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
 import { sessions } from "@/state/store";
 import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
-import { AgentMessageCard } from "./AgentMessageCard";
+import { ImageThumb, UserBubble } from "./UserBubble";
 import { AgentSpawnCard } from "./AgentSpawnCard";
 import { linkAgentSpawns } from "./agent-spawns";
 import { SpawnLinksContext, type SpawnLinksValue } from "./spawn-context";
@@ -30,8 +30,12 @@ import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
 import { useSmoothText } from "./smooth-text";
 import { useStickToBottom } from "./useStickToBottom";
+import { findJumpTarget, flashElement, jumpElement, pendingJump, takeJump } from "./jump-to-message";
+import { notify } from "@/state/toasts";
 import { workingStatus, type WorkingLabel } from "./working";
 import "./chat.css";
+
+export { UserBubble } from "./UserBubble";
 
 export interface TranscriptProps {
   chatId: string;
@@ -64,7 +68,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { atBottom, scrollToBottom } = useStickToBottom(scrollRef, contentRef);
+  const { atBottom, scrollToBottom, scrollToElement } = useStickToBottom(scrollRef, contentRef);
 
   // Jump to the bottom when the user sends a message or runs a command, and when switching chats.
   const lastUserId = useMemo(() => {
@@ -75,6 +79,20 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
     return null;
   }, [transcript.messages]);
   useEffect(() => scrollToBottom(), [lastUserId, chatId, status === "ready"]);
+
+  // Opened from a search hit (I-093): center the matched message and flash it. Runs after the
+  // jump to the bottom above, so it wins for this open; stays at the bottom if it isn't loaded.
+  const jump = pendingJump.value;
+  useEffect(() => {
+    if (status !== "ready" || !jump || jump.sessionId !== chatId) return;
+    const anchor = takeJump(chatId);
+    if (!anchor) return;
+    const target = findJumpTarget(transcript.messages, items, anchor);
+    const el = target && contentRef.current ? jumpElement(contentRef.current, target) : null;
+    if (!el) return notify("info", "Message not in loaded history");
+    scrollToElement(el);
+    flashElement(el);
+  }, [jump, chatId, status]);
 
   const working = workingStatus(transcript, state);
 
@@ -167,43 +185,6 @@ function ReplyText({ text, streaming }: { text: string; streaming: boolean }) {
   const shown = useSmoothText(text, streaming);
   // Still revealing after the message ended: keep tolerating unterminated markdown until done.
   return <Markdown text={shown} streaming={streaming || shown.length < text.length} class="my-1.5" />;
-}
-
-export const UserBubble = memo(function UserBubble({ message }: { message: UserMessage }) {
-  const images = message.content.filter((b): b is ImageBlock => b.type === "image");
-  const text = message.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("\n\n");
-  // Sub-agent reports arrive as prompts but aren't the user's words (I-075).
-  const agentMessage = useMemo(() => (images.length === 0 ? parseAgentMessage(text) : null), [text, images.length]);
-  if (agentMessage) return <AgentMessageCard message={agentMessage} />;
-  return (
-    <div class="mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
-      {images.length > 0 && (
-        <div class="flex flex-wrap justify-end gap-1.5">
-          {images.map((img, i) => (
-            <ImageThumb key={i} image={img} class="max-h-40" />
-          ))}
-        </div>
-      )}
-      {text && (
-        <div class="selectable max-w-[85%] rounded-[14px] bg-selected px-3.5 py-2 leading-[1.5] whitespace-pre-wrap break-words">
-          {text}
-        </div>
-      )}
-    </div>
-  );
-});
-
-function ImageThumb({ image, class: className }: { image: ImageBlock; class?: string }) {
-  return (
-    <img
-      src={`data:${image.mimeType};base64,${image.data}`}
-      alt=""
-      class={cn("rounded-[10px] border-[0.5px] border-separator object-contain", className)}
-    />
-  );
 }
 
 export function ErrorNotice({ kind, message, details }: { kind: "error" | "aborted"; message: string; details?: string }) {

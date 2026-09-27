@@ -432,7 +432,9 @@ export type ServerMessage =
   | { type: "settings"; settings: Settings }
   | { type: "models"; models: ModelInfo[] }
   /** Subscription usage limits; `null` when unavailable (feature hidden). */
-  | { type: "usage_limits"; usage: UsageLimits | null };
+  | { type: "usage_limits"; usage: UsageLimits | null }
+  /** An agent asked to show this chat (`open_chat`, I-091): windows navigate to it like a ⌘K pick. */
+  | { type: "open_chat"; workspaceId: string; sessionId: string; sessionKind: "main" | "subagent" };
 
 /**
  * Client -> server messages over the WebSocket. `viewing` lists every session currently on

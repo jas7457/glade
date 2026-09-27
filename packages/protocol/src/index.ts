@@ -11,3 +11,5 @@ export * from "./folder.js";
 export * from "./agents.js";
 export * from "./harness.js";
 export * from "./agent-messages.js";
+export * from "./chat-tools.js";
+export * from "./attachments.js";

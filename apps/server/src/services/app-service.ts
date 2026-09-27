@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
   AGENT_ENV,
   LEGACY_AGENT_ENV,
@@ -16,10 +16,12 @@ import {
   emptyTranscript,
   firstMainSession,
   messageText as transcriptText,
+  parseAttachedFiles,
   quickTitle,
   rollupWorkspace,
   sameModel,
   type AgentEvent,
+  type AttachmentUploadResponse,
   type CloseAgentResponse,
   type CompactResult,
   type CreateProjectRequest,
@@ -63,7 +65,7 @@ import {
 } from "@glade/protocol";
 import type { HarnessRegistry } from "../harness/registry.js";
 import { canGenerateTitles, conversationExcerpt, generateTitleWith } from "../harness/title.js";
-import type { AgentHarness, HarnessSession } from "../harness/types.js";
+import type { AgentHarness, HarnessSession, SessionText, SessionTextMessage } from "../harness/types.js";
 import type { Store, StoreChange } from "../store/store.js";
 import {
   AgentRegistry,
@@ -85,6 +87,7 @@ import { pickAgentIdentity, type AgentIdentity } from "./agent-names.js";
 import { LeaseManager, type LeaseInfo } from "./leases.js";
 import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
+import { AttachmentStore } from "./attachments.js";
 import type { ServerRegistry } from "./server-registry.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
 
@@ -178,6 +181,8 @@ export interface AppServiceOptions {
   registry?: ServerRegistry;
   /** Lease scan interval (ms; tests lower it). */
   leaseScanMs?: number;
+  /** Attached files (I-090). Default: `<dataDir>/attachments`. */
+  attachments?: AttachmentStore;
 }
 
 /**
@@ -215,6 +220,8 @@ export class AppService {
   private readonly harnesses: HarnessRegistry;
   /** Files written by `exportSession` this run; the only paths `revealPath` will show. */
   private readonly exported = new Set<string>();
+  /** Files attached by reference (I-090), per session; removed with the session. */
+  readonly attachments: AttachmentStore;
   /** Agent API (I-037): sub-agent records, per-process tokens, timers, delivery queues. */
   private readonly agents: AgentRegistry;
   private readonly tokens = new AgentTokens();
@@ -232,6 +239,7 @@ export class AppService {
     this.store = options.store;
     this.harnesses = options.harnesses;
     this.agents = new AgentRegistry(options.dataDir);
+    this.attachments = options.attachments ?? new AttachmentStore(join(options.dataDir ?? options.store.dataDir, "attachments"));
     this.serverUrl = options.serverUrl ?? null;
     mkdirSync(options.scratchDir, { recursive: true });
     // Usage limits are the default harness's account (the gauge is app-wide).
@@ -539,6 +547,37 @@ export class AppService {
     return this.store.listWorkspaces().flatMap((w) => this.sessionsOf(w.id));
   }
 
+  /**
+   * A session's conversation as plain user/assistant text, read from its persisted data without
+   * starting an agent (chat tools, I-091): the harness's `readSessionText`, else its transcript.
+   * `null` when there's nothing persisted (yet) or the harness can't read it.
+   */
+  async readSessionText(sessionId: string): Promise<SessionText | null> {
+    const session = this.requireSession(sessionId);
+    const harness = this.harnesses.get(session.harness);
+    if (!harness || !session.sessionRef) return null;
+    if (harness.readSessionText) return harness.readSessionText(session.sessionRef).catch(() => null);
+    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
+    if (!transcript) return null;
+    const messages: SessionTextMessage[] = [];
+    for (const m of transcript.messages) {
+      if (m.role !== "user" && m.role !== "assistant") continue;
+      const text = transcriptText(m).trim();
+      if (text) messages.push({ role: m.role, text, timestamp: m.timestamp });
+    }
+    return { name: null, messages };
+  }
+
+  /**
+   * Ask every connected window to show a session, like a ⌘K pick (`open_chat` push, I-091).
+   * Returns how many clients were told.
+   */
+  requestOpenChat(sessionId: string): number {
+    const session = this.requireSession(sessionId);
+    this.broadcast({ type: "open_chat", workspaceId: session.workspaceId, sessionId: session.id, sessionKind: session.kind });
+    return this.listeners.size;
+  }
+
   getWorkspaceDetail(id: string): WorkspaceDetail {
     const workspace = this.requireWorkspace(id);
     return { workspace: this.summarizeWorkspace(workspace), sessions: this.sessionsOf(id) };
@@ -810,6 +849,13 @@ export class AppService {
     else if (session.sessionRef) this.options.log?.(`kept the session file of ${session.id}: its harness "${session.harness}" isn't installed`);
     this.viewers.delete(session.id);
     this.leases?.release(session.id);
+    await this.attachments.removeSession(session.id).catch(() => {});
+  }
+
+  /** Save a file attached by reference (I-090) for session `id`; its path goes into the prompt. */
+  async saveAttachment(id: string, name: string, body: ReadableStream<Uint8Array> | null): Promise<AttachmentUploadResponse> {
+    this.requireSession(id);
+    return this.attachments.save(id, name, body);
   }
 
   /** A prompt from the user (the HTTP API). */
@@ -838,10 +884,12 @@ export class AppService {
     const session = this.requireSession(id);
     const next: Session = { ...session, lastActivityAt: Date.now() };
     delete next.interrupted; // any new prompt dismisses the "interrupted" state
-    const retitle = isFirst && session.titleSource === "auto" && !!req.text.trim();
+    // Titles come from what the user typed, not the `Attached file:` lines (I-090).
+    const typed = parseAttachedFiles(req.text).text;
+    const retitle = isFirst && session.titleSource === "auto" && !!typed.trim();
     if (retitle) {
-      next.title = quickTitle(req.text);
-      void this.generateTitle(id, req.text).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
+      next.title = quickTitle(typed);
+      void this.generateTitle(id, typed).catch((err: Error) => this.options.log?.(`title generation failed: ${err.message}`));
     }
     this.saveSession(next, { touch: true });
     if (retitle) {
@@ -1045,7 +1093,8 @@ export class AppService {
 
   /** Reveal a file this server exported (arbitrary paths are refused). */
   async revealPath(path: string): Promise<void> {
-    if (!this.exported.has(path)) throw new HttpError(404, "Unknown file");
+    // Exported files, and files attached by reference (I-090).
+    if (!this.exported.has(path) && !(await this.attachments.isAttachment(path))) throw new HttpError(404, "Unknown file");
     await (this.options.revealPath ?? createRevealPath())(path);
   }
 

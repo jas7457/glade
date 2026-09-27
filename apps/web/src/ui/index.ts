@@ -39,3 +39,4 @@ export { CommandPalette, type CommandPaletteProps, type CommandPaletteItem, type
 export { TabStrip, TAB_STRIP_HEIGHT, type TabStripProps, type TabStripTab } from "./TabStrip";
 export { SplitView, type SplitViewProps } from "./SplitView";
 export { TextHighlight } from "./TextHighlight";
+export { Chip, type ChipProps } from "./Chip";

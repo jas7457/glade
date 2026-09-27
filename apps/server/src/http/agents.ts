@@ -3,13 +3,27 @@
  * to sub-agents (the ext-kit agent-teams extension's Glade backend calls it). Every request carries
  * `Authorization: Bearer <GLADE_TOKEN>`; the token identifies the calling session (and so its
  * workspace). Behaviour lives in AppService; see docs/ARCHITECTURE.md → "Agent API".
+ * `/chats/find|read|open` are the chat tools (I-091, `services/chat-tools.ts`).
  */
 import { Hono, type Context } from "hono";
-import type { CloseAgentRequest, MessageAgentRequest, ReportDoneRequest, Session, SpawnAgentRequest } from "@glade/protocol";
+import type {
+  CloseAgentRequest,
+  FindChatsRequest,
+  MessageAgentRequest,
+  OpenChatRequest,
+  ReadChatRequest,
+  ReportDoneRequest,
+  Session,
+  SpawnAgentRequest,
+} from "@glade/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
+import { ChatTools } from "../services/chat-tools.js";
+import type { SearchService } from "../services/search/search-service.js";
 
-export function createAgentsRoutes(service: AppService): Hono {
+/** `search` powers `/chats/find` (501 without it; read/open work regardless). */
+export function createAgentsRoutes(service: AppService, search?: SearchService): Hono {
   const api = new Hono();
+  const chats = new ChatTools(service, search ?? null);
 
   api.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
@@ -63,6 +77,32 @@ export function createAgentsRoutes(service: AppService): Hono {
     return c.json(service.reportAgentDone(session.id, body));
   });
 
+  // Chat tools (I-091) --------------------------------------------------------------------------
+
+  api.post("/chats/find", async (c) => {
+    const session = caller(c);
+    const body = await readBody<FindChatsRequest>(c);
+    requireString(body.query, "query");
+    optional(body.limit, "number", "limit");
+    optional(body.includeSelf, "boolean", "includeSelf");
+    return c.json(await chats.find(session.id, body));
+  });
+
+  api.post("/chats/read", async (c) => {
+    caller(c);
+    const body = await readBody<ReadChatRequest>(c);
+    requireString(body.id, "id");
+    optional(body.limit, "number", "limit");
+    return c.json(await chats.read(body));
+  });
+
+  api.post("/chats/open", async (c) => {
+    caller(c);
+    const body = await readBody<OpenChatRequest>(c);
+    requireString(body.id, "id");
+    return c.json(chats.open(body.id));
+  });
+
   api.notFound((c) => c.json({ error: "Not found" }, 404));
   return api;
 }
@@ -84,6 +124,6 @@ function requireString(value: unknown, name: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) throw new HttpError(400, `${name} is required`);
 }
 
-function optional(value: unknown, type: "string" | "boolean", name: string): void {
+function optional(value: unknown, type: "string" | "boolean" | "number", name: string): void {
   if (value !== undefined && typeof value !== type) throw new HttpError(400, `${name} must be a ${type}`);
 }

@@ -22,6 +22,7 @@ import { handleSessionEvent, reloadIfChangedElsewhere, reloadOpenChatSessions } 
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
 import { loadHarnesses } from "./harnesses";
+import { requestOpenChat } from "./open-chat";
 
 export const projects = signal<Project[]>([]);
 /** Sidebar rows (I-035). Each holds one or more sessions. */
@@ -172,6 +173,9 @@ export function handleServerMessage(message: ServerMessage): void {
       break;
     case "usage_limits":
       handleUsageMessage(message.usage);
+      break;
+    case "open_chat":
+      requestOpenChat(message);
       break;
     case "hello":
       break;

@@ -1,9 +1,11 @@
 /**
  * Keeps a scroll container pinned to the bottom while its content grows (streaming), unless
- * the user has scrolled up. Returns whether we're at the bottom and a function to jump there.
+ * the user has scrolled up. Returns whether we're at the bottom and a function to jump there,
+ * plus `scrollToElement` (centers an element and stops following the bottom; search hits, I-093).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { RefObject } from "preact";
+import { centeredScrollTop } from "./jump-to-message";
 
 const THRESHOLD = 48;
 
@@ -22,6 +24,24 @@ export function useStickToBottom(scrollRef: RefObject<HTMLElement>, contentRef: 
       programmatic.current = true;
       if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight, behavior });
       else el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => (programmatic.current = false));
+    },
+    [scrollRef],
+  );
+
+  /** Center `target` (inside the scroll container) and unstick from the bottom. */
+  const scrollToElement = useCallback(
+    (target: HTMLElement, behavior: ScrollBehavior = "auto") => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const top = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+      const next = centeredScrollTop(top, target.offsetHeight, el.clientHeight, el.scrollHeight);
+      const bottom = el.scrollHeight - next - el.clientHeight <= THRESHOLD;
+      stuck.current = bottom;
+      setAtBottom(bottom);
+      programmatic.current = true;
+      if (typeof el.scrollTo === "function") el.scrollTo({ top: next, behavior });
+      else el.scrollTop = next;
       requestAnimationFrame(() => (programmatic.current = false));
     },
     [scrollRef],
@@ -75,5 +95,5 @@ export function useStickToBottom(scrollRef: RefObject<HTMLElement>, contentRef: 
     if (el) el.scrollTop = el.scrollHeight;
   }, [scrollRef]);
 
-  return { atBottom, scrollToBottom };
+  return { atBottom, scrollToBottom, scrollToElement };
 }
