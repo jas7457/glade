@@ -128,6 +128,8 @@ interface LiveSession {
   uiTimers: Map<string, NodeJS.Timeout>;
   /** Between run_start and run_end. Tracked here so it's correct while those events are handled. */
   running: boolean;
+  /** When the current run started (I-070), `null` when idle. */
+  runStartedAt: number | null;
   lastUsedAt: number;
   /** When a prompt was last sent. */
   lastPromptAt: number;
@@ -632,7 +634,7 @@ export class AppService {
     return {
       session: this.summarizeSession(this.requireSession(id)),
       transcript: live.transcript,
-      state: live.session.getState(),
+      state: { ...live.session.getState(), runStartedAt: live.running ? live.runStartedAt : null },
       pendingUiRequests: [...live.pendingUi.values()],
     };
   }
@@ -1380,6 +1382,7 @@ export class AppService {
       pendingUi: new Map(),
       uiTimers: new Map(),
       running: session.getState().isRunning,
+      runStartedAt: session.getState().isRunning ? Date.now() : null,
       lastUsedAt: Date.now(),
       lastPromptAt: 0,
       awaitingRun: false,
@@ -1412,10 +1415,17 @@ export class AppService {
     return live;
   }
 
-  private handleEvent(id: string, live: LiveSession, event: AgentEvent): void {
+  private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
+    const event = stampEvent(rawEvent);
     live.transcript = applyAgentEvent(live.transcript, event);
-    if (event.type === "run_start") live.running = true;
-    if (event.type === "run_end") live.running = false;
+    if (event.type === "run_start") {
+      live.running = true;
+      live.runStartedAt = event.at ?? Date.now();
+    }
+    if (event.type === "run_end") {
+      live.running = false;
+      live.runStartedAt = null;
+    }
     if (event.type === "run_start" || event.type === "run_end") live.awaitingRun = false;
     if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
@@ -1585,4 +1595,12 @@ export class AppService {
     this.store.dispose();
     this.leases?.releaseAll();
   }
+}
+
+/** Timing stamps on run/tool events (I-070): harnesses don't send them, the server adds them once. */
+function stampEvent(event: AgentEvent): AgentEvent {
+  if ((event.type === "run_start" || event.type === "tool_start" || event.type === "tool_end") && event.at === undefined) {
+    return { ...event, at: Date.now() };
+  }
+  return event;
 }

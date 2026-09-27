@@ -22,6 +22,11 @@ export interface SessionState {
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
   /** Whole-session totals (all turns, incl. compaction/summaries). */
   sessionStats?: SessionStats;
+  /**
+   * When the current run started (epoch ms, stamped by the server on `run_start`; I-070).
+   * `null`/absent when idle or unknown.
+   */
+  runStartedAt?: number | null;
 }
 
 export interface SessionStats {
@@ -55,7 +60,7 @@ export type UiResponse =
 
 export type AgentEvent =
   /** The agent started working on a prompt. */
-  | { type: "run_start" }
+  | { type: "run_start"; /** Epoch ms, stamped by the server (I-070). */ at?: number }
   /** The agent is fully idle again (no retries/queued work pending). */
   | { type: "run_end" }
   /** A new message was appended (user message, or an empty assistant message about to stream). */
@@ -68,9 +73,16 @@ export type AgentEvent =
   | { type: "block_end"; messageId: string; index: number; block: ContentBlock }
   /** Authoritative final version of a message. */
   | { type: "message_end"; message: ChatMessage }
-  | { type: "tool_start"; toolCallId: string; toolName: string; args: Record<string, unknown> | undefined }
+  | {
+      type: "tool_start";
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown> | undefined;
+      /** Epoch ms, stamped by the server (I-070). */
+      at?: number;
+    }
   | { type: "tool_update"; toolCallId: string; result: ToolResult }
-  | { type: "tool_end"; toolCallId: string; result: ToolResult }
+  | { type: "tool_end"; toolCallId: string; result: ToolResult; /** Epoch ms, stamped by the server (I-070). */ at?: number }
   /** Partial session state change. */
   | { type: "state"; state: Partial<SessionState> }
   | { type: "ui_request"; request: UiRequest }

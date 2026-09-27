@@ -76,6 +76,10 @@ describe("workspaces (single session)", () => {
     const results = Object.values(after.transcript.toolResults);
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ toolName: "bash", status: "done", output: "hi\n" });
+    // I-070: the server stamps tool timing; the run is over, so no run start time.
+    expect(typeof results[0]!.startedAt).toBe("number");
+    expect(results[0]!.endedAt!).toBeGreaterThanOrEqual(results[0]!.startedAt!);
+    expect(after.state.runStartedAt).toBeNull();
 
     title.resolve("Login bug fix");
     await flush();

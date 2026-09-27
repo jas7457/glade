@@ -93,6 +93,9 @@ export interface ToolResult {
   images?: ImageBlock[];
   /** Harness specific structured details (e.g. diffs). Renderers may use it opportunistically. */
   details?: unknown;
+  /** When the tool started / finished (epoch ms; I-070). Absent when unknown (e.g. old history). */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface Transcript {

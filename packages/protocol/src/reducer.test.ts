@@ -85,4 +85,16 @@ describe("applyAgentEvent", () => {
     const t = fold([{ type: "message_start", message: assistant("a1") }, { type: "run_end" }]);
     expect(t.messages[0]).toMatchObject({ streaming: false });
   });
+
+  it("keeps tool timing stamps across updates (I-070)", () => {
+    const r = (status: "running" | "done", output: string) => ({ toolCallId: "c1", toolName: "bash", status, output });
+    const t = fold([
+      { type: "tool_start", toolCallId: "c1", toolName: "bash", args: {}, at: 1000 },
+      { type: "tool_update", toolCallId: "c1", result: r("running", "a") },
+      { type: "tool_end", toolCallId: "c1", result: r("done", "ab"), at: 4000 },
+    ]);
+    expect(t.toolResults.c1).toMatchObject({ status: "done", startedAt: 1000, endedAt: 4000 });
+    const unstamped = fold([{ type: "tool_start", toolCallId: "c1", toolName: "bash", args: {} }]);
+    expect(unstamped.toolResults.c1?.startedAt).toBeUndefined();
+  });
 });

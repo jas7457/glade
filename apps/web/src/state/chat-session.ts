@@ -132,6 +132,7 @@ export function handleSessionEvent(sessionId: string, event: AgentEvent): void {
       break;
     case "run_start":
       store.agentError.value = null;
+      store.state.value = { ...store.state.value, runStartedAt: event.at ?? Date.now() };
       break;
     case "ui_request":
       store.uiRequests.value = [...store.uiRequests.value.filter((r) => r.id !== event.request.id), event.request];
@@ -141,6 +142,7 @@ export function handleSessionEvent(sessionId: string, event: AgentEvent): void {
       break;
     case "run_end":
       store.uiRequests.value = [];
+      store.state.value = { ...store.state.value, runStartedAt: null };
       break;
     case "error":
       store.agentError.value = event.message;

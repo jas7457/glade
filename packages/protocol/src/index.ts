@@ -9,3 +9,4 @@ export * from "./workspaces.js";
 export * from "./search.js";
 export * from "./folder.js";
 export * from "./agents.js";
+export * from "./harness.js";

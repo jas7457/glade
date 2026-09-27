@@ -52,14 +52,23 @@ export function applyAgentEvent(t: Transcript, event: AgentEvent): Transcript {
             toolName: event.toolName,
             status: "running",
             output: existing?.output ?? "",
+            ...(event.at !== undefined ? { startedAt: event.at } : existing?.startedAt !== undefined ? { startedAt: existing.startedAt } : {}),
           },
         },
       };
     }
 
     case "tool_update":
-    case "tool_end":
-      return { ...t, toolResults: { ...t.toolResults, [event.toolCallId]: event.result } };
+    case "tool_end": {
+      // Harness results don't carry timing: keep the start stamp, add the end stamp (I-070).
+      const existing = t.toolResults[event.toolCallId];
+      const result = { ...event.result };
+      const startedAt = result.startedAt ?? existing?.startedAt;
+      if (startedAt !== undefined) result.startedAt = startedAt;
+      const endedAt = event.type === "tool_end" ? (result.endedAt ?? event.at) : result.endedAt;
+      if (endedAt !== undefined) result.endedAt = endedAt;
+      return { ...t, toolResults: { ...t.toolResults, [event.toolCallId]: result } };
+    }
 
     case "run_end": {
       // Safety net: nothing can still be streaming once the run is over.
