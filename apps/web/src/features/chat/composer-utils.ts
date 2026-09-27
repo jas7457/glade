@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the composer: send-key handling, image attachments, labels.
  */
-import type { ImageLimits, PromptImage, Settings, ThinkingLevel } from "@pi-ui/protocol";
+import type { ImageLimits, PromptImage, Settings, ThinkingLevel } from "@glade/protocol";
 import { prepareImage } from "./image-resize";
 
 export interface KeyLike {

@@ -2,7 +2,7 @@
  * I-023: generated titles default to Haiku when it's available.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ModelInfo, ModelRef } from "@pi-ui/protocol";
+import type { ModelInfo, ModelRef } from "@glade/protocol";
 import { FAKE_MODELS } from "../src/harness/fake/fake-harness.js";
 import type { GenerateTitleOptions } from "../src/harness/types.js";
 import { createTestEnv, until, type TestEnv } from "./helpers.js";

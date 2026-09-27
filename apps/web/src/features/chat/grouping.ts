@@ -18,7 +18,7 @@ import type {
   ToolResult,
   Transcript,
   UserMessage,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 
 export interface GroupingOptions {
   /** A visible thinking block between two tool calls ends the current group. */

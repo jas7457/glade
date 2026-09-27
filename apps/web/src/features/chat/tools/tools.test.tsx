@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
-import type { ToolCallBlock } from "@pi-ui/protocol";
+import type { ToolCallBlock } from "@glade/protocol";
 import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
 import { diffFromEdits, diffStats, editsFromArgs, languageFromPath, parsePiDiff, stripAnsi } from "./text";
 import { ToolCallRow, ToolGroup } from "./ToolViews";

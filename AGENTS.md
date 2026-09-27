@@ -1,8 +1,8 @@
-# AGENTS.md — how we work on pi-ui
+# AGENTS.md — how we work on Glade
 
-pi-ui is a native-feeling macOS app (Tauri) and web UI for coding agents. It runs the
-[pi](https://github.com/earendil-works/pi) harness today and is designed to support other harnesses
-(e.g. Claude Code) later. It is being renamed to **Glade** (PLAN.md I-059). Read
+Glade (formerly pi-ui, renamed in PLAN.md I-059) is a native-feeling macOS app (Tauri) and web UI
+for coding agents. It runs the [pi](https://github.com/earendil-works/pi) harness today and is
+designed to support other harnesses (e.g. Claude Code) later. Read
 `docs/ARCHITECTURE.md` before changing code.
 
 ## Picking up where we left off (new sessions start here)
@@ -16,13 +16,14 @@ pi-ui is a native-feeling macOS app (Tauri) and web UI for coding agents. It run
    Inbox items and ask.
 
 Related repos and places:
-- GitHub: `jas7457/pi-ui` (private; to become `jas7457/glade`). Push after every commit.
+- GitHub: `jas7457/glade` (private; formerly `jas7457/pi-ui`, which redirects). Push after every commit.
 - `the extension kit` (separate git repo): the user's pi extensions, incl. `extensions/agent-teams`
-  (`spawn_agent`, `message_agent`, …) with a cmux backend and a pi-ui backend (`piui.ts`, used
-  when `PI_UI_URL`/`PI_UI_TOKEN` are set). Changes there are committed and pushed there.
+  (`spawn_agent`, `message_agent`, …) with a cmux backend and a Glade backend (`glade.ts`, used
+  when `GLADE_URL`/`GLADE_TOKEN` are set; the pre-rename `PI_UI_*` names work too). Changes
+  there are committed and pushed there.
 - pi itself: installed globally (`which pi`); docs in its package's `docs/` folder (rpc.md,
   session-format.md, extensions.md, skills.md).
-- User data: `~/Library/Application Support/pi-ui`; pi sessions: `~/.pi/agent/sessions`.
+- User data: `~/Library/Application Support/Glade`; pi sessions: `~/.pi/agent/sessions`.
 
 ## The ledger (mandatory)
 
@@ -57,8 +58,8 @@ user promotes them to the Inbox.
   never `git add -A`, so another worker's half-finished files aren't swept in. If a shared file
   mixes two workers' changes, wait and commit both together.
 - Before pushing, verify the commit in a clean worktree:
-  `git worktree add /tmp/pi-ui-verify HEAD && cd /tmp/pi-ui-verify && pnpm install --offline --frozen-lockfile && pnpm typecheck && pnpm test`
-  (then `git worktree remove --force /tmp/pi-ui-verify`).
+  `git worktree add /tmp/glade-verify HEAD && cd /tmp/glade-verify && pnpm install --offline --frozen-lockfile && pnpm typecheck && pnpm test`
+  (then `git worktree remove --force /tmp/glade-verify`).
 - Tick the Inbox items (`Outcome:` line), add CHANGELOG entries, record decisions in
   `docs/ARCHITECTURE.md`, push.
 - After a round, update the user's app with `pnpm tauri:install --when-idle` (needs
@@ -69,7 +70,7 @@ user promotes them to the Inbox.
 ```bash
 pnpm install
 pnpm dev            # server (:4317) + web (:5317). Open http://127.0.0.1:5317
-PI_UI_HARNESS=fake pnpm dev   # UI development without an LLM / pi
+GLADE_HARNESS=fake pnpm dev   # UI development without an LLM / pi
 pnpm dev:agent --name <agent> [--real] [--keep]   # agents: throwaway sandbox (see below)
 pnpm test           # all vitest projects
 pnpm typecheck      # all packages
@@ -78,13 +79,13 @@ pnpm check          # typecheck + test — must pass before you commit
 
 ## Testing as an agent: use a sandbox (I-052)
 
-The servers on :4317/:5317 and the data folder (`~/Library/Application Support/pi-ui`) belong to
+The servers on :4317/:5317 and the data folder (`~/Library/Application Support/Glade`) belong to
 the user. **Agents never write to them**: no creating/renaming/deleting chats or projects, no
-prompts, no settings changes, no `PI_UI_DATA_DIR` pointing at the real folder. Read-only
+prompts, no settings changes, no `GLADE_DATA_DIR` pointing at the real folder. Read-only
 screenshots of the user's running app are fine. For anything that writes data, start a sandbox:
 
 ```bash
-pnpm dev:agent --name <agent> > /tmp/pi-ui-<agent>.log 2>&1 &   # background it, then read the log
+pnpm dev:agent --name <agent> > /tmp/glade-<agent>.log 2>&1 &   # background it, then read the log
 #   prints Web http://127.0.0.1:<port>, API http://127.0.0.1:<port>/api, data/repo/log paths
 pnpm dev:agent --name <agent> --real    # real pi harness (costs tokens: one short prompt, e.g.
                                         #   claude-haiku-4-5 with thinking off)
@@ -92,7 +93,7 @@ pnpm dev:agent --name <agent> --stop    # done: stops it and deletes everything 
 ```
 
 - Each sandbox has its own free ports (never 4317/5317) and data under
-  `/tmp/pi-ui-sandbox/<name>`, seeded with a project (`sample-repo`, a small git repo) and a few
+  `/tmp/glade-sandbox/<name>`, seeded with a project (`sample-repo`, a small git repo) and a few
   chats. The fake harness is the default; use `--real` only when the task needs real pi.
 - Same `--name` = shared sandbox (ref-counted); different names = separate sandboxes.
 - The server runs under `tsx watch` and the web under Vite, so your edits reload live.
@@ -103,12 +104,12 @@ pnpm dev:agent --name <agent> --stop    # done: stops it and deletes everything 
   sandbox nobody uses.
 - Server tests still use `FakeHarness` in-process (`pnpm test`), no sandbox needed.
 
-## Dogfooding: developing pi-ui from inside pi-ui (I-058)
+## Dogfooding: developing Glade from inside Glade (I-058)
 
-The user develops pi-ui with the installed app (`/Applications/pi-ui.app`). The setup:
+The user develops Glade with the installed app (`/Applications/Glade.app`). The setup:
 
 - **The installed app is for real work.** Its chats (including the one orchestrating a round of
-  sub-agents) run in the app's own server (`PI_UI_SERVER_KIND=desktop`, a free port). Sub-agents
+  sub-agents) run in the app's own server (`GLADE_SERVER_KIND=desktop`, a free port). Sub-agents
   run in the same server as their parent chat.
 - **`pnpm dev` runs alongside it** on the same data folder (`:4317`/`:5317`). That's safe (I-062):
   every server has its own agent processes; shared files are written under a lock and watched;
@@ -116,13 +117,13 @@ The user develops pi-ui with the installed app (`/Applications/pi-ui.app`). The 
   while it's working, and typing in it takes it over once it's idle there.
 - **Agents never touch either of them**: the rules in "Testing as an agent" still apply, test in
   `pnpm dev:agent` sandboxes only. Agent processes don't inherit the app server's port/host/kind
-  (`PI_UI_PORT`, `PI_UI_SERVER_KIND`, … are stripped, see `harness/pi/child-env.ts`).
+  (`GLADE_PORT`, `GLADE_SERVER_KIND`, … are stripped, see `harness/pi/child-env.ts`).
 - **Updating the app**: `pnpm tauri:install --when-idle` builds, waits until no chat on the app's
   server is working or blocked (printing which ones it's waiting for), then quits the app and
   replaces it. Agents don't install; the lead/user does, after integrating a round. To test a
   release build next to the installed app, run its binary with a temp data folder and its own
-  identifier: `PI_UI_APP_IDENTIFIER=io.github.jas7457.pi-ui.<agent> PI_UI_DATA_DIR=/tmp/…
-  apps/desktop/src-tauri/target/release/bundle/macos/pi-ui.app/Contents/MacOS/pi-ui`.
+  identifier: `GLADE_APP_IDENTIFIER=io.github.jas7457.glade.<agent> GLADE_DATA_DIR=/tmp/…
+  apps/desktop/src-tauri/target/release/bundle/macos/Glade.app/Contents/MacOS/glade`.
 
 What happens to running chats when a server stops:
 
@@ -142,7 +143,7 @@ So: keep orchestrating chats in the app, and never restart the app in the middle
   grouping) gets unit tests; components get @testing-library/preact tests for behaviour that
   matters; the server is tested against `FakeHarness`, never a real LLM.
 - **Harness-agnostic UI.** Nothing outside `apps/server/src/harness/<name>/` may know about a
-  specific agent's wire format. Everything crosses the boundary as `@pi-ui/protocol` types.
+  specific agent's wire format. Everything crosses the boundary as `@glade/protocol` types.
 - **Reusable components.** UI primitives live in `apps/web/src/ui/` and are the only place raw
   styling decisions are made. Features compose primitives. If you need a new kind of control,
   add a primitive rather than one-off styling.

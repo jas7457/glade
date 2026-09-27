@@ -14,7 +14,7 @@ import type {
   UpdateProjectRequest,
   UpdateSessionRequest,
   UpdateWorkspaceRequest,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { api } from "@/lib/api";
 import { applySessionDetail } from "./chat-session";
 import { projects, sessions, settings, sortedProjects, upsert, workspaces, workspacesForProject } from "./store";

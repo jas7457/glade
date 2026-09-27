@@ -1,5 +1,5 @@
 {
-  "name": "@pi-ui/desktop",
+  "name": "@glade/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,5 +11,5 @@
     "@tauri-apps/cli": "^2.11.5",
     "esbuild": "^0.28.2"
   },
-  "description": "Tauri desktop shell for pi-ui (see src-tauri/). Root scripts: tauri:dev, tauri:build, tauri:install."
+  "description": "Tauri desktop shell for Glade (see src-tauri/). Root scripts: tauri:dev, tauri:build, tauri:install."
 }

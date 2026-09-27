@@ -1,5 +1,5 @@
 /**
- * A short, synchronous, cross-process lock for one file (I-062). Several pi-ui servers (e.g.
+ * A short, synchronous, cross-process lock for one file (I-062). Several Glade servers (e.g.
  * `pnpm dev` and the installed app) share a data folder; every read-modify-write of a shared JSON
  * file runs inside {@link withFileLock} so no server writes over another's change.
  *

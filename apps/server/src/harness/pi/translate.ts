@@ -1,5 +1,5 @@
 /**
- * Pure translation from pi's RPC wire format to `@pi-ui/protocol` types.
+ * Pure translation from pi's RPC wire format to `@glade/protocol` types.
  * Kept free of I/O so it can be tested against recorded fixtures.
  */
 import {
@@ -22,7 +22,7 @@ import {
   type Transcript,
   type UiRequest,
   type Usage,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { compactionNoticeText } from "../format";
 import { readableError } from "../provider-error";
 

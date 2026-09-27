@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentEvent, CompactResult, NoticeMessage, SlashCommand } from "@pi-ui/protocol";
+import type { AgentEvent, CompactResult, NoticeMessage, SlashCommand } from "@glade/protocol";
 import { createApp } from "../src/http/app.js";
 import { FAKE_COMMANDS, type FakeSession } from "../src/harness/fake/fake-harness.js";
 import { compactionNoticeText, formatTokenCount } from "../src/harness/format.js";

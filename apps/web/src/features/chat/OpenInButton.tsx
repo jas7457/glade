@@ -6,7 +6,7 @@
 import { useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { SquareCode } from "lucide-preact";
-import type { OpenTarget } from "@pi-ui/protocol";
+import type { OpenTarget } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { runAction } from "@/state/chat-session";
 import { IconButton } from "@/ui";

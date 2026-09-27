@@ -5,7 +5,7 @@
  */
 import type { Context } from "hono";
 import type { WSEvents } from "hono/ws";
-import type { ClientMessage, ServerMessage } from "@pi-ui/protocol";
+import type { ClientMessage, ServerMessage } from "@glade/protocol";
 import { VERSION } from "../config.js";
 import type { AppService } from "../services/app-service.js";
 

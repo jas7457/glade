@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to pi-ui. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+All notable changes to Glade (formerly pi-ui). Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every entry corresponds to a ticked item in PLAN.md.
 
 ## [Unreleased]
@@ -97,6 +97,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Settings → Slash Commands: choose which commands appear in the `/` menu.
 
 ### Changed
+
+- **pi-ui is now Glade**: new name, new leaf icon, `/Applications/Glade.app` (the old app is removed
+  on install). Your data is copied to `~/Library/Application Support/Glade` on first start; the old
+  folder stays as a backup. `GLADE_*` environment variables replace `PI_UI_*` (old names still work).
 
 - The Mac app always runs its own server and can run alongside `pnpm dev` on the same data: chats
   created in one appear in the other, and a chat running in one is read-only in the other until it's

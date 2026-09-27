@@ -1,9 +1,9 @@
 /**
- * Sandbox helpers for `pnpm dev:agent` (I-052): isolated, self-cleaning pi-ui data for agents.
+ * Sandbox helpers for `pnpm dev:agent` (I-052): isolated, self-cleaning Glade data for agents.
  *
- * A sandbox is one folder, `<root>/<name>` (root = /tmp/pi-ui-sandbox), holding:
+ * A sandbox is one folder, `<root>/<name>` (root = /tmp/glade-sandbox), holding:
  *   sandbox.json  state: ports, supervisor/server/web pids, owners (ref-count), keep flag
- *   data/         PI_UI_DATA_DIR of the sandbox server
+ *   data/         GLADE_DATA_DIR of the sandbox server
  *   repo/         a small git repo the seeded project points at
  *   logs/         server.log, web.log, supervisor.log
  *
@@ -19,7 +19,18 @@ import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export const DEFAULT_ROOT = process.env.PI_UI_SANDBOX_ROOT || "/tmp/pi-ui-sandbox";
+/**
+ * `GLADE_<name>`, else the pre-rename `PI_UI_<name>` (I-059; same rule as `env` in
+ * apps/server/src/config.ts). Empty values count as unset.
+ * @param {string} name @param {NodeJS.ProcessEnv} [source] @returns {string | undefined}
+ */
+export function env(name, source = process.env) {
+  return source[`GLADE_${name}`] || source[`PI_UI_${name}`] || undefined;
+}
+
+export const DEFAULT_ROOT = env("SANDBOX_ROOT") || "/tmp/glade-sandbox";
+/** Where sandboxes lived before the rename (I-059); still swept, and their ports still avoided. */
+export const LEGACY_ROOT = "/tmp/pi-ui-sandbox";
 /** Ports the user's own `pnpm dev` uses; a sandbox never takes them. */
 export const RESERVED_PORTS = new Set([4317, 5317]);
 /** Ownerless sandboxes older than this are removed by the sweep. */
@@ -363,12 +374,30 @@ export function sweep({ root = DEFAULT_ROOT, force = false, now = Date.now(), sk
   return removed;
 }
 
+/**
+ * Removes stale sandboxes left under the pre-rename root (see {@link LEGACY_ROOT}) and the root
+ * itself once it's empty. Returns the removed names.
+ * @param {{ force?: boolean, now?: number }} [opts]
+ */
+export function sweepLegacy({ force = false, now = Date.now() } = {}) {
+  if (resolve(DEFAULT_ROOT) === resolve(LEGACY_ROOT)) return [];
+  const removed = sweep({ root: LEGACY_ROOT, force, now });
+  try {
+    if (existsSync(LEGACY_ROOT) && readdirSync(LEGACY_ROOT).length === 0) rmdirSync(LEGACY_ROOT);
+  } catch {
+    /* another process uses it */
+  }
+  return removed;
+}
+
 /** Ports recorded by the sandboxes under `root` (a just-started one may not listen yet). */
 export function sandboxPorts(root = DEFAULT_ROOT) {
   const ports = [];
-  for (const name of readdirNames(root)) {
-    const state = readState(join(root, name));
-    if (state) ports.push(state.serverPort, state.webPort);
+  for (const r of new Set([root, LEGACY_ROOT])) {
+    for (const name of readdirNames(r)) {
+      const state = readState(join(r, name));
+      if (state) ports.push(state.serverPort, state.webPort);
+    }
   }
   return ports.filter((p) => Number.isInteger(p));
 }

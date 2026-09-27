@@ -1,5 +1,5 @@
 /**
- * Session leases (I-062): only one pi-ui server may run a given session's agent process, even
+ * Session leases (I-062): only one Glade server may run a given session's agent process, even
  * when several servers share the data folder (two `pi` processes on one session file would
  * interleave writes). `<dataDir>/leases/<sessionId>.json` names the server that runs it:
  *

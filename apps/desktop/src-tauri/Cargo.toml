@@ -1,12 +1,12 @@
 [package]
-name = "pi-ui"
+name = "glade"
 version = "0.1.0"
-description = "Desktop shell for pi-ui"
+description = "Desktop shell for Glade"
 edition = "2021"
 publish = false
 
 [lib]
-name = "pi_ui_lib"
+name = "glade_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

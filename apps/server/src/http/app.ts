@@ -26,7 +26,7 @@ import {
   type UpdateProjectRequest,
   type UpdateSessionRequest,
   type UpdateWorkspaceRequest,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
 import type { FolderInfoService } from "../services/folder-info.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
@@ -59,14 +59,14 @@ export function createApp({ service, security, staticDir, pickFolder = createFol
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
-    console.error("[pi-ui] request failed:", err);
+    console.error("[glade] request failed:", err);
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   });
 
   // Feature routers first: `apiRoutes` ends with a catch-all 404.
   if (folderInfo) app.route("/api", folderRoutes(folderInfo));
   if (search) app.route("/api", searchRoutes(search));
-  // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams pi-ui backend.
+  // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
   app.route("/api/agents", createAgentsRoutes(service));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));

@@ -4,7 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CreateWorkspaceRequest, CreateWorkspaceResponse, ServerMessage, SessionSummary, WorkspaceSummary } from "@pi-ui/protocol";
+import type { CreateWorkspaceRequest, CreateWorkspaceResponse, ServerMessage, SessionSummary, WorkspaceSummary } from "@glade/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { AppService, type AppServiceOptions } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
@@ -19,7 +19,7 @@ export interface TestEnv {
 }
 
 export function createTestEnv(options: Pick<AppServiceOptions, "revealPath" | "openIn"> = {}): TestEnv {
-  const dir = mkdtempSync(join(tmpdir(), "pi-ui-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "glade-test-"));
   const store = new Store(join(dir, "data"), 0);
   const harness = new FakeHarness();
   const service = new AppService({ store, harness, scratchDir: join(dir, "scratch"), ...options });

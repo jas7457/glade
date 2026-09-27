@@ -10,7 +10,7 @@
  * `any` mode (candidate retrieval for the chat finder) ranks sessions matching any word. Common
  * English stop words are dropped from the query unless nothing else is left.
  */
-import type { HighlightedText } from "@pi-ui/protocol";
+import type { HighlightedText } from "@glade/protocol";
 
 export type FieldKind = "title" | "summary" | "user" | "assistant";
 

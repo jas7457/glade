@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultSettings, type AskResponse, type ModelInfo, type SearchResponse, type Project, type SessionSummary, type Settings, type WorkspaceSummary } from "@pi-ui/protocol";
+import { defaultSettings, type AskResponse, type ModelInfo, type SearchResponse, type Project, type SessionSummary, type Settings, type WorkspaceSummary } from "@glade/protocol";
 import { searchRoutes } from "../src/http/search.js";
 import { SearchService, type SearchAppSource } from "../src/services/search/search-service.js";
 import type { FastModel, SessionText, SessionTextReader } from "../src/services/search/types.js";
@@ -90,7 +90,7 @@ const make = (fastModel?: FastModel) => {
 };
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "pi-ui-search-"));
+  dir = mkdtempSync(join(tmpdir(), "glade-search-"));
   reader = new MemReader();
   settings = defaultSettings();
   clock = 1000;

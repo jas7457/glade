@@ -15,8 +15,8 @@ describe("counts + window title", () => {
     expect(workingCount.value).toBe(2);
   });
   it("formats the title", () => {
-    expect(windowTitle(0)).toBe("pi-ui");
-    expect(windowTitle(3)).toBe("(3) pi-ui");
-    expect(windowTitle(1, "Fix bug")).toBe("(1) Fix bug — pi-ui");
+    expect(windowTitle(0)).toBe("Glade");
+    expect(windowTitle(3)).toBe("(3) Glade");
+    expect(windowTitle(1, "Fix bug")).toBe("(1) Fix bug — Glade");
   });
 });

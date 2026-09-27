@@ -1,9 +1,9 @@
-//! pi-ui desktop shell (Tauri v2).
+//! Glade desktop shell (Tauri v2).
 //!
 //! - Release builds start the bundled Node server (`server.rs`) and point the window at it;
 //!   `tauri dev` loads the Vite dev server instead (devUrl) and starts nothing.
 //! - Native chrome: overlay titlebar (tauri.conf.json), sidebar vibrancy, app menu whose custom
-//!   items are forwarded to the web app as `pi-ui:menu` events (see apps/web/src/lib/desktop.ts).
+//!   items are forwarded to the web app as `glade:menu` events (see apps/web/src/lib/desktop.ts).
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
@@ -44,7 +44,7 @@ fn apply_vibrancy(window: &WebviewWindow) {
             Some(NSVisualEffectState::FollowsWindowActiveState),
             None,
         ) {
-            eprintln!("[pi-ui] vibrancy unavailable: {e}");
+            eprintln!("[glade] vibrancy unavailable: {e}");
         }
     }
 }
@@ -78,15 +78,15 @@ fn start_server(app: AppHandle) {
 }
 
 fn show_startup_error(app: &AppHandle, message: &str) {
-    eprintln!("[pi-ui] startup failed: {message}");
+    eprintln!("[glade] startup failed: {message}");
     if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
         if let Ok(js) = serde_json::to_string(message) {
-            let _ = w.eval(format!("window.__piShowError && window.__piShowError({js})"));
+            let _ = w.eval(format!("window.__gladeShowError && window.__gladeShowError({js})"));
         }
     }
     app.dialog()
         .message(message)
-        .title("pi-ui couldn't start")
+        .title("Glade couldn't start")
         .kind(MessageDialogKind::Error)
         .blocking_show();
 }
@@ -133,7 +133,7 @@ pub fn run() {
             }
         })
         .build(context)
-        .expect("error while building pi-ui");
+        .expect("error while building Glade");
 
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]

@@ -1,5 +1,5 @@
 /**
- * Typed REST client for the pi-ui server. All routes are documented in docs/ARCHITECTURE.md.
+ * Typed REST client for the Glade server. All routes are documented in docs/ARCHITECTURE.md.
  */
 import type {
   CompactResult,
@@ -25,7 +25,7 @@ import type {
   UpdateWorkspaceRequest,
   WorkspaceDetail,
   WorkspaceSummary,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -90,7 +90,7 @@ export const api = {
   setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
   setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),
   respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/sessions/${id}/ui-response`, body),
-  /** The harness's slash commands (pi-ui's built-ins are defined in features/chat/slash). */
+  /** The harness's slash commands (Glade's built-ins are defined in features/chat/slash). */
   listCommands: (id: string) => request<SlashCommand[]>("GET", `/sessions/${id}/commands`),
   compact: (id: string, instructions?: string) =>
     request<CompactResult>("POST", `/sessions/${id}/compact`, instructions ? { instructions } : {}),

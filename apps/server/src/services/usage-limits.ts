@@ -9,7 +9,7 @@
  * - Pushes only when the value changed (ignoring `fetchedAt`), or when the last pushed value is
  *   older than `heartbeatMs` so the UI's "Updated … ago" stays roughly right.
  */
-import type { ServerMessage, UsageLimits } from "@pi-ui/protocol";
+import type { ServerMessage, UsageLimits } from "@glade/protocol";
 
 export interface UsageLimitsPollerOptions {
   fetchLimits: () => Promise<UsageLimits | null>;

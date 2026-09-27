@@ -3,7 +3,7 @@
  * query loads (no flicker) and ignores out-of-order responses.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { FileEntry } from "@pi-ui/protocol";
+import type { FileEntry } from "@glade/protocol";
 import { searchFiles } from "@/lib/api-folder";
 
 const DEBOUNCE_MS = 60;

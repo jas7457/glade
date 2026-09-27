@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { UsageLimit, UsageLimits } from "@pi-ui/protocol";
+import type { UsageLimit, UsageLimits } from "@glade/protocol";
 
 export const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 /** pi's provider id for Anthropic models (`ModelRef.provider`); the limits apply to these. */

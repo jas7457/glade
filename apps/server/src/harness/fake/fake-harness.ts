@@ -14,7 +14,7 @@ import {
   type ThinkingLevel,
   type Transcript,
   type UiResponse,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { compactionNoticeText } from "../format.js";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 
@@ -93,7 +93,7 @@ interface StoredSession {
 }
 
 /**
- * In-memory harness used by tests and `PI_UI_HARNESS=fake` for UI development without an LLM.
+ * In-memory harness used by tests and `GLADE_HARNESS=fake` for UI development without an LLM.
  */
 export class FakeHarness implements AgentHarness {
   readonly id = "fake";
@@ -286,7 +286,7 @@ export class FakeSession implements HarnessSession {
   }
 
   async exportHtml(): Promise<string> {
-    return `/tmp/pi-ui-fake-export-${this.sessionRef}.html`;
+    return `/tmp/glade-fake-export-${this.sessionRef}.html`;
   }
 
   respondToUi(response: UiResponse): void {

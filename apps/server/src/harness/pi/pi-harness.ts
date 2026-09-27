@@ -19,7 +19,7 @@ import {
   type ThinkingLevel,
   type Transcript,
   type UiResponse,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
 import { fetchAnthropicUsageLimits } from "./anthropic-usage.js";
 import { piChildEnv } from "./child-env.js";

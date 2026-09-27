@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Project, WorkspaceSummary } from "@pi-ui/protocol";
+import type { Project, WorkspaceSummary } from "@glade/protocol";
 import type { LegacyChat } from "../src/store/migrate-workspaces.js";
 import { createApp } from "../src/http/app.js";
 import { Store } from "../src/store/store.js";
@@ -163,7 +163,7 @@ describe("store migration", () => {
   });
 
   it("gives old projects a sortOrder from their previous order and drops pinned", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-ui-migrate-"));
+    const dir = mkdtempSync(join(tmpdir(), "glade-migrate-"));
     dirs.push(dir);
     const old = (id: string, pinned: boolean, lastActivityAt: number) => ({ id, name: id, path: `/${id}`, pinned, createdAt: 1, lastActivityAt });
     writeFileSync(

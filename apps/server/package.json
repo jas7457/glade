@@ -1,5 +1,5 @@
 {
-  "name": "@pi-ui/server",
+  "name": "@glade/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.17",
     "@hono/node-ws": "^1.3.1",
-    "@pi-ui/protocol": "workspace:*",
+    "@glade/protocol": "workspace:*",
     "hono": "^4.13.9",
     "ws": "^8.21.3"
   },

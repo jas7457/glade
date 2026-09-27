@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelInfo, SlashCommand } from "@pi-ui/protocol";
+import type { ModelInfo, SlashCommand } from "@glade/protocol";
 import { builtinCommands, matchModel } from "./builtins";
 import { filterCommands, mergeCommands, parseSlash } from "./match";
 

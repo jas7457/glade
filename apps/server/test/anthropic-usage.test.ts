@@ -13,7 +13,7 @@ const fixture = JSON.parse(readFileSync(new URL("./fixtures/anthropic-usage.json
 const NOW = Date.parse("2026-09-26T18:00:00Z");
 
 function authFile(content: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), "pi-ui-auth-"));
+  const dir = mkdtempSync(join(tmpdir(), "glade-auth-"));
   const path = join(dir, "auth.json");
   writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content));
   return path;

@@ -3,7 +3,7 @@
  * `settings.slashCommands.hidden` as `<source>:<name>` keys; hiding only declutters the menu, a
  * hidden command typed in full still runs.
  */
-import type { Settings, SlashCommand } from "@pi-ui/protocol";
+import type { Settings, SlashCommand } from "@glade/protocol";
 
 type CommandId = Pick<SlashCommand, "source" | "name">;
 

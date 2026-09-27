@@ -1,11 +1,11 @@
-//! The bundled pi-ui server: find the user's `node` and `pi`, start `node server.mjs` on a free
+//! The bundled Glade server: find the user's `node` and `pi`, start `node server.mjs` on a free
 //! loopback port, wait until it answers, and stop it again when the app exits.
 //!
 //! Apps launched from Finder get a minimal PATH (no nvm/Homebrew), so `node` and `pi` are
 //! resolved through the user's login shell, and that shell's PATH is handed to the server so
 //! `pi` (a `#!/usr/bin/env node` script) and the tools it runs behave like in a terminal.
 //!
-//! The app always runs its own server (`PI_UI_SERVER_KIND=desktop`), even when another one
+//! The app always runs its own server (`GLADE_SERVER_KIND=desktop`), even when another one
 //! (e.g. `pnpm dev`) uses the same data folder: servers share the folder safely (I-062: locked,
 //! watched store; session leases; `<dataDir>/servers/<pid>.json` registry), so there's nothing
 //! to borrow and quitting the app never stops someone else's server.
@@ -58,7 +58,7 @@ impl RunningServer {
 #[derive(Default)]
 pub struct ServerState(pub Mutex<Option<RunningServer>>);
 
-const MARK: &str = "__PI_UI_ENV__";
+const MARK: &str = "__GLADE_ENV__";
 
 /// Run `$SHELL -ilc` (interactive login, so `.zshrc`-style setups like nvm are loaded) and read
 /// `command -v node`, `command -v pi` and `$PATH`. Falls back to `-lc`, then to well-known dirs.
@@ -174,7 +174,7 @@ fn is_executable(p: &Path) -> bool {
     fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
 }
 
-/// The user may point pi-ui at pi explicitly (Settings → Agent → pi path); honour that when
+/// The user may point Glade at pi explicitly (Settings → Agent → pi path); honour that when
 /// `pi` isn't on PATH.
 fn configured_pi_path() -> Option<PathBuf> {
     let text = fs::read_to_string(data_dir().join("settings.json")).ok()?;
@@ -194,15 +194,33 @@ fn free_port() -> std::io::Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-/// pi-ui's data folder (same rule as the server's `defaultDataDir` on macOS).
+/// One of our environment variables by its short name (`env_var("DATA_DIR")`): `GLADE_<name>`,
+/// else the pre-rename `PI_UI_<name>` (I-059; same rule as `env` in apps/server/src/config.ts).
+/// Empty values count as unset.
+pub fn env_var(name: &str) -> Option<String> {
+    [ENV_PREFIX, LEGACY_ENV_PREFIX]
+        .iter()
+        .find_map(|prefix| std::env::var(format!("{prefix}{name}")).ok().filter(|v| !v.is_empty()))
+}
+
+pub const ENV_PREFIX: &str = "GLADE_";
+/// Prefix of our environment variables before the rename to Glade (I-059).
+pub const LEGACY_ENV_PREFIX: &str = "PI_UI_";
+
+/// Glade's data folder (same rule as the server's `defaultDataDir` on macOS). Before the server
+/// has copied the old `pi-ui` folder (first start after the rename, I-059), that one is read.
 pub fn data_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("PI_UI_DATA_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+    if let Some(dir) = env_var("DATA_DIR") {
+        return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_default();
-    Path::new(&home).join("Library").join("Application Support").join("pi-ui")
+    let support = Path::new(&home).join("Library").join("Application Support");
+    let dir = support.join("Glade");
+    let legacy = support.join("pi-ui");
+    if !dir.exists() && legacy.exists() {
+        return legacy;
+    }
+    dir
 }
 
 /// `GET path` on a loopback server; returns the body of a 200 response. HTTP/1.0 so the
@@ -263,14 +281,14 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
     let env = resolve_shell_env();
     let Some(node) = env.node.clone() else {
         return Err(format!(
-            "Node.js wasn't found.\n\npi-ui runs its server with your own Node.js (≥ {MIN_NODE_MAJOR}), the one pi uses. \
-             Install it (e.g. with nvm or Homebrew) so that `command -v node` works in a new terminal, then reopen pi-ui."
+            "Node.js wasn't found.\n\nGlade runs its server with your own Node.js (≥ {MIN_NODE_MAJOR}), the one pi uses. \
+             Install it (e.g. with nvm or Homebrew) so that `command -v node` works in a new terminal, then reopen Glade."
         ));
     };
     if let Some(major) = node_major(&node, &env.path) {
         if major < MIN_NODE_MAJOR {
             return Err(format!(
-                "Node.js {major} is too old ({}).\n\npi-ui needs Node.js {MIN_NODE_MAJOR} or newer.",
+                "Node.js {major} is too old ({}).\n\nGlade needs Node.js {MIN_NODE_MAJOR} or newer.",
                 node.display()
             ));
         }
@@ -279,7 +297,7 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
     if pi.is_none() {
         return Err(
             "pi wasn't found.\n\nInstall it with `npm install -g @earendil-works/pi-coding-agent` (or make sure `command -v pi` \
-             works in a new terminal), or set an absolute pi path in pi-ui's settings, then reopen pi-ui."
+             works in a new terminal), or set an absolute pi path in Glade's settings, then reopen Glade."
                 .into(),
         );
     }
@@ -293,16 +311,23 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
     cmd.arg(&bundle.server_js)
         .current_dir(bundle.server_js.parent().unwrap_or(Path::new("/")))
         .env("PATH", &env.path)
-        .env("PI_UI_PORT", port.to_string())
-        .env("PI_UI_HOST", "127.0.0.1")
-        .env("PI_UI_STATIC_DIR", &bundle.web_dir)
-        .env("PI_UI_EXIT_ON_STDIN_CLOSE", "1")
-        .env("PI_UI_SERVER_KIND", "desktop")
         .stdin(Stdio::piped())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
+    for (name, value) in [
+        ("PORT", port.to_string()),
+        ("HOST", "127.0.0.1".to_string()),
+        ("STATIC_DIR", bundle.web_dir.to_string_lossy().into_owned()),
+        ("EXIT_ON_STDIN_CLOSE", "1".to_string()),
+        ("SERVER_KIND", "desktop".to_string()),
+    ] {
+        cmd.env(format!("{ENV_PREFIX}{name}"), value);
+        // An inherited pre-rename copy would be ignored anyway; don't pass it on.
+        cmd.env_remove(format!("{LEGACY_ENV_PREFIX}{name}"));
+    }
     // Don't leak a dev-mode harness choice from the launching environment.
-    cmd.env_remove("PI_UI_HARNESS");
+    cmd.env_remove(format!("{ENV_PREFIX}HARNESS"));
+    cmd.env_remove(format!("{LEGACY_ENV_PREFIX}HARNESS"));
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start {}: {e}", node.display()))?;
     let stdin = child.stdin.take();
     let mut server = RunningServer { port, child, stdin };
@@ -311,7 +336,7 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
     loop {
         if let Ok(Some(status)) = server.child.try_wait() {
             return Err(format!(
-                "The pi-ui server exited during startup ({status}).\n\n{}\n\nLog: {}",
+                "The Glade server exited during startup ({status}).\n\n{}\n\nLog: {}",
                 log_tail(log_path),
                 log_path.display()
             ));
@@ -322,7 +347,7 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
         if Instant::now() > deadline {
             server.stop();
             return Err(format!(
-                "The pi-ui server didn't respond within {}s.\n\n{}\n\nLog: {}",
+                "The Glade server didn't respond within {}s.\n\n{}\n\nLog: {}",
                 STARTUP_TIMEOUT.as_secs(),
                 log_tail(log_path),
                 log_path.display()

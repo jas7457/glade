@@ -5,7 +5,7 @@
  * the feature.
  */
 import { signal } from "@preact/signals";
-import type { ModelRef, UsageLimit, UsageLimits } from "@pi-ui/protocol";
+import type { ModelRef, UsageLimit, UsageLimits } from "@glade/protocol";
 import { showToast } from "./toasts";
 
 export const usageLimits = signal<UsageLimits | null>(null);

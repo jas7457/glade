@@ -10,8 +10,8 @@
  * field into that input and calls the prompt's `submit` instead of `run`.
  */
 import type { ComponentChildren } from "preact";
-import type { Settings, WorkspaceSummary } from "@pi-ui/protocol";
-import { needsAttention } from "@pi-ui/protocol";
+import type { Settings, WorkspaceSummary } from "@glade/protocol";
+import { needsAttention } from "@glade/protocol";
 import {
   Folder,
   FolderPlus,

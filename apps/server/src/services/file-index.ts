@@ -10,7 +10,7 @@ import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { FileEntry } from "@pi-ui/protocol";
+import type { FileEntry } from "@glade/protocol";
 
 const execFileAsync = promisify(execFile);
 

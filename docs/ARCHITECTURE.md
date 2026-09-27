@@ -24,7 +24,7 @@
 
 `apps/server/src/harness/types.ts` defines `AgentHarness` (list models, open/delete sessions,
 generate titles) and `HarnessSession` (prompt, abort, model/thinking, dialogs, events). An adapter
-translates its agent's native protocol to `@pi-ui/protocol` `AgentEvent`s. The UI and AppService
+translates its agent's native protocol to `@glade/protocol` `AgentEvent`s. The UI and AppService
 never see harness-native data. To add a harness: implement the two interfaces under
 `harness/<name>/`, add a translator with fixture tests, and register it in `src/index.ts`.
 
@@ -34,7 +34,10 @@ never see harness-native data. To add a harness: implement the two interfaces un
   workspace's folder (its project's, or the scratch folder for standalone workspaces).
 - Child environment (I-038, `harness/pi/child-env.ts`): the server's env minus `CMUX_*` and
   `PI_AGENT_TEAMS_*`, so a server started from a cmux terminal doesn't make pi extensions
-  (agent-teams) drive that terminal. Applies to RPC processes and one-shot title runs.
+  (agent-teams) drive that terminal, and minus the agent identity / server listening config
+  (`GLADE_URL`, `GLADE_TOKEN`, `GLADE_PORT`, `GLADE_SERVER_KIND`, …) under both the `GLADE_` and
+  the pre-rename `PI_UI_` prefix; the data folder variable is kept. Applies to RPC processes and
+  one-shot title runs.
 - Strict LF-delimited JSONL (not `readline`; it breaks on U+2028).
 - pi messages have no ids; `PiEventTranslator` assigns them (`m<n>` live, `h<n>` history).
 - Tool results are folded into `transcript.toolResults[toolCallId]` rather than shown as messages.
@@ -51,7 +54,7 @@ never see harness-native data. To add a harness: implement the two interfaces un
 Typing `/` at the start of the composer opens a menu (filtered on name + description, grouped
 Built-in / Extensions / Skills / Prompts). Two kinds of command:
 
-- **Built-ins** are pi-ui's own and are defined in one registry,
+- **Built-ins** are Glade's own and are defined in one registry,
   `apps/web/src/features/chat/slash/builtins.ts` (name, description, args hint, and a `run`
   function). They run in the browser via the API or navigation and never reach the agent as text:
   `/compact [instructions]`, `/new`, `/name <title>`, `/model [query]`, `/thinking [level]`,
@@ -88,7 +91,7 @@ listed (callers pass a project id, never a path).
 
 ## Default model (I-050)
 
-pi-ui's "Default" model setting (`settings.models.defaultModel = null`) means the **harness's**
+Glade's "Default" model setting (`settings.models.defaultModel = null`) means the **harness's**
 default: `GET /api/models/default` → `HarnessDefaults` (pi: `get_state` of the model-listing
 utility process, cached with the model list; `?refresh=1` refreshes both). The new-chat composer
 preselects it (and its thinking level) and sends `model: null`, so pi applies its own settings.
@@ -125,11 +128,12 @@ New sessions use the request's model/thinking, else the settings defaults (like 
 
 ## Agent API (I-037)
 
-Agents running in pi-ui can spawn sub-agents (the ext-kit agent-teams extension's pi-ui backend).
-Every agent process gets `PI_UI_URL`, `PI_UI_SESSION_ID`, `PI_UI_TOKEN` (random, per process,
-memory only, revoked when the process stops) and, for sub-agents, `PI_UI_AGENT_NAME`
-(`AGENT_ENV` in `packages/protocol/src/agents.ts`). The server never passes its own copies of
-these on (`child-env.ts`). Routes (`http/agents.ts`, mounted at `/api/agents`, `Authorization:
+Agents running in Glade can spawn sub-agents (the ext-kit agent-teams extension's Glade backend).
+Every agent process gets `GLADE_URL`, `GLADE_SESSION_ID`, `GLADE_TOKEN` (random, per process,
+memory only, revoked when the process stops) and, for sub-agents, `GLADE_AGENT_NAME`
+(`AGENT_ENV` in `packages/protocol/src/agents.ts`), plus the same values under the pre-rename
+names `PI_UI_URL`, … (`LEGACY_AGENT_ENV`) for agent-teams versions from before the rename. The
+server never passes its own copies of these on (`child-env.ts`). Routes (`http/agents.ts`, mounted at `/api/agents`, `Authorization:
 Bearer <token>`; the token names the calling session):
 
 | Method | Path | Body → result |
@@ -185,9 +189,28 @@ cut-off runs still show as interrupted on the next start.
 | Session leases                  | `<dataDir>/leases/<sessionId>.json` (see below)              |
 | Short write locks               | `<file>.lock/` directories next to the shared JSON files (milliseconds) |
 
-`dataDir` = `~/Library/Application Support/pi-ui` on macOS (override with `PI_UI_DATA_DIR`).
-Only sessions created by pi-ui are listed; sessions started in the terminal are not imported.
-Because transcripts stay in pi's own format, a pi-ui session can still be resumed with `pi --session`.
+`dataDir` = `~/Library/Application Support/Glade` on macOS (override with `GLADE_DATA_DIR`).
+
+**Environment variables** are `GLADE_*` (`GLADE_DATA_DIR`, `GLADE_PORT`, `GLADE_HOST`,
+`GLADE_HARNESS`, `GLADE_SERVER_KIND`, `GLADE_STATIC_DIR`, `GLADE_EXIT_ON_STDIN_CLOSE`,
+`GLADE_SANDBOX`, `GLADE_DEBUG`, `GLADE_WEB_PORT`, `GLADE_SANDBOX_ROOT`, `GLADE_APP_IDENTIFIER`).
+The pre-rename `PI_UI_*` names are still read as fallbacks, through one helper per language:
+`env(name)` in `apps/server/src/config.ts` (and copies in `apps/web/vite.config.ts`,
+`scripts/sandbox/lib.mjs`, `apps/desktop/scripts/idle.mjs`), `server::env_var` in Rust.
+
+**Rename migration (I-059, pi-ui → Glade)**: at startup, when the data folder is the default one
+(no `GLADE_DATA_DIR`/`PI_UI_DATA_DIR`), `…/Glade` doesn't exist and `…/pi-ui` does, the server
+**copies** the old folder into the new one (`store/migrate-data-dir.ts`, before the registry or
+store touch it) and logs it once. Everything is copied except other servers' runtime state
+(`servers/`, `leases/`, `*.lock`, `*.tmp`); standalone workspaces whose `cwd` was the old
+`scratch/` are pointed at the copy. The copy is staged in `Glade.migrating-<pid>` and renamed
+into place, so a crash leaves nothing half-done (the next start retries). The old folder stays as
+a backup and keeps working for a pre-rename build. Until the copy exists the desktop app reads
+the old folder's `settings.json` (for the pi path), and `tauri:install --when-idle` also looks for
+an old app's server in `…/pi-ui/servers/`. The web app's `localStorage` keys moved from
+`pi-ui.*` to `glade.*` (read once as a fallback, `state/ui.ts`).
+Only sessions created by Glade are listed; sessions started in the terminal are not imported.
+Because transcripts stay in pi's own format, a Glade session can still be resumed with `pi --session`.
 
 **Migration (I-035)**: when `workspaces.json` doesn't exist and `chats.json` does, the store turns
 every chat into a workspace with exactly one main session, **both keeping the chat's id**
@@ -229,7 +252,7 @@ started. Four mechanisms keep them from stepping on each other:
    working or waiting for input, their `SessionSummary` gets `activeElsewhere: { serverKind,
    since }` and status `working`/`blocked`; `GET /sessions/:id` reads the transcript from the
    session file without starting anything (`readTranscript`; the web reloads it when the session
-   starts or stops running there); prompts, abort and delete answer **409** "Running in pi-ui
+   starts or stops running there); prompts, abort and delete answer **409** "Running in Glade
    (dev) — open it there or wait until it's idle" (`activeElsewhereMessage`), and the composer is
    read-only with that hint. **Take-over**: a server that needs a session whose owner is idle
    (prompt, model change, delete…) writes a `takeover` request into the lease; the owner (watching
@@ -241,7 +264,7 @@ started. Four mechanisms keep them from stepping on each other:
    Queued agent-teams deliveries to a session busy elsewhere retry every 2s (up to 30 min).
 4. **Server registry** (`services/server-registry.ts`, replaces the I-022 `server.lock`). Each
    server writes `<dataDir>/servers/<pid>.json` `{ id, pid, kind, host, port, startedAt,
-   heartbeatAt }` (`kind` = `PI_UI_SERVER_KIND`: `dev` by default, `desktop` for the app),
+   heartbeatAt }` (`kind` = `GLADE_SERVER_KIND`: `dev` by default, `desktop` for the app),
    rewrites it every 2s and deletes it (and its leases) on shutdown and in an `exit` hook. A server
    is gone when its file is missing, its pid is dead, or its heartbeat is older than 60s (hangs, pid
    reuse); right after the machine wakes up (our own heartbeat is old too) nobody is judged stale.
@@ -249,9 +272,9 @@ started. Four mechanisms keep them from stepping on each other:
    finds the app's server here. There is no exit code 3 any more.
 
 Per server (not shared): the live process pool, viewers/unread marking of runs it owns, agent
-tokens (`PI_UI_TOKEN`), title generation, the usage poller, the search index
+tokens (`GLADE_TOKEN`), title generation, the usage poller, the search index
 (`search-index.json` is a cache each server rewrites), exported-file allowlist. Sub-agents run
-in the server that runs their parent (their `PI_UI_URL` points there).
+in the server that runs their parent (their `GLADE_URL` points there).
 
 ### Ordering
 
@@ -392,16 +415,16 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   into one `server.mjs`), staged in `dist-bundle/` and shipped as the `app/` resource.
 - On launch (`src-tauri/src/server.rs`) the app resolves `node`/`pi` via `$SHELL -ilc` (falling
   back to nvm/Homebrew dirs), starts `node server.mjs` on a free loopback port with the login
-  shell's PATH, `PI_UI_STATIC_DIR` and `PI_UI_EXIT_ON_STDIN_CLOSE=1`, waits for `GET /api/settings`,
+  shell's PATH, `GLADE_STATIC_DIR` and `GLADE_EXIT_ON_STDIN_CLOSE=1`, waits for `GET /api/settings`,
   then navigates the window there (same origin, so the loopback Host/Origin checks pass). Quit
   sends SIGTERM; if the app dies, the closed stdin pipe stops the server. Log:
-  `~/Library/Logs/io.github.jas7457.pi-ui/server.log`. Missing node/pi → native error dialog.
-- The app **always runs its own server** (`PI_UI_SERVER_KIND=desktop`), also while `pnpm dev`
+  `~/Library/Logs/io.github.jas7457.glade/server.log`. Missing node/pi → native error dialog.
+- The app **always runs its own server** (`GLADE_SERVER_KIND=desktop`), also while `pnpm dev`
   uses the same data folder (I-062: they share it safely, see "Several servers on one data
-  folder"). There is no borrowing; quitting the app stops only its server. `PI_UI_APP_IDENTIFIER`
+  folder"). There is no borrowing; quitting the app stops only its server. `GLADE_APP_IDENTIFIER`
   gives any build another bundle identifier at launch (single-instance socket, window state and
   log dir are keyed on it), so an agent can run a release build next to the installed app with
-  `PI_UI_DATA_DIR` pointing at a temp folder.
+  `GLADE_DATA_DIR` pointing at a temp folder.
 - Quit confirmation (`src-tauri/src/quit.rs`): ⌘Q / Dock Quit / AppleScript `quit` go through
   `-[NSApplication terminate:]`, which tao can't veto, so the app adds
   `applicationShouldTerminate:` to tao's app delegate. It asks its server `GET /api/sessions`
@@ -413,18 +436,23 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
 - Dev identity (I-031): `src-tauri/.cargo/config.toml` sets `scripts/dev-app-runner.sh` as the
   cargo runner, so `cargo run` / `tauri dev` start the debug binary from inside a minimal
-  `target/debug/pi-ui (dev).app` (hard link + Info.plist + `icons/dev/icon.icns`, the icon with a
+  `target/debug/Glade (dev).app` (hard link + Info.plist + `icons/dev/icon.icns`, the icon with a
   DEV band made from `icon/icon-dev.svg`) via `exec`, keeping the pid for hot-reload. A bare
   executable has no bundle, so the Dock and switchers (AltTab reads `NSRunningApplication.icon`)
   showed the generic exec icon. Dev builds also use their own identifier
-  `io.github.jas7457.pi-ui.dev` (`src-tauri/src/dev.rs`): the single-instance socket is keyed on it,
-  and with a shared id opening `/Applications/pi-ui.app` while `tauri dev` ran only focused the
+  `io.github.jas7457.glade.dev` (`src-tauri/src/dev.rs`): the single-instance socket is keyed on it,
+  and with a shared id opening `/Applications/Glade.app` while `tauri dev` ran only focused the
   dev window. `dev.rs` also undoes Tauri's dev-time Dock icon override so the Dock shows the DEV
   icon. `pnpm tauri:install` re-registers the installed bundle with LaunchServices (`lsregister
   -f`). Check what macOS reports with `swift apps/desktop/scripts/check-app-icon.swift`.
+- Install (`apps/desktop/scripts/install.mjs`): installs `/Applications/Glade.app`; a running
+  pre-rename `/Applications/pi-ui.app` is asked to quit like the installed app (by path), and
+  removed after Glade.app is in place (I-059). The icon (`icon/icon.svg`, a leaf in a soft
+  green–teal rounded square; `icon/icon-dev.svg` adds the DEV band) is turned into
+  `src-tauri/icons/` with `tauri icon` (`icons/dev/icon.icns` from the DEV variant).
 - Web side: `lib/desktop.ts` is the only bridge (dynamic `@tauri-apps/*` imports, no-ops in a
   browser); `<html data-desktop>` switches the page/sidebar to transparent over the window's
-  vibrancy. Menu items emit `pi-ui:menu` events handled by `useGlobalShortcuts`.
+  vibrancy. Menu items emit `glade:menu` events handled by `useGlobalShortcuts`.
 - Closing the window hides it (agents keep running); the Dock icon reopens it; ⌘Q quits.
 - No Writing Tools button (I-042, `src-tauri/src/writing_tools.rs`): Apple Intelligence puts a
   floating "Write with Siri" button next to focused multi-line fields. The app hides it by making
@@ -437,6 +465,12 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   button at all.
 
 ## Decisions
+
+- **Renamed pi-ui → Glade** (2026-09-26, I-059, user decision): new product name, bundle ids
+  (`io.github.jas7457.glade`, `.glade.dev`), data folder, `GLADE_*` env vars and `@glade/*`
+  packages. Old names keep working where users or other tools may still use them: `PI_UI_*`
+  env vars are fallbacks (and the agent API env is set under both names), the old data folder is
+  **copied** (not moved) on first start so an old build and a rollback still find their data.
 
 - **Agent sandboxes** (2026-09-26, I-052): agents test against `pnpm dev:agent` sandboxes (one per name,
   shared via an owner list, cleaned up by a detached supervisor when the last owner leaves), never the
@@ -492,7 +526,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   removes the session file outright rather than moving it to the Trash.
 
 - **Session storage stays harness-owned, in the harness's default location** (2026-09-26). Every
-  harness must keep its own session format to resume conversations, so pi-ui stores only an index
+  harness must keep its own session format to resume conversations, so Glade stores only an index
   (`chats.json`) with an opaque `sessionRef`. Considered and rejected for now: moving pi sessions
   under our data dir (`--session-dir`), since terminal resume isn't needed, and keeping our own
   normalized transcript copy, to avoid duplicated data. Revisit if loading history without

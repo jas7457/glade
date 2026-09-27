@@ -7,7 +7,7 @@ import { PiRpcProcess } from "../src/harness/pi/rpc-process.js";
 
 describe("PiHarness.deleteSession", () => {
   it("permanently removes the session file and its empty folder", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pi-ui-del-"));
+    const root = mkdtempSync(join(tmpdir(), "glade-del-"));
     const dir = join(root, "--tmp-project--");
     mkdirSync(dir);
     const file = join(dir, "session.jsonl");

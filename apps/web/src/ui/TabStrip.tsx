@@ -12,7 +12,7 @@
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
-import type { ChatStatus } from "@pi-ui/protocol";
+import type { ChatStatus } from "@glade/protocol";
 import { X } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { ContextMenu } from "./ContextMenu";

@@ -20,10 +20,10 @@ describe("static web app", () => {
     expect((await app.request("/", { headers })).status).toBe(404);
 
     mkdirSync(staticDir, { recursive: true });
-    writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>pi-ui</title>");
+    writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Glade</title>");
     const res = await app.request("/projects/abc", { headers });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("<title>pi-ui</title>");
+    expect(await res.text()).toContain("<title>Glade</title>");
     // API paths never fall back to the SPA.
     expect((await app.request("/api/nope", { headers })).status).toBe(404);
 

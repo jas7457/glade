@@ -25,6 +25,6 @@ export interface FileEntry {
 export interface FileSearchResponse {
   /** Best matches first (capped by `limit`). */
   entries: FileEntry[];
-  /** The folder has more files than pi-ui indexes; some may be missing. */
+  /** The folder has more files than Glade indexes; some may be missing. */
   truncated: boolean;
 }

@@ -4,7 +4,7 @@
  * tauri.conf.json ships as the `app/` resource folder:
  *
  *   app/server.mjs   — the whole server (hono, ws, protocol …), run with the user's own `node`
- *   app/web/         — the built web app, served by the server (PI_UI_STATIC_DIR)
+ *   app/web/         — the built web app, served by the server (GLADE_STATIC_DIR)
  */
 import { execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -20,7 +20,7 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
 console.log("[bundle] building web app…");
-execSync("pnpm --filter @pi-ui/web build", { cwd: repoDir, stdio: "inherit" });
+execSync("pnpm --filter @glade/web build", { cwd: repoDir, stdio: "inherit" });
 const webDist = join(repoDir, "apps", "web", "dist");
 if (!existsSync(join(webDist, "index.html"))) throw new Error(`web build missing: ${webDist}`);
 cpSync(webDist, join(outDir, "web"), { recursive: true });

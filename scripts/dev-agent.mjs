@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * `pnpm dev:agent` (I-052): a throwaway pi-ui (server + web) for agents, isolated from the
+ * `pnpm dev:agent` (I-052): a throwaway Glade (server + web) for agents, isolated from the
  * user's data folder and their servers on :4317/:5317, and deleted when the agent is done.
  *
  *   pnpm dev:agent [--name <name>] [--real] [--keep]   start or join sandbox <name> (default "agent")
  *   pnpm dev:agent --name <name> --stop                stop sandbox <name> for every owner
  *   pnpm dev:agent --sweep                             remove every sandbox nobody uses any more
  *
- * One sandbox per name under /tmp/pi-ui-sandbox/<name>, shared by every process started with
+ * One sandbox per name under /tmp/glade-sandbox/<name>, shared by every process started with
  * that name (ref-counted owners in sandbox.json). This process is one owner: it stays in the
  * foreground until Ctrl-C / SIGTERM, then leaves; the last owner out triggers the cleanup
  * (done by the sandbox's supervisor, see scripts/sandbox/supervisor.mjs and lib.mjs).
@@ -30,6 +30,7 @@ import {
   sandboxPorts,
   startDecision,
   sweep,
+  sweepLegacy,
   withLock,
   writeState,
 } from "./sandbox/lib.mjs";
@@ -61,7 +62,7 @@ if (args.help) {
   process.exit(0);
 }
 
-const swept = sweep({ skip: args.name, force: args.sweep });
+const swept = [...sweep({ skip: args.name, force: args.sweep }), ...sweepLegacy({ force: args.sweep })];
 if (swept.length) say(`removed stale sandbox(es): ${swept.join(", ")}`);
 if (args.sweep) {
   if (!swept.length) say("nothing to sweep");
@@ -176,7 +177,7 @@ if (!readyState || readyState.error) {
 
 const s = readyState;
 console.log(`
-┌─ pi-ui sandbox "${args.name}" ${joined ? "(joined)" : ""}
+┌─ Glade sandbox "${args.name}" ${joined ? "(joined)" : ""}
 │  Web:      http://127.0.0.1:${s.webPort}
 │  API:      http://127.0.0.1:${s.serverPort}/api
 │  Harness:  ${s.harness}

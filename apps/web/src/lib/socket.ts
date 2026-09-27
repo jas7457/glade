@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import type { ClientMessage, ServerMessage } from "@pi-ui/protocol";
+import type { ClientMessage, ServerMessage } from "@glade/protocol";
 
 export type { ClientMessage };
 

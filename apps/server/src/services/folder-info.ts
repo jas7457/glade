@@ -3,10 +3,10 @@
  * for a project/scratch folder, file search for `@` mentions, and the harness's default model.
  * Results are cached per folder for a short time; concurrent requests share one fetch.
  *
- * Only folders pi-ui knows (a project's path or the scratch folder) are ever listed: callers pass
+ * Only folders Glade knows (a project's path or the scratch folder) are ever listed: callers pass
  * a project id, never a path.
  */
-import type { FileSearchResponse, HarnessDefaults, SlashCommand } from "@pi-ui/protocol";
+import type { FileSearchResponse, HarnessDefaults, SlashCommand } from "@glade/protocol";
 import type { AgentHarness } from "../harness/types.js";
 import { HttpError } from "./app-service.js";
 import { listFolderFiles, rankFiles, type FolderFiles } from "./file-index.js";

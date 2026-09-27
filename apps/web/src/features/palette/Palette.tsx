@@ -8,7 +8,7 @@
  * model picks the best matches; a confident answer opens the chat directly.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { AskResponse, SearchHit } from "@pi-ui/protocol";
+import type { AskResponse, SearchHit } from "@glade/protocol";
 import { CommandPalette, Spinner, type CommandPaletteSection } from "@/ui";
 import { COMMAND_GROUPS, isAvailable, type Command, type CommandContext, type CommandPrompt, buildCommands } from "@/app/commands";
 import { chatPath } from "@/app/routes";

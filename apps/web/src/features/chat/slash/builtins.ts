@@ -1,10 +1,10 @@
 /**
- * pi-ui's built-in slash commands: the single registry of their names, descriptions and
+ * Glade's built-in slash commands: the single registry of their names, descriptions and
  * behaviour. They run in the web app (API calls / navigation), never reach the agent as text.
  * Harness commands (extensions, skills, prompt templates) come from the server and are sent
  * as ordinary prompts. To add a built-in, add an entry to BUILTIN_COMMANDS.
  */
-import { type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@pi-ui/protocol";
+import { type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { routes } from "@/app/routes";
 import { renameFromSession } from "@/state/actions";

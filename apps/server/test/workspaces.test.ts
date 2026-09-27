@@ -3,7 +3,7 @@
  * deleting tabs, and per-session live processes.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEvent, WorkspaceSummary } from "@pi-ui/protocol";
+import type { AgentEvent, WorkspaceSummary } from "@glade/protocol";
 import type { FakeSession } from "../src/harness/fake/fake-harness.js";
 import { createTestEnv, deferred, flush, newChat, type TestEnv } from "./helpers.js";
 

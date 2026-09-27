@@ -6,7 +6,7 @@ import { withFileLock } from "./file-lock.js";
 export type ExternalChangeListener<T> = (previous: T, next: T) => void;
 
 /**
- * A JSON document on disk, safe to share between processes (I-062: several pi-ui servers may use
+ * A JSON document on disk, safe to share between processes (I-062: several Glade servers may use
  * one data folder).
  *
  * Changes are recorded as operations (`update(fn)`), applied to the in-memory value right away
@@ -114,7 +114,7 @@ export class JsonFile<T> {
       try {
         listener(previous, next);
       } catch (err) {
-        console.warn(`[pi-ui] change listener for ${this.path} failed: ${(err as Error).message}`);
+        console.warn(`[glade] change listener for ${this.path} failed: ${(err as Error).message}`);
       }
     }
     return true;
@@ -143,7 +143,7 @@ export class JsonFile<T> {
       return value;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        console.warn(`[pi-ui] could not read ${this.path}: ${(err as Error).message}`);
+        console.warn(`[glade] could not read ${this.path}: ${(err as Error).message}`);
       }
       return null;
     }

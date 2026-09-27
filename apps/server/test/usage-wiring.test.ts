@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ServerMessage, UsageLimits } from "@pi-ui/protocol";
+import type { ServerMessage, UsageLimits } from "@glade/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
@@ -25,7 +25,7 @@ class LimitedHarness extends FakeHarness {
 
 describe("AppService usage limits wiring", () => {
   it("fetches once a client subscribes, broadcasts usage_limits and exposes the current value", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-ui-usage-"));
+    const dir = mkdtempSync(join(tmpdir(), "glade-usage-"));
     const harness = new LimitedHarness();
     const service = new AppService({ store: new Store(join(dir, "data"), 0), harness, scratchDir: join(dir, "scratch") });
     try {
@@ -42,7 +42,7 @@ describe("AppService usage limits wiring", () => {
   });
 
   it("stays inert for harnesses without usage limits", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-ui-usage-"));
+    const dir = mkdtempSync(join(tmpdir(), "glade-usage-"));
     const service = new AppService({ store: new Store(join(dir, "data"), 0), harness: new FakeHarness(), scratchDir: join(dir, "scratch") });
     const messages: ServerMessage[] = [];
     service.subscribe((m) => messages.push(m));

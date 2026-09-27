@@ -7,7 +7,7 @@
  *   unread   → accent dot (red if `failed`)    "New messages" / "Last run failed"
  *   blocked  → amber "!" badge                  "Needs your input"
  */
-import type { ChatStatus } from "@pi-ui/protocol";
+import type { ChatStatus } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Spinner } from "./Spinner";
 import { Tooltip } from "./Tooltip";

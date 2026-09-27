@@ -2,7 +2,7 @@
  * One-line summaries for tool calls ("Ran `ls -la`", "Read src/app.ts"...). Pure; keyed by
  * tool name so new tools are one entry away. Unknown tools fall back to name + arg preview.
  */
-import type { ToolCallBlock } from "@pi-ui/protocol";
+import type { ToolCallBlock } from "@glade/protocol";
 
 export interface ToolSummary {
   /** Leading verb, e.g. "Ran" / "Running". */

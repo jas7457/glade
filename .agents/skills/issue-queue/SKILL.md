@@ -1,6 +1,6 @@
 ---
 name: issue-queue
-description: Collect issues, bugs and requests the user reports into the pi-ui Inbox in PLAN.md WITHOUT starting work, across any number of messages or chats; then, only when the user says "go", split the queued items into parallel sub-agent workstreams, integrate, verify, tick them off and commit. Use whenever the user lists problems/ideas for pi-ui, asks what's queued, or says go/start/work the queue.
+description: Collect issues, bugs and requests the user reports into the Glade Inbox in PLAN.md WITHOUT starting work, across any number of messages or chats; then, only when the user says "go", split the queued items into parallel sub-agent workstreams, integrate, verify, tick them off and commit. Use whenever the user lists problems/ideas for Glade (formerly pi-ui), asks what's queued, or says go/start/work the queue.
 ---
 
 # Issue queue: collect now, work later
@@ -67,16 +67,16 @@ If they name ids, only those; otherwise all open Inbox items without open questi
    - write/adjust tests; run `pnpm --filter <pkg> typecheck` and `pnpm vitest run --project <proj>`;
    - **test in a sandbox, never on the user's data**: anything that writes data (creating chats,
      prompts, settings, projects) runs against `pnpm dev:agent --name <worker-name>` (own ports,
-     own data under `/tmp/pi-ui-sandbox/<name>`, fake harness; `--real` only if the task needs
+     own data under `/tmp/glade-sandbox/<name>`, fake harness; `--real` only if the task needs
      real pi, with one tiny prompt). Start it in the background
-     (`pnpm dev:agent --name <worker-name> > /tmp/pi-ui-<worker-name>.log 2>&1 &`), read the
+     (`pnpm dev:agent --name <worker-name> > /tmp/glade-<worker-name>.log 2>&1 &`), read the
      Web/API URLs from the log, verify visually there (chrome-devtools MCP), and stop it when done
      (`pnpm dev:agent --name <worker-name> --stop`), which deletes the sandbox and its pi session
      files. Never write through the user's servers on :4317/:5317 or their data folder;
      read-only screenshots of the user's running app are fine;
    - final report: files changed, what was verified, per-id status (done / partial / blocked + why).
 3. **While they work**, relay cross-agent info (e.g. new ui primitives) with `message_agent`.
-4. **Integrate** as each finishes: run `pnpm check` and `pnpm --filter @pi-ui/web build`, check the
+4. **Integrate** as each finishes: run `pnpm check` and `pnpm --filter @glade/web build`, check the
    result yourself (browser for UI items), fix small gaps.
 5. **Update the ledger** in the same commit as the code:
    - tick the Inbox item: `- [x] **I-007** … (2026-09-26)`; leave notes, add a one-line outcome;

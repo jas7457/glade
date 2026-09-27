@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_ENV, MAX_ACTIVE_AGENTS, type AgentEvent, type ListAgentsResponse, type SpawnAgentResponse } from "@pi-ui/protocol";
+import { AGENT_ENV, MAX_ACTIVE_AGENTS, type AgentEvent, type ListAgentsResponse, type SpawnAgentResponse } from "@glade/protocol";
 import type { FakeSession } from "../src/harness/fake/fake-harness.js";
 import { piChildEnv } from "../src/harness/pi/child-env.js";
 import type { OpenSessionOptions } from "../src/harness/types.js";
@@ -64,12 +64,19 @@ async function spawn(parentId: string, name: string, extra: Record<string, unkno
 }
 
 describe("agent identity", () => {
-  it("every agent process gets PI_UI_URL, its session id and a fresh token", async () => {
+  it("every agent process gets GLADE_URL (and the legacy PI_UI_URL), its session id and a fresh token", async () => {
     const chat = await newChat(env, { prompt: "hi" });
     const main = opened[0]!;
     expect(main.env).toMatchObject({ [AGENT_ENV.url]: URL_BASE, [AGENT_ENV.sessionId]: chat.sid });
     expect(main.env![AGENT_ENV.token]).toMatch(/^[\w-]{20,}$/);
     expect(main.env![AGENT_ENV.agentName]).toBeUndefined();
+    expect(AGENT_ENV.url).toBe("GLADE_URL");
+    expect(main.env).toMatchObject({
+      PI_UI_URL: URL_BASE,
+      PI_UI_SESSION_ID: chat.sid,
+      PI_UI_TOKEN: main.env![AGENT_ENV.token],
+    });
+    expect(main.env!.PI_UI_AGENT_NAME).toBeUndefined();
     expect(main.appendSystemPrompt).toBeUndefined();
     expect(env.service.authenticateAgent(tokenOf(chat.sid)).id).toBe(chat.sid);
   });
@@ -101,10 +108,10 @@ describe("agent identity", () => {
 describe("piChildEnv", () => {
   it("never inherits an agent identity, and adds the given one", () => {
     const out = piChildEnv(
-      { PATH: "/bin", PI_UI_URL: "u", PI_UI_TOKEN: "t", PI_UI_SESSION_ID: "s", PI_UI_AGENT_NAME: "n", PI_UI_DATA_DIR: "/d" },
-      { PI_UI_TOKEN: "mine" },
+      { PATH: "/bin", GLADE_URL: "u", GLADE_TOKEN: "t", GLADE_SESSION_ID: "s", GLADE_AGENT_NAME: "n", GLADE_DATA_DIR: "/d" },
+      { GLADE_TOKEN: "mine" },
     );
-    expect(out).toEqual({ PATH: "/bin", PI_UI_DATA_DIR: "/d", PI_UI_TOKEN: "mine" });
+    expect(out).toEqual({ PATH: "/bin", GLADE_DATA_DIR: "/d", GLADE_TOKEN: "mine" });
   });
 });
 
@@ -165,7 +172,7 @@ describe("spawn", () => {
   });
 
   it("persists records so a reopened sub-agent keeps its role", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-ui-agents-"));
+    const dir = mkdtempSync(join(tmpdir(), "glade-agents-"));
     try {
       const registry = new AgentRegistry(dir);
       registry.upsert({

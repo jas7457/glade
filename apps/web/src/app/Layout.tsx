@@ -70,7 +70,7 @@ function StatusBanner() {
     return (
       <div role="alert" class="flex shrink-0 items-center gap-2 border-b border-separator bg-[color-mix(in_srgb,var(--pi-danger)_10%,transparent)] px-3 py-1.5 text-[0.92rem]">
         <AlertTriangle size={14} class="text-danger" />
-        <span class="flex-1">Couldn't load data from the pi-ui server: {initError.value}</span>
+        <span class="flex-1">Couldn't load data from the Glade server: {initError.value}</span>
         <Button size="sm" onClick={() => void loadAll()}>
           Retry
         </Button>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, resolveSidebarDrag } from "./ui";
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readStored, resolveSidebarDrag } from "./ui";
 
 describe("clampSidebarWidth", () => {
   it("keeps widths inside [min, max]", () => {
@@ -21,5 +21,17 @@ describe("resolveSidebarDrag", () => {
   });
   it("collapses when dragged far left, keeping the previous width", () => {
     expect(resolveSidebarDrag(260, -200)).toEqual({ width: 260, collapsed: true });
+  });
+});
+
+describe("readStored (I-059 rename)", () => {
+  it("prefers the glade.* key and falls back to the old pi-ui.* key once", () => {
+    localStorage.clear();
+    localStorage.setItem("pi-ui.sidebar.width", "310");
+    expect(readStored("glade.sidebar.width")).toBe("310");
+    localStorage.setItem("glade.sidebar.width", "280");
+    expect(readStored("glade.sidebar.width")).toBe("280");
+    expect(readStored("glade.missing")).toBeNull();
+    localStorage.clear();
   });
 });

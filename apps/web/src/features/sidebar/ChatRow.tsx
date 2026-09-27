@@ -7,7 +7,7 @@
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { MoreHorizontal, Pin } from "lucide-preact";
-import type { WorkspaceSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@glade/protocol";
 import { chatPath } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
 import { deleteWorkspace, markWorkspaceRead, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/preact";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { defaultSettings } from "@pi-ui/protocol";
+import { defaultSettings } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({
   api: { updateSettings: vi.fn(), listModels: vi.fn(), updateChat: vi.fn() },

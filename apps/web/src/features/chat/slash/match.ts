@@ -1,7 +1,7 @@
 /**
  * Pure slash-command helpers: parse the composer text, filter/rank commands, group them.
  */
-import type { SlashCommand, SlashCommandSource } from "@pi-ui/protocol";
+import type { SlashCommand, SlashCommandSource } from "@glade/protocol";
 
 export interface ParsedSlash {
   /** Command name as typed (no slash). */

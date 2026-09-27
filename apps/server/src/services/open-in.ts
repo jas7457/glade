@@ -4,7 +4,7 @@
  * The command runner is injectable so tests never launch real apps.
  */
 import { execFile } from "node:child_process";
-import type { OpenTarget } from "@pi-ui/protocol";
+import type { OpenTarget } from "@glade/protocol";
 
 /** Why opening failed; `status` is the HTTP status the route responds with. */
 export class OpenInError extends Error {

@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import * as Popover from "@radix-ui/react-popover";
-import type { ModelRef, SessionState } from "@pi-ui/protocol";
+import type { ModelRef, SessionState } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { limitsForModel, usageLimits } from "@/state/usage";
 import { floatingSurfaceClass } from "@/ui";

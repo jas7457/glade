@@ -1,23 +1,36 @@
 /**
- * Agent API (I-037): lets an agent running inside pi-ui spawn and talk to sub-agents, which run
+ * Agent API (I-037): lets an agent running inside Glade spawn and talk to sub-agents, which run
  * as `subagent` sessions of the caller's workspace. Used by the ext-kit agent-teams extension's
- * pi-ui backend (it duplicates these shapes; keep them in sync).
+ * Glade backend (it duplicates these shapes; keep them in sync).
  *
- * Every agent process pi-ui starts gets {@link AGENT_ENV} variables. Requests to `/api/agents/…`
- * carry `Authorization: Bearer <PI_UI_TOKEN>`; the token identifies the calling session.
+ * Every agent process Glade starts gets {@link AGENT_ENV} variables (and, for agent-teams
+ * versions from before the rename, the same values under {@link LEGACY_AGENT_ENV}). Requests to
+ * `/api/agents/…` carry `Authorization: Bearer <GLADE_TOKEN>`; the token identifies the calling
+ * session.
  */
 
-/** Environment variables pi-ui sets for every agent process it starts. */
+/** Environment variables Glade sets for every agent process it starts. */
 export const AGENT_ENV = {
-  /** Base URL of the pi-ui server, e.g. `http://127.0.0.1:4317`. */
-  url: "PI_UI_URL",
+  /** Base URL of the Glade server, e.g. `http://127.0.0.1:4317`. */
+  url: "GLADE_URL",
   /** The session this process runs. */
-  sessionId: "PI_UI_SESSION_ID",
+  sessionId: "GLADE_SESSION_ID",
   /** Secret for the agent API; per process, only valid while the process runs. */
-  token: "PI_UI_TOKEN",
+  token: "GLADE_TOKEN",
   /** Set only for sub-agents: their agent name (the process is a child and can't spawn). */
-  agentName: "PI_UI_AGENT_NAME",
+  agentName: "GLADE_AGENT_NAME",
 } as const;
+
+/**
+ * The pre-rename names of {@link AGENT_ENV} (I-059, app formerly "pi-ui"), set alongside it with
+ * the same values so an agent-teams extension that only knows these keeps working.
+ */
+export const LEGACY_AGENT_ENV = {
+  url: "PI_UI_URL",
+  sessionId: "PI_UI_SESSION_ID",
+  token: "PI_UI_TOKEN",
+  agentName: "PI_UI_AGENT_NAME",
+} as const satisfies Record<keyof typeof AGENT_ENV, string>;
 
 /** Max sub-agents running at once per workspace (closed ones don't count). */
 export const MAX_ACTIVE_AGENTS = 4;

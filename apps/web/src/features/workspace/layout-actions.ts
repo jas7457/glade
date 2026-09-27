@@ -7,8 +7,8 @@
  * Which group is maximized (double-click a tab) is per window and not saved.
  */
 import { signal } from "@preact/signals";
-import type { SessionSummary, WorkspaceLayout } from "@pi-ui/protocol";
-import { subagentSessionsOf } from "@pi-ui/protocol";
+import type { SessionSummary, WorkspaceLayout } from "@glade/protocol";
+import { subagentSessionsOf } from "@glade/protocol";
 import { chatPath, routes } from "@/app/routes";
 import { createSession, deleteSession, deleteWorkspace, updateWorkspace } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";

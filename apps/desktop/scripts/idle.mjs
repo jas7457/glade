@@ -9,9 +9,19 @@ import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** Same rule as the server's `defaultDataDir` on macOS. */
+/** Same rule as the server's `defaultDataDir` on macOS (`GLADE_DATA_DIR`, else `PI_UI_DATA_DIR`). */
 export function dataDir(env = process.env) {
-  return env.PI_UI_DATA_DIR || join(homedir(), "Library", "Application Support", "pi-ui");
+  return env.GLADE_DATA_DIR || env.PI_UI_DATA_DIR || join(homedir(), "Library", "Application Support", "Glade");
+}
+
+/**
+ * Data folders whose registries to search. With the default folder that includes the pre-rename
+ * `…/pi-ui` one (I-059): an installed app from before the rename registers its server there.
+ */
+export function dataDirs(env = process.env, home = homedir()) {
+  if (env.GLADE_DATA_DIR || env.PI_UI_DATA_DIR) return [dataDir(env)];
+  const support = join(home, "Library", "Application Support");
+  return [join(support, "Glade"), join(support, "pi-ui")];
 }
 
 function pidAlive(pid) {
@@ -23,8 +33,16 @@ function pidAlive(pid) {
   }
 }
 
-/** Registry entries of live servers of `kind` ("desktop" = the installed app). */
+/**
+ * Registry entries of live servers of `kind` ("desktop" = the installed app) in one data folder,
+ * or in several (`dirs` array; a server listed twice counts once).
+ */
 export function findServers(dir, kind = "desktop", isAlive = pidAlive) {
+  if (Array.isArray(dir)) {
+    const seen = new Map();
+    for (const d of dir) for (const s of findServers(d, kind, isAlive)) if (!seen.has(s.pid)) seen.set(s.pid, s);
+    return [...seen.values()];
+  }
   let names = [];
   try {
     names = readdirSync(join(dir, "servers")).filter((n) => n.endsWith(".json"));
@@ -80,7 +98,7 @@ export function formatDuration(ms) {
  * Resolve once no installed-app server has a busy chat, printing progress. Servers that don't
  * answer count as idle (nothing to protect).
  */
-export async function waitUntilIdle({ dir = dataDir(), intervalMs = 2000, log = console.log, write = (t) => process.stdout.write(t) } = {}) {
+export async function waitUntilIdle({ dir = dataDirs(), intervalMs = 2000, log = console.log, write = (t) => process.stdout.write(t) } = {}) {
   const started = Date.now();
   const tty = process.stdout.isTTY;
   let lastLine = "";

@@ -22,7 +22,7 @@ export function InterruptedBanner({ chatId: sessionId }: { chatId: string }) {
   return (
     <div role="status" class="mb-2 flex items-center gap-2 rounded-[10px] border-[0.5px] border-warning/30 bg-warning/10 py-1.5 pr-1.5 pl-3 text-warning">
       <CirclePause size={14} class="shrink-0" />
-      <span class="min-w-0 flex-1">This run was interrupted when pi-ui quit.</span>
+      <span class="min-w-0 flex-1">This run was interrupted when Glade quit.</span>
       <Button
         size="sm"
         disabled={busy}

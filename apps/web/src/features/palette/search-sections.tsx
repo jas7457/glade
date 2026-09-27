@@ -4,7 +4,7 @@
  * helpers so the grouping is unit-testable; `Palette.tsx` owns the requests.
  */
 import { MessageSquare, MessageSquareText, Sparkles } from "lucide-preact";
-import type { AskMatch, SearchHit } from "@pi-ui/protocol";
+import type { AskMatch, SearchHit } from "@glade/protocol";
 import { TextHighlight, type CommandPaletteSection } from "@/ui";
 
 /** Row ids: `msg:<sessionId>`, `ask:<sessionId>`, and the entry row. */

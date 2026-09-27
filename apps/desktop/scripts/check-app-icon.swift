@@ -1,9 +1,9 @@
 // Diagnostic for app switchers (AltTab, ⌘Tab, Dock): prints what macOS reports for running
-// pi-ui processes, i.e. the data `NSRunningApplication.icon` hands to AltTab.
-// Usage: swift apps/desktop/scripts/check-app-icon.swift [name-substring]   (default "pi-ui")
+// Glade processes, i.e. the data `NSRunningApplication.icon` hands to AltTab.
+// Usage: swift apps/desktop/scripts/check-app-icon.swift [name-substring]   (default "Glade")
 import AppKit
 
-let needle = CommandLine.arguments.dropFirst().first ?? "pi-ui"
+let needle = CommandLine.arguments.dropFirst().first ?? "Glade"
 let generic = NSWorkspace.shared.icon(for: .unixExecutable)
 let genericTiff = generic.tiffRepresentation ?? Data()
 
@@ -18,7 +18,7 @@ var found = 0
 for app in NSWorkspace.shared.runningApplications {
     let name = app.localizedName ?? ""
     let exe = app.executableURL?.path ?? ""
-    // Regular apps only: skips WebKit helper processes named "pi-ui Web Content" etc.
+    // Regular apps only: skips WebKit helper processes named "Glade Web Content" etc.
     guard app.activationPolicy == .regular, name.contains(needle) || exe.contains(needle) else { continue }
     found += 1
     print("pid \(app.processIdentifier)  name: \(name)")

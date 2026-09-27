@@ -6,7 +6,7 @@
  * server, so its tab simply disappears; `closed` only shows for one whose process stopped
  * (crashed) and whose tab stays so the error is readable.
  */
-import type { SessionSummary } from "@pi-ui/protocol";
+import type { SessionSummary } from "@glade/protocol";
 
 export type AgentDisplayKind = "working" | "blocked" | "done" | "closing" | "closed" | "idle";
 

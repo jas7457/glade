@@ -1,5 +1,5 @@
 {
-  "name": "pi-ui",
+  "name": "glade",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.3.4",
@@ -7,17 +7,17 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @pi-ui/server dev\" \"pnpm --filter @pi-ui/web dev\"",
+    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @glade/server dev\" \"pnpm --filter @glade/web dev\"",
     "build": "pnpm -r build",
-    "start": "pnpm --filter @pi-ui/server start",
+    "start": "pnpm --filter @glade/server start",
     "dev:agent": "node scripts/dev-agent.mjs",
     "test": "pnpm test:scripts && vitest run",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck",
     "check": "pnpm typecheck && pnpm test",
-    "tauri:dev": "pnpm --filter @pi-ui/desktop tauri dev",
-    "tauri:build": "pnpm --filter @pi-ui/desktop tauri build --bundles app",
+    "tauri:dev": "pnpm --filter @glade/desktop tauri dev",
+    "tauri:build": "pnpm --filter @glade/desktop tauri build --bundles app",
     "tauri:install": "node apps/desktop/scripts/install.mjs"
   },
   "devDependencies": {

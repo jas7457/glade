@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { MessageCircleQuestion } from "lucide-preact";
-import type { UiRequest, UiResponse } from "@pi-ui/protocol";
+import type { UiRequest, UiResponse } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Button, TextArea, TextField } from "@/ui";
 

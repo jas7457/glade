@@ -3,7 +3,7 @@
  * Controlled components; the composer decides what a change means (API call or local state).
  */
 import { Brain, ChevronDown } from "lucide-preact";
-import { sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@pi-ui/protocol";
+import { sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Menu, MenuCheckItem, MenuLabel, MenuSeparator } from "@/ui";
 import { thinkingLabel } from "./composer-utils";

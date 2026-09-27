@@ -3,7 +3,7 @@
  * {@link SessionTextReader} (e.g. pi: `harness/pi/session-reader.ts`) and optionally a
  * {@link FastModel} for one-shot completions (pi: `harness/pi/one-shot.ts`).
  */
-import type { ModelRef } from "@pi-ui/protocol";
+import type { ModelRef } from "@glade/protocol";
 
 export interface SessionTextMessage {
   role: "user" | "assistant";

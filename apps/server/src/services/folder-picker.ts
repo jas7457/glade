@@ -6,7 +6,7 @@
  * path field. Under Tauri the web app uses the Tauri dialog plugin instead.
  */
 import { execFile } from "node:child_process";
-import type { PickFolderResponse } from "@pi-ui/protocol";
+import type { PickFolderResponse } from "@glade/protocol";
 
 export interface PickFolderOptions {
   /** Text shown in the dialog. */

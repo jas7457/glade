@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, ContentBlock, ChatMessage, ToolResult, Transcript } from "@pi-ui/protocol";
+import type { AssistantMessage, ContentBlock, ChatMessage, ToolResult, Transcript } from "@glade/protocol";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type RenderItem, type ToolGroupPart, type TurnPart } from "./grouping";
 
 let seq = 0;

@@ -1,5 +1,5 @@
 /**
- * Per-server registry (I-062, replaces the I-022 data-dir lock). Several pi-ui servers may use
+ * Per-server registry (I-062, replaces the I-022 data-dir lock). Several Glade servers may use
  * one data folder (e.g. `pnpm dev` and the installed app); each one announces itself in
  * `<dataDir>/servers/<id>.json` (`id` = its pid) and rewrites the file every few seconds
  * (heartbeat). Session leases (leases.ts) name the server that runs a session's agent; a lease
@@ -21,7 +21,7 @@ export interface ServerInfo {
   /** Registry id (file name); the pid by default. */
   id: string;
   pid: number;
-  /** "dev" (pnpm dev/start) or "desktop" (the app), from `PI_UI_SERVER_KIND`. */
+  /** "dev" (pnpm dev/start) or "desktop" (the app), from `GLADE_SERVER_KIND`. */
   kind: string;
   host: string;
   port: number;

@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
-import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@pi-ui/protocol";
+import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@glade/protocol";
 import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@/ui";
 import { harnessDefaults, loadModels, models, settings, visibleModels } from "@/state/store";
 import { updateSettings } from "@/state/actions";

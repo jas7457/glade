@@ -1,5 +1,5 @@
 {
-  "name": "@pi-ui/web",
+  "name": "@glade/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@pi-ui/protocol": "workspace:*",
+    "@glade/protocol": "workspace:*",
     "@preact/signals": "^2.11.2",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-collapsible": "^1.1.20",

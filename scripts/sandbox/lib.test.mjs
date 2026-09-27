@@ -10,6 +10,7 @@ import {
   addOwner,
   collectSessionRefs,
   deleteSandboxSessions,
+  env,
   isStale,
   parseArgs,
   pickPorts,
@@ -23,6 +24,14 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000;
 const alive = (pids) => (pid) => pids.includes(pid);
+
+describe("env (I-059)", () => {
+  it("prefers GLADE_*, falls back to PI_UI_*, ignores empty values", () => {
+    assert.equal(env("PORT", { GLADE_PORT: "1", PI_UI_PORT: "2" }), "1");
+    assert.equal(env("PORT", { GLADE_PORT: "", PI_UI_PORT: "2" }), "2");
+    assert.equal(env("PORT", {}), undefined);
+  });
+});
 
 describe("parseArgs", () => {
   it("defaults", () => {
@@ -126,7 +135,7 @@ describe("collectSessionRefs", () => {
 
 describe("piSessionFolderName", () => {
   it("matches pi's naming", () => {
-    assert.equal(piSessionFolderName("/private/tmp/pi-ui-sandbox/a/repo"), "--private-tmp-pi-ui-sandbox-a-repo--");
+    assert.equal(piSessionFolderName("/private/tmp/glade-sandbox/a/repo"), "--private-tmp-glade-sandbox-a-repo--");
   });
 });
 
@@ -142,13 +151,13 @@ describe("pickPorts", () => {
 });
 
 describe("filesystem cleanup", () => {
-  const tmp = mkdtempSync(join(tmpdir(), "pi-ui-sandbox-test-"));
+  const tmp = mkdtempSync(join(tmpdir(), "glade-sandbox-test-"));
   after(() => rmSync(tmp, { recursive: true, force: true }));
 
   it("deletes only the session files the sandbox referenced, and empty folders", () => {
     const sessions = join(tmp, "sessions");
     const own = join(sessions, "--sandbox-repo--");
-    const shared = join(sessions, "--pi-ui--");
+    const shared = join(sessions, "--glade--");
     mkdirSync(own, { recursive: true });
     mkdirSync(shared, { recursive: true });
     writeFileSync(join(own, "a.jsonl"), "{}");

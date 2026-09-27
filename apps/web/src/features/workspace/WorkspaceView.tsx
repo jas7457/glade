@@ -11,7 +11,7 @@
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Check, CircleSlash, Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
-import { subagentSessionsOf, type SessionSummary } from "@pi-ui/protocol";
+import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
 import { renameFromSession } from "@/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@/state/store";

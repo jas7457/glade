@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { modelKey } from "@pi-ui/protocol";
+import { modelKey } from "@glade/protocol";
 import type { FastModel } from "../../services/search/types.js";
 import { piChildEnv } from "./child-env.js";
 

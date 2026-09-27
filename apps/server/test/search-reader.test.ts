@@ -55,7 +55,7 @@ describe("pi session reader", () => {
     expect(text.messages).toEqual([{ role: "user", text: "hello there", timestamp: 5 }]);
   });
 
-  const dir = mkdtempSync(join(tmpdir(), "pi-ui-reader-"));
+  const dir = mkdtempSync(join(tmpdir(), "glade-reader-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it("stats and reads files; missing files are null", async () => {

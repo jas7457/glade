@@ -6,7 +6,7 @@
  */
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import type { SlashCommand } from "@pi-ui/protocol";
+import type { SlashCommand } from "@glade/protocol";
 import { listFolderCommands } from "@/lib/api-folder";
 
 const STALE_MS = 30_000;
@@ -32,7 +32,7 @@ export function loadFolderCommands(projectId: string | null, force = false): Pro
         folderCommands.value = new Map(folderCommands.value).set(key, { at: Date.now(), commands });
       })
       .catch(() => {
-        // Not fatal: the menu still shows pi-ui's built-ins. Retried next time.
+        // Not fatal: the menu still shows Glade's built-ins. Retried next time.
       })
       .finally(() => inflight.delete(key));
     inflight.set(key, pending);

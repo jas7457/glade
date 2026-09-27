@@ -2,7 +2,7 @@
  * The harness abstraction. pi is the first implementation; others (e.g. Claude Code) can be
  * added by implementing these two interfaces and registering them in `src/index.ts`.
  *
- * Everything crossing this boundary uses `@pi-ui/protocol` types - never harness-native ones.
+ * Everything crossing this boundary uses `@glade/protocol` types - never harness-native ones.
  */
 import type {
   AgentEvent,
@@ -17,7 +17,7 @@ import type {
   Transcript,
   UiResponse,
   UsageLimits,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 
 export interface OpenSessionOptions {
   /** Working directory for the agent. */
@@ -77,7 +77,7 @@ export interface HarnessSession {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   setTitle(title: string): Promise<void>;
   respondToUi(response: UiResponse): void;
-  /** Harness-provided slash commands (extensions, skills, prompt templates). Built-ins are pi-ui's. */
+  /** Harness-provided slash commands (extensions, skills, prompt templates). Built-ins are Glade's. */
   listCommands?(): Promise<SlashCommand[]>;
   /** Compact the conversation context. */
   compact?(instructions?: string): Promise<CompactResult>;

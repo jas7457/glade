@@ -1,5 +1,5 @@
 //! The macOS menu bar. Standard items (Edit, Minimize, Quit…) are predefined native items; the
-//! app-specific ones are forwarded to the web app as a `pi-ui:menu` event whose payload is the
+//! app-specific ones are forwarded to the web app as a `glade:menu` event whose payload is the
 //! item id (`new-chat`, `settings`, `toggle-sidebar`, `command-palette`, and the tab items
 //! `new-tab`, `close-tab`, `next-tab`, `previous-tab`); the web app maps them in
 //! `apps/web/src/app/shortcuts.ts` (`MENU_ACTIONS`, `useTabShortcuts`).
@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{focus_main, MAIN_WINDOW};
 
-pub const MENU_EVENT: &str = "pi-ui:menu";
+pub const MENU_EVENT: &str = "glade:menu";
 const CLOSE_WINDOW: &str = "close-window";
 /// Items that (show and) act on the main window.
 const APP_ACTIONS: [&str; 5] = ["new-chat", "settings", "toggle-sidebar", "command-palette", "new-tab"];
@@ -40,12 +40,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .build(app)?;
 
     let about = AboutMetadata {
-        name: Some("pi-ui".into()),
+        name: Some("Glade".into()),
         version: Some(app.package_info().version.to_string()),
         comments: Some("A desktop app for the pi coding agent".into()),
         ..Default::default()
     };
-    let app_menu = SubmenuBuilder::new(app, "pi-ui")
+    let app_menu = SubmenuBuilder::new(app, "Glade")
         .about(Some(about))
         .separator()
         .item(&settings)

@@ -6,7 +6,7 @@
  * is the thin browser wrapper: decode (respecting EXIF orientation), draw, encode each attempt
  * until one fits `maxBytes`.
  */
-import { DEFAULT_IMAGE_LIMITS, type ImageLimits } from "@pi-ui/protocol";
+import { DEFAULT_IMAGE_LIMITS, type ImageLimits } from "@glade/protocol";
 
 export type EncodeMime = "image/jpeg" | "image/png";
 

@@ -4,7 +4,7 @@
  * leaves the textarea; items don't take focus on click).
  */
 import { useLayoutEffect, useRef } from "preact/hooks";
-import type { SlashCommand } from "@pi-ui/protocol";
+import type { SlashCommand } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { menuContentClass, menuItemClass } from "@/ui";
 import { keepRowVisible } from "@/ui/list-scroll";

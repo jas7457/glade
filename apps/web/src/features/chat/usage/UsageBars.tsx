@@ -4,7 +4,7 @@
  * severity, and {@link LimitList} rendering subscription limits with it.
  */
 import type { ComponentChildren } from "preact";
-import type { ModelRef, UsageLimit } from "@pi-ui/protocol";
+import type { ModelRef, UsageLimit } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { formatPercent, formatResetsAt, limitMatchesModel } from "@/state/usage";
 

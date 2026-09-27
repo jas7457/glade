@@ -8,7 +8,7 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, Terminal, TriangleAlert } from "lucide-preact";
-import type { ImageBlock, NoticeMessage, UserMessage } from "@pi-ui/protocol";
+import type { ImageBlock, NoticeMessage, UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
 import { Button, Disclosure, Spinner } from "@/ui";

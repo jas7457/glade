@@ -14,7 +14,7 @@ import {
   type SessionSummary,
   type Settings,
   type WorkspaceSummary,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { api } from "@/lib/api";
 import { getHarnessDefaults } from "@/lib/api-folder";
 import { socket } from "@/lib/socket";

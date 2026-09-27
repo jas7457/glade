@@ -2,7 +2,7 @@
  * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings. In the
  * settings screen it shows the settings section list instead.
  */
-import type { WorkspaceSummary, Project } from "@pi-ui/protocol";
+import type { WorkspaceSummary, Project } from "@glade/protocol";
 import { useLocation, useNavigate } from "react-router";
 import { FolderPlus, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from "lucide-preact";
 import { routes } from "@/app/routes";

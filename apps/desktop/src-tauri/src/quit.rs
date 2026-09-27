@@ -75,7 +75,7 @@ fn confirm_async(app: AppHandle, busy: usize) {
         let mut dialog = app
             .dialog()
             .message(message)
-            .title("Quit pi-ui?")
+            .title("Quit Glade?")
             .kind(MessageDialogKind::Warning)
             .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()));
         if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
@@ -114,7 +114,7 @@ mod macos {
             let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
             let delegate: *mut AnyObject = msg_send![ns_app, delegate];
             if delegate.is_null() {
-                eprintln!("[pi-ui] no app delegate; quit confirmation disabled");
+                eprintln!("[glade] no app delegate; quit confirmation disabled");
                 return;
             }
             let cls = ffi::object_getClass(delegate) as *mut AnyClass;
@@ -125,7 +125,7 @@ mod macos {
             // NSApplicationTerminateReply (NSUInteger) applicationShouldTerminate:(NSApplication *)
             let added = ffi::class_addMethod(cls, sel!(applicationShouldTerminate:), imp, c"Q@:@".as_ptr());
             if !added.as_bool() {
-                eprintln!("[pi-ui] applicationShouldTerminate: already defined; quit confirmation disabled");
+                eprintln!("[glade] applicationShouldTerminate: already defined; quit confirmation disabled");
             }
         }
     }

@@ -6,7 +6,7 @@
  * Groups: "main" (the workspace's main sessions) and "subagents" (sub-agents spawned by the
  * active main tab). Kept as a string union so more groups/panes can be added later (I-039).
  */
-import type { WorkspaceLayout } from "@pi-ui/protocol";
+import type { WorkspaceLayout } from "@glade/protocol";
 
 export type TabGroupId = "main" | "subagents";
 

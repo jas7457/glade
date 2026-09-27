@@ -1,5 +1,5 @@
 /** Test data builders shared by web tests. */
-import type { Project, SessionSummary, WorkspaceSummary } from "@pi-ui/protocol";
+import type { Project, SessionSummary, WorkspaceSummary } from "@glade/protocol";
 
 /** A workspace (sidebar row). Pair it with {@link makeSession} for its conversation. */
 export function makeWorkspace(overrides: Partial<WorkspaceSummary> & { id: string }): WorkspaceSummary {

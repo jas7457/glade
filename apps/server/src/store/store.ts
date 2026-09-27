@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deepMerge, defaultSettings, type DeepPartial, type Project, type Session, type Settings, type Workspace } from "@pi-ui/protocol";
+import { deepMerge, defaultSettings, type DeepPartial, type Project, type Session, type Settings, type Workspace } from "@glade/protocol";
 import { DataDirWatcher, type Reloadable } from "./dir-watcher.js";
 import { JsonFile } from "./json-file.js";
 import { migrateChats, type LegacyChat } from "./migrate-workspaces.js";
@@ -26,7 +26,7 @@ export interface StoreChange {
 }
 
 /**
- * pi-ui's own persistent data: projects, the workspace + session index, and settings.
+ * Glade's own persistent data: projects, the workspace + session index, and settings.
  * Stored as JSON under the app data dir; see docs/ARCHITECTURE.md.
  *
  * Several servers may share the folder (I-062): every change is a read-modify-write under the
@@ -111,7 +111,7 @@ export class Store {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         // Don't create an empty workspaces.json over data we couldn't read; retry next start.
-        console.warn(`[pi-ui] could not migrate ${chatsPath}: ${(err as Error).message}`);
+        console.warn(`[glade] could not migrate ${chatsPath}: ${(err as Error).message}`);
       }
       return;
     }

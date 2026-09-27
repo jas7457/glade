@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@pi-ui/protocol";
+import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@glade/protocol";
 import { TooltipProvider } from "@/ui";
 import { models, sessions, settings, workspaces } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";

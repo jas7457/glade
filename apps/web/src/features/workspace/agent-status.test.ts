@@ -1,6 +1,6 @@
 /** I-054: what a sub-agent tab shows from `SessionSummary.agent`. */
 import { describe, expect, it } from "vitest";
-import type { SessionAgentState } from "@pi-ui/protocol";
+import type { SessionAgentState } from "@glade/protocol";
 import { makeSession } from "@/test/fixtures";
 import { agentDisplay } from "./agent-status";
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultSettings } from "@pi-ui/protocol";
+import { defaultSettings } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({
   api: { updateSettings: vi.fn(), updateWorkspace: vi.fn(), deleteProject: vi.fn(), reorderProjects: vi.fn(), reorderPinnedWorkspaces: vi.fn() },

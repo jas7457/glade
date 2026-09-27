@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FileEntry, FileSearchResponse, HarnessDefaults, SlashCommand } from "@pi-ui/protocol";
+import type { FileEntry, FileSearchResponse, HarnessDefaults, SlashCommand } from "@glade/protocol";
 import { FAKE_COMMANDS } from "../src/harness/fake/fake-harness.js";
 import { PiHarness } from "../src/harness/pi/pi-harness.js";
 import { translateDefaults } from "../src/harness/pi/translate.js";
@@ -14,7 +14,7 @@ import { createTestEnv, type TestEnv } from "./helpers.js";
 
 let tmp: string;
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "pi-ui-folder-"));
+  tmp = mkdtempSync(join(tmpdir(), "glade-folder-"));
 });
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });

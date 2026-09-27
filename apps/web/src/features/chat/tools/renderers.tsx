@@ -3,7 +3,7 @@
  * add an entry here (and a summarizer in summaries.ts). Unknown tools use the fallback.
  */
 import type { ComponentType } from "preact";
-import type { ToolCallBlock, ToolResult } from "@pi-ui/protocol";
+import type { ToolCallBlock, ToolResult } from "@glade/protocol";
 import { FilePen, FilePlus, FileText, FolderOpen, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { CodeView } from "../Markdown";

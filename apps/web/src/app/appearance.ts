@@ -4,7 +4,7 @@
  * In the desktop app the native window theme follows too.
  */
 import { effect, signal } from "@preact/signals";
-import type { Settings } from "@pi-ui/protocol";
+import type { Settings } from "@glade/protocol";
 import { settings } from "@/state/store";
 import { setWindowTheme } from "@/lib/desktop";
 

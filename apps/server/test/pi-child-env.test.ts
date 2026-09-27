@@ -17,14 +17,14 @@ describe("piChildEnv", () => {
       CMUX_SURFACE_ID: "s1",
       CMUX_SOCKET_PATH: "/tmp/cmux.sock",
       PI_AGENT_TEAMS_PARENT: "x",
-      PI_UI_DATA_DIR: "/tmp/d",
+      GLADE_DATA_DIR: "/tmp/d",
       MY_CMUX_THING: "kept (prefix only)",
       ANTHROPIC_API_KEY: "k",
     });
     expect(env).toEqual({
       PATH: "/usr/bin",
       HOME: "/Users/me",
-      PI_UI_DATA_DIR: "/tmp/d",
+      GLADE_DATA_DIR: "/tmp/d",
       MY_CMUX_THING: "kept (prefix only)",
       ANTHROPIC_API_KEY: "k",
     });
@@ -32,11 +32,28 @@ describe("piChildEnv", () => {
 
   it("drops the server's own listening config but keeps the data folder (I-058)", () => {
     const env = piChildEnv({
+      GLADE_PORT: "54253",
+      GLADE_HOST: "127.0.0.1",
+      GLADE_STATIC_DIR: "/Applications/Glade.app/Contents/Resources/app/web",
+      GLADE_EXIT_ON_STDIN_CLOSE: "1",
+      GLADE_SERVER_KIND: "desktop",
+      GLADE_DATA_DIR: "/tmp/sandbox",
+      PATH: "/usr/bin",
+    });
+    expect(env).toEqual({ GLADE_DATA_DIR: "/tmp/sandbox", PATH: "/usr/bin" });
+  });
+
+  it("strips the pre-rename PI_UI_* names too, keeping PI_UI_DATA_DIR (I-059)", () => {
+    const env = piChildEnv({
       PI_UI_PORT: "54253",
       PI_UI_HOST: "127.0.0.1",
       PI_UI_STATIC_DIR: "/Applications/pi-ui.app/Contents/Resources/app/web",
       PI_UI_EXIT_ON_STDIN_CLOSE: "1",
       PI_UI_SERVER_KIND: "desktop",
+      PI_UI_URL: "u",
+      PI_UI_TOKEN: "t",
+      PI_UI_SESSION_ID: "s",
+      PI_UI_AGENT_NAME: "n",
       PI_UI_DATA_DIR: "/tmp/sandbox",
       PATH: "/usr/bin",
     });
@@ -71,10 +88,10 @@ process.stdin.on("data", (d) => {
 describe("PiHarness child environment", () => {
   let dir: string;
   const saved: Record<string, string | undefined> = {};
-  const vars = { CMUX_SURFACE_ID: "surface", PI_AGENT_TEAMS_ROLE: "child", PI_UI_TEST_KEEP: "yes" };
+  const vars = { CMUX_SURFACE_ID: "surface", PI_AGENT_TEAMS_ROLE: "child", GLADE_TEST_KEEP: "yes" };
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "pi-ui-env-"));
+    dir = mkdtempSync(join(tmpdir(), "glade-env-"));
     writeFileSync(join(dir, "pi"), FAKE_PI);
     chmodSync(join(dir, "pi"), 0o755);
     for (const [k, v] of Object.entries(vars)) {
@@ -101,14 +118,14 @@ describe("PiHarness child environment", () => {
   it("strips them from `pi --mode rpc` processes", async () => {
     await harness().listModels();
     const keys = recorded("rpc");
-    expect(keys).toContain("PI_UI_TEST_KEEP");
+    expect(keys).toContain("GLADE_TEST_KEEP");
     expect(keys.filter((k) => k.startsWith("CMUX_") || k.startsWith("PI_AGENT_TEAMS_"))).toEqual([]);
   });
 
   it("strips them from one-shot title processes", async () => {
     expect(await harness().generateTitle({ firstMessage: "hi", cwd: dir, model: null })).toBe("A title");
     const keys = recorded("p");
-    expect(keys).toContain("PI_UI_TEST_KEEP");
+    expect(keys).toContain("GLADE_TEST_KEEP");
     expect(keys.filter((k) => k.startsWith("CMUX_") || k.startsWith("PI_AGENT_TEAMS_"))).toEqual([]);
   });
 });

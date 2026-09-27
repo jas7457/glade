@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
-import { defaultSettings, type SlashCommand } from "@pi-ui/protocol";
+import { defaultSettings, type SlashCommand } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({ api: { updateSettings: vi.fn() } }));
 vi.mock("@/lib/api-folder", () => ({ listFolderCommands: vi.fn() }));

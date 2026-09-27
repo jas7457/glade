@@ -1,6 +1,6 @@
 /**
  * Server entry point: wires config, store, harness, AppService and the HTTP/WebSocket app.
- * Harnesses are registered here (`PI_UI_HARNESS=fake` selects the fake one for UI work).
+ * Harnesses are registered here (`GLADE_HARNESS=fake` selects the fake one for UI work).
  * The desktop app runs a bundled copy of this file (see apps/desktop/scripts/bundle-server.mjs).
  * Several servers may share one data folder (I-062: `pnpm dev` next to the installed app): each
  * announces itself in `<dataDir>/servers/<pid>.json` (services/server-registry.ts), and session
@@ -8,7 +8,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { isTemporaryDir, loadConfig, startupBanner } from "./config.js";
+import { env, isTemporaryDir, LEGACY_APP_DIR_NAME, loadConfig, platformDataDir, startupBanner } from "./config.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import type { AgentHarness } from "./harness/types.js";
@@ -17,12 +17,23 @@ import { AppService } from "./services/app-service.js";
 import { FolderInfoService } from "./services/folder-info.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
+import { migrateLegacyDataDir } from "./store/migrate-data-dir.js";
 import { Store } from "./store/store.js";
 
 const config = loadConfig();
-const log = (msg: string) => console.log(`[pi-ui] ${msg}`);
+const log = (msg: string) => console.log(`[glade] ${msg}`);
 
-const serverKind = process.env.PI_UI_SERVER_KIND ?? "dev";
+// I-059: the first start after the rename copies the old `pi-ui` data folder (left as a backup).
+if (config.defaultDataDir) {
+  try {
+    const migrated = migrateLegacyDataDir(platformDataDir(LEGACY_APP_DIR_NAME), config.dataDir);
+    if (migrated) log(`copied your data from ${migrated.from} to ${migrated.to} (the old folder is kept as a backup)`);
+  } catch (err) {
+    console.error(`[glade] could not copy the old pi-ui data folder: ${(err as Error).message}`);
+  }
+}
+
+const serverKind = env("SERVER_KIND") ?? "dev";
 const registry = new ServerRegistry(config.dataDir, { kind: serverKind, host: config.host, port: config.port });
 registry.start();
 for (const other of registry.others()) {
@@ -39,7 +50,7 @@ const harness: AgentHarness =
           return { piPath, extraArgs, autoCompaction, autoRetry };
         },
         utilityCwd: config.scratchDir,
-        log: process.env.PI_UI_DEBUG ? log : undefined,
+        log: env("DEBUG") ? log : undefined,
       });
 
 // `search` is created right after the service; the hook refreshes its index as runs settle.
@@ -63,7 +74,7 @@ search = createSearchService({
   harnessId: harness.id,
   dataDir: config.dataDir,
   scratchDir: config.scratchDir,
-  log: process.env.PI_UI_DEBUG ? log : undefined,
+  log: env("DEBUG") ? log : undefined,
 });
 const folderInfo = new FolderInfoService({
   harness,
@@ -81,7 +92,7 @@ const { app, injectWebSocket } = createApp({
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   const host = info.family === "IPv6" ? `[${info.address}]` : info.address;
   registry.update({ host: info.address, port: info.port });
-  // Agents reach the agent API here (PI_UI_URL, I-037).
+  // Agents reach the agent API here (GLADE_URL, I-037).
   service.setServerUrl(`http://${host}:${info.port}`);
   // I-051: make it obvious which data folder this server uses (and warn if it's temporary).
   const banner = startupBanner({
@@ -89,10 +100,10 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
     dataDir: config.dataDir,
     harness: harness.id,
     kind: serverKind,
-    sandbox: process.env.PI_UI_SANDBOX || undefined,
+    sandbox: env("SANDBOX"),
     temporary: isTemporaryDir(config.dataDir),
   });
-  for (const line of banner) (line.startsWith("⚠") ? console.warn : console.log)(`[pi-ui] ${line}`);
+  for (const line of banner) (line.startsWith("⚠") ? console.warn : console.log)(`[glade] ${line}`);
 });
 injectWebSocket(server);
 
@@ -109,7 +120,7 @@ async function shutdown(signal: string): Promise<void> {
     await service.dispose();
     registry.release();
   } catch (err) {
-    console.error("[pi-ui] shutdown failed:", err);
+    console.error("[glade] shutdown failed:", err);
   }
   process.exit(0);
 }

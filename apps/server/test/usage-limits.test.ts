@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ServerMessage, UsageLimits } from "@pi-ui/protocol";
+import type { ServerMessage, UsageLimits } from "@glade/protocol";
 import { UsageLimitsPoller } from "../src/services/usage-limits.js";
 
 function limits(percent: number): UsageLimits {

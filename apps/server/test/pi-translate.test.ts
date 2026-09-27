@@ -8,7 +8,7 @@ import {
   type AgentEvent,
   type AssistantMessage,
   type Transcript,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { PiEventTranslator, piThinkingLevels, translateMessages, translateModel } from "../src/harness/pi/translate.js";
 
 type Json = Record<string, unknown>;

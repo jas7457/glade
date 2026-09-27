@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/preact";
-import type { ModelRef, UsageLimits } from "@pi-ui/protocol";
+import type { ModelRef, UsageLimits } from "@glade/protocol";
 import { usageLimits } from "@/state/usage";
 import { ContextMeter } from "./ContextMeter";
 import { UsageDetails } from "./usage/UsageDetails";

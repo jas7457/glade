@@ -52,16 +52,19 @@ const update = (fn) =>
 
 const childEnv = {
   ...process.env,
-  PI_UI_DATA_DIR: dataDir,
-  PI_UI_HOST: "127.0.0.1",
-  PI_UI_PORT: String(serverPort),
-  PI_UI_WEB_PORT: String(webPort),
-  PI_UI_HARNESS: harness === "fake" ? "fake" : "pi",
-  PI_UI_SERVER_KIND: "sandbox",
-  PI_UI_SANDBOX: name,
+  GLADE_DATA_DIR: dataDir,
+  GLADE_HOST: "127.0.0.1",
+  GLADE_PORT: String(serverPort),
+  GLADE_WEB_PORT: String(webPort),
+  GLADE_HARNESS: harness === "fake" ? "fake" : "pi",
+  GLADE_SERVER_KIND: "sandbox",
+  GLADE_SANDBOX: name,
 };
-delete childEnv.PI_UI_NO_LOCK;
-delete childEnv.PI_UI_STATIC_DIR;
+// Neither under the new nor the pre-rename (I-059) names: the server reads both.
+for (const prefix of ["GLADE_", "PI_UI_"]) {
+  delete childEnv[`${prefix}NO_LOCK`];
+  delete childEnv[`${prefix}STATIC_DIR`];
+}
 
 function start(label, cwd, bin, args) {
   const out = openSync(join(logsDir, `${label}.log`), "a");
@@ -115,7 +118,7 @@ function createSampleRepo() {
   const git = (...args) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore" });
   git("init", "-q", "-b", "main");
   git("add", ".");
-  git("-c", "user.name=pi-ui sandbox", "-c", "user.email=sandbox@pi-ui.invalid", "commit", "-q", "-m", "Initial commit");
+  git("-c", "user.name=Glade sandbox", "-c", "user.email=sandbox@glade.invalid", "commit", "-q", "-m", "Initial commit");
 }
 
 async function seed() {

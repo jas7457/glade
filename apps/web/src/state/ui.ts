@@ -23,17 +23,24 @@ export function resolveSidebarDrag(startWidth: number, deltaX: number): { width:
   return { width: clampSidebarWidth(raw), collapsed: false };
 }
 
-const KEY_WIDTH = "pi-ui.sidebar.width";
-const KEY_COLLAPSED = "pi-ui.sidebar.collapsed";
-const KEY_CLOSED_PROJECTS = "pi-ui.sidebar.closedProjects";
+const KEY_WIDTH = "glade.sidebar.width";
+const KEY_COLLAPSED = "glade.sidebar.collapsed";
+const KEY_CLOSED_PROJECTS = "glade.sidebar.closedProjects";
+/** Key prefixes before the rename (I-059): read once when the new key is missing. */
+const KEY_PREFIX = "glade.";
+const LEGACY_KEY_PREFIX = "pi-ui.";
 
-function read(key: string): string | null {
+/** Reads a stored value, falling back to its pre-rename `pi-ui.*` key (the next write moves it). */
+export function readStored(key: string): string | null {
   try {
-    return localStorage.getItem(key);
+    const value = localStorage.getItem(key);
+    if (value !== null || !key.startsWith(KEY_PREFIX)) return value;
+    return localStorage.getItem(LEGACY_KEY_PREFIX + key.slice(KEY_PREFIX.length));
   } catch {
     return null;
   }
 }
+const read = readStored;
 function write(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);

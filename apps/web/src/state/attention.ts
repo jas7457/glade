@@ -1,11 +1,11 @@
 /**
  * Attention (per workspace = sidebar row, with its sessions' status rolled up): the counts behind the window title and the desktop Dock badge.
  *
- * pi-ui deliberately has no system notifications or "chat finished" toasts (I-028): status is
- * shown in the sidebar, the `(n) pi-ui` window title, and the Dock badge in the desktop app.
+ * Glade deliberately has no system notifications or "chat finished" toasts (I-028): status is
+ * shown in the sidebar, the `(n) Glade` window title, and the Dock badge in the desktop app.
  */
 import { computed, effect, signal } from "@preact/signals";
-import { needsAttention } from "@pi-ui/protocol";
+import { needsAttention } from "@glade/protocol";
 import { isDesktop, setDockBadge } from "@/lib/desktop";
 import { workspaces, workspacesById } from "./store";
 
@@ -17,9 +17,9 @@ export const workingCount = computed(() => workspaces.value.filter((w) => w.stat
 /** Workspace currently on screen (set by the app shell from the route). */
 export const currentWorkspaceId = signal<string | null>(null);
 
-/** Window title: "(2) Chat title — pi-ui". */
+/** Window title: "(2) Chat title — Glade". */
 export function windowTitle(attention: number, chatTitle?: string | null): string {
-  return `${attention > 0 ? `(${attention}) ` : ""}${chatTitle ? `${chatTitle} — ` : ""}pi-ui`;
+  return `${attention > 0 ? `(${attention}) ` : ""}${chatTitle ? `${chatTitle} — ` : ""}Glade`;
 }
 
 let started = false;

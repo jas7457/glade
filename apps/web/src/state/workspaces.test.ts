@@ -16,7 +16,7 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
-import { defaultSessionState, emptyTranscript, type SessionDetail } from "@pi-ui/protocol";
+import { defaultSessionState, emptyTranscript, type SessionDetail } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { createSession, createWorkspace, deleteSession, deleteWorkspace, dismissInterrupted } from "./actions";

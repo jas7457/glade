@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the context meter (I-014): token/cost formatting and warning thresholds.
  */
-import type { SessionState } from "@pi-ui/protocol";
+import type { SessionState } from "@glade/protocol";
 
 export type ContextUsage = NonNullable<SessionState["contextUsage"]>;
 export type MeterLevel = "normal" | "warning" | "critical";

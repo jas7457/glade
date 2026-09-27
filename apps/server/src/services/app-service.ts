@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import {
   AGENT_ENV,
+  LEGACY_AGENT_ENV,
   activeElsewhereMessage,
   DEFAULT_IMAGE_LIMITS,
   MAX_ACTIVE_AGENTS,
@@ -54,7 +55,7 @@ import {
   type Workspace,
   type WorkspaceDetail,
   type WorkspaceSummary,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store, StoreChange } from "../store/store.js";
 import {
@@ -146,7 +147,7 @@ export interface AppServiceOptions {
   log?: (msg: string) => void;
   /** App data folder; sub-agent records are kept in `agents.json` there (memory only if unset). */
   dataDir?: string;
-  /** This server's base URL, handed to agents as `PI_UI_URL` (see {@link AppService.setServerUrl}). */
+  /** This server's base URL, handed to agents as `GLADE_URL` (see {@link AppService.setServerUrl}). */
   serverUrl?: string;
   /** Called after a session's run settles (e.g. to refresh the search index). */
   onRunEnd?: (sessionId: string) => void;
@@ -854,7 +855,7 @@ export class AppService {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Slash-command support (pi-ui's own built-ins run in the web app; see docs/ARCHITECTURE.md)
+  // Slash-command support (Glade's own built-ins run in the web app; see docs/ARCHITECTURE.md)
   // -------------------------------------------------------------------------------------------
 
   /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
@@ -919,21 +920,29 @@ export class AppService {
   // Agent API (I-037): sub-agents as `subagent` sessions; see http/agents.ts
   // -------------------------------------------------------------------------------------------
 
-  /** This server's base URL for agents (`PI_UI_URL`); set once listening. Applies to new processes. */
+  /** This server's base URL for agents (`GLADE_URL`); set once listening. Applies to new processes. */
   setServerUrl(url: string): void {
     this.serverUrl = url.replace(/\/+$/, "");
   }
 
-  /** Environment for a session's new agent process: its identity for the agent API. */
+  /**
+   * Environment for a session's new agent process: its identity for the agent API, under the
+   * `GLADE_*` names and (for older agent-teams versions) the pre-rename `PI_UI_*` ones.
+   */
   private agentEnv(session: Session): Record<string, string> {
     if (!this.serverUrl) return {};
-    const env: Record<string, string> = {
-      [AGENT_ENV.url]: this.serverUrl,
-      [AGENT_ENV.sessionId]: session.id,
-      [AGENT_ENV.token]: this.tokens.issue(session.id),
+    const values: Partial<Record<keyof typeof AGENT_ENV, string>> = {
+      url: this.serverUrl,
+      sessionId: session.id,
+      token: this.tokens.issue(session.id),
     };
     const agent = this.agents.get(session.id);
-    if (agent) env[AGENT_ENV.agentName] = agent.name;
+    if (agent) values.agentName = agent.name;
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(values) as Array<[keyof typeof AGENT_ENV, string]>) {
+      env[AGENT_ENV[key]] = value;
+      env[LEGACY_AGENT_ENV[key]] = value;
+    }
     return env;
   }
 

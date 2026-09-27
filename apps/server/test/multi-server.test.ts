@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ServerMessage } from "@pi-ui/protocol";
+import type { ServerMessage } from "@glade/protocol";
 import { FakeHarness, type FakeSession } from "../src/harness/fake/fake-harness.js";
 import { AppService, HttpError } from "../src/services/app-service.js";
 import { LeaseManager } from "../src/services/leases.js";
@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "pi-ui-multi-"));
+  const dir = mkdtempSync(join(tmpdir(), "glade-multi-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -150,7 +150,7 @@ describe("two servers on one data folder (I-062)", () => {
     const err = await b.service.prompt(sid, { text: "hi from B" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HttpError);
     expect((err as HttpError).status).toBe(409);
-    expect((err as HttpError).message).toBe("Running in pi-ui — open it there or wait until it's idle");
+    expect((err as HttpError).message).toBe("Running in Glade — open it there or wait until it's idle");
     await expect(b.service.deleteWorkspace(created.workspace.id)).rejects.toMatchObject({ status: 409 });
     await expect(b.service.abort(sid)).rejects.toMatchObject({ status: 409 });
 

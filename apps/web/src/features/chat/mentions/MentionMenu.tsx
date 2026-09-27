@@ -4,7 +4,7 @@
  */
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { File, Folder } from "lucide-preact";
-import type { FileEntry } from "@pi-ui/protocol";
+import type { FileEntry } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { menuContentClass, menuItemClass } from "@/ui";
 import { keepRowVisible } from "@/ui/list-scroll";

@@ -1,6 +1,6 @@
 /**
  * Real-pi smoke test (costs a few tokens). Run with:
- *   pnpm --filter @pi-ui/server exec tsx scripts/smoke-pi.ts
+ *   pnpm --filter @glade/server exec tsx scripts/smoke-pi.ts
  *
  * Lists models, opens a session in a temp dir with claude-haiku-4-5 (thinking off), sends one
  * prompt, prints the translated events and asserts the reply, checks title generation, then
@@ -10,10 +10,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyAgentEvent, emptyTranscript, messageText, type AgentEvent } from "@pi-ui/protocol";
+import { applyAgentEvent, emptyTranscript, messageText, type AgentEvent } from "@glade/protocol";
 import { PiHarness } from "../src/harness/pi/pi-harness.js";
 
-const dir = mkdtempSync(join(tmpdir(), "pi-ui-smoke-"));
+const dir = mkdtempSync(join(tmpdir(), "glade-smoke-"));
 const harness = new PiHarness({
   config: () => ({ piPath: process.env.PI_PATH ?? "pi", extraArgs: [], autoCompaction: true, autoRetry: true }),
   utilityCwd: dir,

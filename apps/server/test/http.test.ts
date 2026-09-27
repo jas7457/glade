@@ -13,7 +13,7 @@ import type {
   SessionSummary,
   WorkspaceDetail,
   WorkspaceSummary,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { createApp } from "../src/http/app.js";
 import { createFolderPicker, type CreateFolderPickerOptions, type OsascriptRunner } from "../src/services/folder-picker.js";
 import { hostHeaderHostname, isLoopbackOrigin } from "../src/http/security.js";

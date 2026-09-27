@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_IMAGE_LIMITS, type ImageLimits } from "@pi-ui/protocol";
+import { DEFAULT_IMAGE_LIMITS, type ImageLimits } from "@glade/protocol";
 import { fitWithin, planImageEncodes, prepareImage } from "./image-resize";
 
 const MB = 1024 * 1024;

@@ -1,11 +1,11 @@
 /**
- * Agent API (I-037), mounted at `/api/agents`: lets an agent process pi-ui started spawn and talk
- * to sub-agents (the ext-kit agent-teams extension's pi-ui backend calls it). Every request carries
- * `Authorization: Bearer <PI_UI_TOKEN>`; the token identifies the calling session (and so its
+ * Agent API (I-037), mounted at `/api/agents`: lets an agent process Glade started spawn and talk
+ * to sub-agents (the ext-kit agent-teams extension's Glade backend calls it). Every request carries
+ * `Authorization: Bearer <GLADE_TOKEN>`; the token identifies the calling session (and so its
  * workspace). Behaviour lives in AppService; see docs/ARCHITECTURE.md → "Agent API".
  */
 import { Hono, type Context } from "hono";
-import type { CloseAgentRequest, MessageAgentRequest, ReportDoneRequest, Session, SpawnAgentRequest } from "@pi-ui/protocol";
+import type { CloseAgentRequest, MessageAgentRequest, ReportDoneRequest, Session, SpawnAgentRequest } from "@glade/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
 
 export function createAgentsRoutes(service: AppService): Hono {
@@ -13,7 +13,7 @@ export function createAgentsRoutes(service: AppService): Hono {
 
   api.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
-    console.error("[pi-ui] agent request failed:", err);
+    console.error("[glade] agent request failed:", err);
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   });
 

@@ -20,7 +20,7 @@ import {
   type SlashCommand,
   type Transcript,
   type UiRequest,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { api } from "@/lib/api";
 import { socket } from "@/lib/socket";
 import { notify } from "./toasts";
@@ -95,7 +95,7 @@ export function loadChatCommands(sessionId: string): Promise<void> {
         store.commands.value = commands;
       })
       .catch(() => {
-        // Not fatal: the menu still shows pi-ui's built-ins. Retried on the next open.
+        // Not fatal: the menu still shows Glade's built-ins. Retried on the next open.
       })
       .finally(() => commandLoads.delete(sessionId));
     commandLoads.set(sessionId, pending);
@@ -108,7 +108,7 @@ export async function reloadOpenChatSessions(): Promise<void> {
 }
 
 /**
- * I-062: a session another pi-ui server runs isn't streamed here; reload its transcript (read from
+ * I-062: a session another Glade server runs isn't streamed here; reload its transcript (read from
  * the session file) when it starts or stops running there, or when it ran there meanwhile.
  */
 export function reloadIfChangedElsewhere(previous: SessionSummary | undefined, next: SessionSummary): void {

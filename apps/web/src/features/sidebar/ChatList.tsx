@@ -5,7 +5,7 @@
  * off from the rest by a subtle divider.
  */
 import { useState } from "preact/hooks";
-import type { WorkspaceSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { SidebarList, sidebarClass, type SidebarIndent } from "@/ui";
 import { reorderPinnedWorkspaces } from "@/state/actions";

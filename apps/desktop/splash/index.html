@@ -1,13 +1,13 @@
 <!doctype html>
 <!--
   Shown while the desktop app starts its bundled server; the Rust side then navigates the window
-  to http://127.0.0.1:<port>/. If startup fails, Rust calls window.__piShowError(message).
+  to http://127.0.0.1:<port>/. If startup fails, Rust calls window.__gladeShowError(message).
 -->
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="light dark" />
-    <title>pi-ui</title>
+    <title>Glade</title>
     <style>
       html, body { height: 100%; margin: 0; }
       body {
@@ -28,11 +28,11 @@
     <div class="drag" data-tauri-drag-region></div>
     <div id="loading" style="display:flex;flex-direction:column;align-items:center;gap:12px">
       <div class="spinner"></div>
-      <div>Starting pi-ui…</div>
+      <div>Starting Glade…</div>
     </div>
-    <div id="error"><h1>pi-ui couldn't start</h1><pre id="message"></pre></div>
+    <div id="error"><h1>Glade couldn't start</h1><pre id="message"></pre></div>
     <script>
-      window.__piShowError = function (message) {
+      window.__gladeShowError = function (message) {
         document.getElementById("loading").style.display = "none";
         document.getElementById("error").style.display = "block";
         document.getElementById("message").textContent = message;

@@ -28,7 +28,7 @@ import {
   type SessionSummary,
   type Settings,
   type WorkspaceSummary,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { JsonFile } from "../../store/json-file.js";
 import { cleanSummary, finderPrompt, parseFinderReply, summaryPrompt, type FinderCandidate } from "./finder.js";
 import { TextIndex, type FieldInput } from "./text-index.js";

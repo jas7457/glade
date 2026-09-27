@@ -7,7 +7,7 @@
  * See pi's docs/session-format.md.
  */
 import { readFile } from "node:fs/promises";
-import type { Transcript } from "@pi-ui/protocol";
+import type { Transcript } from "@glade/protocol";
 import { translateMessages } from "./translate.js";
 
 type Json = Record<string, unknown>;

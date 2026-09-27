@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSettings, type WorkspaceLayout } from "@pi-ui/protocol";
+import { defaultSettings, type WorkspaceLayout } from "@glade/protocol";
 import { ConfirmHost, TooltipProvider } from "@/ui";
 import { models, projects, sessions, settings, workspaces } from "@/state/store";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";

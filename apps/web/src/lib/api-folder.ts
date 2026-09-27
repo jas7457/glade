@@ -2,7 +2,7 @@
  * REST client for folder-level info that doesn't need a chat (I-043, I-044, I-050).
  * `projectId: null` = the scratch folder of standalone chats. See docs/ARCHITECTURE.md.
  */
-import type { FileSearchResponse, HarnessDefaults, SlashCommand } from "@pi-ui/protocol";
+import type { FileSearchResponse, HarnessDefaults, SlashCommand } from "@glade/protocol";
 import { request } from "./api";
 
 const query = (params: Record<string, string | number | boolean | null | undefined>) => {

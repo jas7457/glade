@@ -7,7 +7,7 @@
  * sidebar over the window's vibrancy.
  */
 
-/** True when running inside the pi-ui desktop app (Tauri webview). */
+/** True when running inside the Glade desktop app (Tauri webview). */
 export function isDesktop(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -23,7 +23,7 @@ export type MenuAction =
   | "close-tab"
   | "next-tab"
   | "previous-tab";
-const MENU_EVENT = "pi-ui:menu";
+const MENU_EVENT = "glade:menu";
 
 /** Listen for app-menu actions. Returns an unsubscribe function (safe to call immediately). */
 export function onMenuAction(handler: (action: MenuAction) => void): () => void {

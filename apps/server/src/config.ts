@@ -4,20 +4,38 @@ import { join, relative, isAbsolute, resolve } from "node:path";
 
 export const VERSION = "0.1.0";
 
+/** Prefix of our environment variables (`GLADE_DATA_DIR`, `GLADE_PORT`, …). */
+export const ENV_PREFIX = "GLADE_";
+/** The prefix used before the rename to Glade (I-059); still accepted as a fallback. */
+export const LEGACY_ENV_PREFIX = "PI_UI_";
+
 /**
- * Where pi-ui keeps its own data (settings, projects, chat index, scratch folder).
+ * Reads one of our environment variables by its short name (`env("PORT")`): `GLADE_PORT`, else
+ * the pre-rename `PI_UI_PORT`. Empty values count as unset.
+ */
+export function env(name: string, source: NodeJS.ProcessEnv = process.env): string | undefined {
+  return source[ENV_PREFIX + name] || source[LEGACY_ENV_PREFIX + name] || undefined;
+}
+
+/** The app's name, used for the data folder. */
+export const APP_NAME = "Glade";
+/** The data folder's name before the rename (I-059); copied once into the new one. */
+export const LEGACY_APP_DIR_NAME = "pi-ui";
+
+/**
+ * Where Glade keeps its own data (settings, projects, chat index, scratch folder).
  * Session transcripts themselves are owned by the harness (pi stores them in ~/.pi/agent/sessions).
  */
 export function defaultDataDir(): string {
-  return process.env.PI_UI_DATA_DIR || platformDataDir();
+  return env("DATA_DIR") || platformDataDir();
 }
 
-/** The per-platform data folder, ignoring `PI_UI_DATA_DIR`. */
-export function platformDataDir(): string {
+/** The per-platform data folder, ignoring `GLADE_DATA_DIR`. `name` = the folder's name. */
+export function platformDataDir(name: string = APP_NAME): string {
   const home = homedir();
-  if (platform() === "darwin") return join(home, "Library", "Application Support", "pi-ui");
-  if (platform() === "win32") return join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "pi-ui");
-  return join(process.env.XDG_DATA_HOME ?? join(home, ".local", "share"), "pi-ui");
+  if (platform() === "darwin") return join(home, "Library", "Application Support", name);
+  if (platform() === "win32") return join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), name);
+  return join(process.env.XDG_DATA_HOME ?? join(home, ".local", "share"), name);
 }
 
 export interface ServerConfig {
@@ -28,10 +46,12 @@ export interface ServerConfig {
   port: number;
   /** Which harness to use for new chats. */
   harness: "pi" | "fake";
-  /** Built web app to serve (`PI_UI_STATIC_DIR`); defaults to `apps/web/dist` in the repo. */
+  /** Built web app to serve (`GLADE_STATIC_DIR`); defaults to `apps/web/dist` in the repo. */
   staticDir?: string;
-  /** Exit when stdin closes (`PI_UI_EXIT_ON_STDIN_CLOSE=1`): the desktop app's lifeline. */
+  /** Exit when stdin closes (`GLADE_EXIT_ON_STDIN_CLOSE=1`): the desktop app's lifeline. */
   exitOnStdinClose: boolean;
+  /** True when the data folder is the platform default (no `GLADE_DATA_DIR`): the one migrated from pi-ui. */
+  defaultDataDir: boolean;
 }
 
 export function loadConfig(): ServerConfig {
@@ -40,11 +60,12 @@ export function loadConfig(): ServerConfig {
     dataDir,
     scratchDir: join(dataDir, "scratch"),
     // Loopback only by default. Remote access will need auth before this is opened up.
-    host: process.env.PI_UI_HOST ?? "127.0.0.1",
-    port: Number(process.env.PI_UI_PORT ?? 4317),
-    harness: process.env.PI_UI_HARNESS === "fake" ? "fake" : "pi",
-    staticDir: process.env.PI_UI_STATIC_DIR || undefined,
-    exitOnStdinClose: process.env.PI_UI_EXIT_ON_STDIN_CLOSE === "1",
+    host: env("HOST") ?? "127.0.0.1",
+    port: Number(env("PORT") ?? 4317),
+    harness: env("HARNESS") === "fake" ? "fake" : "pi",
+    staticDir: env("STATIC_DIR"),
+    exitOnStdinClose: env("EXIT_ON_STDIN_CLOSE") === "1",
+    defaultDataDir: !env("DATA_DIR"),
   };
 }
 
@@ -86,7 +107,7 @@ export function startupBanner(opts: {
   sandbox?: string;
   temporary: boolean;
 }): string[] {
-  const title = opts.sandbox ? `pi-ui sandbox "${opts.sandbox}" (agent testing only)` : `pi-ui ${opts.kind} server`;
+  const title = opts.sandbox ? `Glade sandbox "${opts.sandbox}" (agent testing only)` : `Glade ${opts.kind} server`;
   const lines = [
     `┌─ ${title}`,
     `│  URL:      ${opts.url}`,
@@ -96,9 +117,9 @@ export function startupBanner(opts: {
   ];
   if (opts.temporary && !opts.sandbox) {
     lines.push(
-      `⚠  The data folder is in a temporary directory (PI_UI_DATA_DIR=${opts.dataDir}).`,
+      `⚠  The data folder is in a temporary directory (GLADE_DATA_DIR=${opts.dataDir}).`,
       `⚠  Chats saved here are separate from your real ones and can be deleted by the system.`,
-      `⚠  Unset PI_UI_DATA_DIR to use the normal folder (${platformDataDir()}).`,
+      `⚠  Unset GLADE_DATA_DIR to use the normal folder (${platformDataDir()}).`,
     );
   }
   return lines;

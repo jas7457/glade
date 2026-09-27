@@ -11,7 +11,7 @@
  * interrupted, createdAt, lastActivityAt, model, thinkingLevel. Dropped: `archived` (unused
  * since archiving was removed).
  */
-import type { ModelRef, Session, ThinkingLevel, Workspace } from "@pi-ui/protocol";
+import type { ModelRef, Session, ThinkingLevel, Workspace } from "@glade/protocol";
 
 /** A record of the pre-I-035 `chats.json`. */
 export interface LegacyChat {

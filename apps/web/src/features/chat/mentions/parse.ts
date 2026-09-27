@@ -2,7 +2,7 @@
  * Pure helpers for `@` file mentions (I-044): find the mention being typed at the caret and
  * insert a picked file/folder.
  */
-import type { FileEntry } from "@pi-ui/protocol";
+import type { FileEntry } from "@glade/protocol";
 
 export interface ActiveMention {
   /** Index of the `@`. */

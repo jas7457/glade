@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageLimit, UsageLimits } from "@pi-ui/protocol";
+import type { UsageLimit, UsageLimits } from "@glade/protocol";
 import {
   formatPercent,
   formatResetsAt,

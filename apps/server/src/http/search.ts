@@ -5,7 +5,7 @@
  * Thin: behaviour lives in `services/search/search-service.ts`.
  */
 import { Hono } from "hono";
-import type { AskRequest } from "@pi-ui/protocol";
+import type { AskRequest } from "@glade/protocol";
 import type { SearchService } from "../services/search/search-service.js";
 
 function clampLimit(value: unknown, fallback: number, max: number): number {

@@ -2,7 +2,7 @@
  * Pure helpers that derive app context from the current URL.
  */
 import { matchPath } from "react-router";
-import type { WorkspaceSummary } from "@pi-ui/protocol";
+import type { WorkspaceSummary } from "@glade/protocol";
 
 export interface RouteContext {
   /** Workspace (sidebar row) in view. `/chats/:chatId` URLs carry workspace ids (I-035). */

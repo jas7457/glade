@@ -3,7 +3,7 @@
  */
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEvent, SessionSummary } from "@pi-ui/protocol";
+import type { AgentEvent, SessionSummary } from "@glade/protocol";
 import { FakeHarness, type FakeSession } from "../src/harness/fake/fake-harness.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";

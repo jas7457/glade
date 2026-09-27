@@ -19,7 +19,7 @@ pub fn disable_affordance(window: &WebviewWindow) {
             macos::override_affordance(webview.inner().cast());
         });
         if let Err(e) = result {
-            eprintln!("[pi-ui] couldn't reach the web view to hide Writing Tools: {e}");
+            eprintln!("[glade] couldn't reach the web view to hide Writing Tools: {e}");
         }
     }
     #[cfg(not(target_os = "macos"))]

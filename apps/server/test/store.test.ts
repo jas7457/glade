@@ -2,14 +2,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Project, Session, Workspace } from "@pi-ui/protocol";
+import type { Project, Session, Workspace } from "@glade/protocol";
 import type { LegacyChat } from "../src/store/migrate-workspaces.js";
 import { JsonFile } from "../src/store/json-file.js";
 import { Store } from "../src/store/store.js";
 
 const dirs: string[] = [];
 function tempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "pi-ui-store-"));
+  const dir = mkdtempSync(join(tmpdir(), "glade-store-"));
   dirs.push(dir);
   return dir;
 }
@@ -121,7 +121,7 @@ describe("Store", () => {
 
 describe("settings migration", () => {
   it("drops the removed notifyOnComplete setting", () => {
-    const dir = mkdtempSync(join(tmpdir(), "pi-ui-settings-"));
+    const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ general: { notifyOnComplete: false, sendKey: "mod-enter" } }));
     const store = new Store(dir, 0);
     expect(store.getSettings().general).not.toHaveProperty("notifyOnComplete");

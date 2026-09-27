@@ -1,5 +1,5 @@
 /**
- * REST + WebSocket contract between the web client and the pi-ui server.
+ * REST + WebSocket contract between the web client and the Glade server.
  */
 import type { AgentEvent, SessionState, UiResponse } from "./events.js";
 import type { ModelInfo, ModelRef, ThinkingLevel } from "./models.js";
@@ -112,7 +112,7 @@ export interface SessionSummary extends Session {
   /** Sub-agent state (`subagent` sessions spawned via the agent API; absent otherwise). */
   agent?: SessionAgentState;
   /**
-   * I-062: another pi-ui server sharing this data folder is running this session's agent right
+   * I-062: another Glade server sharing this data folder is running this session's agent right
    * now (working or waiting for input). This server shows it read-only: prompts answer 409 until
    * it's idle there (then this server takes it over on the next prompt).
    */
@@ -127,9 +127,9 @@ export interface ActiveElsewhere {
   since: number;
 }
 
-/** Human label for a server kind ("pi-ui (dev)", "pi-ui"). */
+/** Human label for a server kind ("Glade (dev)", "Glade"). */
 export function serverKindLabel(kind: string): string {
-  return kind === "desktop" ? "pi-ui" : `pi-ui (${kind})`;
+  return kind === "desktop" ? "Glade" : `Glade (${kind})`;
 }
 
 /** The 409 message for a session that is active in another server. */

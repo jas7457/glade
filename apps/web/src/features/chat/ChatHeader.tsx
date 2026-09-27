@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
-import { deriveChatStatus, type WorkspaceSummary } from "@pi-ui/protocol";
+import { deriveChatStatus, type WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { routes } from "@/app/routes";
 import { getChatSession } from "@/state/chat-session";

@@ -20,8 +20,8 @@ function isListening(port) {
 }
 
 const targets = [
-  { name: "server", port: 4317, filter: "@pi-ui/server" },
-  { name: "web", port: 5317, filter: "@pi-ui/web" },
+  { name: "server", port: 4317, filter: "@glade/server" },
+  { name: "web", port: 5317, filter: "@glade/web" },
 ];
 
 const children = [];

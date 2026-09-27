@@ -3,7 +3,7 @@
  * subscription limits that apply to the chat's model (already filtered by the caller with
  * `limitsForModel`) and when they were last updated.
  */
-import type { ModelRef, UsageLimits } from "@pi-ui/protocol";
+import type { ModelRef, UsageLimits } from "@glade/protocol";
 import { formatUpdatedAgo } from "@/state/usage";
 import { type ContextUsage, formatCost, formatTokens, meterLevel, usagePercent } from "../context-meter";
 import { LimitList, UsageBar } from "./UsageBars";

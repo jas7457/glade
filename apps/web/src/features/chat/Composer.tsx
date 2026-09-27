@@ -8,7 +8,7 @@
  * Both are thin wrappers around <ComposerBox>, which owns the textarea, attachments, send
  * keys, toolbar and the slash-command menu but none of the data flow.
  *
- * Slash commands: typing `/` at the start opens a menu of pi-ui built-ins (slash/builtins.ts,
+ * Slash commands: typing `/` at the start opens a menu of Glade built-ins (slash/builtins.ts,
  * run here in the browser) plus the harness commands (sent to the agent as a prompt): the
  * chat's, or before a chat exists the folder's (I-043). Hidden ones (I-048) are left out of the
  * menu but still run when typed in full.
@@ -31,7 +31,7 @@ import {
   type PromptImage,
   type SlashCommand,
   type ThinkingLevel,
-} from "@pi-ui/protocol";
+} from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
@@ -83,7 +83,7 @@ export interface ComposerBoxProps {
   busy?: boolean;
   /**
    * Read-only with this explanation as the placeholder (I-062: the session runs in another
-   * pi-ui server right now). Unlike `busy`, no spinner.
+   * Glade server right now). Unlike `busy`, no spinner.
    */
   lockedReason?: string;
   supportsImages: boolean;
@@ -568,7 +568,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
 
   const summary = sessionsById.value.get(chatId);
   const interrupted = summary?.interrupted === true;
-  // I-062: another pi-ui server (e.g. the dev server next to the installed app) runs it right now.
+  // I-062: another Glade server (e.g. the dev server next to the installed app) runs it right now.
   const lockedReason = summary?.activeElsewhere ? activeElsewhereMessage(summary.activeElsewhere) : undefined;
   const projectId = (summary && workspacesById.value.get(summary.workspaceId)?.projectId) ?? null;
 
@@ -668,7 +668,7 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
     [folderCommands],
   );
 
-  // pi-ui's default model, else ("Default") the harness's own default (I-050), else the first.
+  // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
   const harness = harnessDefaults.value;
   const harnessModel = !defaultModel && harness?.model ? harness.model : null;

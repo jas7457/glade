@@ -6,7 +6,7 @@
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Folder, FolderOpen, MoreHorizontal, Plus } from "lucide-preact";
-import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@pi-ui/protocol";
+import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade/protocol";
 import { routes } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
 import { cn } from "@/lib/cn";

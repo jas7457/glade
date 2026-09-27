@@ -7,7 +7,7 @@
  */
 import { useState } from "preact/hooks";
 import { Check, ChevronRight, CircleSlash } from "lucide-preact";
-import type { SessionSummary } from "@pi-ui/protocol";
+import type { SessionSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/ui";
 import { agentDisplay } from "./agent-status";

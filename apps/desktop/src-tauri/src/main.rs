@@ -1,1 +1,1 @@
-fn main() { pi_ui_lib::run() }
+fn main() { glade_lib::run() }

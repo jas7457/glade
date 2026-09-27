@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEvent, ChatStatus, SessionSummary } from "@pi-ui/protocol";
+import type { AgentEvent, ChatStatus, SessionSummary } from "@glade/protocol";
 import type { FakeSession } from "../src/harness/fake/fake-harness.js";
 import { createTestEnv, flush, newChat, until, type TestEnv } from "./helpers.js";
 

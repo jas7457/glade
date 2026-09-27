@@ -9,7 +9,7 @@
  * Horizontal grid (x from the content edge, i.e. inside `paddingX`):
  *
  *   8   Projects                          +   ← group header text
- *   8   📁 32 piui-demo                        ← project rows: icon at indent 0, name at 32
+ *   8   📁 32 glade-demo                       ← project rows: icon at indent 0, name at 32
  *            32 Chat in project          ●    ← project chats: title at indent 1 (= project name)
  *   8   Chats
  *   8   Standalone chat                 34m   ← standalone chats: title at indent 0

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSessionState, defaultSettings, type Transcript } from "@pi-ui/protocol";
+import { defaultSessionState, defaultSettings, type Transcript } from "@glade/protocol";
 import { TooltipProvider } from "@/ui";
 import { models, projects, sessions, settings, workspaces } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
@@ -57,7 +57,7 @@ describe("ChatView", () => {
   });
 
   it("shows no subtitle for standalone chats", () => {
-    workspaces.value = [{ ...chat, projectId: null, cwd: "/Users/me/Library/Application Support/pi-ui/scratch" }];
+    workspaces.value = [{ ...chat, projectId: null, cwd: "/Users/me/Library/Application Support/Glade/scratch" }];
     setup();
     expect(screen.getByRole("button", { name: "Fix the sidebar" })).toBeTruthy();
     expect(screen.queryByText(/scratch/)).toBeNull();
@@ -150,13 +150,13 @@ describe("ChatView", () => {
   it("shows the interrupted banner with Continue and Dismiss", async () => {
     sessions.value = [{ ...session, interrupted: true }];
     setup();
-    expect(screen.getByText("This run was interrupted when pi-ui quit.")).toBeTruthy();
+    expect(screen.getByText("This run was interrupted when Glade quit.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "Continue where you left off." }));
     vi.mocked(api.updateSession).mockResolvedValueOnce({ ...session, interrupted: false });
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("c1", { interrupted: false }));
-    await waitFor(() => expect(screen.queryByText("This run was interrupted when pi-ui quit.")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("This run was interrupted when Glade quit.")).toBeNull());
   });
 
   it("hides the interrupted banner otherwise", () => {

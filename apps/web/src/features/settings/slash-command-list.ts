@@ -1,10 +1,10 @@
 /**
- * The list behind Settings → Slash Commands (I-048): pi-ui's built-ins plus the union of the
+ * The list behind Settings → Slash Commands (I-048): Glade's built-ins plus the union of the
  * harness commands of the scratch folder and every project. Commands missing from the scratch
  * folder are project-specific (project skills/prompts) and list the projects that have them.
  * Pure, for tests.
  */
-import type { SlashCommand, SlashCommandSource } from "@pi-ui/protocol";
+import type { SlashCommand, SlashCommandSource } from "@glade/protocol";
 import { GROUP_LABELS, GROUP_ORDER, compareCommandNames } from "@/features/chat/slash/match";
 import { slashCommandKey } from "@/state/slash-visibility";
 

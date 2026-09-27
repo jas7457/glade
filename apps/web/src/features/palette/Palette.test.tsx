@@ -13,7 +13,7 @@ vi.mock("@/state/actions", () => ({
   updateSettings: vi.fn(async () => true),
 }));
 
-import type { AskResponse, SearchHit } from "@pi-ui/protocol";
+import type { AskResponse, SearchHit } from "@glade/protocol";
 import { askChats, searchChats } from "@/lib/api-search";
 import { renameWorkspace, updateSettings } from "@/state/actions";
 import { projects, workspaces } from "@/state/store";

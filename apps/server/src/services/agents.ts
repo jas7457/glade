@@ -9,7 +9,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import type { AgentInfo, AgentStatus, SessionAgentState } from "@pi-ui/protocol";
+import type { AgentInfo, AgentStatus, SessionAgentState } from "@glade/protocol";
 import { JsonFile } from "../store/json-file.js";
 
 /** The name a sub-agent uses for its parent. */
@@ -186,7 +186,7 @@ export function buildRolePrompt(opts: { name: string; teammates: string[]; agent
     "# agent-teams: you are a sub-agent",
     "",
     `You are "${opts.name}", a sub-agent spawned by the main Pi session ("${MAIN_AGENT}") to handle one delegated task.`,
-    "You run in your own tab in pi-ui. The user can watch you and may type to you directly; treat their messages as authoritative.",
+    "You run in your own tab in Glade. The user can watch you and may type to you directly; treat their messages as authoritative.",
     "",
     "- Your task is the first user message. Stay within its scope.",
     `- If you are blocked or need a decision, call message_agent with to:"${MAIN_AGENT}".`,
