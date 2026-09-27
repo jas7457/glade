@@ -46,6 +46,23 @@ export interface Workspace {
   lastActivityAt: number;
   /** Saved tab/pane layout (I-036). `null` until the UI stores one; the server treats it as opaque. */
   layout: WorkspaceLayout | null;
+  /**
+   * Set when the workspace works in its own git worktree (I-096, opt-in at creation): `cwd` is then
+   * the worktree folder. Absent for workspaces working in the project folder itself.
+   */
+  worktree?: WorkspaceWorktree;
+}
+
+/** A workspace's own git worktree (I-096). */
+export interface WorkspaceWorktree {
+  /** Absolute path of the worktree folder (same as `Workspace.cwd`). */
+  path: string;
+  /** Branch checked out in the worktree, e.g. `glade/sidebar-polish`. */
+  branch: string;
+  /** Branch (or commit) it was created from, e.g. `main`. */
+  baseRef: string;
+  /** The repository's main work tree (the project folder). */
+  repoRoot: string;
 }
 
 /**
