@@ -50,6 +50,7 @@ harnesses.register(
     : new PiHarness({
         config: () => store.getSettings().harnesses.pi,
         utilityCwd: config.scratchDir,
+        subagents: () => store.getSettings().agent.subagents,
         log: env("DEBUG") ? log : undefined,
       }),
 );

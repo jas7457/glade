@@ -139,7 +139,7 @@ describe("settings migration", () => {
     );
     const store = new Store(dir, 0);
     const settings = store.getSettings();
-    expect(settings.agent).toEqual({ maxIdleProcesses: 2, defaultHarness: null });
+    expect(settings.agent).toEqual({ maxIdleProcesses: 2, defaultHarness: null, subagents: true });
     expect(settings.harnesses.pi).toEqual({ piPath: "/opt/pi", extraArgs: ["--x"], autoCompaction: true, autoRetry: false });
     store.flush();
     expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({

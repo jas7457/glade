@@ -177,8 +177,9 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     optional(body.worktree, "boolean", "worktree");
     optional(body.baseRef, "string", "baseRef");
     optional(body.branch, "string", "branch");
-    if ((body.baseRef !== undefined || body.branch !== undefined) && !body.worktree) {
-      throw new HttpError(400, "baseRef and branch need worktree: true");
+    optional(body.carryChanges, "boolean", "carryChanges");
+    if ((body.baseRef !== undefined || body.branch !== undefined || body.carryChanges) && !body.worktree) {
+      throw new HttpError(400, "baseRef, branch and carryChanges need worktree: true");
     }
     return c.json(await service.createWorkspace(body));
   });

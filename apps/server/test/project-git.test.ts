@@ -158,6 +158,8 @@ describe("project git routes", () => {
     expect(git(repo, "log", "-1", "--format=%s", "new-one")).toBe("wip");
 
     expect((await call("POST", "/api/workspaces", { projectId, baseRef: "main" })).status).toBe(400); // needs worktree
+    expect((await call("POST", "/api/workspaces", { projectId, carryChanges: true })).status).toBe(400); // needs worktree too
+    expect((await call("POST", "/api/workspaces", { projectId, worktree: true, carryChanges: "yes" })).status).toBe(400);
     const wt = await call("POST", "/api/workspaces", { projectId, worktree: true, baseRef: "newer", branch: "chosen/name" });
     expect(wt.status).toBe(200);
     const { workspace } = (await wt.json()) as { workspace: { worktree: { branch: string; baseRef: string } } };

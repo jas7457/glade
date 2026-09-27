@@ -1,10 +1,10 @@
 /**
- * The agent settings page (`/settings/agent`): harness-independent settings (idle processes, the
- * harness new chats use when several are installed), then each installed harness's own settings
- * (I-066). Until `GET /api/harnesses` has loaded, every known harness panel is shown.
+ * The agent settings page (`/settings/agent`): harness-independent settings (sub-agents on/off,
+ * idle processes, the harness new chats use when several are installed), then each installed
+ * harness's own settings (I-066). Until `GET /api/harnesses` has loaded, every known harness panel is shown.
  */
 import type { ComponentType } from "preact";
-import { FormGroup, FormRow, Select } from "@/ui";
+import { FormGroup, FormRow, Select, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
 import { defaultHarness, harnesses } from "@/state/harnesses";
@@ -38,6 +38,16 @@ export function AgentSettings() {
             />
           </FormRow>
         )}
+        <FormRow
+          label="Use sub-agents"
+          description="Let agents hand work to sub-agents in their own tabs. Applies to new chats and when a chat's agent restarts; sub-agents already running finish normally."
+        >
+          <Switch
+            aria-label="Use sub-agents"
+            checked={a.subagents}
+            onCheckedChange={(subagents) => void updateSettings({ agent: { subagents } })}
+          />
+        </FormRow>
         <FormRow label="Idle agents kept running" description="Idle chats beyond this are stopped; running chats never are." htmlFor="agent-idle">
           <CommitField
             id="agent-idle"

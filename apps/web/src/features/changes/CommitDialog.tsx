@@ -5,7 +5,7 @@
  * `workspaceId` it commits in the project's own folder (I-105: "Commit your changes to switch branch").
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import { GitCommitHorizontal, Sparkles } from "lucide-preact";
+import { Sparkles } from "lucide-preact";
 import { notify } from "@/state/toasts";
 import { Button, Dialog, Spinner, TextArea } from "@/ui";
 import { changesApi, projectChangesApi } from "./api";
@@ -74,8 +74,12 @@ export function CommitDialog({ workspaceId, projectId, paths, count, onClose, on
       onOpenChange={(next) => !next && onClose()}
       title={paths ? `Commit ${files}` : "Commit all changes"}
       description={description ?? (paths ? "Commits only the checked files." : `Commits all ${files} git sees changed.`)}
-      icon={<GitCommitHorizontal />}
       width={500}
+      // Start in the message field, not on "Generate" (I-114 follow-up).
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        field.current?.focus();
+      }}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -90,7 +94,7 @@ export function CommitDialog({ workspaceId, projectId, paths, count, onClose, on
           <label for="commit-message" class="text-[0.92rem] font-medium text-fg-muted">
             Message
           </label>
-          <Button size="sm" variant="ghost" disabled={generating || committing} onClick={() => void generate()}>
+          <Button size="sm" variant="ghost" class="-mr-2" disabled={generating || committing} onClick={() => void generate()}>
             {generating ? <Spinner size={12} /> : <Sparkles class="size-3.5" />}
             {generating ? "Writing…" : "Generate"}
           </Button>

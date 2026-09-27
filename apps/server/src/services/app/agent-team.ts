@@ -64,6 +64,9 @@ export class AgentTeam {
     const { ctx } = this;
     const caller = this.records.requireSession(callerId);
     if (caller.kind !== "main") throw new HttpError(403, "Sub-agents can't spawn agents");
+    if (!ctx.store.getSettings().agent.subagents) {
+      throw new HttpError(403, "Sub-agents are turned off in Glade (Settings → Agent → Use sub-agents). Do the work yourself.");
+    }
     const name = normalizeAgentName(req.name ?? "");
     if (!name || name === MAIN_AGENT) throw new HttpError(400, `Invalid agent name "${req.name}"`);
     const task = req.task?.trim();

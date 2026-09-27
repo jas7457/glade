@@ -58,7 +58,7 @@ export class Workspaces {
     if (req.worktree && !project) throw new HttpError(400, "Only chats in a project can work in a worktree");
     const created =
       req.worktree && project
-        ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8), baseRef: req.baseRef, branch: req.branch })
+        ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8), baseRef: req.baseRef, branch: req.branch, carryChanges: req.carryChanges })
         : null;
     const now = Date.now();
     const workspace: Workspace = {

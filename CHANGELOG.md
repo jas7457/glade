@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Sub-agents and chat tools now come with Glade itself (no ext-kit needed); new setting Settings →
+  Agent → Use sub-agents.
+- When starting a worktree chat you can bring your uncommitted changes along; your project folder
+  keeps its copy.
 - Click any image in a chat to see it large (←/→ between images, Copy image).
 - Message times: hover a message to see when it was sent, with Today / Yesterday dividers between days.
 - New-chat bar above the composer: pick the project, Local or a new worktree, and the branch. In
@@ -126,6 +130,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Dialogs look like native macOS alerts: everything lines up, regular-size buttons, and destructive
+  actions in red text instead of a big red button.
+- Pasted images in the composer open large when clicked, like sent ones.
 - Images in a chat show a zoom-in cursor on hover, so it's clear they open large.
 - Message times show just below each message (right under yours, left under the agent's).
 - A sub-agent's task (and later messages from the main agent) shows as a compact "Task from main"

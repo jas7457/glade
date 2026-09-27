@@ -21,6 +21,8 @@ export interface NewChatWorktreeOptions {
   baseRef: string | null;
   /** Name of the worktree's new branch; null = `glade/<slug>`. */
   branch: string | null;
+  /** Bring the project folder's uncommitted changes along (I-117); only sent while `canCarryChanges`. */
+  carryChanges?: boolean;
 }
 export const newChatWorktreeOptions = signal<NewChatWorktreeOptions | null>(null);
 
@@ -60,14 +62,23 @@ export function resetNewChatWorktree(): void {
   newChatWorktreeOptions.value = null;
 }
 
+/**
+ * Whether a worktree starting from `baseRef` (null = the current branch) can bring the project
+ * folder's uncommitted changes (I-117): only from the folder's current branch, and only if there are any.
+ */
+export function canCarryChanges(git: ProjectGitInfo | undefined, baseRef: string | null | undefined): boolean {
+  return !!git?.isRepo && git.uncommittedFiles > 0 && (!baseRef || baseRef === git.branch);
+}
+
 /** The worktree fields of a new chat's `CreateWorkspaceRequest` for the bar's current choice. */
-export function worktreeRequestFor(projectId: string | null): Pick<CreateWorkspaceRequest, "worktree" | "baseRef" | "branch"> {
+export function worktreeRequestFor(projectId: string | null): Pick<CreateWorkspaceRequest, "worktree" | "baseRef" | "branch" | "carryChanges"> {
   if (projectId === null || newChatWorktree.value !== projectId) return {};
   const opts = newChatWorktreeOptions.value?.projectId === projectId ? newChatWorktreeOptions.value : null;
   return {
     worktree: true,
     ...(opts?.baseRef ? { baseRef: opts.baseRef } : {}),
     ...(opts?.branch ? { branch: opts.branch } : {}),
+    ...(opts?.carryChanges && canCarryChanges(projectGit.value.get(projectId), opts.baseRef) ? { carryChanges: true } : {}),
   };
 }
 

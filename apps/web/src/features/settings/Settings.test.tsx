@@ -75,6 +75,15 @@ describe("settings", () => {
     expect(mocked.updateSettings).toHaveBeenCalledWith({ appearance: { theme: "dark" } });
   });
 
+  it("Agent: 'Use sub-agents' is on by default and saves when toggled (I-116)", () => {
+    renderAt("/settings/agent");
+    const toggle = screen.getByRole("switch", { name: "Use sub-agents" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ agent: { subagents: false } });
+    expect(settings.value.agent.subagents).toBe(false);
+  });
+
   it("Agent: extra args are split on whitespace when committed", () => {
     renderAt("/settings/agent");
     const field = screen.getByLabelText("Extra arguments") as HTMLInputElement;

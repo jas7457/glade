@@ -660,3 +660,13 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   branch/HEAD from the changes status, so it has no endpoint of its own.
 - Cursors (I-113): controls keep the default arrow (native look); the one exception is images that open
   in the lightbox, which use `cursor-zoom-in` as macOS does for enlargeable images.
+- Agent tools (I-116): Glade loads its own pi extension (`harness/pi/extension/glade-tools.ts`, `-e`,
+  bundled as `app/pi-extension/`) into agent sessions, sets `GLADE_TOOLS=1` (ext-kit's agent-teams then
+  steps aside) and `GLADE_SUBAGENTS=off` when `settings.agent.subagents` is false (no
+  spawn/message/close/list tools; `/agents/spawn` returns 403).
+- Bringing uncommitted changes (I-117): `CreateWorkspaceRequest.carryChanges` (only from the project
+  folder's current branch) runs `git stash create` in the folder and `git stash apply --index <sha>` in
+  the new worktree, then copies untracked, non-ignored files. The folder is left untouched; if
+  anything fails, the worktree and branch are removed.
+- Dialogs (I-114): one grid in `ui/Dialog` (20px padding, a single column, buttons on its right edge);
+  confirms have no icon; destructive actions are red text on a plain button, Cancel is the default.

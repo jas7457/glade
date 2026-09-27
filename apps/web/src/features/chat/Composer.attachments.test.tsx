@@ -33,6 +33,11 @@ vi.mock("@/state/attachments", () => ({
   ),
 }));
 
+// jsdom has no createImageBitmap: images are "read" as their name, base64-encoded.
+vi.mock("./image-resize", () => ({
+  prepareImage: vi.fn(async (file: File) => ({ mimeType: file.type, data: btoa(file.name), width: 1, height: 1, bytes: file.size })),
+}));
+
 const { api } = await import("@/lib/api");
 const { attachFilesToText } = await import("@/state/attachments");
 
@@ -142,5 +147,30 @@ describe("Composer file attachments (I-090)", () => {
     await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("s-new1", { text: "Read this\nAttached file: /data/attachments/s-new1/spec.pdf", images: undefined }));
     expect(vi.mocked(api.createWorkspace).mock.calls[0]![0]).toMatchObject({ projectId: null, prompt: undefined, images: undefined });
     await waitFor(() => expect(router.state.location.pathname).toBe("/chats/new1"));
+  });
+});
+
+describe("Composer pending images (I-115)", () => {
+  const png = (name: string) => new File(["p"], name, { type: "image/png" });
+
+  it("opens a pending image large, steps with the arrows, and × removes without opening", async () => {
+    readyChat("c1");
+    renderAt(<Composer chatId="c1" />);
+    drop([png("one.png"), png("two.png")]);
+    const list = await screen.findByLabelText("Attachments");
+    await within(list).findByRole("button", { name: "Open two.png" });
+
+    fireEvent.click(within(list).getByRole("button", { name: "Open one.png" }));
+    const box = await screen.findByTestId("lightbox");
+    expect(box.querySelector("img")!.getAttribute("src")).toBe(`data:image/png;base64,${btoa("one.png")}`);
+    fireEvent.keyDown(box, { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByTestId("lightbox").querySelector("img")!.getAttribute("src")).toBe(`data:image/png;base64,${btoa("two.png")}`));
+    fireEvent.keyDown(screen.getByTestId("lightbox"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("lightbox")).toBeNull());
+
+    fireEvent.click(within(list).getByRole("button", { name: "Remove one.png" }));
+    expect(screen.queryByTestId("lightbox")).toBeNull();
+    expect(within(list).queryByRole("button", { name: "Open one.png" })).toBeNull();
+    expect(within(list).getByRole("button", { name: "Open two.png" }).className).toContain("cursor-zoom-in");
   });
 });

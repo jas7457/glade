@@ -8,7 +8,6 @@
  */
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { Trash2 } from "lucide-preact";
 import type { WorkspaceSummary, WorkspaceWorktree, WorktreeRemoval, WorktreeStatus } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { Button, Dialog, SegmentedControl, Spinner, confirm, shortenSubject } from "@/ui";
@@ -101,8 +100,6 @@ export function DeleteWorktreeChatDialog({ chat, options = {}, onResult }: Delet
     <Dialog
       open
       onOpenChange={(open) => !open && onResult(null)}
-      icon={<Trash2 />}
-      iconTone="danger"
       width={440}
       title="Delete chat?"
       description={
@@ -120,7 +117,7 @@ export function DeleteWorktreeChatDialog({ chat, options = {}, onResult }: Delet
         </>
       }
     >
-      <div class="flex flex-col gap-3 pb-1">
+      <div class="flex flex-col gap-3">
         <div class="flex min-h-[18px] items-center gap-2 text-[0.92rem] text-fg-muted" data-testid="worktree-status">
           {status ? (
             <span>

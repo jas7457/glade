@@ -5,7 +5,6 @@
  * it switches.
  */
 import { useState } from "preact/hooks";
-import { GitBranch } from "lucide-preact";
 import type { ProjectGitInfo } from "@glade/protocol";
 import { CommitDialog } from "@/features/changes/CommitDialog";
 import { Button, Dialog } from "@/ui";
@@ -46,7 +45,6 @@ export function SwitchBranchDialog({ projectId, branch, git, onClose, onCommitte
       onOpenChange={(open) => !open && onClose()}
       title="Commit your changes to switch branch"
       description={`The project folder has ${files}${git.branch ? ` on ${git.branch}` : ""}. Commit them first, then Glade switches it to ${branch}.`}
-      icon={<GitBranch />}
       width={460}
       footer={
         <>

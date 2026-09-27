@@ -3,7 +3,7 @@
  * workspace create/delete wiring (FakeHarness) plus the HTTP routes.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -153,6 +153,116 @@ describe("worktrees service", () => {
   });
 });
 
+describe("carrying uncommitted changes into a new worktree (I-117)", () => {
+  let dir: string;
+  let repo: string;
+  let wtDir: string;
+  const BIN = Buffer.from([0, 1, 2, 255, 254, 0, 10, 13]);
+  const BIN2 = Buffer.from([9, 0, 8, 0, 7, 255]);
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "glade-carry-"));
+    repo = makeRepo(dir);
+    writeFileSync(join(repo, "del.txt"), "delete me\n");
+    writeFileSync(join(repo, "old-name.txt"), "renamed content\n");
+    writeFileSync(join(repo, "pic.bin"), BIN);
+    writeFileSync(join(repo, ".gitignore"), "ignored.log\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "more");
+    wtDir = join(dir, "data", "worktrees");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  /** Every kind of change: modified (staged + unstaged), added, deleted, renamed, binary, untracked, ignored. */
+  function makeDirty(): void {
+    writeFileSync(join(repo, "a.txt"), "a\nstaged\n");
+    git(repo, "add", "a.txt");
+    writeFileSync(join(repo, "a.txt"), "a\nstaged\nunstaged\n");
+    writeFileSync(join(repo, "added.txt"), "new file\n");
+    git(repo, "add", "added.txt");
+    unlinkSync(join(repo, "del.txt"));
+    git(repo, "mv", "old-name.txt", "new-name.txt");
+    writeFileSync(join(repo, "pic.bin"), BIN2);
+    mkdirSync(join(repo, "notes", "deep"), { recursive: true });
+    writeFileSync(join(repo, "notes", "deep", "todo.md"), "untracked\n");
+    writeFileSync(join(repo, "run.sh"), "#!/bin/sh\n", { mode: 0o755 });
+    symlinkSync("a.txt", join(repo, "link-to-a"));
+    writeFileSync(join(repo, "ignored.log"), "noise\n");
+  }
+
+  const snapshot = (root: string) => ({
+    status: git(root, "status", "--porcelain=v1", "--untracked-files=all"),
+    staged: git(root, "diff", "--cached", "--name-status", "-M"),
+    stashes: git(root, "stash", "list"),
+    a: readFileSync(join(root, "a.txt"), "utf8"),
+    bin: readFileSync(join(root, "pic.bin")),
+  });
+
+  it("brings tracked changes (staged and not), binary files and untracked files; the project folder is untouched", async () => {
+    makeDirty();
+    const before = snapshot(repo);
+    const { cwd } = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "carry", fallback: "x", carryChanges: true });
+    expect(snapshot(repo)).toEqual(before);
+    expect(existsSync(join(repo, "ignored.log"))).toBe(true);
+
+    expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("a\nstaged\nunstaged\n");
+    expect(git(cwd, "show", ":a.txt")).toBe("a\nstaged"); // the staged version stays staged
+    expect(readFileSync(join(cwd, "added.txt"), "utf8")).toBe("new file\n");
+    expect(existsSync(join(cwd, "del.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "old-name.txt"))).toBe(false);
+    expect(readFileSync(join(cwd, "new-name.txt"), "utf8")).toBe("renamed content\n");
+    expect(readFileSync(join(cwd, "pic.bin"))).toEqual(BIN2);
+    expect(readFileSync(join(cwd, "notes", "deep", "todo.md"), "utf8")).toBe("untracked\n");
+    expect(lstatSync(join(cwd, "run.sh")).mode & 0o111).not.toBe(0);
+    expect(readlinkSync(join(cwd, "link-to-a"))).toBe("a.txt");
+    expect(existsSync(join(cwd, "ignored.log"))).toBe(false);
+    // Same picture in both folders (the branch line aside).
+    expect(git(cwd, "status", "--porcelain=v1", "--untracked-files=all")).toBe(before.status);
+    expect(git(cwd, "diff", "--cached", "--name-status", "-M")).toBe(before.staged);
+  });
+
+  it("an unstaged rename (delete + untracked file) carries over too", async () => {
+    renameSync(join(repo, "old-name.txt"), join(repo, "moved.txt"));
+    const { cwd } = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "mv", fallback: "x", carryChanges: true });
+    expect(existsSync(join(cwd, "old-name.txt"))).toBe(false);
+    expect(readFileSync(join(cwd, "moved.txt"), "utf8")).toBe("renamed content\n");
+    expect(existsSync(join(repo, "moved.txt"))).toBe(true);
+  });
+
+  it("is a no-op for a clean folder, and off by default", async () => {
+    const clean = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "clean", fallback: "x", carryChanges: true });
+    expect(git(clean.cwd, "status", "--porcelain")).toBe("");
+    makeDirty();
+    const plain = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "plain", fallback: "x" });
+    expect(git(plain.cwd, "status", "--porcelain")).toBe("");
+  });
+
+  it("refuses a base other than the current branch", async () => {
+    git(repo, "branch", "dev");
+    makeDirty();
+    await expect(createWorktree({ folder: repo, worktreesDir: wtDir, name: "x", fallback: "x", baseRef: "dev", carryChanges: true })).rejects.toMatchObject({ status: 400 });
+    const ok = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "y", fallback: "y", baseRef: "main", carryChanges: true });
+    expect(readFileSync(join(ok.cwd, "added.txt"), "utf8")).toBe("new file\n");
+  });
+
+  it.skipIf(process.getuid?.() === 0)("removes the new worktree and branch when carrying fails", async () => {
+    makeDirty();
+    writeFileSync(join(repo, "secret.txt"), "unreadable\n");
+    chmodSync(join(repo, "secret.txt"), 0o000);
+    const before = snapshot(repo);
+    try {
+      const err = await createWorktree({ folder: repo, worktreesDir: wtDir, name: "fail", fallback: "x", carryChanges: true }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).message).toMatch(/Couldn't bring your uncommitted changes/);
+      expect(branches(repo)).toEqual(["main"]);
+      expect(git(repo, "worktree", "list").split("\n")).toHaveLength(1);
+      expect(existsSync(join(wtDir, "my-repo", "fail"))).toBe(false);
+      expect(snapshot(repo)).toEqual(before);
+    } finally {
+      chmodSync(join(repo, "secret.txt"), 0o644);
+    }
+  });
+});
+
 describe("worktree workspaces", () => {
   let env: TestEnv;
   let repo: string;
@@ -224,6 +334,16 @@ describe("worktree workspaces", () => {
     await env.service.deleteWorkspace(chat.wid, "discard");
     expect(existsSync(wt.path)).toBe(false);
     expect(branches(repo)).toEqual(["main"]);
+  });
+
+  it("carryChanges: the new chat's worktree starts with the project folder's uncommitted changes", async () => {
+    writeFileSync(join(repo, "a.txt"), "edited\n");
+    writeFileSync(join(repo, "new.txt"), "untracked\n");
+    const chat = await newChat(env, { projectId, prompt: "carry", worktree: true, carryChanges: true });
+    const ws = env.store.getWorkspace(chat.wid)!;
+    expect(readFileSync(join(ws.cwd, "a.txt"), "utf8")).toBe("edited\n");
+    expect(readFileSync(join(ws.cwd, "new.txt"), "utf8")).toBe("untracked\n");
+    expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("edited\n");
   });
 
   it("removes the worktree when the first session fails to start", async () => {

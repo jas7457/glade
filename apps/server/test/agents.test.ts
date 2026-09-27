@@ -171,6 +171,17 @@ describe("spawn", () => {
     await expect(spawn(chat.sid, "one")).resolves.toBeTruthy();
   });
 
+  it("refuses spawns with 403 when 'Use sub-agents' is off (I-116)", async () => {
+    const chat = await newChat(env);
+    env.service.updateSettings({ agent: { subagents: false } });
+    await expect(env.service.spawnAgent(chat.sid, { name: "x", task: "t" })).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/Use sub-agents/),
+    });
+    env.service.updateSettings({ agent: { subagents: true } });
+    await expect(spawn(chat.sid, "x")).resolves.toBeTruthy();
+  });
+
   it("persists records so a reopened sub-agent keeps its role", async () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-agents-"));
     try {

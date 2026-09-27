@@ -67,6 +67,7 @@ import {
   type ShellInput,
 } from "./composer-utils";
 import { fileIcon } from "./UserBubble";
+import { useImageLightbox } from "./ImageLightbox";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ThinkingPicker } from "./Pickers";
 import { InterruptedBanner } from "./InterruptedBanner";
@@ -140,6 +141,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const busy = loading || !!lockedReason;
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [images, setImages] = useState<Attachment[]>([]);
+  const { open: openImage, lightbox: imageLightbox } = useImageLightbox(images);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
@@ -449,13 +451,21 @@ export function ComposerBox(props: ComposerBoxProps) {
         {mentionOpen && <MentionMenu entries={fileEntries} activeIndex={mentionActive} onHover={setMentionIndex} onPick={pickMention} />}
         {(images.length > 0 || files.length > 0) && (
           <div class="flex flex-wrap items-center gap-2 px-3 pt-3" aria-label="Attachments">
-            {images.map((img) => (
+            {images.map((img, i) => (
               <div key={img.id} class="group/att relative">
-                <img
-                  src={`data:${img.mimeType};base64,${img.data}`}
-                  alt={img.name}
-                  class="size-14 rounded-[8px] border-[0.5px] border-separator object-cover"
-                />
+                {/* Opens large like transcript images (I-115); the × below is a sibling, so it doesn't. */}
+                <button
+                  type="button"
+                  aria-label={`Open ${img.name}`}
+                  onClick={() => openImage(i)}
+                  class="flex cursor-zoom-in rounded-[8px] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <img
+                    src={`data:${img.mimeType};base64,${img.data}`}
+                    alt={img.name}
+                    class="size-14 rounded-[8px] border-[0.5px] border-separator object-cover"
+                  />
+                </button>
                 <button
                   type="button"
                   aria-label={`Remove ${img.name}`}
@@ -478,6 +488,7 @@ export function ComposerBox(props: ComposerBoxProps) {
                 />
               );
             })}
+            {imageLightbox}
           </div>
         )}
         {shellInput && (

@@ -6,7 +6,6 @@
  *   server checks the name when the chat is created.
  */
 import { useState } from "preact/hooks";
-import { GitBranchPlus } from "lucide-preact";
 import { createProjectBranch } from "@/state/worktrees";
 import { Button, Dialog, TextField } from "@/ui";
 
@@ -65,7 +64,6 @@ export function NewBranchDialog({ projectId, mode, from, initial, onClose, onNam
           ? `Creates the branch from ${from ?? "the current commit"} and switches the project folder to it. Uncommitted changes come along.`
           : `The new chat's worktree works on this branch, starting from ${from ?? "the current branch"}. Leave it empty to name it after the chat (glade/…).`
       }
-      icon={<GitBranchPlus />}
       width={440}
       footer={
         <>

@@ -39,7 +39,7 @@ describe("AlertDialog", () => {
     return { result, dialog: await screen.findByRole("alertdialog") };
   };
 
-  it("destructive: focuses Cancel first, shows the subject in the body and a trash icon", async () => {
+  it("destructive: focuses Cancel first, shows the subject in the body, no decorative icon", async () => {
     render(<ConfirmHost />);
     const { result, dialog } = await open({
       title: "Delete chat?",
@@ -51,7 +51,35 @@ describe("AlertDialog", () => {
     await waitFor(() => expect(document.activeElement?.textContent).toBe("Cancel"));
     expect(screen.getByRole("heading", { name: "Delete chat?" })).toBeTruthy();
     expect(dialog.textContent).toContain("“Casual greeting and checking in” will be permanently deleted.");
-    expect(dialog.querySelector("svg")).toBeTruthy();
+    expect(dialog.querySelector("svg")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await result).toBe(false);
+  });
+
+  it("puts Cancel first and the confirm button last; destructive is red text on a plain bezel", async () => {
+    render(<ConfirmHost />);
+    const { result, dialog } = await open({ title: "Close tab?", confirmLabel: "Close Tab", destructive: true });
+    const buttons = [...dialog.querySelectorAll("button")].map((b) => b.textContent);
+    expect(buttons).toEqual(["Cancel", "Close Tab"]);
+    const confirmButton = screen.getByRole("button", { name: "Close Tab" });
+    expect(confirmButton.className).toContain("text-danger");
+    expect(confirmButton.className).not.toContain("bg-danger");
+    // The whole alert is one column: the buttons sit in the shared footer.
+    expect(confirmButton.parentElement!.className).toBe(dialogClass.footer);
+    // Return on the focused default (Cancel) cancels.
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    fireEvent.keyDown(cancel, { key: "Enter" });
+    fireEvent.click(cancel);
+    expect(await result).toBe(false);
+  });
+
+  it("shows an explicitly passed icon on the title row", async () => {
+    render(<ConfirmHost />);
+    const { result, dialog } = await open({ title: "Heads up", icon: <svg data-testid="icon" /> });
+    const icon = screen.getByTestId("icon");
+    expect(icon.parentElement!.parentElement!.className).toBe(dialogClass.titleRow);
+    expect(dialog.textContent).toContain("Heads up");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(await result).toBe(false);
   });

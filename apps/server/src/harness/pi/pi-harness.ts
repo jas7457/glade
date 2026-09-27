@@ -25,6 +25,7 @@ import { SessionEvents } from "../session-events.js";
 import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
 import { readPiAnthropicAuth } from "./anthropic-auth.js";
 import { piChildEnv } from "./child-env.js";
+import { gladeExtensionLaunch, gladeExtensionPath } from "./extension-path.js";
 import { piOneShot } from "./one-shot.js";
 import { PiRpcProcess } from "./rpc-process.js";
 import { piSessionReader } from "./session-reader.js";
@@ -47,6 +48,10 @@ export interface PiHarnessOptions {
   /** Folder used for the model-listing utility process. */
   utilityCwd: string;
   log?: (msg: string) => void;
+  /** The "Use sub-agents" setting (`Settings.agent.subagents`, I-116), read at each session start. Default on. */
+  subagents?: () => boolean;
+  /** Glade's pi extension (I-116); defaults to {@link gladeExtensionPath}. `null` = don't load it. */
+  extensionPath?: () => string | null;
 }
 
 export class PiHarness implements AgentHarness {
@@ -126,7 +131,13 @@ export class PiHarness implements AgentHarness {
     if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
     if (options.appendSystemPrompt) args.push("--append-system-prompt", options.appendSystemPrompt);
     if (options.tools?.length) args.push("--tools", options.tools.join(","));
-    const proc = this.spawn(options.cwd, args, options.env);
+    // Glade's own extension: sub-agent + chat tools (I-116). Only agent sessions, not utility runs.
+    const extension = gladeExtensionLaunch(
+      (this.options.extensionPath ?? gladeExtensionPath)(),
+      this.options.subagents?.() ?? true,
+    );
+    args.push(...extension.args);
+    const proc = this.spawn(options.cwd, args, { ...extension.env, ...options.env });
     const session = new PiSession(proc, this.options.log, options.cwd);
     try {
       await session.init(this.options.config());

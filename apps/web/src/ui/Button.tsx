@@ -13,17 +13,23 @@ export interface ButtonProps extends Omit<JSX.HTMLAttributes<HTMLButtonElement>,
   children?: ComponentChildren;
 }
 
+/*
+ * macOS push buttons (I-114): a plain bezel (hairline + soft shadow) or an accent fill with a
+ * faint top highlight, regular label weight, no hover effect beyond a slight tone change.
+ * `danger` is macOS's destructive style: red text on the plain bezel, not a red fill.
+ */
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-accent-fg shadow-sm hover:brightness-110 active:brightness-95",
-  secondary:
-    "bg-control text-fg shadow-[0_0_0_0.5px_var(--pi-separator),0_1px_1px_rgb(0_0_0/0.06)] hover:bg-hover active:bg-selected",
+  primary: "bg-accent text-accent-fg shadow-bezel-filled hover:brightness-105 active:brightness-90",
+  secondary: "bg-bezel text-fg shadow-bezel hover:brightness-[0.98] active:brightness-[0.94] dark:hover:brightness-110 dark:active:brightness-125",
   ghost: "text-fg hover:bg-hover active:bg-selected",
-  danger: "bg-danger-fill text-white shadow-sm hover:brightness-110 active:brightness-95",
+  danger:
+    "bg-bezel text-danger shadow-bezel hover:brightness-[0.98] active:brightness-[0.94] dark:hover:brightness-110 dark:active:brightness-125",
 };
 
+/** md is the regular macOS push button (22px at the 13px base); sm the small one. */
 const sizes: Record<ButtonSize, string> = {
   sm: "h-6 px-2 text-[0.92rem] gap-1",
-  md: "h-7 px-3 text-[1rem] gap-1.5",
+  md: "h-[1.7rem] px-[0.85rem] text-[1rem] gap-1.5",
 };
 
 /** macOS-style push button. */
@@ -36,7 +42,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       class={cn(
-        "inline-flex items-center justify-center rounded-control font-medium whitespace-nowrap select-none transition-[filter,background-color] duration-100 disabled:opacity-40 disabled:pointer-events-none",
+        "inline-flex items-center justify-center rounded-control whitespace-nowrap select-none transition-[filter,background-color] duration-100 disabled:opacity-40 disabled:pointer-events-none",
         variants[variant],
         sizes[size],
         className as string,

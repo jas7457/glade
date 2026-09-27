@@ -5,6 +5,8 @@
  *
  *   app/server.mjs   — the whole server (hono, ws, protocol …), run with the user's own `node`
  *   app/web/         — the built web app, served by the server (GLADE_STATIC_DIR)
+ *   app/pi-extension/glade-tools.ts — Glade's pi extension (I-116), loaded with `pi -e`; pi compiles
+ *                      it itself (jiti), so it's copied as-is (self-contained, `node:` imports only)
  */
 import { execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -40,5 +42,8 @@ await build({
   banner: { js: "import { createRequire as __piCreateRequire } from 'node:module'; const require = __piCreateRequire(import.meta.url);" },
   logLevel: "info",
 });
+const piExtension = join(repoDir, "apps", "server", "src", "harness", "pi", "extension", "glade-tools.ts");
+mkdirSync(join(outDir, "pi-extension"), { recursive: true });
+cpSync(piExtension, join(outDir, "pi-extension", "glade-tools.ts"));
 writeFileSync(join(outDir, "package.json"), JSON.stringify({ type: "module" }) + "\n");
 console.log(`[bundle] done → ${outDir}`);

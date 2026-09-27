@@ -239,6 +239,12 @@ export interface Settings {
      * default harness (`GLADE_HARNESS`, else pi).
      */
     defaultHarness: string | null;
+    /**
+     * Let agents start sub-agents (I-116): Glade's pi extension registers `spawn_agent`,
+     * `message_agent`, `close_agent` and `list_agents` only when on, and the agent API refuses
+     * spawns (403) when off. Applies to agent processes started afterwards (new chats, restarts).
+     */
+    subagents: boolean;
   };
   /** Per-harness settings (I-066), keyed by harness id. Before I-066 pi's lived in `agent`. */
   harnesses: {
@@ -294,6 +300,7 @@ export function defaultSettings(): Settings {
     agent: {
       maxIdleProcesses: 4,
       defaultHarness: null,
+      subagents: true,
     },
     harnesses: {
       pi: {
@@ -363,6 +370,12 @@ export interface CreateWorkspaceRequest {
   baseRef?: string;
   /** With `worktree`: the new branch's name (default `glade/<slug>`; 400 invalid, 409 exists; I-105). */
   branch?: string;
+  /**
+   * With `worktree`: bring the project folder's uncommitted changes (tracked changes and untracked,
+   * non-ignored files) into the new worktree; the folder keeps its copy (I-117). Only when the
+   * worktree starts from the folder's current branch (400 otherwise).
+   */
+  carryChanges?: boolean;
 }
 
 export interface UpdateWorkspaceRequest {

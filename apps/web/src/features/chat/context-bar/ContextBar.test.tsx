@@ -150,6 +150,43 @@ describe("context bar", () => {
     expect(newChatWorktree.value).toBeNull(); // remembers nothing
   });
 
+  it("worktree mode: brings uncommitted changes only from the current branch, off by default (I-117)", async () => {
+    mocked.getProjectGit.mockResolvedValue(git({ uncommittedFiles: 3, uncommittedPaths: ["a", "b", "c"] }));
+    renderBar("p");
+    await screen.findByRole("button", { name: /Branch: main/ });
+    newChatWorktree.value = "p";
+    fireEvent.click(await screen.findByRole("button", { name: /Branch: from main/ }));
+    const carry = option(/Bring my uncommitted changes \(3 files\)/);
+    expect(carry.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(carry);
+    const trigger = button(/Branch: from main, with 3 uncommitted files/);
+    expect(trigger.textContent).toContain("+ 3 changes");
+
+    mocked.createWorkspace.mockResolvedValue({ workspace: makeWorkspace({ id: "n" }), sessions: [], session: undefined } as never);
+    await createWorkspace({ projectId: "p", prompt: "x" }).catch(() => {});
+    expect(mocked.createWorkspace).toHaveBeenLastCalledWith({ projectId: "p", prompt: "x", worktree: true, carryChanges: true });
+
+    // Another base: the option is hidden and not sent.
+    newChatWorktree.value = "p";
+    fireEvent.click(await screen.findByRole("button", { name: /Branch: from main/ }));
+    expect(option(/Bring my uncommitted changes/).getAttribute("aria-checked")).toBe("false"); // reset after creating
+    fireEvent.click(option(/Bring my uncommitted changes/));
+    fireEvent.click(button(/Branch: from main/));
+    fireEvent.click(option("dev"));
+    fireEvent.click(button(/Branch: from dev/));
+    expect(screen.queryByRole("option", { name: /Bring my uncommitted changes/ })).toBeNull();
+    await createWorkspace({ projectId: "p", prompt: "y" }).catch(() => {});
+    expect(mocked.createWorkspace).toHaveBeenLastCalledWith({ projectId: "p", prompt: "y", worktree: true, baseRef: "dev" });
+  });
+
+  it("worktree mode: no carry option without uncommitted files", async () => {
+    renderBar("p");
+    await screen.findByRole("button", { name: /Branch: main/ });
+    newChatWorktree.value = "p";
+    fireEvent.click(await screen.findByRole("button", { name: /Branch: from main/ }));
+    expect(screen.queryByRole("option", { name: /Bring my uncommitted changes/ })).toBeNull();
+  });
+
   it("local mode: picking a branch checks it out when the folder is clean", async () => {
     mocked.checkoutProjectBranch.mockResolvedValue(git({ branch: "dev" }));
     renderBar("p");

@@ -11,9 +11,10 @@
  * `GLADE_STATIC_DIR`, `GLADE_EXIT_ON_STDIN_CLOSE`, `GLADE_SERVER_KIND`; I-058): an agent that
  * starts a Glade server from a chat in the installed app must not get the app's port or claim to
  * be the desktop server. Each is stripped under its pre-rename `PI_UI_*` name too (I-059), since
- * the server still reads those as fallbacks. `GLADE_DATA_DIR` / `PI_UI_DATA_DIR` are kept on
- * purpose, so a server started from a sandbox chat stays in the sandbox. Everything else (PATH,
- * HOME, provider keys, …) is passed through.
+ * the server still reads those as fallbacks. Neither are `GLADE_TOOLS` / `GLADE_SUBAGENTS` (I-116:
+ * Glade's pi extension is loaded / the "Use sub-agents" setting), set per process by Glade.
+ * `GLADE_DATA_DIR` / `PI_UI_DATA_DIR` are kept on purpose, so a server started from a sandbox chat
+ * stays in the sandbox. Everything else (PATH, HOME, provider keys, …) is passed through.
  */
 
 /** Variable name prefixes never passed to pi. */
@@ -30,6 +31,8 @@ const STRIPPED_SHORT_NAMES = [
   "STATIC_DIR",
   "EXIT_ON_STDIN_CLOSE",
   "SERVER_KIND",
+  "TOOLS",
+  "SUBAGENTS",
 ] as const;
 
 /** Exact variable names never inherited (the agent API identity, see `AGENT_ENV`), under both prefixes. */

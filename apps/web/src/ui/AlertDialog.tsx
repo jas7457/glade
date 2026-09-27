@@ -1,7 +1,9 @@
 /**
  * Confirm alert + a promise-based `confirm()` helper. Same surface, spacing and buttons as
- * ui/Dialog.tsx (shared {@link dialogClass}): a short heading, the item's name in the body,
- * an optional leading icon (destructive confirms get a red trash can) and right-aligned buttons.
+ * ui/Dialog.tsx (shared {@link dialogClass}), laid out like a macOS alert (I-114): a short
+ * heading and the message (with the item's name) in one column, no decorative icon, and
+ * regular-size buttons on the column's right edge. A destructive confirm keeps Cancel as the
+ * default (focused, so Return cancels) and shows its action as red text on a plain bezel.
  *
  *   if (await confirm({ title: "Delete chat?", subject: chat.title,
  *                        message: "will be permanently deleted. This can't be undone.",
@@ -12,10 +14,12 @@
 import type { ComponentChildren } from "preact";
 import { signal } from "@preact/signals";
 import * as RadixAlert from "@radix-ui/react-alert-dialog";
-import { Trash2 } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { Button } from "./Button";
 import { DialogIcon, dialogClass } from "./Dialog";
+
+/** The focus-visible ring (styles.css), shown on plain focus too. */
+const dialogDefaultFocusClass = "focus:outline-3 focus:outline-offset-1 focus:outline-solid focus:outline-accent/45";
 
 export interface ConfirmOptions {
   /** Short heading, e.g. "Delete chat?". Keep item names out of it (use `subject`). */
@@ -27,13 +31,13 @@ export interface ConfirmOptions {
    */
   subject?: string;
   message?: ComponentChildren;
-  /** Leading icon in a tinted circle. Destructive confirms default to a trash can; `null` hides it. */
+  /** Optional small icon on the title's first line (none by default, like macOS alerts). */
   icon?: ComponentChildren | null;
   /** Default "OK". */
   confirmLabel?: string;
   /** Default "Cancel". Pass `null` for an informational alert with a single button. */
   cancelLabel?: string | null;
-  /** Red confirm button; Cancel gets the initial focus. */
+  /** Red-labelled confirm button; Cancel stays the default (initial focus, Return). */
   destructive?: boolean;
 }
 
@@ -73,7 +77,6 @@ export interface AlertDialogProps extends ConfirmOptions {
 
 /** Controlled alert. Most code should use `confirm()` instead. */
 export function AlertDialog({ open, onResult, title, subject, message, icon, confirmLabel = "OK", cancelLabel = "Cancel", destructive }: AlertDialogProps) {
-  const shownIcon = icon === undefined ? (destructive ? <Trash2 /> : null) : icon;
   const hasBody = !!subject || !!message;
   return (
     <RadixAlert.Root open={open} onOpenChange={(o) => !o && onResult(false)}>
@@ -86,34 +89,35 @@ export function AlertDialog({ open, onResult, title, subject, message, icon, con
             e.preventDefault();
             (e.currentTarget as HTMLElement).querySelector<HTMLElement>("[data-default]")?.focus();
           }}
-          style={{ width: "min(400px, calc(100vw - 32px))" }}
+          style={{ width: "min(372px, calc(100vw - 32px))" }}
           class={dialogClass.panel}
         >
           <div class={dialogClass.header}>
-            {shownIcon && <DialogIcon tone={destructive ? "danger" : "accent"}>{shownIcon}</DialogIcon>}
-            <div class={cn("min-w-0 flex-1", shownIcon && "pt-[7px]")}>
+            <div class={dialogClass.titleRow}>
+              {icon && <DialogIcon tone={destructive ? "danger" : "accent"}>{icon}</DialogIcon>}
               <RadixAlert.Title class={dialogClass.title}>{title}</RadixAlert.Title>
-              <RadixAlert.Description class={cn(dialogClass.description, "mt-1.5", !hasBody && "sr-only")}>
-                {hasBody ? (
-                  <>
-                    {subject && (
-                      <span class="font-medium text-fg-strong" title={subject.length > SUBJECT_MAX ? subject : undefined}>
-                        “{shortenSubject(subject)}”
-                      </span>
-                    )}
-                    {subject && message ? " " : null}
-                    {message}
-                  </>
-                ) : (
-                  title
-                )}
-              </RadixAlert.Description>
             </div>
+            <RadixAlert.Description class={cn(dialogClass.description, !hasBody && "sr-only")}>
+              {hasBody ? (
+                <>
+                  {subject && (
+                    <span class="font-medium text-fg-strong" title={subject.length > SUBJECT_MAX ? subject : undefined}>
+                      “{shortenSubject(subject)}”
+                    </span>
+                  )}
+                  {subject && message ? " " : null}
+                  {message}
+                </>
+              ) : (
+                title
+              )}
+            </RadixAlert.Description>
           </div>
           <div class={dialogClass.footer}>
             {cancelLabel !== null && (
               <RadixAlert.Cancel asChild>
-                <Button>{cancelLabel}</Button>
+                {/* The default of a destructive alert: show its focus ring even after a click opened it. */}
+                <Button class={cn(destructive && dialogDefaultFocusClass)}>{cancelLabel}</Button>
               </RadixAlert.Cancel>
             )}
             <RadixAlert.Action asChild>
