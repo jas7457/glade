@@ -1,6 +1,6 @@
 /**
- * Message times in the transcript (I-111): the small time next to a user bubble / above an agent
- * reply, shown while the message is hovered (the message sets `group/msg`), with the full date
+ * Message times in the transcript (I-111): the small time below a message (right-aligned under a
+ * user bubble, left-aligned under an agent reply), shown while the message is hovered (the message sets `group/msg`), with the full date
  * and time as its tooltip; and the thin day divider between messages of different days.
  * Formatting lives in message-time.ts.
  *

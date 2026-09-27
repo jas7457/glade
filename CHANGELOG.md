@@ -126,6 +126,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Message times show just below each message (right under yours, left under the agent's).
 - A sub-agent's task (and later messages from the main agent) shows as a compact "Task from main"
   card instead of a huge message from you; very long messages collapse with "Show more".
 - "Messaged …" and "Closed …" rows use the sub-agent's fun name and colour ("Messaged Kit ·

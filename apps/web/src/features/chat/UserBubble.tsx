@@ -98,16 +98,13 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
   const agentMessage = useMemo(() => (images.length === 0 && files.length === 0 ? parseAgentMessage(raw) : null), [raw, images.length, files.length]);
   const { open, lightbox } = useImageLightbox(images);
   if (agentMessage) return <AgentMessageCard message={agentMessage} />;
-  // The time sits left of the last row (the bubble, else the files / images).
-  const time = <MessageTime timestamp={message.timestamp} class="absolute right-full bottom-1 mr-2" />;
   return (
-    <div class="group/msg mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
+    <div class="group/msg relative mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
       {images.length > 0 && (
         <div class="relative flex flex-wrap justify-end gap-1.5">
           {images.map((img, i) => (
             <ImageThumb key={i} image={img} class="max-h-40" onOpen={() => open(i)} />
           ))}
-          {!text && files.length === 0 && time}
         </div>
       )}
       {files.length > 0 && (
@@ -115,7 +112,6 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
           {files.map((path, i) => (
             <AttachedFileChip key={i} path={path} />
           ))}
-          {!text && time}
         </div>
       )}
       {text && (
@@ -123,9 +119,10 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
           <Clamp lines={LONG_BUBBLE_LINES} contentClass="selectable whitespace-pre-wrap break-words">
             <MentionText text={text} />
           </Clamp>
-          {time}
         </div>
       )}
+      {/* Below the message, right-aligned (agent replies: below, left-aligned). Out of flow, so hovering doesn't shift anything. */}
+      <MessageTime timestamp={message.timestamp} class="absolute top-full right-0 mt-0.5" />
       {lightbox}
     </div>
   );

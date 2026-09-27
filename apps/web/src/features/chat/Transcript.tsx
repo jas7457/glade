@@ -210,7 +210,7 @@ function TurnView({ parts, timestamp }: { parts: TurnPart[]; timestamp: number }
         return <PartView key={part.key} part={part} onOpenImage={index === -1 ? undefined : () => open(index)} />;
       })}
       {/* Last child, so jump-to-message's part indices still match (I-093). */}
-      <MessageTime timestamp={timestamp} class="absolute -top-4 left-0" />
+      <MessageTime timestamp={timestamp} class="absolute top-full left-0" />
       {lightbox}
     </div>
   );
