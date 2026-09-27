@@ -109,7 +109,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
       onClick={() => onOpen(chip.id)}
       class={cn(
         // Fixed width (the user asked): chips don't jump as their latest message changes.
-        "flex h-[22px] w-44 max-w-full min-w-0 items-center gap-1.5 rounded-full text-left border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
+        "flex h-[22px] w-44 max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full text-left border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
         chip.attention === "warning" && "border-warning/60 bg-warning-tint",
         chip.attention === "danger" && "border-danger/50 bg-danger-tint",
         selected && "border-agent ring-1 ring-agent",

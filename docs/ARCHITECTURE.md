@@ -659,7 +659,8 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   is only for the new-chat screen. The header's location line (`ChatLocation`, I-107) reads
   branch/HEAD from the changes status, so it has no endpoint of its own.
 - Cursors (I-113): controls keep the default arrow (native look); the one exception is images that open
-  in the lightbox, which use `cursor-zoom-in` as macOS does for enlargeable images.
+  in the lightbox, which use `cursor-zoom-in` as macOS does for enlargeable images. Sub-agent chips above the
+  composer use `cursor-pointer` (I-118, user request).
 - Agent tools (I-116): Glade loads its own pi extension (`harness/pi/extension/glade-tools.ts`, `-e`,
   bundled as `app/pi-extension/`) into agent sessions, sets `GLADE_TOOLS=1` (ext-kit's agent-teams then
   steps aside) and `GLADE_SUBAGENTS=off` when `settings.agent.subagents` is false (no

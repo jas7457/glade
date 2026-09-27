@@ -130,6 +130,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agent chips above the composer show a pointer cursor, so it's clear they open the agent.
 - Dialogs look like native macOS alerts: everything lines up, regular-size buttons, and destructive
   actions in red text instead of a big red button.
 - Pasted images in the composer open large when clicked, like sent ones.
