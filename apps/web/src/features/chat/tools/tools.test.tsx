@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/preact";
 import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
-import { currentKind, groupKinds, ToolCallRow, ToolGroup } from "./ToolViews";
+import { currentKind, dominantKind, groupKinds, ToolCallRow, ToolGroup } from "./ToolViews";
 import type { ToolCallPart, ToolGroupPart } from "../grouping";
 
 Element.prototype.scrollTo ??= function () {};
@@ -254,5 +254,24 @@ describe("tool colours (I-077)", () => {
     rerender(<ToolGroup part={group([part("shell", "done", "a"), part("read", "done", "b")])} />);
     expect(container.querySelector(".pi-tone-shimmer")).toBeNull();
     expect(Array.from(container.querySelectorAll(".pi-tone-icon.size-4")).map((e) => e.getAttribute("data-tone"))).toEqual(["shell", "read"]);
+  });
+});
+
+describe("dominantKind (I-088)", () => {
+  const part = (kind: ToolKind, status: ToolCallPart["status"], id: string = kind): ToolCallPart => ({
+    type: "tool",
+    key: id,
+    call: call(kind, {}, { id }),
+    result: undefined,
+    status,
+  });
+  it("colours a finished group by the kind most of its calls used", () => {
+    expect(dominantKind([part("shell", "done", "a"), part("read", "done", "b"), part("shell", "done", "c")])).toBe("shell");
+    expect(dominantKind([part("write", "done", "a"), part("edit", "done", "b"), part("read", "done", "c")])).toBe("edit");
+  });
+  it("breaks ties by first use and ignores uncategorised calls", () => {
+    expect(dominantKind([part("read", "done", "a"), part("search", "done", "b")])).toBe("read");
+    expect(dominantKind([part("other", "done", "a"), part("other", "done", "b"), part("list", "done", "c")])).toBe("list");
+    expect(dominantKind([part("other", "done", "a")])).toBeNull();
   });
 });

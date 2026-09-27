@@ -76,14 +76,29 @@ export function groupKinds(calls: ToolCallPart[], max = 6): ToolKind[] {
   return kinds.slice(0, max);
 }
 
-/** "Ran **6** tool calls": the count stands out; while running the label shimmers in the running tool's colour. */
+/**
+ * The kind a finished group is coloured by (I-088): the kind most of its calls used (ties go to the
+ * one used first). `null` for an empty group or one of only uncategorised (`other`) calls.
+ */
+export function dominantKind(calls: ToolCallPart[]): ToolKind | null {
+  const counts = new Map<ToolKind, number>();
+  for (const c of calls) {
+    const kind = c.call.kind === "write" ? "edit" : c.call.kind;
+    if (kind !== "other") counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  let best: ToolKind | null = null;
+  for (const [kind, n] of counts) if (best === null || n > counts.get(best)!) best = kind;
+  return best;
+}
+
+/** "Ran **6** tool calls": the verb in the group's colour, the count stands out; while running the label shimmers in the running tool's colour. */
 function GroupLabel({ count, active, shimmer }: { count: number; active: boolean; shimmer: boolean }) {
   const label = groupLabel(count, active);
   const at = label.indexOf(String(count));
   if (shimmer || at === -1) return <span class={cn(shimmer && "pi-tone-shimmer")}>{label}</span>;
   return (
     <span>
-      {label.slice(0, at)}
+      <span class="pi-tone-text">{label.slice(0, at).trimEnd()}</span>{" "}
       <span class="font-medium text-fg-strong tabular-nums">{count}</span>
       {label.slice(at + String(count).length)}
     </span>
@@ -171,11 +186,13 @@ export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: 
   const duration = groupDuration(results, now, part.active);
   const current = part.active ? currentKind(part.calls) : null;
   const kinds = groupKinds(part.calls);
+  // Running: the running call's colour (shimmering); failed: red; done: the kind most calls used.
+  const tone = current ?? (part.errorCount ? "danger" : (dominantKind(part.calls) ?? "other"));
   return (
     <div class="tool-group">
       <button type="button" class={rowClass} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <ToneIcon icon={Layers} tone={current ?? (part.errorCount ? "danger" : "other")} />
-        <span class="min-w-0 truncate text-fg-muted" data-tone={current ?? undefined}>
+        <ToneIcon icon={Layers} tone={tone} />
+        <span class="min-w-0 truncate text-fg-muted" data-tone={tone}>
           <GroupLabel count={count} active={part.active} shimmer={current !== null} />
           {duration !== null && (part.active || duration >= 1000) && <span class="tabular-nums"> · {formatDuration(duration)}</span>}
           {part.errorCount > 0 && <span class="text-danger"> · {part.errorCount} failed</span>}

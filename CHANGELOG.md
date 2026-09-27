@@ -106,6 +106,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Finished "Ran 3 tool calls" rows are coloured like single tool calls, by the kind of tool they
+  used most (green for commands, blue for reads, …), instead of grey.
 - Replies use the same softer palette as agents: inline code is violet and list numbers and bullets
   are sky blue.
 - Sub-agent chips above the composer have a fixed width, so they no longer jump around as their
