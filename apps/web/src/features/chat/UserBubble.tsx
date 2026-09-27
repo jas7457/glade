@@ -140,7 +140,7 @@ export function ImageThumb({ image, class: className, onOpen }: { image: ImageBl
       type="button"
       aria-label="Open image"
       onClick={onOpen}
-      class="flex shrink-0 rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      class="flex shrink-0 cursor-zoom-in rounded-[10px] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent"
     >
       {img}
     </button>

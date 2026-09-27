@@ -53,7 +53,7 @@ function ResultImages({ result }: { result: ToolResult | undefined }) {
   return (
     <div class="flex flex-wrap gap-2 p-2">
       {result.images.map((img, i) => (
-        <button key={i} type="button" aria-label="Open image" onClick={() => open(i)} class="flex rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <button key={i} type="button" aria-label="Open image" onClick={() => open(i)} class="flex cursor-zoom-in rounded-[6px] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent">
           <img src={imageSrc(img)} class="max-h-60 rounded-[6px] border-[0.5px] border-separator" alt="" />
         </button>
       ))}

@@ -251,6 +251,7 @@
     user-select: text;
     -webkit-user-select: text;
   }
+  /* Exception (I-113): images that open large use the zoom-in cursor (`cursor-zoom-in`), as the user asked. */
   button,
   [role="button"],
   a {

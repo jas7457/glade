@@ -658,3 +658,5 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - Open-in in a chat targets the workspace (`POST /workspaces/:id/open` → `cwd`); the project endpoint
   is only for the new-chat screen. The header's location line (`ChatLocation`, I-107) reads
   branch/HEAD from the changes status, so it has no endpoint of its own.
+- Cursors (I-113): controls keep the default arrow (native look); the one exception is images that open
+  in the lightbox, which use `cursor-zoom-in` as macOS does for enlargeable images.

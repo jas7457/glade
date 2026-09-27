@@ -126,6 +126,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Images in a chat show a zoom-in cursor on hover, so it's clear they open large.
 - Message times show just below each message (right under yours, left under the agent's).
 - A sub-agent's task (and later messages from the main agent) shows as a compact "Task from main"
   card instead of a huge message from you; very long messages collapse with "Show more".
