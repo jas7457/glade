@@ -8,6 +8,10 @@
  *
  * In the main chat of a workspace (I-080) the agent's name is a link that opens the agent in the
  * right-hand pane (while it still exists), with an "Open" button on the row for the keyboard.
+ *
+ * I-084: when the agent's spawn card is in the transcript these messages are folded into it and
+ * not rendered here; this card is the fallback (e.g. compacted history). Known agents show their
+ * fun name and colour.
  */
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
@@ -16,6 +20,7 @@ import type { AgentMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { IconButton } from "@/ui";
 import { useAgentLinks } from "./agent-links";
+import { identityFor, useSpawnLinks } from "./spawn-context";
 import { Markdown } from "./Markdown";
 import "./chat.css";
 
@@ -27,20 +32,30 @@ const kinds = {
 
 function Name({ children }: { children: string }) {
   const links = useAgentLinks();
-  if (!links?.canOpen(children)) return <span class="font-medium text-fg-strong">{children}</span>;
+  // Its fun name in its colour when the chat knows the agent (I-084); the card sets the colour.
+  const identity = identityFor(useSpawnLinks(), children);
+  const label = identity ? (
+    <>
+      <span class="font-medium text-agent">{identity.displayName}</span>
+      {identity.role && <span class="text-fg-subtle"> · {identity.role}</span>}
+    </>
+  ) : (
+    children
+  );
+  if (!links?.canOpen(children)) return identity ? <span>{label}</span> : <span class="font-medium text-fg-strong">{children}</span>;
   // Inside the row's toggle button, so a click opens the agent instead of expanding the card;
   // the row's "Open" button is the keyboard route.
   return (
     <span
       data-agent-link
       title={`Open ${children}`}
-      class="font-medium text-fg-strong hover:underline"
+      class={cn("hover:underline", !identity && "font-medium text-fg-strong")}
       onClick={(e) => {
         e.stopPropagation();
         links.open(children);
       }}
     >
-      {children}
+      {label}
     </span>
   );
 }
@@ -69,6 +84,8 @@ export const AgentMessageCard = memo(function AgentMessageCard({ message, defaul
   const preview = agentPreview(body);
   const links = useAgentLinks();
   const canOpen = message.from !== "main" && !!links?.canOpen(message.from);
+  const spawnLinks = useSpawnLinks();
+  const identity = message.from === "main" ? null : identityFor(spawnLinks, message.from);
   const copy = () => {
     void navigator.clipboard?.writeText(body).then(() => {
       setCopied(true);
@@ -77,7 +94,8 @@ export const AgentMessageCard = memo(function AgentMessageCard({ message, defaul
   };
   return (
     <div
-      class="mt-6 overflow-hidden rounded-[10px] border-[0.5px] border-separator bg-surface first:mt-0"
+      class={cn("mt-6 overflow-hidden rounded-[10px] border-[0.5px] border-separator bg-surface first:mt-0", identity && "shadow-[inset_3px_0_0_var(--pi-agent)]")}
+      data-agent-color={identity?.color}
       data-role="agent-message"
       data-kind={message.kind}
     >
@@ -101,7 +119,7 @@ export const AgentMessageCard = memo(function AgentMessageCard({ message, defaul
           />
         </button>
         {canOpen && (
-          <IconButton label={`Open ${message.from}`} size="sm" onClick={() => links?.open(message.from)}>
+          <IconButton label={`Open ${identity?.displayName ?? message.from}`} size="sm" onClick={() => links?.open(message.from)}>
             <PanelRight />
           </IconButton>
         )}

@@ -33,6 +33,10 @@ export interface TabStripTab {
   badge?: ComponentChildren;
   /** Hover text; defaults to the title. */
   tooltip?: string;
+  /** Muted text after the title (e.g. a sub-agent's role). */
+  subtitle?: string;
+  /** Sub-agent colour key (I-084, `data-agent-color`): the title and the active tab's top line use it. */
+  agentColor?: string;
 }
 
 export interface TabStripProps {
@@ -113,6 +117,7 @@ export function TabStrip({
               key={tab.id}
               role="tab"
               data-tab-id={tab.id}
+              data-agent-color={tab.agentColor}
               aria-selected={active}
               aria-controls={active ? panelId : undefined}
               tabIndex={active ? 0 : -1}
@@ -142,7 +147,7 @@ export function TabStrip({
                 "focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--pi-accent)_45%,transparent)]",
                 active
                   ? // Accent line on top; lighter background covering the strip's bottom separator.
-                    "z-[1] bg-window text-fg before:absolute before:inset-x-0 before:top-0 before:h-[2px] before:bg-accent"
+                    cn("z-[1] bg-window text-fg before:absolute before:inset-x-0 before:top-0 before:h-[2px]", tab.agentColor ? "before:bg-agent" : "before:bg-accent")
                   : "text-fg-muted hover:bg-hover",
               )}
             >
@@ -150,7 +155,10 @@ export function TabStrip({
               {renaming ? (
                 <TabRenameInput value={tab.title} onDone={(title) => onRenameDone?.(tab.id, title)} />
               ) : (
-                <span class={cn("min-w-0 truncate", active && "font-medium")}>{tab.title}</span>
+                <span class={cn("min-w-0 truncate", active && "font-medium", tab.agentColor && "text-agent")}>
+                  {tab.title}
+                  {tab.subtitle && <span class="font-normal text-fg-subtle"> · {tab.subtitle}</span>}
+                </span>
               )}
               {!!tab.badge && !renaming && (
                 <span class="flex shrink-0 items-center text-[0.85em] text-fg-muted [&_svg]:size-3">{tab.badge}</span>

@@ -51,6 +51,15 @@
   --shadow-dialog: var(--pi-dialog-shadow);
 }
 
+/*
+ * A sub-agent's colour (I-084): set per element with `data-agent-color="<key>"` (see below).
+ * `inline` so the utilities read the element's own `--pi-agent`, not the root's.
+ */
+@theme inline {
+  --color-agent: var(--pi-agent);
+  --color-agent-tint: var(--pi-agent-tint-color);
+}
+
 :root {
   --pi-window: #ffffff;
   --pi-sidebar: #f3f2f7;
@@ -116,6 +125,19 @@
   --pi-tool-other: rgb(0 0 0 / 0.55);
   /* Tint behind a tool icon: this much of the tool colour mixed into the window colour. */
   --pi-tool-tint: 13%;
+  /*
+   * Sub-agent colours (I-084), keys = AGENT_COLORS (protocol). Readable as text on the window
+   * colour; `--pi-agent-tint` is how much of it tints a chip/card background.
+   */
+  --pi-agent-coral: #c2410c;
+  --pi-agent-amber: #a16207;
+  --pi-agent-lime: #4d7c0f;
+  --pi-agent-teal: #0f766e;
+  --pi-agent-sky: #0369a1;
+  --pi-agent-indigo: #4f46e5;
+  --pi-agent-violet: #7e22ce;
+  --pi-agent-pink: #be185d;
+  --pi-agent-tint: 9%;
   /* Colours of the band that sweeps across live status labels ("Working…", I-081). */
   --pi-rainbow: #dc2626, #b45309, #15803d, #0e7490, #1d4ed8, #7c3aed, #be185d;
   --pi-font-size: 13px;
@@ -166,9 +188,35 @@
   --pi-tool-task: #f778ba;
   --pi-tool-other: rgb(255 255 255 / 0.55);
   --pi-tool-tint: 16%;
+  --pi-agent-coral: #ff8f6b;
+  --pi-agent-amber: #f2b33d;
+  --pi-agent-lime: #a3d65c;
+  --pi-agent-teal: #4fd1c1;
+  --pi-agent-sky: #62c0ff;
+  --pi-agent-indigo: #a5a8ff;
+  --pi-agent-violet: #cf9cff;
+  --pi-agent-pink: #ff8cc8;
+  --pi-agent-tint: 13%;
   --pi-rainbow: #ff7b72, #ffa657, #7ee787, #56d4dd, #79c0ff, #d2a8ff, #ff9bce;
   color-scheme: dark;
 }
+
+/*
+ * An element in a sub-agent's colour (I-084): `data-agent-color="teal"` makes `text-agent`,
+ * `bg-agent`, `border-agent` and `bg-agent-tint` use that agent's hue inside it.
+ */
+[data-agent-color] {
+  --pi-agent: var(--pi-fg-muted);
+  --pi-agent-tint-color: color-mix(in srgb, var(--pi-agent) var(--pi-agent-tint), transparent);
+}
+[data-agent-color="coral"] { --pi-agent: var(--pi-agent-coral); }
+[data-agent-color="amber"] { --pi-agent: var(--pi-agent-amber); }
+[data-agent-color="lime"] { --pi-agent: var(--pi-agent-lime); }
+[data-agent-color="teal"] { --pi-agent: var(--pi-agent-teal); }
+[data-agent-color="sky"] { --pi-agent: var(--pi-agent-sky); }
+[data-agent-color="indigo"] { --pi-agent: var(--pi-agent-indigo); }
+[data-agent-color="violet"] { --pi-agent: var(--pi-agent-violet); }
+[data-agent-color="pink"] { --pi-agent: var(--pi-agent-pink); }
 
 [data-font-size="small"] { --pi-font-size: 12px; }
 [data-font-size="large"] { --pi-font-size: 14px; }

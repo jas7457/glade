@@ -5,7 +5,7 @@ import type { AgentEvent, SessionState, UiResponse } from "./events.js";
 import type { ModelInfo, ModelRef, ThinkingLevel } from "./models.js";
 import type { Transcript } from "./transcript.js";
 import type { ChatStatus } from "./status.js";
-import type { SessionAgentState } from "./agents.js";
+import type { SessionAgentState, SpawnedAgentRef } from "./agents.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -125,6 +125,12 @@ export interface SessionSummary extends Session {
   status: ChatStatus;
   /** Sub-agent state (`subagent` sessions spawned via the agent API; absent otherwise). */
   agent?: SessionAgentState;
+  /**
+   * Sub-agents this session spawned (`main` sessions with any; I-084), oldest first, including
+   * closed ones whose tab is gone: links the transcript's spawn cards to their agents' names and
+   * colours after the agent closed.
+   */
+  spawnedAgents?: SpawnedAgentRef[];
   /**
    * I-062: another Glade server sharing this data folder is running this session's agent right
    * now (working or waiting for input). This server shows it read-only: prompts answer 409 until

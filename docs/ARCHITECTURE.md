@@ -199,6 +199,14 @@ parent chat. The record stays (`closed`, `removed`) so `list_agents` shows it as
 workspace. A sub-agent whose process crashes is `closed` but keeps its tab so the error is
 readable; viewing it reads the transcript from the session file (`AgentHarness.readTranscript`,
 slash commands from the folder) **without restarting it**; typing in it starts it again.
+Sub-agents get a fun display name and a colour at spawn (`services/agent-names.ts`, I-084), unique
+among the workspace's active agents, stored on the session and the agent record. The parent session
+lists every agent it spawned in `SessionSummary.spawnedAgents` (kept after close). The web turns the
+parent's `task` tool calls into agent cards (`linkAgentSpawns`, matched per name from the end),
+folds that agent's finished / message / exited prompts into the card, and falls back to
+`AgentMessageCard` when there's no card. Colours are `--pi-agent-<key>` tokens applied with
+`data-agent-color`.
+
 Records (role, tools, state) live in `<dataDir>/agents.json` so a sub-agent reopened after a
 restart keeps its role.
 

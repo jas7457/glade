@@ -149,3 +149,17 @@ export interface ListAgentsResponse {
  */
 export const AGENT_COLORS = ["coral", "amber", "lime", "teal", "sky", "indigo", "violet", "pink"] as const;
 export type AgentColor = (typeof AGENT_COLORS)[number];
+
+/**
+ * A sub-agent a main session spawned (I-084; `SessionSummary.spawnedAgents`), kept after it
+ * closed (its session is deleted then) so the parent's spawn cards keep its name and colour.
+ */
+export interface SpawnedAgentRef {
+  /** Functional name from spawn_agent (the `task` tool call's `input.agentName`). */
+  name: string;
+  /** Its session id (the session may no longer exist). */
+  sessionId: string;
+  displayName?: string;
+  color?: string;
+  spawnedAt: number;
+}

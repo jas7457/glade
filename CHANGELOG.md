@@ -106,6 +106,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agents get a fun name and their own colour ("Maya · reviewer"). They show as small chips
+  above the composer and as a live card where they were started, which turns into their report when
+  they finish.
 - Sub-agents show as a compact list above the composer (status, model, what each is doing, time),
   with Stop all. Their conversation opens on the right only when you click one, and closing that pane
   keeps them running.

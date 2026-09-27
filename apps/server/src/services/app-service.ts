@@ -78,8 +78,10 @@ import {
   messageText,
   normalizeAgentName,
   sessionAgentState,
+  spawnedAgentRef,
   type AgentRecord,
 } from "./agents.js";
+import { pickAgentIdentity, type AgentIdentity } from "./agent-names.js";
 import { LeaseManager, type LeaseInfo } from "./leases.js";
 import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
@@ -185,7 +187,14 @@ export interface AppServiceOptions {
  */
 export type NewSessionKind =
   | { kind: "main" }
-  | { kind: "subagent"; parentSessionId: string; agentName: string; register?: (session: Session) => void };
+  | {
+      kind: "subagent";
+      parentSessionId: string;
+      agentName: string;
+      /** Fun name + colour (I-084). */
+      identity?: AgentIdentity;
+      register?: (session: Session) => void;
+    };
 
 type Listener = (message: ServerMessage) => void;
 
@@ -467,6 +476,10 @@ export class AppService {
     }
     const agent = session.kind === "subagent" ? this.agents.get(session.id) : undefined;
     if (agent) summary.agent = sessionAgentState(agent, running);
+    if (session.kind === "main") {
+      const spawned = this.agents.childrenOf(session.id);
+      if (spawned.length) summary.spawnedAgents = spawned.map(spawnedAgentRef);
+    }
     return summary;
   }
 
@@ -641,6 +654,7 @@ export class AppService {
       kind: how.kind,
       parentSessionId: how.kind === "subagent" ? how.parentSessionId : null,
       agentName: how.kind === "subagent" ? how.agentName : null,
+      ...(how.kind === "subagent" && how.identity ? { agentDisplayName: how.identity.displayName, agentColor: how.identity.color } : {}),
       title: how.kind === "subagent" ? how.agentName : req.prompt ? quickTitle(req.prompt) : "New chat",
       titleSource: how.kind === "subagent" ? "user" : "auto",
       harness: harness.id,
@@ -1121,6 +1135,7 @@ export class AppService {
     if (active.length >= MAX_ACTIVE_AGENTS) {
       throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
     }
+    const identity = pickAgentIdentity(active);
     const agent = req.agent?.trim() || null;
     const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
     const systemPrompt = buildRolePrompt({
@@ -1137,12 +1152,15 @@ export class AppService {
         kind: "subagent",
         parentSessionId: caller.id,
         agentName: name,
+        identity,
         register: (session) => {
           record = this.agents.upsert({
             sessionId: session.id,
             parentSessionId: caller.id,
             workspaceId: caller.workspaceId,
             name,
+            displayName: identity.displayName,
+            color: identity.color,
             agent,
             task,
             systemPrompt,
@@ -1156,6 +1174,7 @@ export class AppService {
             closing: false,
             closed: false,
           });
+          this.pushSessions([caller.id]); // its spawnedAgents changed
         },
       },
     );

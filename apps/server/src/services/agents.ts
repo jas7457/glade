@@ -10,7 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage } from "@glade/protocol";
-import type { AgentInfo, AgentStatus, SessionAgentState } from "@glade/protocol";
+import type { AgentInfo, AgentStatus, SessionAgentState, SpawnedAgentRef } from "@glade/protocol";
 import { JsonFile } from "../store/json-file.js";
 
 /** The name a sub-agent uses for its parent. */
@@ -28,6 +28,9 @@ export interface AgentRecord {
   parentSessionId: string;
   workspaceId: string;
   name: string;
+  /** Fun display name and colour key (I-084); absent on records from before. */
+  displayName?: string;
+  color?: string;
   agent: string | null;
   task: string;
   /** Appended to its system prompt (built once at spawn). */
@@ -255,4 +258,12 @@ export function sessionAgentState(record: AgentRecord, running: boolean): Sessio
     doneAt: record.doneAt,
     result: record.result,
   };
+}
+
+/** A record as its parent's `SessionSummary.spawnedAgents` entry (I-084). */
+export function spawnedAgentRef(record: AgentRecord): SpawnedAgentRef {
+  const ref: SpawnedAgentRef = { name: record.name, sessionId: record.sessionId, spawnedAt: record.spawnedAt };
+  if (record.displayName) ref.displayName = record.displayName;
+  if (record.color) ref.color = record.color;
+  return ref;
 }

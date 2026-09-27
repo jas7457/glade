@@ -34,7 +34,10 @@ const FIXTURES: Array<{ name: string; args: Json; kind: string; input: unknown }
   { name: "ls", args: {}, kind: "list", input: {} },
   // Extension tools have no canonical shape: shown from their raw name/args.
   { name: "web_search", args: { queries: ["a", "b"] }, kind: "other", input: undefined },
-  { name: "spawn_agent", args: { name: "x", task: "y" }, kind: "other", input: undefined },
+  // ext-kit agent-teams: spawn_agent is a task (I-084); the rest stay other.
+  { name: "spawn_agent", args: { name: "reviewer", task: "\n  Review the diff.  \nDetails…" }, kind: "task", input: { agentName: "reviewer", description: "Review the diff." } },
+  { name: "spawn_agent", args: {}, kind: "task", input: {} },
+  { name: "message_agent", args: { to: "x", text: "y" }, kind: "other", input: undefined },
   { name: "mcp__chrome_devtools", args: { tool: "take_snapshot" }, kind: "other", input: undefined },
 ];
 

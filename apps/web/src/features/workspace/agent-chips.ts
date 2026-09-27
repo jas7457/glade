@@ -1,14 +1,14 @@
 /**
- * Sub-agent summary strip state (I-080): one chip per sub-agent of a main chat (status, elapsed
- * time, short model name, latest one-line activity, task, report) and the strip's summary line
- * ("3 agents · 2 working · 1 done"). Pure, so the rules are unit-tested; the strip
- * (`SubagentStrip.tsx`) only renders them.
+ * Sub-agent chips above the composer (I-080, compact chips since I-084): one small chip per
+ * sub-agent of a main chat with its colour, fun name, status and latest activity (truncated to
+ * `CHIP_TEXT_MAX`). Pure, so the rules are unit-tested; `SubagentStrip.tsx` only renders them.
  *
  * Status comes from `SessionSummary` (status + `agent`, like `agentDisplay`); activity from the
  * sub-agent's transcript when it's loaded (current tool call, else the last reply line).
  */
 import type { AssistantMessage, ModelInfo, ModelRef, SessionSummary, ToolCallBlock, Transcript } from "@glade/protocol";
 import { agentPreview } from "@/features/chat/AgentMessageCard";
+import { sessionAgentIdentity, type AgentIdentityView } from "@/features/chat/agent-identity";
 import { summarizeToolCall } from "@/features/chat/tools/summaries";
 
 /**
@@ -20,7 +20,10 @@ export type ChipKind = "working" | "blocked" | "done" | "failed" | "closing" | "
 
 export interface AgentChip {
   id: string;
+  /** Functional name (message_agent id). */
   name: string;
+  /** Fun name, role and colour (I-084). */
+  identity: AgentIdentityView;
   kind: ChipKind;
   /** Short status label, e.g. "Needs input". */
   label: string;
@@ -34,13 +37,15 @@ export interface AgentChip {
   model: string | null;
   /** Latest one-line activity ("Running `pnpm test`", last reply line, report), or "". */
   activity: string;
+  /** `activity` truncated for the chip (full text in its tooltip). */
+  shortActivity: string;
   /** First line of its task. */
   task: string;
   /** The report_done summary (Markdown), when done. */
   result: string | null;
 }
 
-type ChipSession = Pick<SessionSummary, "id" | "title" | "agentName" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model">;
+type ChipSession = Pick<SessionSummary, "id" | "title" | "agentName" | "agentDisplayName" | "agentColor" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model">;
 
 export function chipKind(session: ChipSession): ChipKind {
   const agent = session.agent;
@@ -53,7 +58,7 @@ export function chipKind(session: ChipSession): ChipKind {
   return "idle";
 }
 
-const LABELS: Record<ChipKind, string> = {
+export const CHIP_LABELS: Record<ChipKind, string> = {
   working: "Working",
   blocked: "Needs input",
   done: "Done",
@@ -125,36 +130,36 @@ export function agentChip(session: ChipSession, transcript: Transcript | null, m
   const activity =
     kind === "blocked"
       ? "Waiting for your input"
-      : kind === "done" && result
+      : kind === "failed" && agent?.status === "closed"
+        ? "Process stopped"
+        : kind === "done" && result
         ? agentPreview(result)
         : latestActivity(transcript) || (kind === "working" ? "Starting…" : "");
   return {
     id: session.id,
     name: session.agentName || session.title || "Sub-agent",
+    identity: sessionAgentIdentity(session),
     kind,
-    label: agent?.status === "closed" && kind === "failed" ? "Exited" : LABELS[kind],
+    label: agent?.status === "closed" && kind === "failed" ? "Exited" : CHIP_LABELS[kind],
     running: kind === "working" || kind === "blocked",
     attention: kind === "blocked" ? "warning" : kind === "failed" ? "danger" : null,
     elapsedMs: Math.max(0, end - session.createdAt),
     model: shortModelName(session.model, models),
     activity,
+    shortActivity: truncateText(activity, CHIP_TEXT_MAX),
     task: firstLine(agent?.task),
     result,
   };
 }
 
-/** "3 agents · 2 working · 1 done" (only non-zero counts; order: attention first). */
-export function stripSummary(chips: readonly Pick<AgentChip, "kind">[]): string {
-  const count = (k: ChipKind) => chips.filter((c) => c.kind === k).length;
-  const parts = [`${chips.length} ${chips.length === 1 ? "agent" : "agents"}`];
-  const add = (n: number, label: string) => n > 0 && parts.push(`${n} ${label}`);
-  add(count("blocked"), count("blocked") === 1 ? "needs input" : "need input");
-  add(count("failed"), "failed");
-  add(count("working"), "working");
-  add(count("done"), "done");
-  add(count("idle") + count("closing"), "idle");
-  return parts.join(" · ");
-}
+/** Longest activity text on a chip (characters, incl. the ellipsis). */
+export const CHIP_TEXT_MAX = 28;
 
-/** The strip starts collapsed to its summary line from this many agents on. */
-export const COLLAPSE_FROM = 3;
+/** `text` on one line, cut to `max` characters with an ellipsis (at a word break when close). */
+export function truncateText(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space >= max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}

@@ -19,7 +19,7 @@ export interface AgentDisplay {
 }
 
 /** `null` for sessions that aren't agent-API sub-agents. */
-export function agentDisplay(session: Pick<SessionSummary, "title" | "agentName" | "status" | "agent">): AgentDisplay | null {
+export function agentDisplay(session: Pick<SessionSummary, "title" | "agentName" | "agentDisplayName" | "status" | "agent">): AgentDisplay | null {
   const agent = session.agent;
   if (!agent) return null;
   const kind: AgentDisplayKind =
@@ -35,7 +35,9 @@ export function agentDisplay(session: Pick<SessionSummary, "title" | "agentName"
               ? "done"
               : "idle";
   const label = LABELS[kind];
-  const name = session.title || session.agentName || "Sub-agent";
+  // "Maya · reviewer" once it has a fun name (I-084).
+  const base = session.title || session.agentName || "Sub-agent";
+  const name = session.agentDisplayName ? `${session.agentDisplayName} · ${base}` : base;
   const lines = [`${name}${agent.agent ? ` (${agent.agent})` : ""} — ${label}`];
   if (agent.keepOpenReason && kind === "done") lines.push(`Kept open for: ${agent.keepOpenReason}`);
   lines.push(`Task: ${clip(agent.task, 300)}`);

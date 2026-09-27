@@ -1,7 +1,7 @@
 /**
- * One-line bar above a sub-agent's conversation (I-054) once it has something to say about its
- * state: done (with its report_done result, expandable), closing, or stopped. Hidden while it
- * works normally (the tab shows that).
+ * One-line bar above a sub-agent's conversation (I-054; always shown since I-084): the agent's
+ * fun name in its colour with its role greyed ("Maya · reviewer"), its status, and once done its
+ * report_done result (expandable), or a note while closing / after its process stopped.
  *
  *   <AgentBar session={subagentSummary} />
  */
@@ -10,25 +10,35 @@ import { Check, ChevronRight, CircleSlash } from "lucide-preact";
 import type { SessionSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/ui";
+import { sessionAgentIdentity } from "@/features/chat/agent-identity";
 import { agentDisplay } from "./agent-status";
 
 export function AgentBar({ session }: { session: SessionSummary }) {
   const [open, setOpen] = useState(false);
   const display = agentDisplay(session);
-  if (!display || !["done", "closing", "closed"].includes(display.kind)) return null;
-  const result = session.agent?.result?.trim() || null;
+  if (!display) return null;
+  const identity = sessionAgentIdentity(session);
+  const result = display.kind === "done" ? session.agent?.result?.trim() || null : null;
   const icon =
     display.kind === "done" ? (
       <Check class="size-3.5 text-success" />
-    ) : display.kind === "closing" ? (
-      <Spinner size={11} />
-    ) : (
+    ) : display.kind === "closing" || display.kind === "working" ? (
+      <span class="flex text-agent">
+        <Spinner size={11} class="text-current" />
+      </span>
+    ) : display.kind === "blocked" ? (
+      <span class="size-[7px] rounded-full bg-warning" />
+    ) : display.kind === "closed" ? (
       <CircleSlash class="size-3.5 text-fg-muted" />
-    );
+    ) : null;
   const note =
     display.kind === "closed" ? "Its process stopped. Type a message to start it again." : display.kind === "closing" ? "This tab closes when its turn ends." : null;
   return (
-    <div data-agent-bar={display.kind} class="shrink-0 border-b-[0.5px] border-separator bg-tabbar text-[0.92rem] select-none">
+    <div
+      data-agent-bar={display.kind}
+      data-agent-color={identity.color}
+      class="shrink-0 border-b-[0.5px] border-separator bg-tabbar text-[0.92rem] select-none"
+    >
       <button
         type="button"
         aria-expanded={result ? open : undefined}
@@ -37,8 +47,12 @@ export function AgentBar({ session }: { session: SessionSummary }) {
         title={display.tooltip}
         class="flex h-7 w-full min-w-0 items-center gap-1.5 px-2.5 text-left outline-none"
       >
+        <span aria-hidden="true" class="size-2 shrink-0 rounded-full bg-agent" />
+        <span class="shrink-0 font-medium text-agent">{identity.displayName}</span>
+        {identity.role && <span class="shrink-0 text-fg-subtle">· {identity.role}</span>}
+        <span class="w-1 shrink-0" />
         {icon}
-        <span class="shrink-0 font-medium text-fg">{display.label}</span>
+        <span class="shrink-0 text-fg">{display.label}</span>
         {(result || note) && <span class="min-w-0 flex-1 truncate text-fg-muted">{open ? "" : (result ?? note)}</span>}
         {result && <ChevronRight class={cn("size-3 shrink-0 text-fg-muted transition-transform", open && "rotate-90")} />}
       </button>

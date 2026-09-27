@@ -11,6 +11,8 @@ export interface AgentLinks {
   /** Open the sub-agent called `name`; `false` when it no longer exists (closed agents are deleted). */
   canOpen(name: string): boolean;
   open(name: string): void;
+  /** Open a sub-agent by its session id (spawn cards, I-084). */
+  openSession?(sessionId: string): void;
 }
 
 export const AgentLinksContext = createContext<AgentLinks | null>(null);

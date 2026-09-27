@@ -23,6 +23,7 @@ import { IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, formatShortcu
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
 import { AgentLinksContext, type AgentLinks } from "@/features/chat/agent-links";
+import { sessionAgentIdentity } from "@/features/chat/agent-identity";
 import { AgentBar } from "./AgentBar";
 import { SubagentStrip } from "./SubagentStrip";
 import { agentDisplay } from "./agent-status";
@@ -95,6 +96,9 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
       const agent = subagents.find((s) => s.agentName === name);
       if (agent) openSub(agent.id);
     },
+    openSession: (id) => {
+      if (subagents.some((s) => s.id === id)) openSub(id);
+    },
   };
   const close = (session: SessionSummary | undefined, focused: boolean) => {
     if (session) void closeTab(session, navigate, { focused });
@@ -137,9 +141,14 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     const isMax = maximized === group;
     // Sub-agents (I-054): ✓ once done, ⊘ when stopped; the tooltip has the task and result.
     const agent = agentDisplay(s);
+    // Sub-agents (I-084): fun name in its colour, role greyed, unless the user renamed the tab.
+    const identity = s.kind === "subagent" ? sessionAgentIdentity(s) : null;
+    const renamed = !!identity && !!s.title && s.title !== s.agentName;
     return {
       id: s.id,
-      title: tabTitle(s),
+      title: identity && !renamed ? identity.displayName : tabTitle(s),
+      subtitle: identity && !renamed ? (identity.role ?? undefined) : undefined,
+      agentColor: identity?.color,
       status: s.status,
       failed: s.lastRunFailed,
       badge:

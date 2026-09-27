@@ -3,8 +3,9 @@
  *
  * pi's built-in tools (`bash`, `powershell`, `read`, `write`, `edit`, `grep`, `find`, `ls`) get a
  * canonical {@link ToolKind} and a normalized {@link ToolInput}; the edit tool's display diff
- * (`details.diff`) becomes normalized {@link DiffLine}s. Extension tools (web_search,
- * spawn_agent, MCP…) stay `other` and are shown from their raw name/args. Pure; no I/O.
+ * (`details.diff`) becomes normalized {@link DiffLine}s. ext-kit's `spawn_agent` is a `task`
+ * (`agentName` + the task's first line). Other extension tools (web_search, message_agent,
+ * MCP…) stay `other` and are shown from their raw name/args. Pure; no I/O.
  */
 import type { DiffLine, ToolCallBlock, ToolEdit, ToolInput, ToolKind } from "@glade/protocol";
 
@@ -19,6 +20,8 @@ const KINDS = new Map<string, ToolKind>([
   ["grep", "search"],
   ["find", "search"],
   ["ls", "list"],
+  // ext-kit agent-teams (I-084): shown as the spawned agent's card.
+  ["spawn_agent", "task"],
 ]);
 
 /** Canonical kind of a pi tool (by name). */
@@ -28,6 +31,12 @@ export function piToolKind(name: string): ToolKind {
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+
+/** First non-empty line of a string (trimmed); undefined otherwise. */
+function firstLine(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  return v.split("\n").map((l) => l.trim()).find(Boolean);
+}
 
 /** Drop undefined fields so the input serializes (and compares) compactly. */
 function compact(input: ToolInput): ToolInput {
@@ -86,6 +95,8 @@ export function piToolInput(name: string, args: Args | undefined, options: PiToo
       return compact({ pattern: str(a.pattern), path: str(a.path), glob: str(a.glob) });
     case "list":
       return compact({ path: str(a.path) });
+    case "task":
+      return compact({ agentName: str(a.name), description: str(firstLine(a.task)) });
     default:
       return undefined;
   }

@@ -2,7 +2,8 @@
  * Scrolling transcript for one chat. Reusable anywhere: give it a `chatId`.
  *
  * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles (sub-agent reports
- * as cards, AgentMessageCard.tsx), assistant turns (markdown, thinking, tool rows/groups,
+ * as cards, AgentMessageCard.tsx), sub-agent spawns as agent cards that also absorb the agent's
+ * later messages (AgentSpawnCard.tsx, agent-spawns.ts, I-084), assistant turns (markdown, thinking, tool rows/groups,
  * errors), the user's shell commands (ShellCard.tsx) and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
  *
@@ -12,13 +13,17 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
-import { parseAgentMessage, type ImageBlock, type NoticeMessage, type UserMessage } from "@glade/protocol";
+import { parseAgentMessage, subagentSessionsOf, type ImageBlock, type NoticeMessage, type UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
+import { sessions } from "@/state/store";
 import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { AgentSpawnCard } from "./AgentSpawnCard";
+import { linkAgentSpawns } from "./agent-spawns";
+import { SpawnLinksContext, type SpawnLinksValue } from "./spawn-context";
 import { ShellCard } from "./ShellCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
@@ -46,7 +51,16 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const status = store.status.value;
   const isRunning = state.isRunning;
 
-  const items = useMemo(() => groupTranscript(transcript, { isRunning }, grouping), [transcript, isRunning, grouping]);
+  // Sub-agents spawned here (I-084): spawn calls become agent cards; their messages fold into them.
+  const allSessions = sessions.value;
+  const refs = useMemo(() => allSessions.find((s) => s.id === chatId)?.spawnedAgents ?? [], [allSessions, chatId]);
+  const subagents = useMemo(() => subagentSessionsOf(allSessions, chatId), [allSessions, chatId]);
+  const links = useMemo(() => linkAgentSpawns(transcript, refs), [transcript, refs]);
+  const spawnValue = useMemo<SpawnLinksValue>(() => ({ links, subagents, refs }), [links, subagents, refs]);
+  const items = useMemo(
+    () => groupTranscript(transcript, { isRunning }, grouping).filter((i) => !(i.type === "user" && links.hidden.has(i.message.id))),
+    [transcript, isRunning, grouping, links],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -90,9 +104,11 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
       <div ref={scrollRef} class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="transcript-scroll">
         {placeholder}
         <div ref={contentRef} class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}>
-          {items.map((item) => (
-            <ItemView key={item.key} item={item} chatId={chatId} />
-          ))}
+          <SpawnLinksContext.Provider value={spawnValue}>
+            {items.map((item) => (
+              <ItemView key={item.key} item={item} chatId={chatId} />
+            ))}
+          </SpawnLinksContext.Provider>
           {working.mounted && <WorkingIndicator key="working" visible={working.visible} label={working.label} startedAt={state.runStartedAt ?? null} />}
         </div>
       </div>
@@ -136,7 +152,7 @@ function PartView({ part }: { part: TurnPart }) {
     case "thinking":
       return <ThinkingView text={part.text} streaming={part.streaming} />;
     case "tool":
-      return <ToolCallRow part={part} />;
+      return part.call.kind === "task" ? <AgentSpawnCard part={part} /> : <ToolCallRow part={part} />;
     case "toolGroup":
       return <ToolGroup part={part} />;
     case "image":

@@ -1,8 +1,8 @@
-/** I-080: sub-agent strip chips (status, time, model, activity) and the summary line. */
+/** I-080/I-084: sub-agent chips (status, time, model, activity, identity, truncation). */
 import { describe, expect, it } from "vitest";
 import type { ContentBlock, ModelInfo, SessionAgentState, ToolResult, Transcript } from "@glade/protocol";
 import { makeSession } from "@/test/fixtures";
-import { agentChip, chipKind, latestActivity, shortModelName, stripSummary } from "./agent-chips";
+import { agentChip, CHIP_TEXT_MAX, chipKind, latestActivity, shortModelName, truncateText } from "./agent-chips";
 
 const agent = (over: Partial<SessionAgentState> = {}): SessionAgentState => ({
   status: "working",
@@ -73,10 +73,32 @@ describe("agentChip", () => {
   });
 });
 
-describe("stripSummary", () => {
-  it("counts agents by status, skipping zeros", () => {
-    expect(stripSummary([{ kind: "working" }, { kind: "working" }, { kind: "done" }])).toBe("3 agents · 2 working · 1 done");
-    expect(stripSummary([{ kind: "blocked" }, { kind: "failed" }, { kind: "idle" }, { kind: "closing" }])).toBe("4 agents · 1 needs input · 1 failed · 2 idle");
-    expect(stripSummary([{ kind: "done" }])).toBe("1 agent · 1 done");
+describe("chip identity and text", () => {
+  it("uses the fun name and colour, falling back to the agent name and a colour from its id", () => {
+    const named = agentChip(sub({ id: "a", status: "working", agentDisplayName: "Maya", agentColor: "teal" }), null, [], 2_000);
+    expect(named.identity).toEqual({ displayName: "Maya", role: "reviewer", color: "teal" });
+    const old = agentChip(sub({ id: "a", status: "working" }), null, [], 2_000);
+    expect(old.identity.displayName).toBe("reviewer");
+    expect(old.identity.role).toBeNull();
+    expect(agentChip(sub({ id: "a", status: "working" }), null, [], 2_000).identity.color).toBe(old.identity.color);
+  });
+
+  it("truncates the activity for the chip, keeping the full text", () => {
+    const long = "Running pnpm test --filter ./apps/web --reporter verbose";
+    const t = transcript([{ ...bash, input: { command: "pnpm test --filter ./apps/web --reporter verbose" } }], { t1: result("running") });
+    const chip = agentChip(sub({ id: "a", status: "working" }), t, [], 2_000);
+    expect(chip.activity).toBe(long);
+    expect(chip.shortActivity.length).toBeLessThanOrEqual(CHIP_TEXT_MAX);
+    expect(chip.shortActivity.endsWith("…")).toBe(true);
+  });
+});
+
+describe("truncateText", () => {
+  it("keeps short text, cuts long text at a word break when close, else mid-word", () => {
+    expect(truncateText("  Looks\n good ", 28)).toBe("Looks good");
+    expect(truncateText("Reviewing the auth middleware now", 28)).toBe("Reviewing the auth…");
+    expect(truncateText("Reviewing the authentication middleware", 28)).toBe("Reviewing the authenticatio…");
+    expect(truncateText("Supercalifragilisticexpialidocious!", 10)).toBe("Supercali…");
+    expect(truncateText("a".repeat(28), 28)).toBe("a".repeat(28));
   });
 });

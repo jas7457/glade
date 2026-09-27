@@ -7,6 +7,7 @@
  *   - Consecutive tool calls inside a turn collapse into one `toolGroup` part (when there
  *     are at least `minGroupSize` of them). Whether thinking/text between calls breaks a
  *     group is configurable via {@link GroupingOptions}.
+ *   - `task` calls (sub-agent spawns, I-084) are never grouped: they render as agent cards.
  *   - Empty text, and empty/redacted thinking, are dropped and never break a group.
  */
 import type {
@@ -210,6 +211,12 @@ export function buildTurnParts(
       switch (block.type) {
         case "toolCall": {
           const result = toolResults[block.id];
+          if (block.kind === "task") {
+            // A spawned sub-agent is a card of its own (I-084), never folded into a group.
+            flushRun();
+            parts.push({ type: "tool", key, call: block, result, status: toolCallStatus(block, result, context.isRunning) });
+            return;
+          }
           run.push({ type: "tool", key, call: block, result, status: toolCallStatus(block, result, context.isRunning) });
           return;
         }

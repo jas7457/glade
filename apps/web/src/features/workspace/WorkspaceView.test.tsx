@@ -215,7 +215,7 @@ describe("WorkspaceView", () => {
     return waitFor(() => expect(within(subTablist()!).getAllByRole("tab").map((t) => t.textContent)).toEqual(["tests"]));
   });
 
-  describe("sub-agent strip and pane (I-080)", () => {
+  describe("sub-agent chips, spawn cards and pane (I-080, I-084)", () => {
     const strip = () => screen.getByRole("region", { name: "Sub-agents" });
     const closedPane = () => {
       workspaces.value = [makeWorkspace({ id: "w", projectId: "p", title: "Workspace" })];
@@ -262,28 +262,35 @@ describe("WorkspaceView", () => {
       expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 
-    it("collapses many agents to a summary line with pills and Stop all when expanded", async () => {
+    it("shows compact chips side by side, attention tinted, with Stop All in an overflow menu", async () => {
       closedPane();
       const running = { agent: null, task: "t", keepOpenReason: null, userEngaged: false, closing: false, doneAt: null, result: null };
       sessions.value = [
-        ...sessions.value.map((s) => (s.id === "a1" ? { ...s, status: "working" as const, agent: { ...running, status: "working" as const } } : s)),
+        ...sessions.value.map((s) => (s.id === "a1" ? { ...s, agentDisplayName: "Maya", agentColor: "teal", status: "working" as const, agent: { ...running, status: "working" as const } } : s)),
         makeSession({ id: "a3", workspaceId: "w", kind: "subagent", parentSessionId: "m1", agentName: "docs", title: "docs", createdAt: 5, status: "blocked" }),
       ];
       renderAt("/projects/p/chats/w");
-      expect(strip().querySelector("[data-strip-summary]")!.textContent).toBe("3 agents · 1 needs input · 1 working · 1 idle");
-      expect(strip().querySelectorAll("[data-agent-chip]")).toHaveLength(0);
-      fireEvent.click(within(strip()).getByRole("button", { name: "Open docs" }));
+      const chips = [...strip().querySelectorAll<HTMLElement>("[data-agent-chip]")];
+      expect(chips.map((c) => c.getAttribute("aria-label"))).toEqual(["Open Maya (Working)", "Open tests (Idle)", "Open docs (Needs input)"]);
+      expect(chips[0]!.getAttribute("data-agent-color")).toBe("teal");
+      expect(chips[0]!.getAttribute("title")).toContain("Maya · reviewer");
+      expect(chips[2]!.getAttribute("data-attention")).toBe("warning");
+      expect(chips[2]!.textContent).toContain("Waiting for your input");
+      fireEvent.click(chips[2]!);
       await waitFor(() => expect(subTablist()).not.toBeNull());
+      // The pane's tab shows the fun name in its colour, role greyed.
+      const tab = within(subTablist()!).getAllByRole("tab")[0]!;
+      expect(tab.textContent).toBe("Maya · reviewer");
+      expect(tab.getAttribute("data-agent-color")).toBe("teal");
 
-      fireEvent.click(within(strip()).getByRole("button", { expanded: false, name: /3 agents/ }));
-      expect(strip().querySelectorAll("[data-agent-chip]")).toHaveLength(3);
-      expect(strip().querySelector('[data-agent-chip="blocked"]')!.getAttribute("data-attention")).toBe("warning");
-      fireEvent.click(within(strip()).getByRole("button", { name: /Stop all/ }));
+      const more = within(strip()).getByRole("button", { name: "Sub-agent actions" });
+      fireEvent.pointerDown(more, { button: 0, ctrlKey: false });
+      fireEvent.click(await screen.findByRole("menuitem", { name: /Stop All/ }));
       await waitFor(() => expect(api.abort).toHaveBeenCalledTimes(2));
       expect(vi.mocked(api.abort).mock.calls.map((c) => c[0]).sort()).toEqual(["a1", "a3"]);
     });
 
-    it("a sub-agent's row expands to its task and report, with Open", async () => {
+    it("a done chip shows its report's first line; no overflow button when nothing runs", () => {
       closedPane();
       sessions.value = sessions.value.map((s) =>
         s.id === "a1"
@@ -291,14 +298,53 @@ describe("WorkspaceView", () => {
           : s,
       );
       renderAt("/projects/p/chats/w");
-      const row = strip().querySelector('[data-agent-chip="done"]') as HTMLElement;
-      expect(row.textContent).toContain("All good.");
-      fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
-      const details = row.querySelector("[data-agent-details]") as HTMLElement;
-      expect(details.textContent).toContain("Task: Review login");
-      await waitFor(() => expect(details.textContent).toContain("All good."));
-      fireEvent.click(within(details).getByRole("button", { name: /Open/ }));
+      expect(strip().querySelector('[data-agent-chip="done"]')!.textContent).toContain("All good.");
+      expect(within(strip()).queryByRole("button", { name: "Sub-agent actions" })).toBeNull();
+    });
+
+    it("a spawn call is the agent's card: fun name, status, Open, and it absorbs the report", async () => {
+      closedPane();
+      sessions.value = sessions.value.map((s) =>
+        s.id === "m1"
+          ? { ...s, spawnedAgents: [{ name: "reviewer", sessionId: "a1", displayName: "Maya", color: "pink", spawnedAt: 3 }, { name: "gone", sessionId: "x9", displayName: "Otis", color: "sky", spawnedAt: 4 }] }
+          : s.id === "a1"
+            ? { ...s, agentDisplayName: "Maya", agentColor: "pink" }
+            : s,
+      );
+      const store = getChatSession("m1");
+      const call = (id: string, agentName: string) => ({
+        id: `a-${id}`,
+        role: "assistant" as const,
+        timestamp: 1,
+        content: [{ type: "toolCall" as const, id, name: "spawn_agent", kind: "task" as const, input: { agentName, description: `Do ${agentName}` }, args: {} }],
+      });
+      store.transcript.value = {
+        messages: [
+          call("c1", "reviewer"),
+          call("c2", "gone"),
+          { id: "u1", role: "user", content: [{ type: "text", text: formatAgentFinished("gone", "Otis's **report**.") }], timestamp: 9 },
+        ],
+        toolResults: {},
+      };
+      store.status.value = "ready";
+      renderAt("/projects/p/chats/w");
+      const cards = await waitFor(() => {
+        const found = [...document.querySelectorAll<HTMLElement>('[data-role="agent-spawn"]')];
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      expect(cards[0]!.getAttribute("data-agent-color")).toBe("pink");
+      expect(cards[0]!.textContent).toContain("Maya· reviewer");
+      // The closed agent's card shows its report; the separate report card is gone.
+      expect(cards[1]!.getAttribute("data-kind")).toBe("done");
+      expect(cards[1]!.textContent).toContain("Otis's report.");
+      expect(document.querySelector('[data-role="agent-message"]')).toBeNull();
+      fireEvent.click(within(cards[1]!).getByRole("button", { expanded: false }));
+      expect(cards[1]!.querySelector("[data-spawn-details]")!.textContent).toContain("Task: Do gone");
+      expect(within(cards[1]!).queryByRole("button", { name: /^Open/ })).toBeNull();
+      fireEvent.click(within(cards[0]!).getByRole("button", { name: "Open Maya" }));
       await waitFor(() => expect(subTablist()).not.toBeNull());
+      expect(within(subTablist()!).getByRole("tab", { name: /Maya/ }).getAttribute("aria-selected")).toBe("true");
     });
 
     it("clicking the agent's name in a report card opens it in the pane", async () => {
