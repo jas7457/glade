@@ -2,13 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", () => ({ api: { reorderProjects: vi.fn(async () => []), reorderPinnedWorkspaces: vi.fn(async () => []) } }));
+vi.mock("@/lib/api", () => ({
+  api: {
+    reorderProjects: vi.fn(async () => []),
+    reorderPinnedWorkspaces: vi.fn(async () => []),
+    updateSession: vi.fn(async (id: string, patch: object) => ({ ...sessions.value.find((s) => s.id === id), ...patch })),
+  },
+}));
 
 import { api } from "@/lib/api";
 import { TooltipProvider, sidebarClass } from "@/ui";
-import { projects, workspaces } from "@/state/store";
+import { projects, sessions, workspaces } from "@/state/store";
 import { closedProjects } from "@/state/ui";
-import { makeWorkspace, makeProject } from "@/test/fixtures";
+import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
 import { Sidebar } from "./Sidebar";
 import { visibleChatCount } from "./ChatList";
 import { formatRelativeTime } from "./time";
@@ -71,6 +77,26 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Move Down" }));
     expect(api.reorderProjects).toHaveBeenCalledWith(["p1", "p2"]);
     expect(projectOrder(container)).toEqual(["p1", "p2"]);
+  });
+
+  it("toggles Mark as Unread / Mark as Read in a chat's menu (I-073)", () => {
+    sessions.value = [
+      makeSession({ id: "c1a", workspaceId: "c1", createdAt: 1 }),
+      makeSession({ id: "c1b", workspaceId: "c1", createdAt: 2 }),
+      makeSession({ id: "c3", workspaceId: "c3", unread: true, status: "unread" }),
+    ];
+    workspaces.value = workspaces.value.map((w) => (w.id === "c1" ? { ...w, layout: { activeMainSessionId: "c1b" } } : w));
+    const { container } = renderSidebar();
+    const row = (id: string) => container.querySelector(`[data-chat-id=${id}]`) as HTMLElement;
+    fireEvent.contextMenu(row("c1"));
+    expect(screen.queryByRole("menuitem", { name: "Mark as Read" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as Unread" }));
+    expect(api.updateSession).toHaveBeenCalledWith("c1b", { unread: true });
+
+    fireEvent.contextMenu(row("c3"));
+    expect(screen.queryByRole("menuitem", { name: "Mark as Unread" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as Read" }));
+    expect(api.updateSession).toHaveBeenCalledWith("c3", { unread: false });
   });
 
   describe("drag and drop", () => {

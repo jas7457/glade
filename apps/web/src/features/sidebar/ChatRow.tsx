@@ -2,7 +2,7 @@
  * One chat in the sidebar: title, and on the right the pin plus the status (spinner / unread
  * dot / needs-input) when not idle, else the age. On hover (or while the menu is open) the right
  * side is replaced by a "…" menu button; the same menu opens on right-click: Rename, Pin,
- * Move Up/Down (pinned chats), Mark as Read, Delete.
+ * Move Up/Down (pinned chats), Mark as Read / Mark as Unread (I-073: flags the last open tab), Delete.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -10,7 +10,7 @@ import { MoreHorizontal, Pin } from "lucide-preact";
 import type { WorkspaceSummary } from "@glade/protocol";
 import { chatPath } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
-import { deleteWorkspace, markWorkspaceRead, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
 
@@ -71,7 +71,11 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
           </MenuItem>
         </>
       )}
-      {chat.status === "unread" && <MenuItem onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>}
+      {chat.unread ? (
+        <MenuItem onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>
+      ) : (
+        <MenuItem onSelect={() => void markWorkspaceUnread(chat.id)}>Mark as Unread</MenuItem>
+      )}
       <MenuSeparator />
       <MenuItem destructive onSelect={() => void remove()}>
         Delete…

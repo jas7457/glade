@@ -10,10 +10,10 @@
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Check, CircleSlash, Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
+import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
-import { renameFromSession } from "@/state/actions";
+import { markSessionRead, markSessionUnread, renameFromSession } from "@/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@/state/store";
 import { IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, formatShortcut, type TabStripTab } from "@/ui";
 import { ChatHeader } from "@/features/chat/ChatHeader";
@@ -130,6 +130,15 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
           <MenuItem icon={<Pencil />} onSelect={() => setRenaming(s.id)}>
             Rename…
           </MenuItem>
+          {s.unread ? (
+            <MenuItem icon={<MailOpen />} onSelect={() => void markSessionRead(s.id)}>
+              Mark as Read
+            </MenuItem>
+          ) : (
+            <MenuItem icon={<Mail />} onSelect={() => void markSessionUnread(s.id)}>
+              Mark as Unread
+            </MenuItem>
+          )}
           {canMaximize && (
             <MenuItem icon={isMax ? <Minimize2 /> : <Maximize2 />} onSelect={() => toggleMaximized(workspaceId, group)}>
               {isMax ? "Restore Layout" : "Maximize"}

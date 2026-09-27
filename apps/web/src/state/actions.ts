@@ -15,6 +15,7 @@ import type {
   UpdateSessionRequest,
   UpdateWorkspaceRequest,
 } from "@glade/protocol";
+import { activeMainSessionId } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { applySessionDetail } from "./chat-session";
 import { projects, sessions, settings, sortedProjects, upsert, workspaces, workspacesForProject } from "./store";
@@ -150,6 +151,20 @@ export async function markWorkspaceRead(workspaceId: string): Promise<boolean> {
   const unread = sessions.value.filter((s) => s.workspaceId === workspaceId && s.unread);
   const results = await Promise.all(unread.map((s) => updateSession(s.id, { unread: false })));
   return results.every(Boolean);
+}
+
+/** "Mark as Unread" / "Mark as Read" on one tab (its session). */
+export const markSessionUnread = (sessionId: string) => updateSession(sessionId, { unread: true });
+export const markSessionRead = (sessionId: string) => updateSession(sessionId, { unread: false });
+
+/**
+ * "Mark as Unread" on a sidebar row (I-073): flags the workspace's focused main tab (the last tab
+ * you had open), so opening the chat lands on it and clears it.
+ */
+export function markWorkspaceUnread(workspaceId: string): Promise<boolean> {
+  const workspace = workspaces.value.find((w) => w.id === workspaceId);
+  const id = workspace ? activeMainSessionId(workspace, sessions.value) : null;
+  return id ? markSessionUnread(id) : Promise.resolve(false);
 }
 export const dismissInterrupted = (sessionId: string) => updateSession(sessionId, { interrupted: false });
 

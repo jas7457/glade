@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({
-  api: { updateSettings: vi.fn(), updateWorkspace: vi.fn(), deleteProject: vi.fn(), reorderProjects: vi.fn(), reorderPinnedWorkspaces: vi.fn() },
+  api: { updateSettings: vi.fn(), updateWorkspace: vi.fn(), deleteProject: vi.fn(), reorderProjects: vi.fn(), reorderPinnedWorkspaces: vi.fn(), updateSession: vi.fn() },
 }));
 
 import { api } from "@/lib/api";
-import { workspaces, workspacesForProject, projects, settings, sortedProjects } from "./store";
-import { mergeSettings, movePinnedWorkspace, moveProject, removeProject, reorderPinnedWorkspaces, reorderProjects, stepOrder, updateSettings } from "./actions";
+import { sessions, workspaces, workspacesForProject, projects, settings, sortedProjects } from "./store";
+import { markWorkspaceUnread, mergeSettings, movePinnedWorkspace, moveProject, removeProject, reorderPinnedWorkspaces, reorderProjects, stepOrder, updateSettings } from "./actions";
 import { toasts } from "./toasts";
-import { makeWorkspace, makeProject } from "@/test/fixtures";
+import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
 
 const mocked = vi.mocked(api);
 
@@ -143,5 +143,37 @@ describe("reorderPinnedWorkspaces", () => {
     expect(await movePinnedWorkspace("y", 1)).toBe(false);
     await movePinnedWorkspace("y", -1);
     expect(mocked.reorderPinnedWorkspaces).toHaveBeenCalledWith("p", ["y", "x"]);
+  });
+});
+
+describe("markWorkspaceUnread (I-073)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessions.value = [
+      makeSession({ id: "m1", workspaceId: "w", createdAt: 1 }),
+      makeSession({ id: "m2", workspaceId: "w", createdAt: 2 }),
+      makeSession({ id: "a1", workspaceId: "w", kind: "subagent", parentSessionId: "m2", createdAt: 3 }),
+    ];
+    mocked.updateSession.mockImplementation(async (id, patch) => ({ ...sessions.value.find((s) => s.id === id)!, ...patch }));
+  });
+
+  it("flags the focused main tab (the last one open)", async () => {
+    workspaces.value = [makeWorkspace({ id: "w", layout: { activeMainSessionId: "m2" } })];
+    expect(await markWorkspaceUnread("w")).toBe(true);
+    expect(mocked.updateSession).toHaveBeenCalledTimes(1);
+    expect(mocked.updateSession).toHaveBeenCalledWith("m2", { unread: true });
+    expect(sessions.value.find((s) => s.id === "m2")?.unread).toBe(true);
+  });
+
+  it("falls back to the first main tab without a (valid) focused tab", async () => {
+    workspaces.value = [makeWorkspace({ id: "w", layout: { activeMainSessionId: "gone" } })];
+    await markWorkspaceUnread("w");
+    expect(mocked.updateSession).toHaveBeenCalledWith("m1", { unread: true });
+  });
+
+  it("does nothing for an unknown workspace", async () => {
+    workspaces.value = [];
+    expect(await markWorkspaceUnread("w")).toBe(false);
+    expect(mocked.updateSession).not.toHaveBeenCalled();
   });
 });

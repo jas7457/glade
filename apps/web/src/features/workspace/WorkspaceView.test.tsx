@@ -186,6 +186,17 @@ describe("WorkspaceView", () => {
     await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("m2", { title: "Docs" }));
   });
 
+  it("marks a tab unread / read from its context menu (I-073)", async () => {
+    renderAt("/projects/p/chats/w?tab=m1");
+    fireEvent.contextMenu(mainTabs()[1]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark as Unread" }));
+    await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("m2", { unread: true }));
+    await waitFor(() => expect(sessions.value.find((s) => s.id === "m2")?.unread).toBe(true));
+    fireEvent.contextMenu(mainTabs()[1]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark as Read" }));
+    await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("m2", { unread: false }));
+  });
+
   it("sub-agent tabs show done ✓ with the result, and a closed agent's tab just disappears (I-054/I-055)", () => {
     const agentState = { agent: null, task: "review", keepOpenReason: null, userEngaged: false, closing: false, doneAt: 1 };
     sessions.value = sessions.value.map((s) =>

@@ -15,6 +15,8 @@ import { needsAttention } from "@glade/protocol";
 import {
   Folder,
   FolderPlus,
+  Mail,
+  MailOpen,
   Monitor,
   Moon,
   PanelLeft,
@@ -31,7 +33,7 @@ import {
 } from "lucide-preact";
 import { StatusIndicator, confirm } from "@/ui";
 import { loadModels, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
-import { deleteWorkspace, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
+import { deleteWorkspace, markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
@@ -210,6 +212,22 @@ export function buildCommands(ctx: CommandContext): Command[] {
       run: async () => {
         const chat = current();
         if (chat) await setWorkspacePinned(chat.id, !chat.pinned);
+      },
+    },
+    {
+      // I-073: flags the tab on screen; it stays unread until you leave the chat and come back.
+      id: "mark-unread",
+      title: current()?.unread ? "Mark as Read" : "Mark as Unread",
+      group: "Actions",
+      keywords: ["unread", "read", "later"],
+      icon: current()?.unread ? <MailOpen /> : <Mail />,
+      available: hasChat,
+      run: async () => {
+        const chat = current();
+        if (!chat) return;
+        if (chat.unread) return markWorkspaceRead(chat.id);
+        const id = resolveSessionId(chat.id, new URLSearchParams(window.location.search).get("tab"));
+        if (id) await markSessionUnread(id);
       },
     },
     {
