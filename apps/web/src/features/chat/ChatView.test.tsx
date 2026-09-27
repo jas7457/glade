@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({
     updateSession: vi.fn(async () => ({})),
     prompt: vi.fn(async () => undefined),
     openProject: vi.fn(async () => undefined),
+    openWorkspace: vi.fn(async () => undefined),
   },
 }));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
@@ -220,23 +221,24 @@ describe("ChatView", () => {
     await waitFor(() => expect(screen.getByText(raw)).toBeTruthy());
   });
 
-  it("offers Open in VS Code for project chats only", async () => {
+  it("offers Open in VS Code for project chats only, opening the chat's folder (I-106)", async () => {
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Open in VS Code" }));
-    await waitFor(() => expect(api.openProject).toHaveBeenCalledWith("p1", "vscode"));
+    fireEvent.click(screen.getByRole("button", { name: "Open app in VS Code" }));
+    await waitFor(() => expect(api.openWorkspace).toHaveBeenCalledWith("w1", "vscode"));
+    expect(api.openProject).not.toHaveBeenCalled();
   });
 
   it("shows no Open in VS Code button for standalone chats", () => {
     workspaces.value = [{ ...chat, projectId: null }];
     setup();
-    expect(screen.queryByRole("button", { name: "Open in VS Code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /in VS Code/ })).toBeNull();
   });
 
   it("shows a toast when opening fails", async () => {
-    vi.mocked(api.openProject).mockRejectedValueOnce(new Error("Visual Studio Code is not installed"));
+    vi.mocked(api.openWorkspace).mockRejectedValueOnce(new Error("Visual Studio Code is not installed"));
     toasts.value = [];
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Open in VS Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open app in VS Code" }));
     await waitFor(() => expect(toasts.value[0]?.message).toContain("not installed"));
   });
 

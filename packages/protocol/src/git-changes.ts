@@ -32,6 +32,8 @@ export type GitChangesResponse =
       isRepo: true;
       /** Current branch; `null` when detached. */
       branch: string | null;
+      /** Short hash of `HEAD` (shown instead of the branch when detached; I-107); absent before the first commit. */
+      head?: string;
       /** Absolute path of the repository's work tree. */
       root: string;
       /** The workspace folder relative to `root` (`""` at the root, else ending in `/`). */

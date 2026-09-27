@@ -7,6 +7,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- New-chat bar above the composer: pick the project, Local or a new worktree, and the branch. In
+  Local mode switching branch is refused while you have uncommitted changes, with a Commit… button
+  right there.
+- Every git chat shows where it works in its header ("Local · main" / "Worktree · glade/…"), kept up
+  to date.
 - Work in a git worktree: switch on "New worktree" when starting a chat in a git project and it gets
   its own branch and folder. Deleting it asks whether to keep the branch, merge it or discard it.
 - Changes panel: the header shows how many files git sees changed; open it to review diffs, discard
@@ -225,6 +230,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- "Open in VS Code" in a worktree chat opens the worktree, not the main project folder.
 - The thinking picker and context meter no longer disappear after a Glade server restarts or hands a
   chat back.
 - Paragraphs in replies have space between them again, so separate paragraphs are easy to tell apart.

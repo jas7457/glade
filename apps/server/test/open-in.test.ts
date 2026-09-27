@@ -1,12 +1,14 @@
 /**
- * I-026: `POST /api/projects/:id/open` with an injected command runner (never launches apps).
+ * I-026: `POST /api/projects/:id/open`, I-106: `POST /api/workspaces/:id/open` (the chat's own
+ * folder, e.g. its worktree), both with an injected command runner (never launches apps).
  */
-import { mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { createOpenIn, type CommandRunner, type RunResult } from "../src/services/open-in.js";
-import { createTestEnv, type TestEnv } from "./helpers.js";
+import { createTestEnv, flush, newChat, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
 let calls: Array<[string, string[]]>;
@@ -28,9 +30,9 @@ afterEach(async () => {
   await env.cleanup();
 });
 
-function open(projectId: string, body: unknown) {
+function open(projectId: string, body: unknown, kind: "projects" | "workspaces" = "projects") {
   const { app } = createApp({ service: env.service });
-  return app.request(`/api/projects/${projectId}/open`, {
+  return app.request(`/api/${kind}/${projectId}/open`, {
     method: "POST",
     headers: { host: "127.0.0.1:4317", "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -75,5 +77,48 @@ describe("open project in app", () => {
     const res = await open(p.id, { app: "vscode" });
     expect(res.status).toBe(501);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("open workspace in app (I-106)", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
+
+  function repoProject() {
+    const path = join(env.dir, "repo");
+    mkdirSync(path, { recursive: true });
+    git(path, "init", "-q", "-b", "main");
+    git(path, "config", "user.email", "t@example.com");
+    git(path, "config", "user.name", "Test");
+    git(path, "config", "commit.gpgsign", "false");
+    writeFileSync(join(path, "a.txt"), "a\n");
+    git(path, "add", ".");
+    git(path, "commit", "-q", "-m", "init");
+    return env.service.createProject({ path: realpathSync(path) });
+  }
+
+  it("opens a local chat's folder (the project folder)", async () => {
+    const p = project();
+    const chat = await newChat(env, { projectId: p.id, prompt: "hi" });
+    await flush();
+    expect((await open(chat.wid, { app: "vscode" }, "workspaces")).status).toBe(204);
+    expect(calls).toEqual([["open", ["-a", "Visual Studio Code", p.path]]]);
+  });
+
+  it("opens a worktree chat's worktree, not the project folder", async () => {
+    const p = repoProject();
+    const chat = await newChat(env, { projectId: p.id, prompt: "fix login", worktree: true });
+    await flush();
+    const cwd = env.store.getWorkspace(chat.wid)!.cwd;
+    expect(cwd).not.toBe(p.path);
+    expect((await open(chat.wid, { app: "vscode" }, "workspaces")).status).toBe(204);
+    expect(calls).toEqual([["open", ["-a", "Visual Studio Code", cwd]]]);
+  });
+
+  it("404 for unknown workspaces, 400 for unknown apps", async () => {
+    const chat = await newChat(env, { projectId: project().id, prompt: "hi" });
+    await flush();
+    expect((await open("missing", { app: "vscode" }, "workspaces")).status).toBe(404);
+    expect((await open(chat.wid, { app: "emacs" }, "workspaces")).status).toBe(400);
+    expect(calls).toEqual([]);
   });
 });

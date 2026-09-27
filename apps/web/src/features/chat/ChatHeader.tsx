@@ -1,22 +1,24 @@
 /**
  * Chat header bar (window drag region): the workspace's editable title, project name (for
- * project chats), its worktree branch (I-096, a subtle chip), the shown session's live status,
- * the changes button (I-097: changed-file count; toggles the changes panel), "Open in VS Code"
- * (project chats) and an overflow menu (rename, pin, delete the workspace).
+ * project chats), where it works (I-107: `Local · ⑂ main` / `Worktree · ⑂ glade/x`, live
+ * branch), the shown session's live status, the changes button (I-097: changed-file count;
+ * toggles the changes panel), "Open in VS Code" (the chat's own folder, I-106) and an overflow
+ * menu (rename, pin, delete the workspace).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Ellipsis, FileDiff, GitBranch, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
+import { Ellipsis, FileDiff, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import { deriveChatStatus, type WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { routes } from "@/app/routes";
 import { getChatSession } from "@/state/chat-session";
 import { renameWorkspace, setWorkspacePinned } from "@/state/actions";
 import { projectsById } from "@/state/store";
-import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, Badge, statusLabel } from "@/ui";
+import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, statusLabel } from "@/ui";
 import { changedCount } from "@/features/changes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { setChangesPanelOpen } from "@/features/workspace/layout-actions";
+import { ChatLocation } from "./ChatLocation";
 import { OpenInButton } from "./OpenInButton";
 
 export function ChatHeader({ workspace: chat, sessionId }: { workspace: WorkspaceSummary | undefined; sessionId: string }) {
@@ -64,21 +66,13 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
           </button>
         )}
         {project && (
-          <span data-tauri-drag-region class={cn("min-w-0 truncate text-[0.92rem] text-fg-subtle", !chat?.worktree && "flex-1")}>
+          <span data-tauri-drag-region class="min-w-0 truncate text-[0.92rem] text-fg-subtle">
             {project.name}
           </span>
         )}
-        {chat?.worktree && (
-          <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline">
-            <Badge
-              icon={<GitBranch />}
-              title={`Works in its own worktree on branch ${chat.worktree.branch} (from ${chat.worktree.baseRef})`}
-              class="self-center"
-            >
-              {chat.worktree.branch}
-            </Badge>
-          </span>
-        )}
+        <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline">
+          {chat && <ChatLocation workspace={chat} class="self-center" />}
+        </span>
       </div>
       {liveLabel && (
         <div class={cn("flex shrink-0 items-center gap-1.5 text-[0.92rem]", status === "blocked" ? "text-warning" : "text-fg-muted")}>
@@ -87,7 +81,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
         </div>
       )}
       {chat && <ChangesButton workspace={chat} />}
-      {project && <OpenInButton projectId={project.id} />}
+      {chat && project && <OpenInButton workspace={chat} />}
       <Menu
         align="end"
         trigger={

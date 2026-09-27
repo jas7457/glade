@@ -1,24 +1,27 @@
 /**
  * "Commit…" dialog of the changes panel (I-097): a message field, "Generate" (the fast model
  * writes a message from the diff, like chat titles) and Commit. Commits every changed file, or
- * the checked ones when `paths` is given. ⌘Return commits.
+ * the checked ones when `paths` is given. ⌘Return commits. With `projectId` instead of
+ * `workspaceId` it commits in the project's own folder (I-105: "Commit your changes to switch branch").
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { GitCommitHorizontal, Sparkles } from "lucide-preact";
 import { notify } from "@/state/toasts";
 import { Button, Dialog, Spinner, TextArea } from "@/ui";
-import { changesApi } from "./api";
+import { changesApi, projectChangesApi } from "./api";
 
-export interface CommitDialogProps {
-  workspaceId: string;
+export type CommitDialogProps = ({ workspaceId: string; projectId?: never } | { projectId: string; workspaceId?: never }) & {
   /** Files to commit; `undefined` = all changed files. */
   paths?: string[];
   count: number;
   onClose: () => void;
   onCommitted: () => void;
-}
+  /** Replaces the default description. */
+  description?: string;
+};
 
-export function CommitDialog({ workspaceId, paths, count, onClose, onCommitted }: CommitDialogProps) {
+export function CommitDialog({ workspaceId, projectId, paths, count, onClose, onCommitted, description }: CommitDialogProps) {
+  const target = projectId !== undefined ? { id: projectId, api: projectChangesApi } : { id: workspaceId!, api: changesApi };
   const [message, setMessage] = useState("");
   const [generating, setGenerating] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -36,7 +39,7 @@ export function CommitDialog({ workspaceId, paths, count, onClose, onCommitted }
     setGenerating(true);
     setError(null);
     try {
-      const res = await changesApi.commitMessage(workspaceId, paths);
+      const res = await target.api.commitMessage(target.id, paths);
       if (!open.current) return;
       setMessage(res.message);
       field.current?.focus();
@@ -53,7 +56,7 @@ export function CommitDialog({ workspaceId, paths, count, onClose, onCommitted }
     setCommitting(true);
     setError(null);
     try {
-      const res = await changesApi.commit(workspaceId, text, paths);
+      const res = await target.api.commit(target.id, text, paths);
       notify("success", `Committed ${res.commit}: ${res.summary}`);
       onCommitted();
     } catch (err) {
@@ -70,7 +73,7 @@ export function CommitDialog({ workspaceId, paths, count, onClose, onCommitted }
       open
       onOpenChange={(next) => !next && onClose()}
       title={paths ? `Commit ${files}` : "Commit all changes"}
-      description={paths ? "Commits only the checked files." : `Commits all ${files} git sees changed.`}
+      description={description ?? (paths ? "Commits only the checked files." : `Commits all ${files} git sees changed.`)}
       icon={<GitCommitHorizontal />}
       width={500}
       footer={

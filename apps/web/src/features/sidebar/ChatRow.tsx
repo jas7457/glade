@@ -77,7 +77,7 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
   const trailing = (
     <>
       {chat.worktree && (
-        <span title={`Worktree: ${chat.worktree.branch}`} class="inline-flex">
+        <span title={`Works in a worktree on branch ${chat.worktree.branch} (from ${chat.worktree.baseRef})`} class="inline-flex">
           <GitBranch size={11} aria-label={`Worktree ${chat.worktree.branch}`} />
         </span>
       )}

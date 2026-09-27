@@ -8,35 +8,16 @@
  * its base branch in the project folder (only when that folder is clean and on the base branch),
  * or deletes it.
  */
-import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import type { ProjectGitInfo, WorkspaceWorktree, WorktreeRemoval, WorktreeStatus } from "@glade/protocol";
+import type { WorkspaceWorktree, WorktreeRemoval, WorktreeStatus } from "@glade/protocol";
 import { HttpError } from "./app/errors.js";
+import { assertBranchName, git, isLocalBranch, ok, repoInfo } from "./project-git.js";
+
+export { projectGitInfo } from "./project-git.js";
 
 export const BRANCH_PREFIX = "glade/";
 const SLUG_MAX = 40;
-
-/** A git failure: the command's stderr (or message). */
-class GitError extends Error {}
-
-/** git's environment without variables that would point it at another repository. */
-function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete env[key];
-  return env;
-}
-
-function git(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, env: gitEnv(), timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) reject(new GitError(String(stderr).trim() || err.message));
-      else resolve(String(stdout));
-    });
-  });
-}
-
-const ok = (p: Promise<unknown>) => p.then(() => true, () => false);
 
 /** `Fix the sidebar!` → `fix-the-sidebar` (lowercase ASCII, dashes, ≤ 40 chars; may be empty). */
 export function slugify(text: string, max = SLUG_MAX): string {
@@ -52,35 +33,6 @@ export function slugify(text: string, max = SLUG_MAX): string {
   return (dash > max / 2 ? cut.slice(0, dash) : cut).replace(/-+$/, "");
 }
 
-interface RepoInfo {
-  /** The repository's main work tree (realpath). */
-  root: string;
-  /** Current branch, or null when detached. */
-  branch: string | null;
-  /** HEAD resolves to a commit. */
-  hasCommits: boolean;
-}
-
-async function repoInfo(folder: string): Promise<RepoInfo | null> {
-  if (!existsSync(folder)) return null;
-  let root: string;
-  try {
-    root = (await git(folder, ["rev-parse", "--show-toplevel"])).trim();
-  } catch {
-    return null;
-  }
-  if (!root) return null;
-  const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim() || null;
-  const hasCommits = await ok(git(root, ["rev-parse", "--verify", "--quiet", "HEAD"]));
-  return { root: realpathSync(root), branch, hasCommits };
-}
-
-/** Whether a project folder can have worktree chats (`GET /projects/:id/git`). */
-export async function projectGitInfo(folder: string): Promise<ProjectGitInfo> {
-  const info = await repoInfo(folder);
-  return { isRepo: !!info?.hasCommits, branch: info?.branch ?? null };
-}
-
 export interface CreateWorktreeOptions {
   /** The project folder (the repo root or a folder inside it). */
   folder: string;
@@ -89,6 +41,10 @@ export interface CreateWorktreeOptions {
   /** Names the branch (e.g. the chat's title); `fallback` when it has no usable characters. */
   name: string;
   fallback: string;
+  /** Local branch to start from (I-105); default: the project's current branch (or commit, when detached). */
+  baseRef?: string;
+  /** Exact name for the new branch (I-105); default `glade/<slug>`, made unique. */
+  branch?: string;
 }
 
 export interface CreatedWorktree {
@@ -99,14 +55,23 @@ export interface CreatedWorktree {
 
 /**
  * Create a worktree on a new branch `glade/<slug>` (made unique) from the project's current
- * branch (or commit, when detached). 400 when the folder isn't a git repository or has no commits.
+ * branch (or commit, when detached), or `baseRef`; or on `opts.branch`. 400 when the folder isn't a
+ * git repository or has no commits, `baseRef` isn't a local branch or `branch` isn't a valid name;
+ * 409 when `branch` already exists.
  */
 export async function createWorktree(opts: CreateWorktreeOptions): Promise<CreatedWorktree> {
   const info = await repoInfo(opts.folder);
   if (!info) throw new HttpError(400, `${opts.folder} isn't a git repository`);
   if (!info.hasCommits) throw new HttpError(400, "The repository has no commits yet; commit something before starting a worktree chat");
-  const baseRef = info.branch ?? (await git(info.root, ["rev-parse", "HEAD"])).trim();
-  const slug = slugify(opts.name) || slugify(opts.fallback) || "chat";
+  if (opts.baseRef !== undefined && (opts.baseRef.startsWith("-") || !(await isLocalBranch(info.root, opts.baseRef)))) {
+    throw new HttpError(400, `${opts.baseRef} isn't a local branch`);
+  }
+  if (opts.branch !== undefined) {
+    await assertBranchName(info.root, opts.branch);
+    if (await isLocalBranch(info.root, opts.branch)) throw new HttpError(409, `A branch named ${opts.branch} already exists`);
+  }
+  const baseRef = opts.baseRef ?? info.branch ?? (await git(info.root, ["rev-parse", "HEAD"])).trim();
+  const slug = (opts.branch !== undefined ? slugify(opts.branch.replace(/^glade\//, "")) : slugify(opts.name)) || slugify(opts.fallback) || "chat";
   const parent = join(opts.worktreesDir, slugify(basename(info.root)) || "repo");
   mkdirSync(parent, { recursive: true });
 
@@ -114,14 +79,14 @@ export async function createWorktree(opts: CreateWorktreeOptions): Promise<Creat
   let path = "";
   for (let n = 1; ; n++) {
     const suffix = n === 1 ? "" : `-${n}`;
-    branch = `${BRANCH_PREFIX}${slug}${suffix}`;
+    branch = opts.branch ?? `${BRANCH_PREFIX}${slug}${suffix}`;
     path = join(parent, `${slug}${suffix}`);
     if (existsSync(path)) continue;
-    if (await ok(git(info.root, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]))) continue;
+    if (opts.branch === undefined && (await isLocalBranch(info.root, branch))) continue;
     break;
   }
   try {
-    await git(info.root, ["worktree", "add", "-b", branch, path, baseRef]);
+    await git(info.root, ["worktree", "add", "-b", branch, path, opts.baseRef !== undefined ? `refs/heads/${baseRef}` : baseRef]);
   } catch (err) {
     throw new HttpError(500, `Could not create a worktree: ${(err as Error).message}`);
   }

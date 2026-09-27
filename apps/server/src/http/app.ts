@@ -13,12 +13,15 @@ import {
   MAX_ATTACHMENT_BYTES,
   THINKING_LEVELS,
   WORKTREE_REMOVALS,
+  type CheckoutBranchRequest,
+  type CreateBranchRequest,
   type CreateProjectRequest,
   type CreateSessionRequest,
   type CreateWorkspaceRequest,
   type DeepPartial,
   type ModelRef,
   type OpenProjectRequest,
+  type OpenWorkspaceRequest,
   type PromptRequest,
   type ReorderPinnedWorkspacesRequest,
   type ReorderProjectsRequest,
@@ -147,6 +150,17 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     return c.body(null, 204);
   });
   api.get("/projects/:id/git", async (c) => c.json(await service.getProjectGit(c.req.param("id"))));
+  api.post("/projects/:id/git/checkout", async (c) => {
+    const body = await readBody<CheckoutBranchRequest>(c);
+    requireString(body.branch, "branch");
+    return c.json(await service.checkoutProjectBranch(c.req.param("id"), body.branch));
+  });
+  api.post("/projects/:id/git/branch", async (c) => {
+    const body = await readBody<CreateBranchRequest>(c);
+    requireString(body.name, "name");
+    optional(body.checkout, "boolean", "checkout");
+    return c.json(await service.createProjectBranch(c.req.param("id"), body.name, body.checkout ?? false));
+  });
   api.delete("/projects/:id", async (c) => {
     await service.deleteProject(c.req.param("id"));
     return c.body(null, 204);
@@ -161,6 +175,11 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
     requireNewSession(body);
     optional(body.worktree, "boolean", "worktree");
+    optional(body.baseRef, "string", "baseRef");
+    optional(body.branch, "string", "branch");
+    if ((body.baseRef !== undefined || body.branch !== undefined) && !body.worktree) {
+      throw new HttpError(400, "baseRef and branch need worktree: true");
+    }
     return c.json(await service.createWorkspace(body));
   });
   api.put("/workspaces/pin-order", async (c) => {
@@ -180,6 +199,11 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
       throw new HttpError(400, "layout must be an object or null");
     }
     return c.json(await service.updateWorkspace(c.req.param("id"), body));
+  });
+  api.post("/workspaces/:id/open", async (c) => {
+    const body = await readBody<OpenWorkspaceRequest>(c);
+    await service.openWorkspace(c.req.param("id"), body.app);
+    return c.body(null, 204);
   });
   api.get("/workspaces/:id/worktree", async (c) => c.json(await service.getWorktreeStatus(c.req.param("id"))));
   api.delete("/workspaces/:id", async (c) => {

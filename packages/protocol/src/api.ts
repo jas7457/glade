@@ -341,6 +341,11 @@ export interface OpenProjectRequest {
   app: OpenTarget;
 }
 
+/** `POST /api/workspaces/:id/open`: open the chat's folder (`Workspace.cwd`, the worktree for worktree chats; I-106). */
+export interface OpenWorkspaceRequest {
+  app: OpenTarget;
+}
+
 /** `POST /api/workspaces`: a new workspace with its first main session. */
 export interface CreateWorkspaceRequest {
   projectId: string | null;
@@ -354,6 +359,10 @@ export interface CreateWorkspaceRequest {
    * whose folder is a git repository (400 otherwise, and for standalone chats).
    */
   worktree?: boolean;
+  /** With `worktree`: the local branch it starts from (default: the project's current branch; I-105). */
+  baseRef?: string;
+  /** With `worktree`: the new branch's name (default `glade/<slug>`; 400 invalid, 409 exists; I-105). */
+  branch?: string;
 }
 
 export interface UpdateWorkspaceRequest {

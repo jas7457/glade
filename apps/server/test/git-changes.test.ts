@@ -57,6 +57,13 @@ describe("GitChangesService", () => {
     expect(byPath["img.bin"]).toMatchObject({ kind: "untracked", binary: true, added: null });
   });
 
+  it("reports the short HEAD hash, with branch null when detached (I-107)", async () => {
+    const sha = git("rev-parse", "HEAD").trim();
+    expect(await new GitChangesService().status(repo)).toMatchObject({ branch: "main", head: sha.slice(0, 7) });
+    git("checkout", "-q", "--detach");
+    expect(await new GitChangesService().status(repo)).toMatchObject({ branch: null, head: sha.slice(0, 7) });
+  });
+
   it("says when the folder isn't a repository", async () => {
     const plain = join(dir, "plain");
     mkdirSync(plain);

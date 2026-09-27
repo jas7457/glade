@@ -244,6 +244,14 @@ export class AppService {
     return this.projects.getProjectGit(id);
   }
 
+  checkoutProjectBranch(id: string, branch: string): Promise<ProjectGitInfo> {
+    return this.projects.checkoutProjectBranch(id, branch);
+  }
+
+  createProjectBranch(id: string, name: string, checkout: boolean): Promise<ProjectGitInfo> {
+    return this.projects.createProjectBranch(id, name, checkout);
+  }
+
   // -------------------------------------------------------------------------------------------
   // Workspaces (app/workspaces.ts)
   // -------------------------------------------------------------------------------------------
@@ -274,6 +282,10 @@ export class AppService {
 
   getWorktreeStatus(id: string): Promise<WorktreeStatus> {
     return this.workspaces.getWorktreeStatus(id);
+  }
+
+  openWorkspace(id: string, app: unknown): Promise<void> {
+    return this.workspaces.openWorkspace(id, app);
   }
 
   // -------------------------------------------------------------------------------------------

@@ -73,11 +73,18 @@ export const api = {
   openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
   /** Whether the project's folder is a git repository (worktree chats, I-096). */
   getProjectGit: (id: string) => request<ProjectGitInfo>("GET", `/projects/${id}/git`),
+  /** Check out a branch in the project folder (I-105; 409 while dirty or a local chat is working). */
+  checkoutProjectBranch: (id: string, branch: string) => request<ProjectGitInfo>("POST", `/projects/${id}/git/checkout`, { branch }),
+  /** Create a branch from the project folder's HEAD, optionally checking it out (I-105). */
+  createProjectBranch: (id: string, name: string, checkout: boolean) =>
+    request<ProjectGitInfo>("POST", `/projects/${id}/git/branch`, { name, checkout }),
 
   // Workspaces (sidebar rows)
   listWorkspaces: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
   createWorkspace: (body: CreateWorkspaceRequest) => request<CreateWorkspaceResponse>("POST", "/workspaces", body),
   getWorkspace: (id: string) => request<WorkspaceDetail>("GET", `/workspaces/${id}`),
+  /** Open the chat's own folder (its worktree, or the project folder) in another app (I-106). */
+  openWorkspace: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/workspaces/${id}/open`, { app }),
   updateWorkspace: (id: string, body: UpdateWorkspaceRequest) => request<WorkspaceSummary>("PATCH", `/workspaces/${id}`, body),
   /** `worktree`: what happens to a worktree workspace's branch (I-096; server default keep). */
   deleteWorkspace: (id: string, worktree?: WorktreeRemoval) =>

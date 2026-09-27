@@ -1,6 +1,5 @@
 /**
- * I-096 web: the "New worktree" switch on the new-chat screen, the delete dialog for worktree
- * chats, the sidebar glyph and the create/delete actions.
+ * I-096 web: the delete dialog for worktree chats, the sidebar glyph and the create/delete actions.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
@@ -18,11 +17,9 @@ vi.mock("@/lib/api", () => ({
 import type { WorkspaceWorktree, WorktreeStatus } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { ConfirmHost, TooltipProvider } from "@/ui";
-import { createWorkspace } from "@/state/actions";
 import { projects, workspaces } from "@/state/store";
 import { newChatWorktree, projectGit } from "@/state/worktrees";
 import { makeProject, makeWorkspace } from "@/test/fixtures";
-import { WorktreeSwitch } from "@/features/chat/NewChatView";
 import { ChatRow } from "./ChatRow";
 import { confirmDeleteChat, DeleteChatHost } from "./delete-chat";
 
@@ -44,36 +41,6 @@ beforeEach(() => {
   newChatWorktree.value = null;
   projects.value = [makeProject({ id: "p" })];
   workspaces.value = [makeWorkspace({ id: "w", projectId: "p", title: "Fix it", worktree }), makeWorkspace({ id: "plain", projectId: "p" })];
-});
-
-describe("New worktree switch", () => {
-  it("shows for git projects only, is off by default and turns on for its project", async () => {
-    mocked.getProjectGit.mockResolvedValue({ isRepo: true, branch: "main" });
-    const { unmount } = render(<WorktreeSwitch projectId="p" />);
-    const toggle = await screen.findByRole("switch");
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByText(/branches off main/)).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(newChatWorktree.value).toBe("p");
-    unmount();
-    expect(newChatWorktree.value).toBeNull(); // remembers nothing
-  });
-
-  it("is hidden for folders that aren't git repositories", async () => {
-    mocked.getProjectGit.mockResolvedValue({ isRepo: false, branch: null });
-    render(<WorktreeSwitch projectId="p" />);
-    await waitFor(() => expect(projectGit.value.get("p")).toBeDefined());
-    expect(screen.queryByRole("switch")).toBeNull();
-  });
-
-  it("createWorkspace sends worktree: true when the switch is on for that project, then resets it", async () => {
-    mocked.createWorkspace.mockResolvedValue({ workspace: makeWorkspace({ id: "n" }), sessions: [], session: undefined } as never);
-    newChatWorktree.value = "p";
-    await createWorkspace({ projectId: "other", prompt: "x" }).catch(() => {});
-    expect(mocked.createWorkspace).toHaveBeenLastCalledWith({ projectId: "other", prompt: "x" });
-    await createWorkspace({ projectId: "p", prompt: "x" }).catch(() => {});
-    expect(mocked.createWorkspace).toHaveBeenLastCalledWith({ projectId: "p", prompt: "x", worktree: true });
-  });
 });
 
 describe("deleting a worktree chat", () => {

@@ -61,6 +61,7 @@ interface Repo {
 interface Status {
   repo: Repo;
   branch: string | null;
+  head?: string;
   files: GitChangedFile[];
   truncated: boolean;
 }
@@ -72,7 +73,7 @@ export class GitChangesService {
     const repo = await this.repo(cwd);
     if (!repo) return { isRepo: false };
     const status = await this.readStatus(repo);
-    return { isRepo: true, branch: status.branch, root: repo.root, prefix: repo.prefix, files: status.files, truncated: status.truncated };
+    return { isRepo: true, branch: status.branch, ...(status.head && { head: status.head }), root: repo.root, prefix: repo.prefix, files: status.files, truncated: status.truncated };
   }
 
   async diff(cwd: string, path: string): Promise<GitFileDiffResponse> {
@@ -189,7 +190,7 @@ export class GitChangesService {
         if (c) Object.assign(file, c);
       }
     }
-    return { repo, branch: parsed.branch, files, truncated: status.truncated || parsed.files.length > MAX_FILES };
+    return { repo, branch: parsed.branch, head: parsed.head, files, truncated: status.truncated || parsed.files.length > MAX_FILES };
   }
 
   /** `HEAD`, or the empty tree before the first commit. */
@@ -255,11 +256,12 @@ export class GitChangesService {
 // Parsing (exported for tests)
 // ---------------------------------------------------------------------------------------------
 
-/** `git status --porcelain=v2 -z --branch` → branch + files. */
-export function parseStatus(stdout: string): { branch: string | null; files: GitChangedFile[] } {
+/** `git status --porcelain=v2 -z --branch` → branch, short `HEAD` hash (absent before the first commit) + files. */
+export function parseStatus(stdout: string): { branch: string | null; head?: string; files: GitChangedFile[] } {
   const fields = stdout.split("\0");
   const files: GitChangedFile[] = [];
   let branch: string | null = null;
+  let head: string | undefined;
   for (let i = 0; i < fields.length; i++) {
     const entry = fields[i]!;
     if (!entry) continue;
@@ -267,6 +269,8 @@ export function parseStatus(stdout: string): { branch: string | null; files: Git
     if (type === "#") {
       const m = /^# branch\.head (.+)$/.exec(entry);
       if (m) branch = m[1] === "(detached)" ? null : m[1]!;
+      const oid = /^# branch\.oid ([0-9a-f]+)$/.exec(entry);
+      if (oid) head = oid[1]!.slice(0, 7);
     } else if (type === "?") {
       files.push(changed(entry.slice(2), "untracked"));
     } else if (type === "1") {
@@ -287,7 +291,7 @@ export function parseStatus(stdout: string): { branch: string | null; files: Git
       files.push(changed(entry.split(" ").slice(10).join(" "), "conflicted"));
     }
   }
-  return { branch, files };
+  return { branch, ...(head && { head }), files };
 }
 
 function ordinaryKind(xy: string): GitChangeKind {

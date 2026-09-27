@@ -7,6 +7,11 @@
  *   POST /workspaces/:id/changes/revert         → GitChangesResponse    ({ paths })
  *   POST /workspaces/:id/changes/commit         → CommitChangesResponse ({ message, paths? })
  *   POST /workspaces/:id/changes/commit-message → CommitMessageResponse ({ paths? })
+ *   POST /projects/:id/changes/commit           → CommitChangesResponse ({ message, paths? })  (I-105)
+ *   POST /projects/:id/changes/commit-message   → CommitMessageResponse ({ paths? })           (I-105)
+ *
+ * The project routes commit in the project's own folder (the new-chat screen's "Commit your
+ * changes to switch branch" dialog, which has no workspace yet).
  *
  * Behaviour lives in `services/git-changes.ts`.
  */
@@ -30,18 +35,25 @@ export function changesRoutes(service: AppService, git: GitChangesService): Hono
     requirePaths(body.paths);
     return c.json(await git.revert(cwd(c), body.paths));
   });
-  api.post("/workspaces/:id/changes/commit", async (c) => {
-    const body = await readJson<CommitChangesRequest>(c);
-    if (typeof body.message !== "string" || !body.message.trim()) throw new HttpError(400, "message is required");
-    if (body.paths !== undefined) requirePaths(body.paths);
-    return c.json(await git.commit(cwd(c), body.message, body.paths));
-  });
-  api.post("/workspaces/:id/changes/commit-message", async (c) => {
-    const text = (await c.req.text()).trim();
-    const body = text ? await readJson<CommitMessageRequest>(c, text) : {};
-    if (body.paths !== undefined) requirePaths(body.paths);
-    return c.json(await git.commitMessage(cwd(c), body.paths));
-  });
+  const projectPath = (c: Context) => {
+    const project = service.listProjects().find((p) => p.id === c.req.param("id"));
+    if (!project) throw new HttpError(404, "Project not found");
+    return project.path;
+  };
+  for (const [scope, folder] of [["workspaces", cwd], ["projects", projectPath]] as const) {
+    api.post(`/${scope}/:id/changes/commit`, async (c) => {
+      const body = await readJson<CommitChangesRequest>(c);
+      if (typeof body.message !== "string" || !body.message.trim()) throw new HttpError(400, "message is required");
+      if (body.paths !== undefined) requirePaths(body.paths);
+      return c.json(await git.commit(folder(c), body.message, body.paths));
+    });
+    api.post(`/${scope}/:id/changes/commit-message`, async (c) => {
+      const text = (await c.req.text()).trim();
+      const body = text ? await readJson<CommitMessageRequest>(c, text) : {};
+      if (body.paths !== undefined) requirePaths(body.paths);
+      return c.json(await git.commitMessage(folder(c), body.paths));
+    });
+  }
   return api;
 }
 

@@ -21,7 +21,7 @@ import { api } from "@/lib/api";
 import { applySessionDetail } from "./chat-session";
 import { projects, sessions, settings, sortedProjects, upsert, workspaces, workspacesForProject } from "./store";
 import { notify } from "./toasts";
-import { newChatWorktree } from "./worktrees";
+import { resetNewChatWorktree, worktreeRequestFor } from "./worktrees";
 
 /** `ids` with `id` swapped one step up (-1) or down (+1); null at the edges or if missing. */
 export function stepOrder(ids: readonly string[], id: string, delta: -1 | 1): string[] | null {
@@ -45,10 +45,10 @@ function fail(prefix: string, err: unknown): void {
  * can navigate to it right away. Throws; the caller reports errors.
  */
 export async function createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
-  // The new-chat screen's "New worktree" switch (I-096) is on for this project.
-  const worktree = req.worktree ?? (req.projectId !== null && newChatWorktree.value === req.projectId);
-  const created = await api.createWorkspace(worktree ? { ...req, worktree } : req);
-  if (worktree) newChatWorktree.value = null;
+  // The new-chat context bar's "Work in: New worktree" (I-096, I-105) is on for this project.
+  const fromBar = req.worktree === undefined ? worktreeRequestFor(req.projectId) : {};
+  const created = await api.createWorkspace({ ...req, ...fromBar });
+  if (fromBar.worktree) resetNewChatWorktree();
   workspaces.value = upsert(workspaces.value, created.workspace);
   sessions.value = created.sessions.reduce(upsert, sessions.value);
   applySessionDetail(created.session);

@@ -1,0 +1,46 @@
+/**
+ * The new-chat context bar (I-105): a slim shelf tucked under the top edge of the new-chat
+ * composer with three pickers — project, where the chat works (Local / New worktree; git
+ * projects only) and the branch (git projects only). Replaces I-096's "New worktree" switch.
+ * The Work-in choice is cleared when the screen goes away (`resetNewChatWorktree`).
+ */
+import { useEffect } from "preact/hooks";
+import { loadProjectGit, projectGit, resetNewChatWorktree } from "@/state/worktrees";
+import { BranchPicker } from "./BranchPicker";
+import { ProjectPicker } from "./ProjectPicker";
+import { WorkInPicker } from "./WorkInPicker";
+
+export function ContextBar({ projectId }: { projectId: string | null }) {
+  useEffect(() => {
+    if (!projectId) return;
+    void loadProjectGit(projectId);
+    // Branches change outside Glade too (terminal, editor): refresh when the window comes back.
+    const onFocus = () => void loadProjectGit(projectId);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [projectId]);
+  useEffect(() => () => resetNewChatWorktree(), []);
+  const git = projectId ? projectGit.value.get(projectId) : undefined;
+
+  return (
+    <div
+      role="toolbar"
+      aria-label="New chat context"
+      class="mx-3 -mb-3 flex min-w-0 items-center gap-0.5 rounded-t-[12px] bg-tabbar px-1.5 pt-1 pb-[15px] shadow-[0_0_0_0.5px_var(--pi-separator)] select-none"
+    >
+      <ProjectPicker projectId={projectId} />
+      {projectId && git?.isRepo && (
+        <>
+          <Divider />
+          <WorkInPicker projectId={projectId} />
+          <Divider />
+          <BranchPicker projectId={projectId} git={git} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function Divider() {
+  return <span aria-hidden class="mx-0.5 h-3 w-px shrink-0 bg-separator" />;
+}

@@ -649,3 +649,12 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   prompt beats a global one with the same name; commands beat both.
 - `SessionDetail.offline` marks file-based views (a chat held by another server); clients reload them
   when the session updates.
+- New-chat context bar (I-105, `features/chat/context-bar/`): project, Local/New worktree and branch.
+  `services/project-git.ts` lists branches and uncommitted files and does checkout/create in the
+  project folder. A Local checkout is refused while the folder is dirty (commit first; the dialog
+  reuses `CommitDialog` via `/projects/:id/changes/commit`) or while a Local chat of the project is
+  running. Worktree mode takes a `baseRef` (a local branch) and an optional `branch` name.
+  `ui/SearchPopover` is the searchable menu primitive.
+- Open-in in a chat targets the workspace (`POST /workspaces/:id/open` → `cwd`); the project endpoint
+  is only for the new-chat screen. The header's location line (`ChatLocation`, I-107) reads
+  branch/HEAD from the changes status, so it has no endpoint of its own.

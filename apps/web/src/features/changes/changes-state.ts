@@ -1,8 +1,9 @@
 /**
  * Changes panel state (I-097): the last git status per workspace, shared by the header button
- * (its count) and the panel. Refreshed when the workspace screen mounts, when a run in the
- * workspace ends, when the panel opens, and by hand (refresh button). Overlapping refreshes of
- * one workspace share a request.
+ * (its count), the header's location line (its branch, I-107) and the panel. Refreshed when the
+ * workspace screen mounts, when a run in the workspace ends, when the window regains focus, when
+ * the panel opens, and by hand (refresh button). Overlapping refreshes of one workspace share a
+ * request.
  *
  *   const entry = changesEntry(workspaceId);   // entry.status.value, entry.loading.value
  *   await refreshChanges(workspaceId);
@@ -39,6 +40,20 @@ export function changedCount(workspaceId: string): number | null {
   return status?.isRepo ? status.files.length : null;
 }
 
+/** Where the folder's `HEAD` is (I-107): its branch, or the short hash when detached. */
+export interface GitHead {
+  name: string;
+  detached: boolean;
+}
+
+/** The folder's current branch / detached hash; `null` when unknown or not a repository. */
+export function currentHead(workspaceId: string): GitHead | null {
+  const status = changesEntry(workspaceId).status.value;
+  if (!status?.isRepo) return null;
+  if (status.branch) return { name: status.branch, detached: false };
+  return status.head ? { name: status.head, detached: true } : null;
+}
+
 export function setChanges(workspaceId: string, status: GitChangesResponse): void {
   const entry = changesEntry(workspaceId);
   entry.status.value = status;
@@ -65,11 +80,15 @@ export function refreshChanges(workspaceId: string): Promise<void> {
   return promise;
 }
 
-/** Refresh on mount and whenever a run in the workspace ends (`running` true → false). */
+/** Refresh on mount, when the window regains focus and whenever a run in the workspace ends (`running` true → false). */
 export function useChangesAutoRefresh(workspaceId: string, running: boolean | undefined): void {
   const wasRunning = useRef(running);
   useEffect(() => {
     void refreshChanges(workspaceId);
+    // The branch or files may have changed outside Glade (I-107).
+    const onFocus = () => void refreshChanges(workspaceId);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [workspaceId]);
   useEffect(() => {
     if (wasRunning.current && !running) void refreshChanges(workspaceId);

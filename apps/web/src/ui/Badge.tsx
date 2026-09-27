@@ -3,18 +3,21 @@
  * (e.g. a chat's worktree branch in the header, I-096). Not interactive; the tooltip is `title`.
  *
  *   <Badge icon={<GitBranch />} title="Branch glade/foo">glade/foo</Badge>
+ *   <Badge lead="Worktree" icon={<GitBranch />}>glade/foo</Badge>   // "Worktree · ⑂ glade/foo" (I-107)
  */
 import type { ComponentChildren } from "preact";
 import { cn } from "@/lib/cn";
 
 export interface BadgeProps {
+  /** A short word before the icon, separated by a dot (e.g. "Local"). */
+  lead?: ComponentChildren;
   icon?: ComponentChildren;
   title?: string;
   children: ComponentChildren;
   class?: string;
 }
 
-export function Badge({ icon, title, children, class: className }: BadgeProps) {
+export function Badge({ lead, icon, title, children, class: className }: BadgeProps) {
   return (
     <span
       title={title}
@@ -23,6 +26,14 @@ export function Badge({ icon, title, children, class: className }: BadgeProps) {
         className,
       )}
     >
+      {lead != null && (
+        <>
+          <span class="shrink-0">{lead}</span>
+          <span aria-hidden="true" class="shrink-0 text-fg-subtle">
+            ·
+          </span>
+        </>
+      )}
       {icon}
       <span class="min-w-0 truncate">{children}</span>
     </span>

@@ -9,6 +9,7 @@ import {
   quickTitle,
   type CreateWorkspaceRequest,
   type CreateWorkspaceResponse,
+  type OpenTarget,
   type UpdateWorkspaceRequest,
   type Workspace,
   type WorkspaceDetail,
@@ -16,6 +17,7 @@ import {
   type WorktreeRemoval,
   type WorktreeStatus,
 } from "@glade/protocol";
+import { createOpenIn, isOpenTarget, OpenInError } from "../open-in.js";
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from "../worktrees.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
@@ -56,7 +58,7 @@ export class Workspaces {
     if (req.worktree && !project) throw new HttpError(400, "Only chats in a project can work in a worktree");
     const created =
       req.worktree && project
-        ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8) })
+        ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8), baseRef: req.baseRef, branch: req.branch })
         : null;
     const now = Date.now();
     const workspace: Workspace = {
@@ -131,6 +133,18 @@ export class Workspaces {
   /** Where worktree folders live: `<dataDir>/worktrees`. */
   private worktreesDir(): string {
     return join(this.ctx.options.dataDir ?? this.ctx.store.dataDir, "worktrees");
+  }
+
+  /** Open the chat's folder (`cwd`: its worktree, or the project folder) in another app (I-106). */
+  async openWorkspace(id: string, app: unknown): Promise<void> {
+    const workspace = this.records.requireWorkspace(id);
+    if (!isOpenTarget(app)) throw new HttpError(400, `Unknown app: ${String(app)}`);
+    try {
+      await (this.ctx.options.openIn ?? createOpenIn())(app satisfies OpenTarget, workspace.cwd);
+    } catch (err) {
+      if (err instanceof OpenInError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
   }
 
   /** A worktree workspace's branch state (asked before deleting it). 404 without a worktree. */

@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import type { CreateProjectRequest, OpenTarget, Project, ProjectGitInfo, UpdateProjectRequest } from "@glade/protocol";
 import { createOpenIn, isOpenTarget, OpenInError } from "../open-in.js";
+import { checkoutBranch, createBranch } from "../project-git.js";
 import { projectGitInfo } from "../worktrees.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
@@ -97,6 +98,32 @@ export class Projects {
   /** Whether the project's folder is a git repository (worktree chats, I-096). */
   getProjectGit(id: string): Promise<ProjectGitInfo> {
     return projectGitInfo(this.records.requireProject(id).path);
+  }
+
+  /** Check out a branch in the project folder (I-105; refused while dirty or a local chat is working). */
+  async checkoutProjectBranch(id: string, branch: string): Promise<ProjectGitInfo> {
+    const project = this.records.requireProject(id);
+    this.assertNoLocalRun(project.id, `switch to ${branch}`);
+    return checkoutBranch(project.path, branch);
+  }
+
+  /** Create a branch from the project folder's HEAD, optionally checking it out (I-105). */
+  async createProjectBranch(id: string, name: string, checkout: boolean): Promise<ProjectGitInfo> {
+    const project = this.records.requireProject(id);
+    if (checkout) this.assertNoLocalRun(project.id, `switch to ${name}`);
+    return createBranch(project.path, name, checkout);
+  }
+
+  /** 409 while a chat of the project works in the project folder itself (not in a worktree). */
+  private assertNoLocalRun(projectId: string, what: string): void {
+    const busy = this.ctx.store
+      .listWorkspaces()
+      .filter((w) => w.projectId === projectId && !w.worktree)
+      .map((w) => this.records.summarizeWorkspace(w))
+      .filter((w) => w.running);
+    if (busy.length === 0) return;
+    const names = busy.map((w) => `"${w.title}"`).join(", ");
+    throw new HttpError(409, `Can't ${what} while ${names} ${busy.length === 1 ? "is" : "are"} working in the project folder`);
   }
 
   /** Removes the project and all of its workspaces (including their session files). */

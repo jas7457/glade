@@ -58,10 +58,10 @@ describe("worktrees service", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it("reports whether a folder is a git repo", async () => {
-    expect(await projectGitInfo(repo)).toEqual({ isRepo: true, branch: "main" });
+    expect(await projectGitInfo(repo)).toMatchObject({ isRepo: true, branch: "main" });
     const plain = join(dir, "plain");
     mkdirSync(plain);
-    expect(await projectGitInfo(plain)).toEqual({ isRepo: false, branch: null });
+    expect(await projectGitInfo(plain)).toEqual({ isRepo: false, branch: null, branches: [], uncommittedFiles: 0, uncommittedPaths: [] });
   });
 
   it("creates a worktree on a unique glade/ branch from the current branch", async () => {
@@ -241,7 +241,7 @@ describe("worktree workspaces", () => {
         headers: { host: "127.0.0.1:4317", ...(body ? { "content-type": "application/json" } : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
-    expect(await (await call("GET", `/api/projects/${projectId}/git`)).json()).toEqual({ isRepo: true, branch: "main" });
+    expect(await (await call("GET", `/api/projects/${projectId}/git`)).json()).toMatchObject({ isRepo: true, branch: "main" });
     expect((await call("POST", "/api/workspaces", { projectId, worktree: "yes" })).status).toBe(400);
     const created = await call("POST", "/api/workspaces", { projectId, prompt: "via http", worktree: true });
     expect(created.status).toBe(200);
