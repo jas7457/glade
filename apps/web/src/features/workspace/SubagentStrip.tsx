@@ -109,16 +109,18 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
       onClick={() => onOpen(chip.id)}
       class={cn(
         // Fixed width (the user asked): chips don't jump as their latest message changes.
-        "flex h-[22px] w-56 max-w-full min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
+        "flex h-[22px] w-44 max-w-full min-w-0 items-center gap-1.5 rounded-full text-left border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
         chip.attention === "warning" && "border-warning/60 bg-warning-tint",
         chip.attention === "danger" && "border-danger/50 bg-danger-tint",
         selected && "border-agent ring-1 ring-agent",
         (chip.kind === "done" || chip.kind === "idle") && !selected && "opacity-80",
       )}
     >
-      <span aria-hidden="true" class="size-2 shrink-0 rounded-full bg-agent" />
+      {/* The status marker leads (spinner / needs input / check / failed / idle); the name carries the colour (I-103). */}
+      <span class="flex w-3 shrink-0 justify-center">
+        <AgentStatusMarker kind={chip.kind} size={10} />
+      </span>
       <span class="shrink-0 font-medium text-agent">{chip.identity.displayName}</span>
-      <AgentStatusMarker kind={chip.kind} size={10} />
       {chip.shortActivity && (
         <span class={cn("min-w-0 flex-1 truncate", chip.attention === "danger" ? "text-danger" : chip.attention === "warning" ? "text-fg" : "text-fg-muted")}>
           {chip.shortActivity}

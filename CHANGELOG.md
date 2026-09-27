@@ -112,6 +112,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agent chips are narrower and left-aligned, and start with the agent's status (spinner, check,
+  needs input, failed) instead of a coloured dot.
 - Internal: the server's core was split into small focused modules (no visible change); future
   features and parallel work are safer.
 - Web searches and fetches, messages to sub-agents and MCP tool calls now have their own colours
