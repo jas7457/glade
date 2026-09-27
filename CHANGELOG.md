@@ -119,6 +119,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- "Messaged …" and "Closed …" rows use the sub-agent's fun name and colour ("Messaged Kit ·
+  context-bar: …"), and expand to the message itself instead of raw JSON.
 - Links in replies stand out: a soft sky-blue chip with a link icon in front.
 - The agent's chat tools have their own colour and readable rows ("Found 3 chats for …", "Opened
   chat …").

@@ -7,7 +7,7 @@ import type { ComponentType } from "preact";
 import type { DiffLine, ToolCallBlock, ToolKind, ToolResult } from "@glade/protocol";
 import { Bot, FilePen, FilePlus, FileText, FolderOpen, Globe, History, MessagesSquare, Plug, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
 import { cn } from "@/lib/cn";
-import { CodeView } from "../Markdown";
+import { CodeView, Markdown } from "../Markdown";
 import type { ToolCallStatus } from "../grouping";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 
@@ -194,6 +194,19 @@ function DefaultBody({ call, result, status }: ToolBodyProps) {
   );
 }
 
+/** message_agent: the message as Markdown (not JSON), then the tool's result (I-108). */
+function AgentBody(props: ToolBodyProps) {
+  const text = typeof props.call.args?.text === "string" ? props.call.args.text : null;
+  if (!text) return <DefaultBody {...props} />;
+  const { result, status } = props;
+  return (
+    <div class={cn(panel, "divide-y-[0.5px] divide-separator")}>
+      <Markdown text={text} class="selectable px-3 py-2" />
+      {result && <OutputText text={result.output} error={status === "error"} />}
+    </div>
+  );
+}
+
 export const fallbackRenderer: ToolRenderer = { icon: Wrench, Body: DefaultBody };
 
 export const toolRenderers: Record<ToolKind, ToolRenderer> = {
@@ -206,7 +219,7 @@ export const toolRenderers: Record<ToolKind, ToolRenderer> = {
   web: { icon: Globe, Body: PlainOutputBody },
   task: { icon: Bot, Body: PlainOutputBody },
   // Agent messages and MCP calls show their args too (the message text, the tool's arguments).
-  agent: { icon: MessagesSquare, Body: DefaultBody },
+  agent: { icon: MessagesSquare, Body: AgentBody },
   mcp: { icon: Plug, Body: DefaultBody },
   // Chat tools (I-099): the found chats / read messages / confirmation.
   chat: { icon: History, Body: PlainOutputBody },

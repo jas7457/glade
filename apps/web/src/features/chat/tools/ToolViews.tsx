@@ -19,7 +19,9 @@ import { formatDuration, groupDuration, toolDuration, useNow } from "../duration
 import { isActiveStatus, type GroupItem, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { Markdown } from "../Markdown";
 import { ThinkingView } from "../Thinking";
-import { groupLabel, summarizeToolCall } from "./summaries";
+import { identityFor, useSpawnLinks } from "../spawn-context";
+import type { AgentIdentityView } from "../agent-identity";
+import { groupLabel, summarizeToolCall, truncate } from "./summaries";
 import { rendererFor } from "./renderers";
 
 /** Parts are rebuilt on every transcript change; compare what they point at instead. */
@@ -127,6 +129,10 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const { call, result, status } = part;
   const active = isActiveStatus(status);
   const summary = summarizeToolCall(call, active, result?.status === "error" ? undefined : result?.output);
+  // message_agent / close_agent: the agent's fun name in its colour, like spawn cards (I-108).
+  const spawnLinks = useSpawnLinks();
+  const agentName = call.kind === "agent" ? call.input?.agentName : undefined;
+  const agent = agentName ? identityFor(spawnLinks, agentName) : null;
   const renderer = rendererFor(call.kind);
   const Icon = renderer.icon;
   const Badge = renderer.Badge;
@@ -143,7 +149,12 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
         <ToneIcon icon={Icon} tone={status === "error" ? "danger" : call.kind} class={cn(status === "cancelled" && "opacity-60")} />
         <span class={cn("min-w-0 flex-1 truncate", status === "cancelled" && "opacity-60")} data-tone={status === "error" ? "danger" : call.kind}>
           <span class="pi-tone-text">{summary.verb}</span>
-          {summary.subject && (
+          {agent ? (
+            <>
+              {" "}
+              <AgentSubject agent={agent} text={call.input?.description} />
+            </>
+          ) : summary.subject && (
             <>
               {" "}
               <span class={cn("text-fg", summary.mono && "font-mono text-[0.92em]")}>{summary.subject}</span>
@@ -212,3 +223,14 @@ export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: 
     </div>
   );
 }, (a, b) => a.part.active === b.part.active && a.part.items.length === b.part.items.length && a.part.items.every((item, i) => sameGroupItem(item, b.part.items[i]!)));
+
+/** "Kit · context-bar: the message…" — name in the agent's colour, role greyed (I-108). */
+function AgentSubject({ agent, text }: { agent: AgentIdentityView; text?: string }) {
+  return (
+    <span data-agent-color={agent.color}>
+      <span class="font-medium text-agent">{agent.displayName}</span>
+      {agent.role && <span class="text-fg-subtle"> · {agent.role}</span>}
+      {text && <span class="text-fg">: {truncate(text)}</span>}
+    </span>
+  );
+}

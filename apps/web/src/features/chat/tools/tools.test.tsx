@@ -5,6 +5,8 @@ import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 import { currentKind, dominantKind, groupKinds, ToolCallRow, ToolGroup } from "./ToolViews";
 import type { ToolCallPart, ToolGroupPart } from "../grouping";
+import { SpawnLinksContext } from "../spawn-context";
+import { NO_SPAWN_LINKS } from "../agent-spawns";
 
 Element.prototype.scrollTo ??= function () {};
 
@@ -302,5 +304,38 @@ describe("dominantKind (I-088)", () => {
     expect(dominantKind([part("read", "done", "a"), part("search", "done", "b")])).toBe("read");
     expect(dominantKind([part("other", "done", "a"), part("other", "done", "b"), part("list", "done", "c")])).toBe("list");
     expect(dominantKind([part("other", "done", "a")])).toBeNull();
+  });
+});
+
+describe("agent tool rows (I-108)", () => {
+  const msg = (): ToolCallPart => ({
+    type: "tool",
+    key: "m1",
+    call: call("agent", { agentAction: "message", agentName: "context-bar", description: "OK, go ahead" }, { id: "m1", name: "message_agent", args: { to: "context-bar", text: "OK, **go ahead**" } }),
+    result: { toolCallId: "m1", toolName: "message_agent", status: "done", output: "Sent to context-bar." },
+    status: "done",
+  });
+  const links = {
+    links: NO_SPAWN_LINKS,
+    subagents: [],
+    refs: [{ name: "context-bar", sessionId: "s1", displayName: "Kit", color: "teal", spawnedAt: 1 }],
+  };
+
+  it("shows the agent's fun name in its colour, role greyed, and the message as Markdown", () => {
+    const { container } = render(
+      <SpawnLinksContext.Provider value={links}>
+        <ToolCallRow part={msg()} />
+      </SpawnLinksContext.Provider>,
+    );
+    expect(container.textContent).toContain("Messaged Kit · context-bar: OK, go ahead");
+    expect(container.querySelector('[data-agent-color="teal"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole("button"));
+    expect(container.querySelector("strong, [data-streamdown=strong]")?.textContent).toBe("go ahead");
+    expect(container.textContent).not.toContain('"to"');
+  });
+
+  it("falls back to the functional name for unknown agents", () => {
+    const { container } = render(<ToolCallRow part={msg()} />);
+    expect(container.textContent).toContain("Messaged context-bar: OK, go ahead");
   });
 });
