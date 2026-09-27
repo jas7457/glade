@@ -61,6 +61,8 @@ export interface WorkspaceLayout {
   activeSubagentSessionId?: Record<string, string>;
   /** Width of the sub-agent pane as a fraction of the content area (0..1). */
   subagentPaneSize?: number;
+  /** The sub-agent pane is open (I-080). Closed by default; opened by clicking an agent in the strip. */
+  subagentPaneOpen?: boolean;
 }
 
 /** `main`: a tab in the main area. `subagent`: spawned by another session of the workspace (I-037). */
