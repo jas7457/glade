@@ -82,6 +82,8 @@ const { app, injectWebSocket } = createApp({
   search,
   security: { mode: "loopback" },
   staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
+  // The installed app's bundle can be replaced while it runs (I-082): keep serving our own copy.
+  snapshotStatic: serverKind === "desktop",
 });
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {

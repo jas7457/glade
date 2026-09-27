@@ -62,8 +62,8 @@ user promotes them to the Inbox.
   (then `git worktree remove --force /tmp/glade-verify`).
 - Tick the Inbox items (`Outcome:` line), add CHANGELOG entries, record decisions in
   `docs/ARCHITECTURE.md`, push.
-- After a round, update the user's app with `pnpm tauri:install --when-idle` (needs
-  `. "$HOME/.cargo/env"` in non-login shells).
+- After a round, update the user's app with `pnpm tauri:install` (needs `. "$HOME/.cargo/env"`
+  in non-login shells). It doesn't quit the running app; the user reopens it when convenient.
 
 ## Commands
 
@@ -118,9 +118,9 @@ The user develops Glade with the installed app (`/Applications/Glade.app`). The 
 - **Agents never touch either of them**: the rules in "Testing as an agent" still apply, test in
   `pnpm dev:agent` sandboxes only. Agent processes don't inherit the app server's port/host/kind
   (`GLADE_PORT`, `GLADE_SERVER_KIND`, … are stripped, see `harness/pi/child-env.ts`).
-- **Updating the app**: `pnpm tauri:install --when-idle` builds, waits until no chat on the app's
-  server is working or blocked (printing which ones it's waiting for), then quits the app and
-  replaces it. Agents don't install; the lead/user does, after integrating a round. To test a
+- **Updating the app**: `pnpm tauri:install` builds and swaps the new bundle into
+  `/Applications/Glade.app` without quitting the running app (I-082); the new version starts the
+  next time the user quits and reopens Glade. Agents don't install; the lead/user does, after integrating a round. To test a
   release build next to the installed app, run its binary with a temp data folder and its own
   identifier: `GLADE_APP_IDENTIFIER=io.github.jas7457.glade.<agent> GLADE_DATA_DIR=/tmp/…
   apps/desktop/src-tauri/target/release/bundle/macos/Glade.app/Contents/MacOS/glade`.
@@ -130,11 +130,10 @@ What happens to running chats when a server stops:
 | Event | Chats running in that server | Chats running in the other server |
 | --- | --- | --- |
 | `tsx watch` restarts the dev server (an agent edited `apps/server/**`) | cut off; shown as interrupted (Continue) | unaffected |
-| App quit / `pnpm tauri:install` | quit asks first if any are working/blocked; cut-off runs show as interrupted (the dev server marks them within ~2s) | unaffected |
+| App quit (e.g. to start a newly installed version) | quit asks first if any are working/blocked; cut-off runs show as interrupted (the dev server marks them within ~2s) | unaffected |
 | A server crashes | the other server marks its runs interrupted within ~2s | unaffected |
 
-So: keep orchestrating chats in the app, and never restart the app in the middle of a round
-(use `--when-idle`).
+So: keep orchestrating chats in the app, and don't quit it in the middle of a round.
 
 ## Rules
 

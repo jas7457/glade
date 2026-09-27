@@ -38,12 +38,18 @@ import { createAgentsRoutes } from "./agents.js";
 import type { SearchService } from "../services/search/search-service.js";
 import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
+import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
 
 export interface CreateAppOptions {
   service: AppService;
   security?: SecurityOptions;
   /** Built web app (`apps/web/dist`). Served with SPA fallback when it exists. */
   staticDir?: string;
+  /**
+   * Serve the web app from a copy read into memory at startup instead of the folder (I-082: the
+   * desktop app's bundle can be replaced on disk while it runs). Default: read per request.
+   */
+  snapshotStatic?: boolean;
   /** Native folder dialog (injectable for tests). Default: `osascript` on macOS. */
   pickFolder?: FolderPicker;
   /** Folder-level commands, file search and harness defaults (I-043/I-044/I-050). */
@@ -52,7 +58,7 @@ export interface CreateAppOptions {
   search?: SearchService;
 }
 
-export function createApp({ service, security, staticDir, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
+export function createApp({ service, security, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -72,7 +78,22 @@ export function createApp({ service, security, staticDir, pickFolder = createFol
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 
-  if (staticDir) {
+  const snapshot = staticDir && snapshotStatic ? loadStaticSnapshot(staticDir) : null;
+  if (snapshot) {
+    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws";
+    const send = (c: Context, file: StaticFile) => {
+      c.header("Content-Type", file.type);
+      return c.body(new Uint8Array(file.body));
+    };
+    app.get("*", async (c, next) => {
+      if (isApiPath(c.req.path)) return next();
+      const file = snapshot.get(c.req.path);
+      if (file) return send(c, file);
+      // Missing assets are 404s; everything else is a client route (SPA fallback).
+      if (c.req.path.startsWith("/assets/")) return next();
+      return send(c, snapshot.index);
+    });
+  } else if (staticDir) {
     // The built web app may appear (or be rebuilt) after the server starts, e.g. `vite build`
     // while `tsx watch` restarts us, so check for it per request rather than once at startup.
     const indexHtml = join(staticDir, "index.html");

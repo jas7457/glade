@@ -235,7 +235,7 @@ cut-off runs still show as interrupted on the next start.
 `GLADE_SANDBOX`, `GLADE_DEBUG`, `GLADE_WEB_PORT`, `GLADE_SANDBOX_ROOT`, `GLADE_APP_IDENTIFIER`).
 The pre-rename `PI_UI_*` names are still read as fallbacks, through one helper per language:
 `env(name)` in `apps/server/src/config.ts` (and copies in `apps/web/vite.config.ts`,
-`scripts/sandbox/lib.mjs`, `apps/desktop/scripts/idle.mjs`), `server::env_var` in Rust.
+`scripts/sandbox/lib.mjs`), `server::env_var` in Rust.
 
 **Rename migration (I-059, pi-ui → Glade)**: at startup, when the data folder is the default one
 (no `GLADE_DATA_DIR`/`PI_UI_DATA_DIR`), `…/Glade` doesn't exist and `…/pi-ui` does, the server
@@ -245,8 +245,7 @@ store touch it) and logs it once. Everything is copied except other servers' run
 `scratch/` are pointed at the copy. The copy is staged in `Glade.migrating-<pid>` and renamed
 into place, so a crash leaves nothing half-done (the next start retries). The old folder stays as
 a backup and keeps working for a pre-rename build. Until the copy exists the desktop app reads
-the old folder's `settings.json` (for the pi path), and `tauri:install --when-idle` also looks for
-an old app's server in `…/pi-ui/servers/`. The web app's `localStorage` keys moved from
+the old folder's `settings.json` (for the pi path). The web app's `localStorage` keys moved from
 `pi-ui.*` to `glade.*` (read once as a fallback, `state/ui.ts`).
 Only sessions created by Glade are listed; sessions started in the terminal are not imported.
 Because transcripts stay in pi's own format, a Glade session can still be resumed with `pi --session`.
@@ -307,8 +306,7 @@ started. Four mechanisms keep them from stepping on each other:
    rewrites it every 2s and deletes it (and its leases) on shutdown and in an `exit` hook. A server
    is gone when its file is missing, its pid is dead, or its heartbeat is older than 60s (hangs, pid
    reuse); right after the machine wakes up (our own heartbeat is old too) nobody is judged stale.
-   Dead servers' files are pruned. Leases name servers by id; `pnpm tauri:install --when-idle`
-   finds the app's server here. There is no exit code 3 any more.
+   Dead servers' files are pruned. Leases name servers by id. There is no exit code 3 any more.
 
 Per server (not shared): the live process pool, viewers/unread marking of runs it owns, agent
 tokens (`GLADE_TOKEN`), title generation, the usage poller, the search index
@@ -506,6 +504,12 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Installing never quits the app** (2026-09-26, I-082, user decision): `pnpm tauri:install`
+  builds, copies the bundle to `/Applications/.Glade.app.incoming` and swaps it in with renames;
+  a running Glade keeps its loaded files and the next launch is the new version. The desktop
+  server (`GLADE_SERVER_KIND=desktop`) serves the web app from an in-memory snapshot taken at
+  startup (`http/static-snapshot.ts`), so a reload in the old app never gets the new web code.
+  `--when-idle` and the auto-quit are gone.
 - **Several harnesses per server** (2026-09-26, I-064…I-069): interfaces + optional methods +
   `info.capabilities`, no abstract base class; routing by `Session.harness` through a
   `HarnessRegistry`; the default harness serves new chats and app-wide features (sub-agents inherit

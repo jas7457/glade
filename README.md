@@ -32,10 +32,9 @@ idle"). So you can develop Glade *from inside Glade*:
   dev server restarts; chats running in the app keep going. Chats running *in the dev server*
   stop and show as interrupted (with Continue).
 - Agents test only in **`pnpm dev:agent`** sandboxes, never against the app or your data folder.
-- **Update the app with `pnpm tauri:install --when-idle`**: it builds first, then waits (showing
-  which chats it's waiting for) until no chat on the app's server is working or waiting for
-  input, then quits the app and installs. Without `--when-idle`, quitting asks for confirmation
-  if chats are working and the install stops if you cancel.
+- **Update the app with `pnpm tauri:install`**: it builds and replaces `/Applications/Glade.app`
+  without quitting a running Glade (which keeps working as it was). Quit and reopen Glade whenever
+  it suits you to get the new version.
 
 See [AGENTS.md](AGENTS.md#dogfooding-developing-glade-from-inside-glade-i-058) for details.
 

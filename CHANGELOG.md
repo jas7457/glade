@@ -104,6 +104,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- `pnpm tauri:install` no longer quits Glade: it replaces the app on disk and the new version starts
+  the next time you open it (`--when-idle` is gone).
 - "Working…" and "Thinking…" are grey again with a small rainbow shimmer sweeping across, instead
   of a fully rainbow label.
 - More colour in chats: teal inline code, coloured list markers and links, a rainbow "Working…"
