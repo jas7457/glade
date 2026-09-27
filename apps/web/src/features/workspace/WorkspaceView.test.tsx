@@ -24,7 +24,10 @@ vi.mock("@/lib/api", () => ({
     deleteWorkspace: vi.fn(async () => undefined),
     prompt: vi.fn(async () => undefined),
     abort: vi.fn(async () => undefined),
+    generateSessionTitle: vi.fn(async () => ({ title: "Named" })),
   },
+  // Changes panel (I-097) status requests.
+  request: vi.fn(async () => ({ isRepo: false })),
 }));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 const { api } = await import("@/lib/api");
@@ -180,11 +183,32 @@ describe("WorkspaceView", () => {
   it("renames a tab inline from its context menu", async () => {
     renderAt("/projects/p/chats/w?tab=m2");
     fireEvent.contextMenu(mainTabs()[1]!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Rename/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
     const input = (await screen.findByRole("textbox", { name: "Tab title" })) as HTMLInputElement;
     input.value = "Docs";
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("m2", { title: "Docs" }));
+  });
+
+  it("renames a tab with AI from its context menu (I-101)", async () => {
+    renderAt("/projects/p/chats/w?tab=m1");
+    fireEvent.contextMenu(mainTabs()[1]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename with AI" }));
+    await waitFor(() => expect(api.generateSessionTitle).toHaveBeenCalledWith("m2"));
+  });
+
+  it("the header's changes button opens the changes panel in place of the sub-agents (I-097)", async () => {
+    renderAt("/projects/p/chats/w?tab=m1");
+    expect(subTablist()).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
+    await waitFor(() => expect(screen.getByText("Not a git repository")).toBeTruthy());
+    expect(subTablist()).toBeNull();
+    expect(screen.getByRole("separator", { name: "Resize changes" })).toBeTruthy();
+    await waitFor(() => expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, changesPanelOpen: true } }));
+    // Hiding it brings the sub-agents back.
+    fireEvent.click(screen.getByRole("button", { name: "Hide Changes (Esc)" }));
+    await waitFor(() => expect(subTablist()).not.toBeNull());
+    expect(screen.queryByText("Not a git repository")).toBeNull();
   });
 
   it("marks a tab unread / read from its context menu (I-073)", async () => {
@@ -236,11 +260,11 @@ describe("WorkspaceView", () => {
       fireEvent.click(within(strip()).getByRole("button", { name: /^Open tests/ }));
       await waitFor(() => expect(subTablist()).not.toBeNull());
       expect(within(subTablist()!).getByRole("tab", { name: /tests/ }).getAttribute("aria-selected")).toBe("true");
-      expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, activeSubagentSessionId: { m1: "a2" } } });
+      expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, changesPanelOpen: false, activeSubagentSessionId: { m1: "a2" } } });
 
       fireEvent.click(screen.getByRole("button", { name: "Hide Sub-agents (Esc)" }));
       await waitFor(() => expect(subTablist()).toBeNull());
-      expect(api.updateWorkspace).toHaveBeenLastCalledWith("w", { layout: { subagentPaneOpen: false, activeSubagentSessionId: { m1: "a2" } } });
+      expect(api.updateWorkspace).toHaveBeenLastCalledWith("w", { layout: { subagentPaneOpen: false, changesPanelOpen: false, activeSubagentSessionId: { m1: "a2" } } });
       expect(api.deleteSession).not.toHaveBeenCalled();
       expect(within(strip()).getAllByRole("button", { name: /^Open / })).toHaveLength(2);
     });

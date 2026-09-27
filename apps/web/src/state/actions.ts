@@ -14,12 +14,14 @@ import type {
   UpdateProjectRequest,
   UpdateSessionRequest,
   UpdateWorkspaceRequest,
+  WorktreeRemoval,
 } from "@glade/protocol";
 import { activeMainSessionId } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { applySessionDetail } from "./chat-session";
 import { projects, sessions, settings, sortedProjects, upsert, workspaces, workspacesForProject } from "./store";
 import { notify } from "./toasts";
+import { newChatWorktree } from "./worktrees";
 
 /** `ids` with `id` swapped one step up (-1) or down (+1); null at the edges or if missing. */
 export function stepOrder(ids: readonly string[], id: string, delta: -1 | 1): string[] | null {
@@ -43,7 +45,10 @@ function fail(prefix: string, err: unknown): void {
  * can navigate to it right away. Throws; the caller reports errors.
  */
 export async function createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
-  const created = await api.createWorkspace(req);
+  // The new-chat screen's "New worktree" switch (I-096) is on for this project.
+  const worktree = req.worktree ?? (req.projectId !== null && newChatWorktree.value === req.projectId);
+  const created = await api.createWorkspace(worktree ? { ...req, worktree } : req);
+  if (worktree) newChatWorktree.value = null;
   workspaces.value = upsert(workspaces.value, created.workspace);
   sessions.value = created.sessions.reduce(upsert, sessions.value);
   applySessionDetail(created.session);
@@ -94,10 +99,13 @@ export function movePinnedWorkspace(id: string, delta: -1 | 1): Promise<boolean>
   return next ? reorderPinnedWorkspaces(workspace.projectId, next) : Promise.resolve(false);
 }
 
-/** Delete a workspace and all of its sessions (permanently). */
-export async function deleteWorkspace(id: string): Promise<boolean> {
+/**
+ * Delete a workspace and all of its sessions (permanently). `worktree`: what happens to a
+ * worktree workspace's branch (I-096; the server keeps it by default).
+ */
+export async function deleteWorkspace(id: string, worktree?: WorktreeRemoval): Promise<boolean> {
   try {
-    await api.deleteWorkspace(id);
+    await (worktree ? api.deleteWorkspace(id, worktree) : api.deleteWorkspace(id));
     workspaces.value = workspaces.value.filter((w) => w.id !== id);
     sessions.value = sessions.value.filter((s) => s.workspaceId !== id);
     return true;

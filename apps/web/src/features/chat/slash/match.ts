@@ -20,9 +20,10 @@ export function parseSlash(text: string): ParsedSlash | null {
   return { name: match[1] ?? "", args: rest?.trim() ?? "", hasArgs: rest !== undefined };
 }
 
-export const GROUP_ORDER: SlashCommandSource[] = ["builtin", "extension", "skill", "prompt"];
+export const GROUP_ORDER: SlashCommandSource[] = ["builtin", "saved", "extension", "skill", "prompt"];
 export const GROUP_LABELS: Record<SlashCommandSource, string> = {
   builtin: "Built-in",
+  saved: "Saved Prompts",
   extension: "Extensions",
   skill: "Skills",
   prompt: "Prompts",
@@ -73,7 +74,7 @@ export interface CommandGroup {
 
 /**
  * Commands matching `query` (substring/fuzzy on name + description), grouped Built-in /
- * Extensions / Skills / Prompts; best matches first within a group, ties (and everything for
+ * Saved Prompts / Extensions / Skills / Prompts; best matches first within a group, ties (and everything for
  * an empty query) in alphabetical order (I-049).
  */
 export function filterCommands(commands: SlashCommand[], query: string): CommandGroup[] {

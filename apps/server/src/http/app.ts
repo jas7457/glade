@@ -12,6 +12,7 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import {
   MAX_ATTACHMENT_BYTES,
   THINKING_LEVELS,
+  WORKTREE_REMOVALS,
   type CreateProjectRequest,
   type CreateSessionRequest,
   type CreateWorkspaceRequest,
@@ -28,6 +29,7 @@ import {
   type UpdateProjectRequest,
   type UpdateSessionRequest,
   type UpdateWorkspaceRequest,
+  type WorktreeRemoval,
 } from "@glade/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
 import type { FolderInfoService } from "../services/folder-info.js";
@@ -35,6 +37,8 @@ import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, ty
 import { RevealUnavailableError } from "../services/reveal.js";
 import { AttachmentError } from "../services/attachments.js";
 import { folderRoutes } from "./folder.js";
+import { changesRoutes } from "./changes.js";
+import { GitChangesService } from "../services/git-changes.js";
 import { searchRoutes } from "./search.js";
 import { createAgentsRoutes } from "./agents.js";
 import type { SearchService } from "../services/search/search-service.js";
@@ -74,6 +78,8 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
 
   // Feature routers first: `apiRoutes` ends with a catch-all 404.
   if (folderInfo) app.route("/api", folderRoutes(folderInfo));
+  // Changes panel (I-097): git status/diff/revert/commit of a workspace's folder.
+  app.route("/api", changesRoutes(service, new GitChangesService({ complete: (prompt, cwd) => service.completeQuick(prompt, cwd) })));
   if (search) app.route("/api", searchRoutes(search));
   // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
   app.route("/api/agents", createAgentsRoutes(service, search));
@@ -140,6 +146,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.openProject(c.req.param("id"), body.app);
     return c.body(null, 204);
   });
+  api.get("/projects/:id/git", async (c) => c.json(await service.getProjectGit(c.req.param("id"))));
   api.delete("/projects/:id", async (c) => {
     await service.deleteProject(c.req.param("id"));
     return c.body(null, 204);
@@ -153,6 +160,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
       throw new HttpError(400, "projectId must be a string or null");
     }
     requireNewSession(body);
+    optional(body.worktree, "boolean", "worktree");
     return c.json(await service.createWorkspace(body));
   });
   api.put("/workspaces/pin-order", async (c) => {
@@ -173,8 +181,13 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
     return c.json(await service.updateWorkspace(c.req.param("id"), body));
   });
+  api.get("/workspaces/:id/worktree", async (c) => c.json(await service.getWorktreeStatus(c.req.param("id"))));
   api.delete("/workspaces/:id", async (c) => {
-    await service.deleteWorkspace(c.req.param("id"));
+    const worktree = c.req.query("worktree");
+    if (worktree !== undefined && !WORKTREE_REMOVALS.includes(worktree as WorktreeRemoval)) {
+      throw new HttpError(400, `worktree must be one of ${WORKTREE_REMOVALS.join(", ")}`);
+    }
+    await service.deleteWorkspace(c.req.param("id"), worktree as WorktreeRemoval | undefined);
     return c.body(null, 204);
   });
   api.get("/workspaces/:id/sessions", (c) => c.json(service.listSessions(c.req.param("id"))));

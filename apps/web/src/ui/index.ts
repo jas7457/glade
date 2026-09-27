@@ -40,3 +40,6 @@ export { TabStrip, TAB_STRIP_HEIGHT, type TabStripProps, type TabStripTab } from
 export { SplitView, type SplitViewProps } from "./SplitView";
 export { TextHighlight } from "./TextHighlight";
 export { Chip, type ChipProps } from "./Chip";
+export { Checkbox, type CheckboxProps } from "./Checkbox";
+export { Badge, type BadgeProps } from "./Badge";
+export { ToolbarToggle, type ToolbarToggleProps } from "./ToolbarToggle";

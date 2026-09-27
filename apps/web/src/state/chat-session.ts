@@ -36,6 +36,11 @@ export interface ChatSessionStore {
   agentError: Signal<string | null>;
   /** The harness's slash commands for this session; `null` until loaded (see loadChatCommands). */
   commands: Signal<SlashCommand[] | null>;
+  /**
+   * The last load was an offline snapshot (`SessionDetail.offline`: another server held the
+   * session, or a closed sub-agent): partial state, reloaded when the session changes (I-102).
+   */
+  offline: boolean;
 }
 
 const sessions = new Map<string, ChatSessionStore>();
@@ -52,6 +57,7 @@ export function getChatSession(sessionId: string): ChatSessionStore {
       error: signal(null),
       agentError: signal(null),
       commands: signal(null),
+      offline: false,
     };
     sessions.set(sessionId, store);
   }
@@ -64,6 +70,7 @@ export function applySessionDetail(detail: SessionDetail): ChatSessionStore {
   store.transcript.value = detail.transcript;
   store.state.value = detail.state;
   store.uiRequests.value = detail.pendingUiRequests;
+  store.offline = detail.offline === true;
   store.status.value = "ready";
   store.error.value = null;
   return store;
@@ -103,8 +110,10 @@ export function loadChatCommands(sessionId: string): Promise<void> {
   return pending;
 }
 
+/** After a reconnect: reload loaded chats, and retry ones that failed while the server was away. */
 export async function reloadOpenChatSessions(): Promise<void> {
-  await Promise.all([...sessions.values()].filter((s) => s.status.value === "ready").map((s) => loadChatSession(s.sessionId)));
+  const stale = [...sessions.values()].filter((s) => s.status.value === "ready" || s.status.value === "error");
+  await Promise.all(stale.map((s) => loadChatSession(s.sessionId)));
 }
 
 /**
@@ -112,13 +121,17 @@ export async function reloadOpenChatSessions(): Promise<void> {
  * the session file) when it starts or stops running there, or when it ran there meanwhile.
  */
 export function reloadIfChangedElsewhere(previous: SessionSummary | undefined, next: SessionSummary): void {
-  if (!previous) return;
-  const was = previous.activeElsewhere;
-  const now = next.activeElsewhere;
-  const changed = !!was !== !!now || (!!now && (previous.lastActivityAt !== next.lastActivityAt || previous.status !== next.status));
-  if (!changed) return;
   const store = sessions.get(next.id);
-  if (store?.status.value === "ready") void loadChatSession(next.id);
+  if (store?.status.value !== "ready") return;
+  const was = previous?.activeElsewhere;
+  const now = next.activeElsewhere;
+  const changed =
+    (!!previous && (!!was !== !!now || (!!now && (previous.lastActivityAt !== next.lastActivityAt || previous.status !== next.status)))) ||
+    // I-102: an offline snapshot (e.g. loaded while another server still held the session, as
+    // during a server restart) lacks thinking levels and context usage. The server pushes the
+    // session when its lease changes; load it again then, unless it's busy elsewhere.
+    (store.offline && !now);
+  if (changed) void loadChatSession(next.id);
 }
 
 export function handleSessionEvent(sessionId: string, event: AgentEvent): void {

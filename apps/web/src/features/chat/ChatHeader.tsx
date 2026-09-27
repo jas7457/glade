@@ -1,18 +1,22 @@
 /**
  * Chat header bar (window drag region): the workspace's editable title, project name (for
- * project chats), the shown session's live status, "Open in VS Code" (project chats) and an
- * overflow menu (rename, pin, delete the workspace).
+ * project chats), its worktree branch (I-096, a subtle chip), the shown session's live status,
+ * the changes button (I-097: changed-file count; toggles the changes panel), "Open in VS Code"
+ * (project chats) and an overflow menu (rename, pin, delete the workspace).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
+import { Ellipsis, FileDiff, GitBranch, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import { deriveChatStatus, type WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { routes } from "@/app/routes";
 import { getChatSession } from "@/state/chat-session";
-import { deleteWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { renameWorkspace, setWorkspacePinned } from "@/state/actions";
 import { projectsById } from "@/state/store";
-import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, confirm, statusLabel } from "@/ui";
+import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, Badge, statusLabel } from "@/ui";
+import { changedCount } from "@/features/changes";
+import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
+import { setChangesPanelOpen } from "@/features/workspace/layout-actions";
 import { OpenInButton } from "./OpenInButton";
 
 export function ChatHeader({ workspace: chat, sessionId }: { workspace: WorkspaceSummary | undefined; sessionId: string }) {
@@ -31,15 +35,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
   const leave = () => navigate(chat?.projectId ? routes.project(chat.projectId) : routes.home());
 
   const onDelete = async () => {
-    const ok = await confirm({
-      title: "Delete chat?",
-      subject: title || "Untitled",
-      message: "will be permanently deleted. This can't be undone.",
-      confirmLabel: "Delete",
-      destructive: true,
-    });
-    if (!ok) return;
-    if (chat && (await deleteWorkspace(chat.id))) leave();
+    if (chat && (await confirmDeleteChat(chat))) leave();
   };
 
   return (
@@ -68,8 +64,19 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
           </button>
         )}
         {project && (
-          <span data-tauri-drag-region class="min-w-0 flex-1 truncate text-[0.92rem] text-fg-subtle">
+          <span data-tauri-drag-region class={cn("min-w-0 truncate text-[0.92rem] text-fg-subtle", !chat?.worktree && "flex-1")}>
             {project.name}
+          </span>
+        )}
+        {chat?.worktree && (
+          <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline">
+            <Badge
+              icon={<GitBranch />}
+              title={`Works in its own worktree on branch ${chat.worktree.branch} (from ${chat.worktree.baseRef})`}
+              class="self-center"
+            >
+              {chat.worktree.branch}
+            </Badge>
           </span>
         )}
       </div>
@@ -79,6 +86,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
           <span>{liveLabel}</span>
         </div>
       )}
+      {chat && <ChangesButton workspace={chat} />}
       {project && <OpenInButton projectId={project.id} />}
       <Menu
         align="end"
@@ -103,6 +111,22 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
         </MenuItem>
       </Menu>
     </div>
+  );
+}
+
+/** Toggles the changes panel (I-097); shows how many files git sees changed. */
+function ChangesButton({ workspace }: { workspace: WorkspaceSummary }) {
+  const count = changedCount(workspace.id);
+  const open = workspace.layout?.changesPanelOpen === true;
+  return (
+    <ToolbarToggle
+      icon={<FileDiff />}
+      count={count}
+      pressed={open}
+      label={count ? `${count} changed ${count === 1 ? "file" : "files"}` : "Changes"}
+      tooltip={open ? "Hide Changes" : "Show Changes"}
+      onClick={() => setChangesPanelOpen(workspace.id, !open)}
+    />
   );
 }
 

@@ -26,18 +26,20 @@ import {
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
+  Sparkles,
   SquarePen,
   Sun,
   Trash2,
   X,
 } from "lucide-preact";
-import { StatusIndicator, confirm } from "@/ui";
+import { StatusIndicator } from "@/ui";
+import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { loadModels, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
-import { deleteWorkspace, markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
+import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
-import { closeTab, openNewTab } from "@/features/workspace";
+import { closeTab, openNewTab, renameWithAi } from "@/features/workspace";
 import type { RouteContext } from "./paths";
 import { SETTINGS_SECTIONS, chatPath, routes } from "./routes";
 import { SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
@@ -204,6 +206,20 @@ export function buildCommands(ctx: CommandContext): Command[] {
       },
     },
     {
+      // I-101: the small model names the focused tab from its conversation (like `/name`).
+      id: "rename-with-ai",
+      title: "Rename with AI",
+      group: "Actions",
+      keywords: ["title", "name", "generate"],
+      icon: <Sparkles />,
+      available: hasChat,
+      run: async () => {
+        if (!route.workspaceId) return;
+        const id = resolveSessionId(route.workspaceId, new URLSearchParams(window.location.search).get("tab"));
+        if (id) await renameWithAi(id);
+      },
+    },
+    {
       id: "pin-chat",
       title: current()?.pinned ? "Unpin Chat" : "Pin Chat",
       group: "Actions",
@@ -240,14 +256,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
       run: async () => {
         const chat = current();
         if (!chat) return;
-        const ok = await confirm({
-          title: "Delete chat?",
-          subject: chat.title || "Untitled",
-          message: "will be permanently deleted. This can't be undone.",
-          confirmLabel: "Delete",
-          destructive: true,
-        });
-        if (ok && (await deleteWorkspace(chat.id))) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
+        if (await confirmDeleteChat(chat)) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
       },
     },
     {

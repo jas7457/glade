@@ -634,3 +634,18 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - Search hits locate messages by role + timestamp (`MessageAnchor`), not by transcript message id:
   harness ids are positional and change between streaming, reloads and compaction. The web resolves
   the anchor against the loaded transcript (`features/chat/jump-to-message.ts`).
+
+### Worktrees, changes panel, saved prompts (I-096–I-098, I-102)
+
+- Worktrees live in `<dataDir>/worktrees/<repo>/<slug>` on `glade/<slug>` branches
+  (`services/worktrees.ts`); `Workspace.worktree` records them and `Workspace.cwd` points inside.
+  Deleting always removes the folder; merge runs first and only into a clean project folder on the
+  base branch; the default is keep.
+- Changes panel: `services/git-changes.ts` runs git at the repo root, limited to the workspace folder,
+  with literal pathspecs; clients may only name paths `status` reports (`http/changes.ts`). In the web
+  the panel replaces the right pane while `layout.changesPanelOpen` is set; the sub-agent pane's flag
+  is kept.
+- Saved prompts: `Settings.prompts`; slash-menu source `saved`; picking inserts the text; a project's
+  prompt beats a global one with the same name; commands beat both.
+- `SessionDetail.offline` marks file-based views (a chat held by another server); clients reload them
+  when the session updates.

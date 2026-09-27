@@ -13,3 +13,6 @@ export * from "./harness.js";
 export * from "./agent-messages.js";
 export * from "./chat-tools.js";
 export * from "./attachments.js";
+export * from "./prompts.js";
+export * from "./git-changes.js";
+export * from "./worktrees.js";

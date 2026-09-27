@@ -6,10 +6,12 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import type { CreateProjectRequest, OpenTarget, Project, UpdateProjectRequest } from "@glade/protocol";
+import type { CreateProjectRequest, OpenTarget, Project, ProjectGitInfo, UpdateProjectRequest } from "@glade/protocol";
 import { createOpenIn, isOpenTarget, OpenInError } from "../open-in.js";
+import { projectGitInfo } from "../worktrees.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
+import { dropProjectPrompts } from "./prompts.js";
 import type { Records } from "./records.js";
 import { sameIdSet, type Workspaces } from "./workspaces.js";
 
@@ -92,6 +94,11 @@ export class Projects {
     }
   }
 
+  /** Whether the project's folder is a git repository (worktree chats, I-096). */
+  getProjectGit(id: string): Promise<ProjectGitInfo> {
+    return projectGitInfo(this.records.requireProject(id).path);
+  }
+
   /** Removes the project and all of its workspaces (including their session files). */
   async deleteProject(id: string): Promise<void> {
     this.records.requireProject(id);
@@ -99,6 +106,7 @@ export class Projects {
       await this.workspaces.deleteWorkspace(workspace.id);
     }
     this.ctx.store.removeProject(id);
+    dropProjectPrompts(this.ctx, id); // its saved prompts (I-098) go with it
     this.ctx.broadcast({ type: "project_removed", projectId: id });
   }
 }

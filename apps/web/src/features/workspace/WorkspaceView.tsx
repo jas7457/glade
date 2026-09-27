@@ -8,13 +8,16 @@
  * running. Open state and width are saved in the workspace layout. Double-click a tab to maximize its group (again to restore). The layout (tab order,
  * focused tabs, pane width) is saved with the workspace; the URL's `?tab=` is the focused main tab.
  *
+ * Changes panel (I-097): the header's changes button opens it in the right pane, in place of the
+ * sub-agents (their pane comes back when it closes; opening an agent closes it). Same width.
+ *
  * Tab shortcuts: ⌘T new tab, ⌘W close the focused group's tab, ⌃Tab / ⌃⇧Tab cycle the focused
  * group's tabs ("focused" = the group containing keyboard focus, else the main group).
  * Every tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, X } from "lucide-preact";
+import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, Sparkles, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
 import { markSessionRead, markSessionUnread, renameFromSession } from "@/state/actions";
@@ -24,10 +27,12 @@ import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
 import { AgentLinksContext, type AgentLinks } from "@/features/chat/agent-links";
 import { sessionAgentIdentity } from "@/features/chat/agent-identity";
+import { ChangesPanel, useChangesAutoRefresh } from "@/features/changes";
 import { AgentBar } from "./AgentBar";
 import { SubagentStrip } from "./SubagentStrip";
 import { agentDisplay } from "./agent-status";
-import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, isSubagentPaneOpen, shouldClearSubagentPane, type TabGroupId } from "./layout";
+import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, isChangesPanelOpen, isSubagentPaneOpen, shouldClearSubagentPane, type TabGroupId } from "./layout";
+import { renameWithAi } from "./rename-with-ai";
 import {
   closeTab,
   focusMainTab,
@@ -37,6 +42,7 @@ import {
   openNewTab,
   openSubagent,
   saveLayout,
+  setChangesPanelOpen,
   tabTitle,
   toggleMaximized,
   type Navigate,
@@ -62,7 +68,9 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   const activeSubSession = subagents.find((s) => s.id === activeSub);
   const maximized = maximizedGroup.value[workspaceId];
   const paneOpen = isSubagentPaneOpen(workspace?.layout);
-  const showSubagents = paneOpen && activeSub !== null && maximized !== "main";
+  // The changes panel (I-097) takes the right pane's place while open.
+  const changesOpen = isChangesPanelOpen(workspace?.layout);
+  const showSubagents = paneOpen && !changesOpen && activeSub !== null && maximized !== "main";
   const showMain = !(maximized === "subagents" && showSubagents);
   // The last agent in the pane went away: the pane is closed, so the next spawn doesn't reopen it (I-085).
   const clearPane = shouldClearSubagentPane(
@@ -73,6 +81,8 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   useEffect(() => {
     if (clearPane) hideSubagentPane(workspaceId);
   }, [clearPane, workspaceId]);
+  // The header's changed-file count stays current (on open and when a run ends).
+  useChangesAutoRefresh(workspaceId, workspace?.running);
 
   // Live pane size while dragging; the saved one otherwise.
   const [dragSize, setDragSize] = useState<number | null>(null);
@@ -172,6 +182,9 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         <>
           <MenuItem icon={<Pencil />} onSelect={() => setRenaming(s.id)}>
             Rename…
+          </MenuItem>
+          <MenuItem icon={<Sparkles />} onSelect={() => void renameWithAi(s.id)}>
+            Rename with AI
           </MenuItem>
           {s.unread ? (
             <MenuItem icon={<MailOpen />} onSelect={() => void markSessionRead(s.id)}>
@@ -280,10 +293,16 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         {showMain ? (
           <SplitView
             start={mainGroup}
-            end={showSubagents ? subagentGroup : null}
+            end={
+              changesOpen && workspace ? (
+                <ChangesPanel workspaceId={workspaceId} cwd={workspace.cwd} onClose={() => setChangesPanelOpen(workspaceId, false)} />
+              ) : showSubagents ? (
+                subagentGroup
+              ) : null
+            }
             size={paneSize}
             defaultSize={DEFAULT_SUBAGENT_PANE_SIZE}
-            label="Resize sub-agents"
+            label={changesOpen ? "Resize changes" : "Resize sub-agents"}
             onResize={setDragSize}
             onResizeEnd={(size) => {
               setDragSize(null);

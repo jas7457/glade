@@ -48,9 +48,20 @@ export function shouldClearSubagentPane(
   return isSubagentPaneOpen(layout) && mainSessionLoaded && subagentCount === 0;
 }
 
-/** Layout patch that opens the pane on `subagentId` (a sub-agent of `mainSessionId`). */
+/**
+ * Layout patch that opens the pane on `subagentId` (a sub-agent of `mainSessionId`). The changes
+ * panel shares the right side (I-097), so opening an agent closes it.
+ */
 export function openSubagentPatch(mainSessionId: string, subagentId: string): WorkspaceLayout {
-  return { subagentPaneOpen: true, activeSubagentSessionId: { [mainSessionId]: subagentId } };
+  return { subagentPaneOpen: true, changesPanelOpen: false, activeSubagentSessionId: { [mainSessionId]: subagentId } };
+}
+
+/**
+ * The changes panel is open (I-097). It takes the right pane's place while open; the sub-agent
+ * pane's own open flag is kept, so closing the changes panel brings the agents back.
+ */
+export function isChangesPanelOpen(layout: WorkspaceLayout | null | undefined): boolean {
+  return layout?.changesPanelOpen === true;
 }
 
 /** The tab `delta` steps from `current` (wrapping). `null` when there's nothing to move to. */

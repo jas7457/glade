@@ -3,7 +3,7 @@
  * followed by its chats (pinned first, newest first). The row is the drag handle for reordering
  * projects (the whole group moves); "Move Up / Move Down" in its menu are the keyboard way.
  */
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Folder, FolderOpen, MoreHorizontal, Plus } from "lucide-preact";
 import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade/protocol";
@@ -14,6 +14,7 @@ import { workspacesForProject } from "@/state/store";
 import { closedProjects, setProjectOpen } from "@/state/ui";
 import { moveProject, removeProject, renameProject } from "@/state/actions";
 import { notify } from "@/state/toasts";
+import { loadProjectGit, newChatWorktree, projectGit } from "@/state/worktrees";
 import { ChatList } from "./ChatList";
 import { DropLine } from "./DropLine";
 import { InlineRename } from "./InlineRename";
@@ -56,6 +57,15 @@ export function ProjectGroup({
   };
 
   const newChat = () => navigate(routes.project(project.id));
+  // "New Chat in Worktree" (I-096) for git projects: the new-chat screen opens with the switch on.
+  useEffect(() => {
+    void loadProjectGit(project.id);
+  }, [project.id]);
+  const isRepo = projectGit.value.get(project.id)?.isRepo ?? false;
+  const newWorktreeChat = () => {
+    newChatWorktree.value = project.id;
+    navigate(routes.project(project.id));
+  };
   const remove = async () => {
     const count = list.length;
     const ok = await confirm({
@@ -87,6 +97,7 @@ export function ProjectGroup({
         </span>
       </MenuLabel>
       <MenuItem onSelect={newChat}>New Chat</MenuItem>
+      {isRepo && <MenuItem onSelect={newWorktreeChat}>New Chat in Worktree</MenuItem>}
       <MenuSeparator />
       <MenuItem
         onSelect={() => {

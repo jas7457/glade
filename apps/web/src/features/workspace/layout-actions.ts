@@ -10,7 +10,8 @@ import { signal } from "@preact/signals";
 import type { SessionSummary, WorkspaceLayout } from "@glade/protocol";
 import { subagentSessionsOf } from "@glade/protocol";
 import { chatPath, routes } from "@/app/routes";
-import { createSession, deleteSession, deleteWorkspace, updateWorkspace } from "@/state/actions";
+import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
+import { createSession, deleteSession, updateWorkspace } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@/state/store";
 import { confirm } from "@/ui";
@@ -51,8 +52,14 @@ export function focusSubagentTab(workspaceId: string, mainSessionId: string, ses
 /** Open a sub-agent in the right-hand pane (I-080: clicking it in the strip or a report card). */
 export function openSubagent(workspaceId: string, mainSessionId: string, sessionId: string): void {
   const layout = workspacesById.value.get(workspaceId)?.layout;
-  if (layout?.subagentPaneOpen && layout.activeSubagentSessionId?.[mainSessionId] === sessionId) return;
+  if (layout?.subagentPaneOpen && !layout.changesPanelOpen && layout.activeSubagentSessionId?.[mainSessionId] === sessionId) return;
   void saveLayout(workspaceId, openSubagentPatch(mainSessionId, sessionId));
+}
+
+/** Show/hide the changes panel (I-097; the header's changes button). */
+export function setChangesPanelOpen(workspaceId: string, open: boolean): void {
+  const layout = workspacesById.value.get(workspaceId)?.layout;
+  if ((layout?.changesPanelOpen === true) !== open) void saveLayout(workspaceId, { changesPanelOpen: open });
 }
 
 /** Hide the sub-agent pane (×, Esc, ⌘W on its last tab); its agents keep running. */
@@ -130,14 +137,11 @@ export async function closeTab(session: SessionSummary, navigate: Navigate, opts
 async function closeLastTab(session: SessionSummary, navigate: Navigate): Promise<boolean> {
   const workspace = workspacesById.value.get(session.workspaceId);
   if (!workspace) return false;
-  const ok = await confirm({
-    title: "Delete chat?",
-    subject: workspace.title || tabTitle(session),
-    message: "will be permanently deleted, since this is its last tab. This can't be undone.",
-    confirmLabel: "Delete Chat",
-    destructive: true,
-  });
-  if (!ok || !(await deleteWorkspace(workspace.id))) return false;
+  const deleted = await confirmDeleteChat(
+    { ...workspace, title: workspace.title || tabTitle(session) },
+    { message: "will be permanently deleted, since this is its last tab. This can't be undone.", confirmLabel: "Delete Chat" },
+  );
+  if (!deleted) return false;
   if (maximizedGroup.value[workspace.id]) {
     const rest = { ...maximizedGroup.value };
     delete rest[workspace.id];

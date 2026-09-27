@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 
-vi.mock("@/lib/api", () => ({ api: {} }));
+vi.mock("@/lib/api", () => ({ api: { generateSessionTitle: vi.fn() }, request: vi.fn() }));
 vi.mock("@/lib/api-search", () => ({
   searchChats: vi.fn(async (q: string) => ({ query: q, hits: [] })),
   askChats: vi.fn(),
@@ -14,13 +14,15 @@ vi.mock("@/state/actions", () => ({
 }));
 
 import type { AskResponse, SearchHit } from "@glade/protocol";
+import { api } from "@/lib/api";
 import { askChats, searchChats } from "@/lib/api-search";
 import { renameWorkspace, updateSettings } from "@/state/actions";
-import { projects, workspaces } from "@/state/store";
+import { projects, sessions, workspaces } from "@/state/store";
+import { toasts } from "@/state/toasts";
 import { paletteOpen, sidebarCollapsed } from "@/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
 import type { RouteContext } from "@/app/paths";
-import { makeWorkspace, makeProject } from "@/test/fixtures";
+import { makeWorkspace, makeProject, makeSession } from "@/test/fixtures";
 import { pendingJump } from "@/features/chat/jump-to-message";
 import { Palette } from "./Palette";
 
@@ -108,6 +110,32 @@ describe("Palette", () => {
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(renameWorkspace).toHaveBeenCalledWith("c1", "Fix OAuth login");
     expect(paletteOpen.value).toBe(false);
+  });
+
+  it("renames the current tab with AI (I-101) and reports failures", async () => {
+    sessions.value = [makeSession({ id: "s1", workspaceId: "c1", kind: "main" })];
+    const generate = vi.mocked(api.generateSessionTitle);
+    generate.mockResolvedValueOnce({ title: "OAuth login", session: sessions.value[0]! });
+    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false });
+    type(input(), "rename with ai");
+    expect(selected()).toBe("Rename with AI");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(paletteOpen.value).toBe(false);
+    await waitFor(() => expect(generate).toHaveBeenCalledWith("s1"));
+    await waitFor(() => expect(toasts.value.some((t) => t.level === "success" && t.message.includes("OAuth login"))).toBe(true));
+
+    generate.mockRejectedValueOnce(new Error("Nothing to name yet"));
+    paletteOpen.value = true;
+    await waitFor(() => screen.getByRole("combobox"));
+    type(screen.getByRole("combobox"), "rename with ai");
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+    await waitFor(() => expect(toasts.value.some((t) => t.level === "error" && t.message.includes("Nothing to name yet"))).toBe(true));
+  });
+
+  it("hides Rename with AI without a current chat", () => {
+    const { input } = renderPalette();
+    type(input(), "rename with ai");
+    expect(screen.queryByText("Rename with AI")).toBeNull();
   });
 
   it("closes on Escape", () => {

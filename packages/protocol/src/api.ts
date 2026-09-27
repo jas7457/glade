@@ -80,6 +80,8 @@ export interface WorkspaceLayout {
   subagentPaneSize?: number;
   /** The sub-agent pane is open (I-080). Closed by default; opened by clicking an agent in the strip. */
   subagentPaneOpen?: boolean;
+  /** The changes panel is open (I-097). It takes the right pane's place while open. */
+  changesPanelOpen?: boolean;
 }
 
 /** `main`: a tab in the main area. `subagent`: spawned by another session of the workspace (I-037). */
@@ -251,6 +253,8 @@ export interface Settings {
      */
     hidden: string[];
   };
+  /** Saved prompts (I-098): global and per project, in their manual order. See `prompts.ts`. */
+  prompts: import("./prompts.js").SavedPrompt[];
 }
 
 /** Settings of the pi harness (`Settings.harnesses.pi`, I-066). */
@@ -302,6 +306,7 @@ export function defaultSettings(): Settings {
     slashCommands: {
       hidden: [],
     },
+    prompts: [],
   };
 }
 
@@ -344,6 +349,11 @@ export interface CreateWorkspaceRequest {
   images?: PromptImage[];
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
+  /**
+   * Work in a new git worktree on its own branch (I-096; see `worktrees.ts`). Only for projects
+   * whose folder is a git repository (400 otherwise, and for standalone chats).
+   */
+  worktree?: boolean;
 }
 
 export interface UpdateWorkspaceRequest {
@@ -410,6 +420,12 @@ export interface SessionDetail {
   transcript: Transcript;
   state: SessionState;
   pendingUiRequests: import("./events.js").UiRequest[];
+  /**
+   * Shown from the session file: the agent isn't running in this server (another Glade server
+   * holds it, or it's a closed sub-agent), so the state is partial (no context usage). Clients
+   * load it again when the session changes (I-102).
+   */
+  offline?: boolean;
 }
 
 /** `GET /api/workspaces/:id`: the workspace and all of its sessions (doesn't start agents). */
@@ -467,7 +483,8 @@ export type PickFolderResponse = { path: string } | { cancelled: true };
 // Slash commands (I-016)
 // ---------------------------------------------------------------------------------------------
 
-export type SlashCommandSource = "builtin" | "extension" | "prompt" | "skill";
+/** `saved`: the user's saved prompts (I-098, web only; picking one inserts its text). */
+export type SlashCommandSource = "builtin" | "extension" | "prompt" | "skill" | "saved";
 
 export interface SlashCommand {
   /** Without the leading slash, e.g. "compact" or "skill:web-design". */

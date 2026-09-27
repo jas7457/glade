@@ -75,6 +75,7 @@ import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtin
 import { filterCommands, mergeCommands, parseSlash } from "./slash/match";
 import { SLASH_MENU_ID, SlashMenu, slashOptionId } from "./slash/SlashMenu";
 import { useFolderCommands } from "./slash/folder-commands";
+import { findSavedPrompt, savedPromptCommands, withSavedPrompts } from "./slash/saved-prompts";
 import { applyMention, findMention } from "./mentions/parse";
 import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
 import { useFileSearch } from "./mentions/useFileSearch";
@@ -159,8 +160,11 @@ export function ComposerBox(props: ComposerBoxProps) {
   const typingName = parsed && !parsed.hasArgs ? parsed.name : null;
   const slashSettings = settings.value;
   const menuCommands = useMemo(
-    () => (slash ? slash.commands.filter((c) => !isSlashCommandHidden(slashSettings, c)) : []),
-    [slash?.commands, slashSettings.slashCommands],
+    () =>
+      slash
+        ? withSavedPrompts(slash.commands, savedPromptCommands(slashSettings.prompts, slash.projectId)).filter((c) => !isSlashCommandHidden(slashSettings, c))
+        : [],
+    [slash?.commands, slash?.projectId, slashSettings.slashCommands, slashSettings.prompts],
   );
   const groups = useMemo(() => (slash && typingName !== null ? filterCommands(menuCommands, typingName) : []), [menuCommands, typingName]);
   const flat = groups.flatMap((g) => g.commands);
@@ -237,8 +241,21 @@ export function ComposerBox(props: ComposerBoxProps) {
 
   const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0);
 
-  /** Insert `/name ` and keep typing arguments. */
+  /** Replace the text with a saved prompt's (I-098; never sent here), caret at the end. */
+  const insertPrompt = (body: string) => {
+    updateText(body);
+    pendingCaret.current = body.length;
+    textareaRef.current?.focus();
+  };
+
+  /** The saved prompt `/name` stands for, unless a command of this composer has that name. */
+  const savedPromptFor = (name: string) =>
+    slash && !slash.commands.some((c) => c.name === name) ? findSavedPrompt(settings.value.prompts, slash.projectId, name) : null;
+
+  /** Insert `/name ` and keep typing arguments (a saved prompt inserts its text). */
   const complete = (command: SlashCommand) => {
+    const saved = command.source === "saved" ? savedPromptFor(command.name) : null;
+    if (saved) return insertPrompt(saved.body);
     updateText(`/${command.name} `);
     setMenuDismissed(false);
     textareaRef.current?.focus();
@@ -311,6 +328,13 @@ export function ComposerBox(props: ComposerBoxProps) {
     const sentText = text.trim();
     const sentImages = images;
     const sentFiles = files;
+    const typedSlash = slash ? parseSlash(sentText) : null;
+    const saved = typedSlash ? savedPromptFor(typedSlash.name) : null;
+    if (typedSlash && saved) {
+      // `/saved-prompt [more text]` typed in full: insert the prompt instead of sending (I-098).
+      insertPrompt(typedSlash.args ? `${saved.body}\n\n${typedSlash.args}` : saved.body);
+      return;
+    }
     const builtin = builtinFor(sentText);
     if (builtin) {
       // Runs here instead of being sent (attached images stay for the next message).
@@ -726,7 +750,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       onStop={() => void runAction(() => api.abort(chatId), "Could not stop")}
       above={above}
       toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} model={state.model} />}
-      slash={{ commands: slashCommands, chatId, projectId: null, navigate }}
+      slash={{ commands: slashCommands, chatId, projectId, navigate }}
       mentions={{ projectId }}
       shell={capabilities.shell ? { run: runShell } : undefined}
       class={className}

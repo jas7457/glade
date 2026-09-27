@@ -11,6 +11,7 @@ import { ModelSettings } from "./ModelSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { AgentSettings } from "./AgentSettings";
 import { CommandSettings } from "./CommandSettings";
+import { PromptSettings } from "./PromptSettings";
 
 const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   general: GeneralSettings,
@@ -18,6 +19,7 @@ const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   appearance: AppearanceSettings,
   agent: AgentSettings,
   commands: CommandSettings,
+  prompts: PromptSettings,
 };
 
 export function isSettingsSection(value: string | undefined): value is SettingsSection {

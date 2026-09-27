@@ -4,6 +4,7 @@
 import { Navigate, RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
 import { ConfirmHost, Toaster, TooltipProvider } from "@/ui";
 import { SettingsRoute } from "@/features/settings";
+import { DeleteChatHost } from "@/features/sidebar";
 import { Layout } from "./Layout";
 import { NotFound } from "./NotFound";
 import { ChatRoute, HomeRoute, ProjectRoute } from "./RouteViews";
@@ -32,6 +33,7 @@ export function App() {
     <TooltipProvider>
       <RouterProvider router={router} />
       <ConfirmHost />
+      <DeleteChatHost />
       <Toaster />
     </TooltipProvider>
   );

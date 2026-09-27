@@ -3,14 +3,16 @@
  * dot / needs-input) when not idle, else the age. On hover (or while the menu is open) the right
  * side is replaced by a "…" menu button; the same menu opens on right-click: Rename, Pin,
  * Move Up/Down (pinned chats), Mark as Read / Mark as Unread (I-073: flags the last open tab), Delete.
+ * Chats working in their own git worktree (I-096) show a small branch glyph.
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { MoreHorizontal, Pin } from "lucide-preact";
+import { GitBranch, MoreHorizontal, Pin } from "lucide-preact";
 import type { WorkspaceSummary } from "@glade/protocol";
 import { chatPath } from "@/app/routes";
-import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, type SidebarIndent } from "@/ui";
-import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, type SidebarIndent } from "@/ui";
+import { markWorkspaceRead, markWorkspaceUnread, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { confirmDeleteChat } from "./delete-chat";
 import { InlineRename } from "./InlineRename";
 import { formatRelativeTime } from "./time";
 
@@ -22,17 +24,6 @@ export interface ChatRowProps {
   onRemoved?: (chat: WorkspaceSummary) => void;
   /** Position in its pinned group (pinned chats in a group of 2+); enables Move Up / Move Down. */
   pinPosition?: { first: boolean; last: boolean };
-}
-
-export async function confirmDeleteChat(chat: WorkspaceSummary): Promise<boolean> {
-  const ok = await confirm({
-    title: "Delete chat?",
-    subject: chat.title || "Untitled",
-    message: "will be permanently deleted. This can't be undone.",
-    confirmLabel: "Delete",
-    destructive: true,
-  });
-  return ok && deleteWorkspace(chat.id);
 }
 
 export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: ChatRowProps) {
@@ -85,6 +76,11 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
 
   const trailing = (
     <>
+      {chat.worktree && (
+        <span title={`Worktree: ${chat.worktree.branch}`} class="inline-flex">
+          <GitBranch size={11} aria-label={`Worktree ${chat.worktree.branch}`} />
+        </span>
+      )}
       {chat.pinned && <Pin size={11} aria-label="Pinned" />}
       {chat.status !== "idle" ? (
         <StatusIndicator status={chat.status} failed={chat.lastRunFailed} />

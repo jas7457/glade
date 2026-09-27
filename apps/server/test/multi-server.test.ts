@@ -232,3 +232,19 @@ describe("two servers on one data folder (I-062)", () => {
     expect(JSON.parse(readFileSync(join(dataDir, "servers", "A.json"), "utf8"))).toMatchObject({ id: "A", kind: "desktop" });
   });
 });
+
+describe("offline session details (I-102)", () => {
+  it("a session another server holds is shown offline, with its model's thinking levels", async () => {
+    const { a, b } = pair();
+    const created = await a.service.createWorkspace({ projectId: null });
+    const sid = created.session.session.id;
+    expect(created.session.offline).toBeUndefined(); // live in A
+    await until(() => b.service.listSessions().some((s) => s.id === sid), 4000);
+
+    const detail = await b.service.getSessionDetail(sid);
+    expect(detail.offline).toBe(true);
+    expect(detail.state.model).toEqual({ provider: "fake", id: "smart" });
+    expect(detail.state.thinkingLevels).toEqual(["off", "low", "medium", "high"]);
+    expect(b.service.liveCount).toBe(0);
+  });
+});

@@ -14,6 +14,7 @@ import type {
   ModelRef,
   PickFolderResponse,
   Project,
+  ProjectGitInfo,
   PromptRequest,
   SessionDetail,
   SessionSummary,
@@ -28,6 +29,8 @@ import type {
   UpdateWorkspaceRequest,
   WorkspaceDetail,
   WorkspaceSummary,
+  WorktreeRemoval,
+  WorktreeStatus,
 } from "@glade/protocol";
 
 export class ApiRequestError extends Error {
@@ -68,13 +71,18 @@ export const api = {
   /** Full list of project ids in the new order. */
   reorderProjects: (ids: string[]) => request<Project[]>("PUT", "/projects/order", { ids }),
   openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
+  /** Whether the project's folder is a git repository (worktree chats, I-096). */
+  getProjectGit: (id: string) => request<ProjectGitInfo>("GET", `/projects/${id}/git`),
 
   // Workspaces (sidebar rows)
   listWorkspaces: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
   createWorkspace: (body: CreateWorkspaceRequest) => request<CreateWorkspaceResponse>("POST", "/workspaces", body),
   getWorkspace: (id: string) => request<WorkspaceDetail>("GET", `/workspaces/${id}`),
   updateWorkspace: (id: string, body: UpdateWorkspaceRequest) => request<WorkspaceSummary>("PATCH", `/workspaces/${id}`, body),
-  deleteWorkspace: (id: string) => request<void>("DELETE", `/workspaces/${id}`),
+  /** `worktree`: what happens to a worktree workspace's branch (I-096; server default keep). */
+  deleteWorkspace: (id: string, worktree?: WorktreeRemoval) =>
+    request<void>("DELETE", `/workspaces/${id}${worktree ? `?worktree=${worktree}` : ""}`),
+  getWorktreeStatus: (id: string) => request<WorktreeStatus>("GET", `/workspaces/${id}/worktree`),
   /** Pinned workspaces of one list (project id, or null for standalone ones) in the new order. */
   reorderPinnedWorkspaces: (projectId: string | null, ids: string[]) =>
     request<WorkspaceSummary[]>("PUT", "/workspaces/pin-order", { projectId, ids }),

@@ -1,8 +1,10 @@
 /**
  * Workspaces (a chat with its tabs): create with the first session, rename (a single tab is
- * renamed with it), pin and reorder pins, layout, delete with all of its sessions.
+ * renamed with it), pin and reorder pins, layout, delete with all of its sessions. A workspace
+ * may work in its own git worktree (I-096, `../worktrees.ts`): created with it, removed with it.
  */
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import {
   quickTitle,
   type CreateWorkspaceRequest,
@@ -11,7 +13,10 @@ import {
   type Workspace,
   type WorkspaceDetail,
   type WorkspaceSummary,
+  type WorktreeRemoval,
+  type WorktreeStatus,
 } from "@glade/protocol";
+import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from "../worktrees.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
 import type { LeaseSync } from "./lease-sync.js";
@@ -46,17 +51,25 @@ export class Workspaces {
   /** A new workspace with its first main session (started, and prompted if a prompt is given). */
   async createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
     const project = req.projectId ? this.records.requireProject(req.projectId) : null;
+    const id = randomUUID();
+    const title = req.prompt ? quickTitle(req.prompt) : "New chat";
+    if (req.worktree && !project) throw new HttpError(400, "Only chats in a project can work in a worktree");
+    const created =
+      req.worktree && project
+        ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8) })
+        : null;
     const now = Date.now();
     const workspace: Workspace = {
-      id: randomUUID(),
+      id,
       projectId: project?.id ?? null,
-      title: req.prompt ? quickTitle(req.prompt) : "New chat",
+      title,
       titleSource: "auto",
-      cwd: project?.path ?? this.ctx.options.scratchDir,
+      cwd: created?.cwd ?? project?.path ?? this.ctx.options.scratchDir,
       pinned: false,
       createdAt: now,
       lastActivityAt: now,
       layout: null,
+      ...(created ? { worktree: created.worktree } : {}),
     };
     this.ctx.store.upsertWorkspace(workspace);
     try {
@@ -64,7 +77,7 @@ export class Workspaces {
       return { ...this.getWorkspaceDetail(workspace.id), session };
     } catch (err) {
       // Don't leave a broken, empty workspace behind.
-      await this.deleteWorkspace(workspace.id).catch(() => {});
+      await this.deleteWorkspace(workspace.id, "discard").catch(() => {});
       throw err;
     }
   }
@@ -115,9 +128,26 @@ export class Workspaces {
     return this.pinnedWorkspaces(projectId).map((w) => this.records.summarizeWorkspace(w));
   }
 
-  /** Delete a workspace, stopping its agents and permanently deleting all of its session files. */
-  async deleteWorkspace(id: string): Promise<void> {
-    this.records.requireWorkspace(id);
+  /** Where worktree folders live: `<dataDir>/worktrees`. */
+  private worktreesDir(): string {
+    return join(this.ctx.options.dataDir ?? this.ctx.store.dataDir, "worktrees");
+  }
+
+  /** A worktree workspace's branch state (asked before deleting it). 404 without a worktree. */
+  async getWorktreeStatus(id: string): Promise<WorktreeStatus> {
+    const workspace = this.records.requireWorkspace(id);
+    if (!workspace.worktree) throw new HttpError(404, "This chat doesn't work in a worktree");
+    return worktreeStatus(workspace.worktree);
+  }
+
+  /**
+   * Delete a workspace, stopping its agents and permanently deleting all of its session files.
+   * A worktree workspace's folder is removed too; `removal` says what happens to its branch
+   * (default keep). `merge` merges before anything is deleted, so a refused merge (409) keeps all.
+   */
+  async deleteWorkspace(id: string, removal: WorktreeRemoval = "keep"): Promise<void> {
+    const { worktree } = this.records.requireWorkspace(id);
+    if (worktree && removal === "merge") await mergeWorktree(worktree);
     await this.leaseSync.takeLeases(this.ctx.store.listSessions(id));
     for (const session of this.ctx.store.listSessions(id)) {
       await this.pool.disposeSession(session);
@@ -126,5 +156,10 @@ export class Workspaces {
     this.ctx.agents.removeWhere((r) => r.workspaceId === id); // incl. closed ones whose tab is gone
     this.ctx.store.removeWorkspace(id);
     this.ctx.broadcast({ type: "workspace_removed", workspaceId: id });
+    if (worktree) {
+      await removeWorktree(worktree, removal).catch((err: Error) => {
+        this.ctx.options.log?.(`could not remove worktree ${worktree.path}: ${err.message}`);
+      });
+    }
   }
 }

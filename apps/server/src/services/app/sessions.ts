@@ -12,6 +12,7 @@ import {
   type CreateSessionRequest,
   type Session,
   type SessionDetail,
+  type SessionState,
   type SessionSummary,
   type UpdateSessionRequest,
 } from "@glade/protocol";
@@ -170,8 +171,23 @@ export class Sessions {
     if (!this.records.isDormantAgent(session.id) || !session.sessionRef || !harness?.readTranscript) return null;
     const transcript = await harness.readTranscript(session.sessionRef).catch(() => null);
     if (!transcript) return null;
-    const state = { ...defaultSessionState(), model: session.model, ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}) };
-    return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [] };
+    const state = await this.offlineState(session);
+    return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [], offline: true };
+  }
+
+  /**
+   * State of a session that isn't running here: its model and thinking level, with the model's
+   * thinking levels from the harness's model list so the composer can still offer them (I-102).
+   */
+  private async offlineState(session: Session): Promise<SessionState> {
+    const models = session.model ? await this.ctx.harnesses.get(session.harness)?.listModels().catch(() => null) : null;
+    const info = session.model ? models?.find((m) => m.provider === session.model!.provider && m.id === session.model!.id) : undefined;
+    return {
+      ...defaultSessionState(),
+      model: session.model,
+      ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+      ...(info ? { thinkingLevels: info.thinkingLevels } : {}),
+    };
   }
 
   /**
@@ -184,13 +200,8 @@ export class Sessions {
     const harness = this.ctx.harnesses.get(session.harness);
     const transcript = (session.sessionRef && (await harness?.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
     const summary = this.records.summarizeSession(session);
-    const state = {
-      ...defaultSessionState(),
-      model: session.model,
-      ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-      isRunning: summary.running,
-    };
-    return { session: summary, transcript, state, pendingUiRequests: [] };
+    const state = { ...(await this.offlineState(session)), isRunning: summary.running };
+    return { session: summary, transcript, state, pendingUiRequests: [], offline: true };
   }
 
   async updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {

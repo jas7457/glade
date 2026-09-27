@@ -7,6 +7,13 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Work in a git worktree: switch on "New worktree" when starting a chat in a git project and it gets
+  its own branch and folder. Deleting it asks whether to keep the branch, merge it or discard it.
+- Changes panel: the header shows how many files git sees changed; open it to review diffs, discard
+  files and commit (with a generated message).
+- Saved prompts: keep reusable prompts globally or per project (Settings → Prompts) and insert them
+  from the composer's `/` menu.
+- "Rename with AI" in ⌘K and the tab's right-click menu.
 - Attach any file (PDFs, logs, zips, code…) with the paperclip, drag-and-drop or paste. The agent
   gets its path and reads it itself; your message shows the files as chips you can reveal in Finder.
 - `@` file mentions show as small file and folder chips in sent messages.
@@ -216,6 +223,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- The thinking picker and context meter no longer disappear after a Glade server restarts or hands a
+  chat back.
 - Paragraphs in replies have space between them again, so separate paragraphs are easy to tell apart.
 - New sub-agents no longer pop the side pane open just because you opened an earlier one; the pane
   closes once its last agent is gone and only opens when you click an agent.

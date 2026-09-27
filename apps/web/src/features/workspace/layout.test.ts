@@ -51,7 +51,7 @@ describe("workspace layout helpers", () => {
     expect(isSubagentPaneOpen(null)).toBe(false);
     expect(isSubagentPaneOpen({ activeSubagentSessionId: { m1: "a" } })).toBe(false);
     const opened = mergeLayout({ subagentPaneSize: 0.3, activeSubagentSessionId: { m2: "x" } }, openSubagentPatch("m1", "b"));
-    expect(opened).toEqual({ subagentPaneSize: 0.3, subagentPaneOpen: true, activeSubagentSessionId: { m2: "x", m1: "b" } });
+    expect(opened).toEqual({ subagentPaneSize: 0.3, subagentPaneOpen: true, changesPanelOpen: false, activeSubagentSessionId: { m2: "x", m1: "b" } });
     expect(isSubagentPaneOpen(opened)).toBe(true);
     expect(isSubagentPaneOpen(mergeLayout(opened, { subagentPaneOpen: false }))).toBe(false);
   });

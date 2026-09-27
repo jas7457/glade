@@ -15,6 +15,7 @@ import type {
   ModelInfo,
   ModelRef,
   Project,
+  ProjectGitInfo,
   PromptRequest,
   ReportDoneRequest,
   ReportDoneResponse,
@@ -35,6 +36,8 @@ import type {
   UsageLimits,
   WorkspaceDetail,
   WorkspaceSummary,
+  WorktreeRemoval,
+  WorktreeStatus,
 } from "@glade/protocol";
 import type { SessionText } from "../harness/types.js";
 import { AgentTeam } from "./app/agent-team.js";
@@ -42,10 +45,11 @@ import { createAppContext, type AppContext, type AppServiceOptions, type Listene
 import { LeaseSync } from "./app/lease-sync.js";
 import { LivePool } from "./app/live-pool.js";
 import { Projects } from "./app/projects.js";
+import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
 import { Sessions, type NewSessionKind } from "./app/sessions.js";
-import { Titles } from "./app/titles.js";
+import { DEFAULT_SMALL_MODEL, Titles } from "./app/titles.js";
 import { Workspaces } from "./app/workspaces.js";
 import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
@@ -177,7 +181,7 @@ export class AppService {
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
-    const settings = this.ctx.store.updateSettings(patch);
+    const settings = this.ctx.store.updateSettings(sanitizeSettingsPatch(patch));
     this.ctx.broadcast({ type: "settings", settings });
     return settings;
   }
@@ -193,6 +197,19 @@ export class AppService {
     // A forced refresh may have changed the list; let every client know.
     if (force) this.ctx.broadcast({ type: "models", models });
     return models;
+  }
+
+  /**
+   * One-shot completion with the default harness's small model (I-097 commit messages): the
+   * small-model setting, else Haiku when listed, else the harness default. `null` when unavailable.
+   */
+  async completeQuick(prompt: string, cwd: string): Promise<string | null> {
+    const harness = this.ctx.harnesses.default();
+    if (!harness.complete) return null;
+    const configured = this.ctx.store.getSettings().models.smallModel;
+    const models = configured ? [] : await harness.listModels().catch(() => [] as ModelInfo[]);
+    const small = models.some((m) => m.provider === DEFAULT_SMALL_MODEL.provider && m.id === DEFAULT_SMALL_MODEL.id) ? DEFAULT_SMALL_MODEL : null;
+    return harness.complete({ prompt, cwd, model: configured ?? small, timeoutMs: 60_000 });
   }
 
   // -------------------------------------------------------------------------------------------
@@ -223,6 +240,10 @@ export class AppService {
     return this.projects.deleteProject(id);
   }
 
+  getProjectGit(id: string): Promise<ProjectGitInfo> {
+    return this.projects.getProjectGit(id);
+  }
+
   // -------------------------------------------------------------------------------------------
   // Workspaces (app/workspaces.ts)
   // -------------------------------------------------------------------------------------------
@@ -247,8 +268,12 @@ export class AppService {
     return this.workspaces.reorderPinnedWorkspaces(projectId, ids);
   }
 
-  deleteWorkspace(id: string): Promise<void> {
-    return this.workspaces.deleteWorkspace(id);
+  deleteWorkspace(id: string, worktree?: WorktreeRemoval): Promise<void> {
+    return this.workspaces.deleteWorkspace(id, worktree);
+  }
+
+  getWorktreeStatus(id: string): Promise<WorktreeStatus> {
+    return this.workspaces.getWorktreeStatus(id);
   }
 
   // -------------------------------------------------------------------------------------------
