@@ -137,7 +137,7 @@ Bearer <token>`; the token names the calling session):
 | GET | `/agents` | → `ListAgentsResponse` (a main session's sub-agents, or a sub-agent's teammates) |
 | POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429) |
 | POST | `/agents/message` | `{ to, text }` → 204; `to: "main"` = the parent |
-| POST | `/agents/close` | `{ name }` → `{ closed }` (now if idle, else at the end of its turn, 30 s max) |
+| POST | `/agents/close` | `{ name }` → `{ closed, alreadyClosed? }` (now if idle, else at the end of its turn, 30 s max); closing a closed agent is not an error (`alreadyClosed: true`), 404 only for unknown names |
 | POST | `/agents/report-done` | `{ summary, keepOpen? }` → `{ closing }`; sub-agents only |
 
 A sub-agent is a `subagent` session of the caller's workspace (same folder), started with the
@@ -145,11 +145,29 @@ role prompt (`--append-system-prompt`, like agent-teams' role.md, plus the agent
 instructions), optional `--tools`, the caller's model/thinking unless the definition sets them,
 and the task as its first prompt. Messages and results reach sessions **as prompts**:
 `[agent-teams] message from <name>:` (steer) and `[agent-teams] <name> finished: …` /
-`… exited: …` (follow-up if the parent is running), queued in order per target. After
-report_done a sub-agent's process is stopped when its turn ends; kept-open ones stop after 10
-idle minutes, and ones the user typed in are never stopped automatically. The tab and transcript
-stay either way. Records (role, tools, state) live in `<dataDir>/agents.json` so a
-sub-agent reopened after a restart keeps its role.
+`… exited: …` (follow-up if the parent is running), queued in order per target.
+
+**Closing = the tab disappears (I-055).** A sub-agent is closed after report_done when its turn
+ends (auto-close), by `close_agent`, or after 10 idle minutes when it was kept open; ones the user
+typed in are never closed automatically. Closing stops its process and **deletes its session**
+(tab + conversation, `session_removed`), like closing a cmux pane; its result is already in the
+parent chat. The record stays (`closed`, `removed`) so `list_agents` shows it as closed
+(`tabOpen: false`) and `close_agent` is idempotent; records go with their parent session or
+workspace. A sub-agent whose process crashes is `closed` but keeps its tab so the error is
+readable; viewing it reads the transcript from the session file (`AgentHarness.readTranscript`,
+slash commands from the folder) **without restarting it**; typing in it starts it again.
+Records (role, tools, state) live in `<dataDir>/agents.json` so a sub-agent reopened after a
+restart keeps its role.
+
+The browser sees sub-agent state on `SessionSummary.agent` (`SessionAgentState`: status, closing,
+task, keepOpenReason, userEngaged, doneAt, result), pushed with every `session_upsert`. Sub-agent
+tabs show ✓ when done (⊘ when stopped) with the task and result in the tooltip, and a bar above
+the conversation with the status and the expandable result (`features/workspace/AgentBar`).
+
+Whenever the server stops a session's process (`closeLive`: closing a tab or agent, idle
+eviction), it first sends `run_end` (if running) and `state {isRunning:false}`, so no client stays
+on "Working…" (events after that point are no longer forwarded). Server shutdown doesn't, so
+cut-off runs still show as interrupted on the next start.
 
 ## Data on disk
 
@@ -445,3 +463,6 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   else the chat's model (a default, not a stored value).
 - **Tool grouping** is a pure function with options (e.g. whether thinking breaks a group) so the
   behaviour can be changed in one place.
+- **Closed sub-agents are deleted** (I-055, user decision 2026-09-26): closing a sub-agent removes
+  its tab and conversation, like a cmux pane; its report_done summary lives on in the parent chat.
+  There is no "finished agents" list. Only crashed ones keep their tab (shown without restarting).

@@ -9,6 +9,7 @@ import {
   THINKING_LEVELS,
   applyAgentEvent,
   compareSessions,
+  defaultSessionState,
   deriveChatStatus,
   firstMainSession,
   quickTitle,
@@ -66,6 +67,7 @@ import {
   exitedText,
   messageText,
   normalizeAgentName,
+  sessionAgentState,
   type AgentRecord,
 } from "./agents.js";
 import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
@@ -362,7 +364,10 @@ export class AppService {
     const live = this.live.get(session.id);
     const running = live?.running ?? false;
     const pendingInputs = live?.pendingUi.size ?? 0;
-    return { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
+    const summary: SessionSummary = { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
+    const agent = session.kind === "subagent" ? this.agents.get(session.id) : undefined;
+    if (agent) summary.agent = sessionAgentState(agent, running);
+    return summary;
   }
 
   private summarizeWorkspace(workspace: Workspace): WorkspaceSummary {
@@ -504,6 +509,7 @@ export class AppService {
       await this.disposeSession(session);
       this.forgetAgent(session.id);
     }
+    this.agents.removeWhere((r) => r.workspaceId === id); // incl. closed ones whose tab is gone
     this.store.removeWorkspace(id);
     this.broadcast({ type: "workspace_removed", workspaceId: id });
   }
@@ -560,7 +566,9 @@ export class AppService {
   }
 
   async getSessionDetail(id: string): Promise<SessionDetail> {
-    this.requireSession(id);
+    const session = this.requireSession(id);
+    const offline = await this.closedAgentDetail(session);
+    if (offline) return offline;
     const live = await this.ensureLive(id);
     return {
       session: this.summarizeSession(this.requireSession(id)),
@@ -568,6 +576,23 @@ export class AppService {
       state: live.session.getState(),
       pendingUiRequests: [...live.pendingUi.values()],
     };
+  }
+
+  /**
+   * A closed sub-agent (its process crashed or stopped) is shown from its session file without
+   * starting it again (I-054); typing in it starts it. `null` when it should be started as usual.
+   */
+  private async closedAgentDetail(session: Session): Promise<SessionDetail | null> {
+    if (!this.isDormantAgent(session.id) || !session.sessionRef || !this.harness.readTranscript) return null;
+    const transcript = await this.harness.readTranscript(session.sessionRef).catch(() => null);
+    if (!transcript) return null;
+    const state = { ...defaultSessionState(), model: session.model, ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}) };
+    return { session: this.summarizeSession(session), transcript, state, pendingUiRequests: [] };
+  }
+
+  /** A closed sub-agent without a running process (viewing it shouldn't start one). */
+  private isDormantAgent(id: string): boolean {
+    return !!this.agents.get(id)?.closed && !this.live.has(id) && !this.opening.has(id);
   }
 
   async updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {
@@ -604,13 +629,21 @@ export class AppService {
     for (const s of doomed) {
       await this.disposeSession(s);
       const agent = this.agents.get(s.id);
-      if (agent && !agent.closed && agent.doneAt === null && !doomedIds.has(agent.parentSessionId)) {
-        this.deliver(agent.parentSessionId, exitedText(agent.name, "Exited before calling report_done (the user closed its tab)."), "followUp");
+      if (agent && !doomedIds.has(agent.parentSessionId)) {
+        if (!agent.closed && agent.doneAt === null) {
+          this.deliver(agent.parentSessionId, exitedText(agent.name, "Exited before calling report_done (the user closed its tab)."), "followUp");
+        }
+        // Its parent keeps seeing it as closed (list_agents; close_agent says "already closed").
+        this.clearAgentTimer(s.id);
+        this.tokens.revoke(s.id);
+        this.agents.update(s.id, { closing: false, closed: true, removed: true });
+      } else {
+        this.forgetAgent(s.id);
       }
-      this.forgetAgent(s.id);
       this.store.removeSession(s.id);
       this.broadcast({ type: "session_removed", sessionId: s.id, workspaceId: s.workspaceId });
     }
+    this.agents.removeWhere((r) => doomedIds.has(r.parentSessionId));
     this.refreshWorkspace(session.workspaceId);
   }
 
@@ -634,7 +667,7 @@ export class AppService {
     const agent = this.agents.get(id);
     if (agent && (!agent.userEngaged || agent.closed || agent.closing)) {
       this.clearAgentTimer(id);
-      this.agents.update(id, { userEngaged: true, closed: false, closing: false });
+      this.updateAgent(id, { userEngaged: true, closed: false, closing: false });
     }
     const live = await this.ensureLive(id);
     await this.sendPrompt(id, req, live);
@@ -738,7 +771,12 @@ export class AppService {
 
   /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
   async listCommands(id: string): Promise<SlashCommand[]> {
-    this.requireSession(id);
+    const session = this.requireSession(id);
+    if (this.isDormantAgent(id) && this.harness.listFolderCommands) {
+      // Don't start a closed sub-agent just for its slash menu; its folder's commands are the same.
+      const workspace = this.requireWorkspace(session.workspaceId);
+      return this.harness.listFolderCommands(workspace.cwd);
+    }
     const live = await this.ensureLive(id);
     return live.session.listCommands ? live.session.listCommands() : [];
   }
@@ -921,17 +959,26 @@ export class AppService {
     };
   }
 
-  /** Stop one of the caller's sub-agents: now if it's idle, else when its turn ends (30s at most). */
+  /**
+   * Close one of the caller's sub-agents (its tab and conversation go away): now if it's idle,
+   * else when its turn ends (30s at most). Closing an already closed agent is fine (idempotent).
+   */
   async closeAgent(callerId: string, name: string): Promise<CloseAgentResponse> {
     this.requireSession(callerId);
-    const target = this.agents.findActive(callerId, normalizeAgentName(name ?? ""));
-    if (!target) throw new HttpError(404, `No active agent named "${name}".`);
+    const target = this.agents.findLatest(callerId, normalizeAgentName(name ?? ""));
+    if (!target) throw new HttpError(404, `No agent named "${name}".`);
+    if (target.removed || !this.store.getSession(target.sessionId)) {
+      if (!target.removed) this.agents.update(target.sessionId, { closing: false, closed: true, removed: true });
+      return { closed: true, alreadyClosed: true };
+    }
     if (!this.live.get(target.sessionId)?.running) {
-      await this.stopAgent(target.sessionId);
+      await this.closeAgentSession(target.sessionId);
       return { closed: true };
     }
-    this.agents.update(target.sessionId, { closing: true });
-    this.setAgentTimer(target.sessionId, CLOSE_GRACE_MS, () => void this.stopAgent(target.sessionId));
+    if (!target.closing) this.updateAgent(target.sessionId, { closing: true });
+    if (!this.agentTimers.has(target.sessionId) || !target.closing) {
+      this.setAgentTimer(target.sessionId, CLOSE_GRACE_MS, () => void this.closeAgentSession(target.sessionId));
+    }
     return { closed: false };
   }
 
@@ -943,28 +990,46 @@ export class AppService {
     const summary = req.summary?.trim();
     if (!summary) throw new HttpError(400, "summary is required");
     const closing = self.autoClose && !req.keepOpen && !self.userEngaged;
-    const record = this.agents.update(callerId, { doneAt: Date.now(), result: summary, closing })!;
+    const record = this.updateAgent(callerId, { doneAt: Date.now(), result: summary, closing })!;
     this.deliver(self.parentSessionId, doneText(record, summary), "followUp");
     if (closing) {
       // Normally at the end of the current turn (run_end); right away if it isn't running.
-      if (!this.live.get(callerId)?.running) void this.stopAgent(callerId);
+      if (!this.live.get(callerId)?.running) void this.closeAgentSession(callerId);
     } else if (!self.userEngaged) {
       this.setAgentTimer(callerId, IDLE_CLOSE_MS, () => {
         const current = this.agents.get(callerId);
-        if (current && !current.closed && !current.userEngaged && !this.live.get(callerId)?.running) void this.stopAgent(callerId);
+        if (current && !current.closed && !current.userEngaged && !this.live.get(callerId)?.running) void this.closeAgentSession(callerId);
       });
     }
     return { closing };
   }
 
-  /** Stop a sub-agent's process, keeping its tab and transcript (it can be reopened by the user). */
-  private async stopAgent(sessionId: string): Promise<void> {
-    this.clearAgentTimer(sessionId);
-    if (!this.agents.get(sessionId)) return;
-    this.agents.update(sessionId, { closing: false, closed: true });
-    await this.closeLive(sessionId);
+  /** Update a sub-agent's record and push its session (the browser shows its state, I-054). */
+  private updateAgent(sessionId: string, patch: Partial<AgentRecord>): AgentRecord | undefined {
+    const record = this.agents.update(sessionId, patch);
     const session = this.store.getSession(sessionId);
-    if (session) this.saveSession(session);
+    if (record && session) this.saveSession(session);
+    return record;
+  }
+
+  /**
+   * Close a sub-agent for good (I-055): stop its process and delete its session, like closing a
+   * cmux pane; its result has been delivered to the parent. The record stays (closed, removed)
+   * so list_agents shows it and close_agent is idempotent.
+   */
+  private async closeAgentSession(sessionId: string): Promise<void> {
+    this.clearAgentTimer(sessionId);
+    const record = this.agents.get(sessionId);
+    if (!record || record.removed) return;
+    this.agents.update(sessionId, { closing: false, closed: true, removed: true });
+    const session = this.store.getSession(sessionId);
+    if (!session) return;
+    await this.disposeSession(session);
+    this.tokens.revoke(sessionId);
+    if (!this.store.getSession(sessionId)) return; // deleted meanwhile
+    this.store.removeSession(sessionId);
+    this.broadcast({ type: "session_removed", sessionId, workspaceId: session.workspaceId });
+    this.refreshWorkspace(session.workspaceId);
   }
 
   /**
@@ -1117,7 +1182,7 @@ export class AppService {
         { ...session, lastActivityAt: Date.now(), runInProgress: false, unread: session.unread || !this.viewers.has(id) },
         { touch: true },
       );
-      if (this.agents.get(id)?.closing) void this.stopAgent(id);
+      if (this.agents.get(id)?.closing) void this.closeAgentSession(id);
       this.evictIdle();
     } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
       this.saveSession(session); // pendingInputs/status changed
@@ -1178,7 +1243,7 @@ export class AppService {
     const agent = this.agents.get(id);
     if (agent && !agent.closed) {
       this.clearAgentTimer(id);
-      this.agents.update(id, { closed: true, closing: false });
+      this.agents.update(id, { closed: true, closing: false }); // pushed with the session below
       if (agent.doneAt === null) {
         this.deliver(agent.parentSessionId, exitedText(agent.name, "Process ended without calling report_done (crashed)."), "followUp");
       }
@@ -1201,13 +1266,26 @@ export class AppService {
     }
   }
 
-  private async closeLive(id: string): Promise<void> {
+  /**
+   * Stop a session's agent process. Unless `quiet` (server shutdown: the run stays flagged so
+   * it shows as interrupted next start), clients are told it stopped: events after this point are
+   * no longer forwarded, so without a final `state`/`run_end` a tab would stay on "Working…".
+   */
+  private async closeLive(id: string, { quiet = false } = {}): Promise<void> {
     const live = this.live.get(id);
     if (!live) return;
+    const dialogs = [...live.pendingUi.keys()];
     this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
     this.tokens.revoke(id);
+    const session = this.store.getSession(id);
+    if (session && !quiet) {
+      for (const dialog of dialogs) this.emitSessionEvent(session, { type: "ui_request_closed", id: dialog });
+      if (live.running) this.emitSessionEvent(session, { type: "run_end" });
+      this.emitSessionEvent(session, { type: "state", state: { isRunning: false } });
+      if (live.running || dialogs.length || session.runInProgress) this.saveSession({ ...session, runInProgress: false });
+    }
     await live.session.dispose();
   }
 
@@ -1226,7 +1304,7 @@ export class AppService {
     for (const timer of this.agentTimers.values()) clearTimeout(timer);
     this.agentTimers.clear();
     this.agents.flush();
-    await Promise.all([...this.live.keys()].map((id) => this.closeLive(id)));
+    await Promise.all([...this.live.keys()].map((id) => this.closeLive(id, { quiet: true })));
     await this.harness.dispose();
     this.store.flush();
   }

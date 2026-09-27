@@ -25,10 +25,30 @@ export const MAX_ACTIVE_AGENTS = 4;
 /**
  * - `working` / `idle`: running (idle = waiting between turns)
  * - `done`: called report_done and is still open (kept open or the user typed in it)
- * - `closed`: its process was stopped (done + auto-close, close_agent, or crashed); the tab and
- *   transcript stay until the user closes the tab.
+ * - `closed`: finished for good. Closing a sub-agent (report_done with auto-close, close_agent,
+ *   the idle timeout, or the user closing its tab) **deletes its tab and conversation** (I-055);
+ *   its result stays in the parent chat. An agent whose process crashed is `closed` too, but its
+ *   tab stays (`tabOpen`) so the error is readable; typing in it starts it again.
  */
 export type AgentStatus = "working" | "idle" | "done" | "closed";
+
+/**
+ * A sub-agent's state as the browser sees it (I-054): `SessionSummary.agent` of `subagent`
+ * sessions, pushed with every `session_upsert`.
+ */
+export interface SessionAgentState {
+  status: AgentStatus;
+  /** Agent definition used, if any. */
+  agent: string | null;
+  task: string;
+  keepOpenReason: string | null;
+  userEngaged: boolean;
+  /** Closes when its current turn ends (report_done with auto-close, or close_agent). */
+  closing: boolean;
+  doneAt: number | null;
+  /** The report_done summary. */
+  result: string | null;
+}
 
 export interface AgentInfo {
   name: string;
@@ -45,6 +65,8 @@ export interface AgentInfo {
   doneAt: number | null;
   /** The report_done summary. */
   result: string | null;
+  /** Its tab (session) still exists; `false` once closed (the conversation was deleted). */
+  tabOpen: boolean;
 }
 
 /** `POST /api/agents/spawn` (main sessions only). */
@@ -84,8 +106,10 @@ export interface CloseAgentRequest {
 }
 
 export interface CloseAgentResponse {
-  /** `true`: stopped now; `false`: stops when its current turn ends. */
+  /** `true`: closed now (tab removed); `false`: closes when its current turn ends. */
   closed: boolean;
+  /** It was already closed (not an error: close_agent is idempotent). */
+  alreadyClosed?: boolean;
 }
 
 /** `POST /api/agents/report-done` (sub-agents only). */

@@ -52,6 +52,11 @@ export interface AgentHarness {
   openSession(options: OpenSessionOptions): Promise<HarnessSession>;
   /** Permanently remove a persisted session. */
   deleteSession(sessionRef: string): Promise<void>;
+  /**
+   * Read a persisted session's transcript without starting an agent (I-054: closed sub-agents
+   * are shown without restarting them). `null` if unreadable. Optional: callers start it instead.
+   */
+  readTranscript?(sessionRef: string): Promise<Transcript | null>;
   /** One-shot short title for a conversation. Returns `null` if unavailable. */
   generateTitle?(options: GenerateTitleOptions): Promise<string | null>;
   /** Subscription/plan usage limits for the harness's current account, or `null` if unavailable. */

@@ -196,12 +196,34 @@ describe("report_done", () => {
     // Still running its turn; stops at run_end.
     const token = tokenOf(agent.sessionId);
     expect(env.service.listAgents(chat.sid).agents[0]!.status).toBe("working");
-    emit(agent.sessionId, { type: "state", state: { isRunning: false } }, { type: "run_end" });
+    const ref = env.store.getSession(agent.sessionId)!.sessionRef!;
+    const fake = fakeOf(agent.sessionId);
+    const seen = env.messages.length;
+    // pi sends run_end before state {isRunning:false}; the closing agent stops at run_end.
+    fake.emit({ type: "run_end" });
+    fake.emit({ type: "state", state: { isRunning: false } });
+    // Clients are still told it stopped running (no tab stuck on "Working…").
+    expect(env.messages.slice(seen)).toContainEqual(
+      expect.objectContaining({ type: "session_event", sessionId: agent.sessionId, event: { type: "state", state: { isRunning: false } } }),
+    );
     await until(() => env.service.listAgents(chat.sid).agents[0]!.status === "closed");
     expect(() => env.service.authenticateAgent(token)).toThrow();
-    // The tab and its transcript stay.
-    expect(env.store.getSession(agent.sessionId)).toBeTruthy();
-    expect(env.service.listAgents(chat.sid).agents[0]).toMatchObject({ result: "Found it.", doneAt: expect.any(Number) });
+    // I-055: its tab and conversation are deleted, like closing a cmux pane.
+    await until(() => !env.store.getSession(agent.sessionId));
+    expect(env.harness.sessions.has(ref)).toBe(false);
+    expect(env.messages).toContainEqual({ type: "session_removed", sessionId: agent.sessionId, workspaceId: chat.wid });
+    expect(env.service.listSessions(chat.wid).map((s) => s.id)).toEqual([chat.sid]);
+    expect(env.service.listAgents(chat.sid).agents[0]).toMatchObject({ result: "Found it.", doneAt: expect.any(Number), tabOpen: false });
+    // close_agent afterwards is not an error.
+    expect(await env.service.closeAgent(chat.sid, "scout")).toEqual({ closed: true, alreadyClosed: true });
+  });
+
+  it("closes right away when it reports while idle", async () => {
+    const chat = await newChat(env);
+    const { agent } = await spawn(chat.sid, "quick");
+    expect(env.service.reportAgentDone(agent.sessionId, { summary: "done" })).toEqual({ closing: true });
+    await until(() => !env.store.getSession(agent.sessionId));
+    expect(env.service.liveCount).toBe(1);
   });
 
   it("keeps it open when asked, and tells the parent what to do", async () => {
@@ -212,6 +234,18 @@ describe("report_done", () => {
     expect(lastPrompt(chat.sid)!.text).toContain("(writer is still open — kept open for: apply review feedback.");
     expect(env.service.listAgents(chat.sid).agents[0]!.status).toBe("done");
     expect(env.service.liveCount).toBe(2);
+    // The browser sees it as done (I-054).
+    expect(env.service.listSessions(chat.wid).find((s) => s.id === agent.sessionId)!.agent).toMatchObject({
+      status: "done",
+      result: "Draft ready.",
+      keepOpenReason: "apply review feedback",
+    });
+
+    // close_agent closes its tab; again is fine.
+    expect(await env.service.closeAgent(chat.sid, "writer")).toEqual({ closed: true });
+    expect(env.store.getSession(agent.sessionId)).toBeUndefined();
+    expect(await env.service.closeAgent(chat.sid, "writer")).toEqual({ closed: true, alreadyClosed: true });
+    await expect(env.service.closeAgent(chat.sid, "nobody")).rejects.toMatchObject({ status: 404 });
   });
 
   it("never closes a sub-agent the user typed in", async () => {
@@ -222,7 +256,8 @@ describe("report_done", () => {
     expect(env.service.reportAgentDone(agent.sessionId, { summary: "ok" })).toEqual({ closing: false });
     await settle();
     expect(lastPrompt(chat.sid)!.text).toContain("stays open because the user has typed in it");
-    expect(env.service.listAgents(chat.sid).agents[0]).toMatchObject({ userEngaged: true, status: "done" });
+    expect(env.service.listAgents(chat.sid).agents[0]).toMatchObject({ userEngaged: true, status: "done", tabOpen: true });
+    expect(env.store.getSession(agent.sessionId)).toBeTruthy();
   });
 
   it("is only for sub-agents", async () => {
@@ -265,14 +300,16 @@ describe("messages, list and close", () => {
     const idle = (await spawn(chat.sid, "idle")).agent;
     const busy = (await spawn(chat.sid, "busy")).agent;
     expect(await env.service.closeAgent(chat.sid, "idle")).toEqual({ closed: true });
-    expect(env.service.listAgents(chat.sid).agents.find((x) => x.name === "idle")!.status).toBe("closed");
-    expect(env.store.getSession(idle.sessionId)).toBeTruthy();
+    expect(env.service.listAgents(chat.sid).agents.find((x) => x.name === "idle")).toMatchObject({ status: "closed", tabOpen: false });
+    expect(env.store.getSession(idle.sessionId)).toBeUndefined();
 
     emit(busy.sessionId, { type: "run_start" });
     expect(await env.service.closeAgent(chat.sid, "busy")).toEqual({ closed: false });
+    expect(env.service.listSessions(chat.wid).find((s) => s.id === busy.sessionId)!.agent).toMatchObject({ closing: true });
     emit(busy.sessionId, { type: "run_end" });
     await until(() => env.service.listAgents(chat.sid).agents.find((x) => x.name === "busy")!.status === "closed");
-    await expect(env.service.closeAgent(chat.sid, "busy")).rejects.toMatchObject({ status: 404 });
+    await until(() => !env.store.getSession(busy.sessionId));
+    expect(await env.service.closeAgent(chat.sid, "busy")).toEqual({ closed: true, alreadyClosed: true });
   });
 
   it("tells the parent when a sub-agent crashes or its tab is closed before reporting", async () => {
@@ -287,7 +324,61 @@ describe("messages, list and close", () => {
     await env.service.deleteSession(b.sessionId);
     await settle();
     expect(lastPrompt(chat.sid)!.text).toContain("[agent-teams] b exited:\nExited before calling report_done (the user closed its tab).");
-    expect(env.service.listAgents(chat.sid).agents.map((x) => x.name)).toEqual(["a"]);
+    expect(env.service.listAgents(chat.sid).agents.map((x) => [x.name, x.status, x.tabOpen])).toEqual([
+      ["a", "closed", true], // crashed: its tab stays so the error is readable
+      ["b", "closed", false],
+    ]);
+    expect(await env.service.closeAgent(chat.sid, "b")).toEqual({ closed: true, alreadyClosed: true });
+  });
+
+  it("shows a crashed sub-agent without restarting it until the user types", async () => {
+    const chat = await newChat(env);
+    const { agent } = await spawn(chat.sid, "a");
+    fakeOf(agent.sessionId).crash("boom");
+    await settle();
+    const opens = opened.length;
+    const detail = await env.service.getSessionDetail(agent.sessionId);
+    expect(detail.session.agent).toMatchObject({ status: "closed" });
+    expect(detail.transcript.messages.some((m) => m.role === "user")).toBe(true);
+    expect(detail.state.isRunning).toBe(false);
+    expect(await env.service.listCommands(agent.sessionId)).not.toHaveLength(0);
+    expect(opened.length).toBe(opens);
+
+    await env.service.prompt(agent.sessionId, { text: "try again" });
+    expect(opened.length).toBe(opens + 1);
+    expect(env.service.listSessions(chat.wid).find((s) => s.id === agent.sessionId)!.agent).toMatchObject({ userEngaged: true });
+  });
+
+  it("closing a crashed sub-agent removes its tab", async () => {
+    const chat = await newChat(env);
+    const { agent } = await spawn(chat.sid, "a");
+    fakeOf(agent.sessionId).crash("boom");
+    await settle();
+    expect(await env.service.closeAgent(chat.sid, "a")).toEqual({ closed: true });
+    expect(env.store.getSession(agent.sessionId)).toBeUndefined();
+  });
+
+  it("closing the parent's tab forgets its closed sub-agents too", async () => {
+    const chat = await newChat(env);
+    const tab = await env.service.createSession(chat.wid, {});
+    const { agent } = await spawn(tab.session.id, "a");
+    await env.service.closeAgent(tab.session.id, "a");
+    expect(env.store.getSession(agent.sessionId)).toBeUndefined();
+    await env.service.deleteSession(tab.session.id);
+    await spawn(chat.sid, "b");
+    expect(env.service.listAgents(chat.sid).agents.map((x) => x.name)).toEqual(["b"]);
+  });
+
+  it("a running session the server stops tells clients it stopped (no stuck Working…)", async () => {
+    const chat = await newChat(env);
+    const tab = await env.service.createSession(chat.wid, {});
+    emit(tab.session.id, { type: "run_start" }, { type: "state", state: { isRunning: true } });
+    const seen = env.messages.length;
+    await env.service.deleteSession(tab.session.id);
+    const events = env.messages
+      .slice(seen)
+      .flatMap((m) => (m.type === "session_event" && m.sessionId === tab.session.id ? [m.event] : []));
+    expect(events).toEqual([{ type: "run_end" }, { type: "state", state: { isRunning: false } }]);
   });
 
   it("deleting the workspace forgets its agents", async () => {
@@ -335,6 +426,8 @@ describe("HTTP routes", () => {
     expect(await done.json()).toEqual({ closing: true });
     await settle();
     expect(lastPrompt(chat.sid)!.text).toBe("[agent-teams] scout finished:\nall good");
-    expect((await call("/close", token, { name: "scout" })).status).toBe(404); // already closed
+    const closed = await call("/close", token, { name: "scout" });
+    expect(await closed.json()).toEqual({ closed: true, alreadyClosed: true });
+    expect((await call("/close", token, { name: "ghost" })).status).toBe(404);
   });
 });

@@ -142,6 +142,10 @@ export class FakeHarness implements AgentHarness {
     this.sessions.delete(sessionRef);
   }
 
+  async readTranscript(sessionRef: string): Promise<Transcript | null> {
+    return this.sessions.get(sessionRef)?.transcript ?? null;
+  }
+
   async generateTitle({ firstMessage }: GenerateTitleOptions): Promise<string | null> {
     return `Generated: ${firstMessage.slice(0, 20)}`;
   }

@@ -9,7 +9,7 @@
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
+import { Check, CircleSlash, Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@pi-ui/protocol";
 import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
 import { renameFromSession } from "@/state/actions";
@@ -17,6 +17,8 @@ import { mainSessionsFor, sessions, workspacesById } from "@/state/store";
 import { IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, formatShortcut, type TabStripTab } from "@/ui";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
+import { AgentBar } from "./AgentBar";
+import { agentDisplay } from "./agent-status";
 import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, type TabGroupId } from "./layout";
 import {
   closeTab,
@@ -47,6 +49,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     sessionId,
     subagents.map((s) => s.id),
   );
+  const activeSubSession = subagents.find((s) => s.id === activeSub);
   const maximized = maximizedGroup.value[workspaceId];
   const showSubagents = activeSub !== null && maximized !== "main";
   const showMain = !(maximized === "subagents" && showSubagents);
@@ -106,11 +109,20 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   const tabFor = (s: SessionSummary, group: TabGroupId, closable: boolean): TabStripTab => {
     const canMaximize = group === "subagents" || activeSub !== null;
     const isMax = maximized === group;
+    // Sub-agents (I-054): ✓ once done, ⊘ when stopped; the tooltip has the task and result.
+    const agent = agentDisplay(s);
     return {
       id: s.id,
       title: tabTitle(s),
       status: s.status,
       failed: s.lastRunFailed,
+      badge:
+        agent?.kind === "done" ? (
+          <Check class="text-success" aria-label="Done" />
+        ) : agent?.kind === "closed" ? (
+          <CircleSlash aria-label="Stopped" />
+        ) : null,
+      tooltip: agent?.tooltip,
       closable,
       contextMenu: (
         <>
@@ -177,8 +189,11 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         renamingId={renaming}
         onRenameDone={onRenameDone}
       />
-      <div id={`tabpanel-${workspaceId}-subagents`} role="tabpanel" class="min-h-0 flex-1">
-        <ChatPane key={activeSub} sessionId={activeSub} autoFocus={subagentFocus} />
+      <div id={`tabpanel-${workspaceId}-subagents`} role="tabpanel" class="flex min-h-0 flex-1 flex-col">
+        {activeSubSession && <AgentBar key={activeSub} session={activeSubSession} />}
+        <div class="min-h-0 flex-1">
+          <ChatPane key={activeSub} sessionId={activeSub} autoFocus={subagentFocus} />
+        </div>
       </div>
     </div>
   );

@@ -98,6 +98,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agent tabs show when they're done (✓) or stopped, with the task and result on hover and in a
+  bar above the conversation.
+
 - Tabs are as wide as their titles (up to a limit), and the active tab has a blue line on top.
 - Mac app menu: New Tab ⌘T, Close Tab ⌘W, Close Window ⇧⌘W, and Show Next/Previous Tab ⌃Tab / ⌃⇧Tab.
 
@@ -138,6 +141,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- Finished sub-agents close their tab (the conversation is deleted; its result stays in the parent
+  chat), and asking an agent to close an already-closed sub-agent no longer fails.
+- Tabs no longer stay stuck on "Working…" after a session is stopped.
 
 - Moving through a long `/` menu or ⌘K list with the arrow keys no longer makes the list jump.
 - A message sent right after another is queued instead of failing with "already processing".

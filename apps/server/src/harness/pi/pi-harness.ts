@@ -24,6 +24,7 @@ import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOpt
 import { fetchAnthropicUsageLimits } from "./anthropic-usage.js";
 import { piChildEnv } from "./child-env.js";
 import { PiRpcProcess } from "./rpc-process.js";
+import { readPiTranscript } from "./transcript-file.js";
 import {
   PiEventTranslator,
   translateCommands,
@@ -132,6 +133,10 @@ export class PiHarness implements AgentHarness {
     await rm(sessionRef, { force: true });
     // Drop pi's per-cwd session folder once it's empty (fails harmlessly otherwise).
     await rmdir(dirname(sessionRef)).catch(() => {});
+  }
+
+  readTranscript(sessionRef: string): Promise<Transcript | null> {
+    return readPiTranscript(sessionRef);
   }
 
   async generateTitle({ firstMessage, cwd, model }: GenerateTitleOptions): Promise<string | null> {

@@ -9,7 +9,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import type { AgentInfo, AgentStatus } from "@pi-ui/protocol";
+import type { AgentInfo, AgentStatus, SessionAgentState } from "@pi-ui/protocol";
 import { JsonFile } from "../store/json-file.js";
 
 /** The name a sub-agent uses for its parent. */
@@ -41,8 +41,13 @@ export interface AgentRecord {
   result: string | null;
   /** Stops when its current turn ends. */
   closing: boolean;
-  /** Its process was stopped by the agent API; it no longer counts as active. */
+  /** Finished for good (closed, or its process crashed); it no longer counts as active. */
   closed: boolean;
+  /**
+   * Its session (tab + conversation) was deleted when it closed (I-055). The record stays so
+   * list_agents shows it and close_agent is idempotent; it goes with its parent session.
+   */
+  removed?: boolean;
 }
 
 interface AgentsFile {
@@ -74,6 +79,13 @@ export class AgentRegistry {
     return this.records.filter((r) => r.workspaceId === workspaceId && !r.closed);
   }
 
+  /** The caller's most recent sub-agent called `name`, active or not. */
+  findLatest(parentSessionId: string, name: string): AgentRecord | undefined {
+    return this.childrenOf(parentSessionId)
+      .reverse()
+      .find((r) => r.name === name);
+  }
+
   /** The caller's active sub-agent (or teammate) called `name`. */
   findActive(parentSessionId: string, name: string): AgentRecord | undefined {
     return this.childrenOf(parentSessionId)
@@ -95,6 +107,14 @@ export class AgentRegistry {
   remove(sessionId: string): void {
     if (!this.get(sessionId)) return;
     this.records = this.records.filter((r) => r.sessionId !== sessionId);
+    this.save();
+  }
+
+  /** Drop every record matching `predicate` (e.g. the sub-agents of a deleted session). */
+  removeWhere(predicate: (record: AgentRecord) => boolean): void {
+    const kept = this.records.filter((r) => !predicate(r));
+    if (kept.length === this.records.length) return;
+    this.records = kept;
     this.save();
   }
 
@@ -185,17 +205,35 @@ function openNote(record: AgentRecord): string {
   );
 }
 
+function agentStatus(record: AgentRecord, running: boolean | null): AgentStatus {
+  return record.closed || record.removed ? "closed" : record.doneAt !== null && !running ? "done" : running ? "working" : "idle";
+}
+
 export function agentInfo(record: AgentRecord, running: boolean | null): AgentInfo {
-  const status: AgentStatus = record.closed ? "closed" : record.doneAt !== null && !running ? "done" : running ? "working" : "idle";
   return {
     name: record.name,
     sessionId: record.sessionId,
     agent: record.agent,
     task: record.task,
-    status,
+    status: agentStatus(record, running),
     keepOpenReason: record.keepOpenReason,
     userEngaged: record.userEngaged,
     spawnedAt: record.spawnedAt,
+    doneAt: record.doneAt,
+    result: record.result,
+    tabOpen: !record.removed,
+  };
+}
+
+/** What the browser sees of a sub-agent (`SessionSummary.agent`, I-054). */
+export function sessionAgentState(record: AgentRecord, running: boolean): SessionAgentState {
+  return {
+    status: agentStatus(record, running),
+    agent: record.agent,
+    task: record.task,
+    keepOpenReason: record.keepOpenReason,
+    userEngaged: record.userEngaged,
+    closing: record.closing,
     doneAt: record.doneAt,
     result: record.result,
   };

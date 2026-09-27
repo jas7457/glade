@@ -5,6 +5,7 @@ import type { AgentEvent, SessionState, UiResponse } from "./events.js";
 import type { ModelInfo, ModelRef, ThinkingLevel } from "./models.js";
 import type { Transcript } from "./transcript.js";
 import type { ChatStatus } from "./status.js";
+import type { SessionAgentState } from "./agents.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -108,6 +109,8 @@ export interface SessionSummary extends Session {
   pendingInputs: number;
   /** Derived with `deriveChatStatus` - the single field the UI should use for indicators. */
   status: ChatStatus;
+  /** Sub-agent state (`subagent` sessions spawned via the agent API; absent otherwise). */
+  agent?: SessionAgentState;
 }
 
 /** Workspace plus state rolled up from all of its sessions (see `rollupWorkspace`). */

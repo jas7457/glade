@@ -152,4 +152,21 @@ describe("WorkspaceView", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(api.updateSession).toHaveBeenCalledWith("m2", { title: "Docs" }));
   });
+
+  it("sub-agent tabs show done ✓ with the result, and a closed agent's tab just disappears (I-054/I-055)", () => {
+    const agentState = { agent: null, task: "review", keepOpenReason: null, userEngaged: false, closing: false, doneAt: 1 };
+    sessions.value = sessions.value.map((s) =>
+      s.id === "a1" ? { ...s, agent: { ...agentState, status: "done" as const, result: "Looks good." } } : s.id === "a2" ? { ...s, agent: { ...agentState, status: "working" as const, doneAt: null, result: null } } : s,
+    );
+    renderAt("/projects/p/chats/w");
+    const [reviewer, tests] = within(subTablist()!).getAllByRole("tab");
+    expect(reviewer!.querySelector('[aria-label="Done"]')).not.toBeNull();
+    expect(reviewer!.getAttribute("title")).toContain("Result: Looks good.");
+    expect(tests!.querySelector('[aria-label="Done"]')).toBeNull();
+    expect(document.querySelector('[data-agent-bar="done"]')!.textContent).toContain("Looks good.");
+
+    // The server deletes an agent once it closes (session_removed): its tab goes away.
+    sessions.value = sessions.value.filter((s) => s.id !== "a1");
+    return waitFor(() => expect(within(subTablist()!).getAllByRole("tab").map((t) => t.textContent)).toEqual(["tests"]));
+  });
 });
