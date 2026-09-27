@@ -7,12 +7,14 @@
  */
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { loadConfig } from "./config.js";
+import { isTemporaryDir, loadConfig, startupBanner } from "./config.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import type { AgentHarness } from "./harness/types.js";
 import { createApp } from "./http/app.js";
 import { AppService } from "./services/app-service.js";
+import { FolderInfoService } from "./services/folder-info.js";
+import { createSearchService } from "./services/search/create.js";
 import { acquireDataLock, DataDirInUseError, EXIT_DATA_DIR_IN_USE, type DataLock } from "./services/data-lock.js";
 import { Store } from "./store/store.js";
 
@@ -49,9 +51,32 @@ const harness: AgentHarness =
         log: process.env.PI_UI_DEBUG ? log : undefined,
       });
 
-const service = new AppService({ store, harness, scratchDir: config.scratchDir, log });
+// `search` is created right after the service; the hook refreshes its index as runs settle.
+let search: ReturnType<typeof createSearchService> | undefined;
+const service = new AppService({
+  store,
+  harness,
+  scratchDir: config.scratchDir,
+  dataDir: config.dataDir,
+  log,
+  onRunEnd: (sessionId) => search?.onRunEnd(sessionId),
+});
+search = createSearchService({
+  app: service,
+  harnessId: harness.id,
+  dataDir: config.dataDir,
+  scratchDir: config.scratchDir,
+  log: process.env.PI_UI_DEBUG ? log : undefined,
+});
+const folderInfo = new FolderInfoService({
+  harness,
+  scratchDir: config.scratchDir,
+  projectPath: (id) => store.getProject(id)?.path,
+});
 const { app, injectWebSocket } = createApp({
   service,
+  folderInfo,
+  search,
   security: { mode: "loopback" },
   staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
@@ -59,7 +84,18 @@ const { app, injectWebSocket } = createApp({
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   const host = info.family === "IPv6" ? `[${info.address}]` : info.address;
   lock?.update({ host: info.address, port: info.port });
-  log(`listening on http://${host}:${info.port} (harness: ${harness.id}, data: ${config.dataDir})`);
+  // Agents reach the agent API here (PI_UI_URL, I-037).
+  service.setServerUrl(`http://${host}:${info.port}`);
+  // I-051: make it obvious which data folder this server uses (and warn if it's temporary).
+  const banner = startupBanner({
+    url: `http://${host}:${info.port}`,
+    dataDir: config.dataDir,
+    harness: harness.id,
+    kind: process.env.PI_UI_SERVER_KIND ?? "dev",
+    sandbox: process.env.PI_UI_SANDBOX || undefined,
+    temporary: isTemporaryDir(config.dataDir),
+  });
+  for (const line of banner) (line.startsWith("⚠") ? console.warn : console.log)(`[pi-ui] ${line}`);
 });
 injectWebSocket(server);
 
@@ -72,6 +108,7 @@ async function shutdown(signal: string): Promise<void> {
   force.unref();
   try {
     server.close();
+    search?.dispose();
     await service.dispose();
     lock?.release();
   } catch (err) {

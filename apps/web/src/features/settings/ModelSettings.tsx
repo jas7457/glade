@@ -2,7 +2,7 @@ import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
 import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@pi-ui/protocol";
 import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@/ui";
-import { loadModels, models, settings, visibleModels } from "@/state/store";
+import { harnessDefaults, loadModels, models, settings, visibleModels } from "@/state/store";
 import { updateSettings } from "@/state/actions";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
@@ -37,6 +37,9 @@ export function ModelSettings() {
   const visible = visibleModels.value;
   const hidden = new Set(s.hiddenModels);
   const [refreshing, setRefreshing] = useState(false);
+  // I-050: name the harness's own default so "Default" isn't a mystery.
+  const harnessModel = harnessDefaults.value?.model;
+  const harnessModelName = harnessModel ? (all.find((m) => m.provider === harnessModel.provider && m.id === harnessModel.id)?.name ?? harnessModel.id) : null;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -58,7 +61,7 @@ export function ModelSettings() {
             aria-label="Default model"
             class="w-[240px]"
             value={s.defaultModel ? modelKey(s.defaultModel) : ""}
-            options={modelOptions(visible, "Agent default")}
+            options={modelOptions(visible, harnessModelName ? `Default (${harnessModelName})` : "Agent default")}
             onChange={(key) => void updateSettings({ models: { defaultModel: parseModelKey(key) } })}
           />
         </FormRow>

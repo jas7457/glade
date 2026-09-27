@@ -9,6 +9,7 @@ import {
   type AssistantMessage,
   type ChatMessage,
   type ContentBlock,
+  type HarnessDefaults,
   type ImageBlock,
   type ImageLimits,
   type ModelInfo,
@@ -91,6 +92,16 @@ export function translateModel(model: PiModel): ModelInfo {
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
     ...(imageLimits ? { imageLimits } : {}),
+  };
+}
+
+/** `get_state` of a fresh process → pi's configured default model + thinking level (I-050). */
+export function translateDefaults(data: Json): HarnessDefaults {
+  const model = data.model as PiModel | null | undefined;
+  const level = data.thinkingLevel;
+  return {
+    model: model && typeof model.provider === "string" && typeof model.id === "string" ? { provider: model.provider, id: model.id } : null,
+    thinkingLevel: (THINKING_LEVELS as readonly unknown[]).includes(level) ? (level as HarnessDefaults["thinkingLevel"]) : null,
   };
 }
 

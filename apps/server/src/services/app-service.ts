@@ -3,7 +3,10 @@ import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import {
+  AGENT_ENV,
   DEFAULT_IMAGE_LIMITS,
+  MAX_ACTIVE_AGENTS,
+  THINKING_LEVELS,
   applyAgentEvent,
   compareSessions,
   deriveChatStatus,
@@ -12,24 +15,31 @@ import {
   rollupWorkspace,
   sameModel,
   type AgentEvent,
+  type CloseAgentResponse,
   type CompactResult,
   type CreateProjectRequest,
   type CreateSessionRequest,
   type CreateWorkspaceRequest,
   type CreateWorkspaceResponse,
   type DeepPartial,
+  type ListAgentsResponse,
+  type MessageAgentRequest,
   type ModelInfo,
   type ModelRef,
   type OpenTarget,
   type Project,
   type PromptImage,
   type PromptRequest,
+  type ReportDoneRequest,
+  type ReportDoneResponse,
   type ServerMessage,
   type Session,
   type SessionDetail,
   type SessionSummary,
   type Settings,
   type SlashCommand,
+  type SpawnAgentRequest,
+  type SpawnAgentResponse,
   type ThinkingLevel,
   type Transcript,
   type UiRequest,
@@ -44,6 +54,20 @@ import {
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store } from "../store/store.js";
+import {
+  AgentRegistry,
+  AgentTokens,
+  CLOSE_GRACE_MS,
+  IDLE_CLOSE_MS,
+  MAIN_AGENT,
+  agentInfo,
+  buildRolePrompt,
+  doneText,
+  exitedText,
+  messageText,
+  normalizeAgentName,
+  type AgentRecord,
+} from "./agents.js";
 import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
@@ -70,7 +94,7 @@ function sameIdSet(ids: string[], expected: string[]): boolean {
 
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 424 | 500 | 501,
+    readonly status: 400 | 401 | 403 | 404 | 409 | 424 | 429 | 500 | 501,
     message: string,
   ) {
     super(message);
@@ -98,12 +122,22 @@ export interface AppServiceOptions {
   /** "Open in <app>" for project folders (injectable for tests). Default: `open -a` on macOS. */
   openIn?: OpenIn;
   log?: (msg: string) => void;
+  /** App data folder; sub-agent records are kept in `agents.json` there (memory only if unset). */
+  dataDir?: string;
+  /** This server's base URL, handed to agents as `PI_UI_URL` (see {@link AppService.setServerUrl}). */
+  serverUrl?: string;
+  /** Called after a session's run settles (e.g. to refresh the search index). */
+  onRunEnd?: (sessionId: string) => void;
 }
 
-/** How a session is created. `subagent` sessions are for the agent API (I-037). */
+/**
+ * How a session is created. `subagent` sessions are for the agent API (I-037); `register` runs
+ * once the session record exists, before its agent starts (the agent API records the sub-agent
+ * there so the process starts with its role).
+ */
 export type NewSessionKind =
   | { kind: "main" }
-  | { kind: "subagent"; parentSessionId: string; agentName: string };
+  | { kind: "subagent"; parentSessionId: string; agentName: string; register?: (session: Session) => void };
 
 type Listener = (message: ServerMessage) => void;
 
@@ -124,10 +158,18 @@ export class AppService {
   private readonly harness: AgentHarness;
   /** Files written by `exportSession` this run; the only paths `revealPath` will show. */
   private readonly exported = new Set<string>();
+  /** Agent API (I-037): sub-agent records, per-process tokens, timers, delivery queues. */
+  private readonly agents: AgentRegistry;
+  private readonly tokens = new AgentTokens();
+  private readonly agentTimers = new Map<string, NodeJS.Timeout>();
+  private readonly deliveries = new Map<string, Promise<void>>();
+  private serverUrl: string | null;
 
   constructor(private readonly options: AppServiceOptions) {
     this.store = options.store;
     this.harness = options.harness;
+    this.agents = new AgentRegistry(options.dataDir);
+    this.serverUrl = options.serverUrl ?? null;
     mkdirSync(options.scratchDir, { recursive: true });
     const getUsage = this.harness.getUsageLimits?.bind(this.harness);
     this.usage = getUsage
@@ -458,7 +500,10 @@ export class AppService {
   /** Delete a workspace, stopping its agents and permanently deleting all of its session files. */
   async deleteWorkspace(id: string): Promise<void> {
     this.requireWorkspace(id);
-    for (const session of this.store.listSessions(id)) await this.disposeSession(session);
+    for (const session of this.store.listSessions(id)) {
+      await this.disposeSession(session);
+      this.forgetAgent(session.id);
+    }
     this.store.removeWorkspace(id);
     this.broadcast({ type: "workspace_removed", workspaceId: id });
   }
@@ -497,6 +542,7 @@ export class AppService {
       thinkingLevel: req.thinkingLevel ?? settings.models.defaultThinkingLevel,
     };
     this.saveSession(session);
+    if (how.kind === "subagent") how.register?.(session);
     try {
       const live = await this.ensureLive(session.id);
       if (req.prompt?.trim() || req.images?.length) {
@@ -504,6 +550,7 @@ export class AppService {
       }
     } catch (err) {
       await this.disposeSession(this.store.getSession(session.id) ?? session).catch(() => {});
+      this.forgetAgent(session.id);
       this.store.removeSession(session.id);
       this.broadcast({ type: "session_removed", sessionId: session.id, workspaceId });
       this.refreshWorkspace(workspaceId);
@@ -553,8 +600,14 @@ export class AppService {
       throw new HttpError(409, "A workspace needs at least one main session; delete the workspace instead");
     }
     const doomed = [session, ...this.descendantsOf(session.id, siblings)];
+    const doomedIds = new Set(doomed.map((s) => s.id));
     for (const s of doomed) {
       await this.disposeSession(s);
+      const agent = this.agents.get(s.id);
+      if (agent && !agent.closed && agent.doneAt === null && !doomedIds.has(agent.parentSessionId)) {
+        this.deliver(agent.parentSessionId, exitedText(agent.name, "Exited before calling report_done (the user closed its tab)."), "followUp");
+      }
+      this.forgetAgent(s.id);
       this.store.removeSession(s.id);
       this.broadcast({ type: "session_removed", sessionId: s.id, workspaceId: s.workspaceId });
     }
@@ -574,8 +627,15 @@ export class AppService {
     this.viewers.delete(session.id);
   }
 
+  /** A prompt from the user (the HTTP API). */
   async prompt(id: string, req: PromptRequest): Promise<void> {
     this.requireSession(id);
+    // Typing in a sub-agent's tab means the user is using it: never close it automatically.
+    const agent = this.agents.get(id);
+    if (agent && (!agent.userEngaged || agent.closed || agent.closing)) {
+      this.clearAgentTimer(id);
+      this.agents.update(id, { userEngaged: true, closed: false, closing: false });
+    }
     const live = await this.ensureLive(id);
     await this.sendPrompt(id, req, live);
   }
@@ -730,6 +790,231 @@ export class AppService {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Agent API (I-037): sub-agents as `subagent` sessions; see http/agents.ts
+  // -------------------------------------------------------------------------------------------
+
+  /** This server's base URL for agents (`PI_UI_URL`); set once listening. Applies to new processes. */
+  setServerUrl(url: string): void {
+    this.serverUrl = url.replace(/\/+$/, "");
+  }
+
+  /** Environment for a session's new agent process: its identity for the agent API. */
+  private agentEnv(session: Session): Record<string, string> {
+    if (!this.serverUrl) return {};
+    const env: Record<string, string> = {
+      [AGENT_ENV.url]: this.serverUrl,
+      [AGENT_ENV.sessionId]: session.id,
+      [AGENT_ENV.token]: this.tokens.issue(session.id),
+    };
+    const agent = this.agents.get(session.id);
+    if (agent) env[AGENT_ENV.agentName] = agent.name;
+    return env;
+  }
+
+  /** The session a token belongs to (401 for unknown, revoked or stale tokens). */
+  authenticateAgent(token: string | undefined): Session {
+    const sessionId = token ? this.tokens.sessionFor(token) : undefined;
+    const session = sessionId ? this.store.getSession(sessionId) : undefined;
+    if (!session) throw new HttpError(401, "Invalid agent token");
+    return session;
+  }
+
+  /** Start a sub-agent in the caller's workspace (same folder); its first prompt is the task. */
+  async spawnAgent(callerId: string, req: SpawnAgentRequest): Promise<SpawnAgentResponse> {
+    const caller = this.requireSession(callerId);
+    if (caller.kind !== "main") throw new HttpError(403, "Sub-agents can't spawn agents");
+    const name = normalizeAgentName(req.name ?? "");
+    if (!name || name === MAIN_AGENT) throw new HttpError(400, `Invalid agent name "${req.name}"`);
+    const task = req.task?.trim();
+    if (!task) throw new HttpError(400, "task is required");
+    const keepOpenReason = req.keepOpenReason?.trim() || null;
+    if (req.keepOpen && !keepOpenReason) {
+      throw new HttpError(400, "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.");
+    }
+    const model = req.model ? await this.resolveModel(req.model) : caller.model;
+    if (req.thinking !== undefined && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
+      throw new HttpError(400, `thinking must be one of ${THINKING_LEVELS.join(", ")}`);
+    }
+    const thinkingLevel = (req.thinking as ThinkingLevel | undefined) ?? caller.thinkingLevel;
+
+    // No awaits from here until the record is registered, so parallel spawns can't overshoot.
+    if (this.agents.findActive(caller.id, name)) throw new HttpError(409, `An agent named "${name}" is already running. Pick another name.`);
+    const active = this.agents.activeIn(caller.workspaceId);
+    if (active.length >= MAX_ACTIVE_AGENTS) {
+      throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
+    }
+    const agent = req.agent?.trim() || null;
+    const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
+    const systemPrompt = buildRolePrompt({
+      name,
+      teammates: active.filter((r) => r.parentSessionId === caller.id).map((r) => r.name),
+      agent,
+      agentPrompt: req.agentPrompt,
+    });
+    let record: AgentRecord | undefined;
+    const detail = await this.createSession(
+      caller.workspaceId,
+      { prompt: task, model, thinkingLevel },
+      {
+        kind: "subagent",
+        parentSessionId: caller.id,
+        agentName: name,
+        register: (session) => {
+          record = this.agents.upsert({
+            sessionId: session.id,
+            parentSessionId: caller.id,
+            workspaceId: caller.workspaceId,
+            name,
+            agent,
+            task,
+            systemPrompt,
+            tools,
+            autoClose: !req.keepOpen,
+            keepOpenReason: req.keepOpen ? keepOpenReason : null,
+            userEngaged: false,
+            spawnedAt: Date.now(),
+            doneAt: null,
+            result: null,
+            closing: false,
+            closed: false,
+          });
+        },
+      },
+    );
+    return { agent: agentInfo(this.agents.get(detail.session.id) ?? record!, detail.session.running) };
+  }
+
+  /** `provider/id`, or a bare id matched against the harness's models. */
+  private async resolveModel(value: string): Promise<ModelRef> {
+    const slash = value.indexOf("/");
+    if (slash > 0 && slash < value.length - 1) return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+    const models = await this.harness.listModels().catch(() => [] as ModelInfo[]);
+    const match = models.find((m) => m.id === value);
+    if (!match) throw new HttpError(400, `Unknown model "${value}"`);
+    return { provider: match.provider, id: match.id };
+  }
+
+  /** Message the parent (`to: "main"`, sub-agents only) or an active sub-agent of the team. */
+  messageAgent(callerId: string, req: MessageAgentRequest): void {
+    const caller = this.requireSession(callerId);
+    const self = this.agents.get(caller.id);
+    const text = req.text?.trim();
+    if (!text) throw new HttpError(400, "text is required");
+    if (req.to === MAIN_AGENT) {
+      if (!self) throw new HttpError(400, 'You are the main session; message a sub-agent by name');
+      this.deliver(self.parentSessionId, messageText(self.name, req.text), "steer");
+      return;
+    }
+    const target = this.agents.findActive(self ? self.parentSessionId : caller.id, normalizeAgentName(req.to ?? ""));
+    if (!target || target.sessionId === caller.id) throw new HttpError(404, `No active agent named "${req.to}".`);
+    this.deliver(target.sessionId, messageText(self?.name ?? MAIN_AGENT, req.text), "steer");
+  }
+
+  /** The caller's team: its sub-agents (main) or its teammates (sub-agent). */
+  listAgents(callerId: string): ListAgentsResponse {
+    const caller = this.requireSession(callerId);
+    const self = this.agents.get(caller.id);
+    const team = this.agents.childrenOf(self ? self.parentSessionId : caller.id);
+    return {
+      self: { sessionId: caller.id, role: self ? "subagent" : "main", name: self?.name ?? null },
+      agents: team.map((r) => agentInfo(r, this.live.get(r.sessionId)?.running ?? null)),
+    };
+  }
+
+  /** Stop one of the caller's sub-agents: now if it's idle, else when its turn ends (30s at most). */
+  async closeAgent(callerId: string, name: string): Promise<CloseAgentResponse> {
+    this.requireSession(callerId);
+    const target = this.agents.findActive(callerId, normalizeAgentName(name ?? ""));
+    if (!target) throw new HttpError(404, `No active agent named "${name}".`);
+    if (!this.live.get(target.sessionId)?.running) {
+      await this.stopAgent(target.sessionId);
+      return { closed: true };
+    }
+    this.agents.update(target.sessionId, { closing: true });
+    this.setAgentTimer(target.sessionId, CLOSE_GRACE_MS, () => void this.stopAgent(target.sessionId));
+    return { closed: false };
+  }
+
+  /** A sub-agent's result: delivered to its parent; the sub-agent stops after this turn unless kept open. */
+  reportAgentDone(callerId: string, req: ReportDoneRequest): ReportDoneResponse {
+    this.requireSession(callerId);
+    const self = this.agents.get(callerId);
+    if (!self) throw new HttpError(403, "Only sub-agents can report_done");
+    const summary = req.summary?.trim();
+    if (!summary) throw new HttpError(400, "summary is required");
+    const closing = self.autoClose && !req.keepOpen && !self.userEngaged;
+    const record = this.agents.update(callerId, { doneAt: Date.now(), result: summary, closing })!;
+    this.deliver(self.parentSessionId, doneText(record, summary), "followUp");
+    if (closing) {
+      // Normally at the end of the current turn (run_end); right away if it isn't running.
+      if (!this.live.get(callerId)?.running) void this.stopAgent(callerId);
+    } else if (!self.userEngaged) {
+      this.setAgentTimer(callerId, IDLE_CLOSE_MS, () => {
+        const current = this.agents.get(callerId);
+        if (current && !current.closed && !current.userEngaged && !this.live.get(callerId)?.running) void this.stopAgent(callerId);
+      });
+    }
+    return { closing };
+  }
+
+  /** Stop a sub-agent's process, keeping its tab and transcript (it can be reopened by the user). */
+  private async stopAgent(sessionId: string): Promise<void> {
+    this.clearAgentTimer(sessionId);
+    if (!this.agents.get(sessionId)) return;
+    this.agents.update(sessionId, { closing: false, closed: true });
+    await this.closeLive(sessionId);
+    const session = this.store.getSession(sessionId);
+    if (session) this.saveSession(session);
+  }
+
+  /**
+   * Send `text` to a session as a prompt (a follow-up or steer if it's running), in order per
+   * target. Failures are logged; the caller's request has already succeeded.
+   */
+  private deliver(targetId: string, text: string, behavior: "steer" | "followUp"): void {
+    const previous = this.deliveries.get(targetId) ?? Promise.resolve();
+    const next = previous
+      .then(async () => {
+        if (!this.store.getSession(targetId)) return;
+        const live = await this.ensureLive(targetId);
+        await this.sendPrompt(targetId, { text, behavior }, live);
+      })
+      .catch((err: Error) => this.options.log?.(`agent-teams: delivery to ${targetId} failed: ${err.message}`));
+    this.deliveries.set(targetId, next);
+    void next.finally(() => {
+      if (this.deliveries.get(targetId) === next) this.deliveries.delete(targetId);
+    });
+  }
+
+  /** Wait for queued deliveries (tests). */
+  async settleAgentDeliveries(): Promise<void> {
+    while (this.deliveries.size) await Promise.all([...this.deliveries.values()]);
+  }
+
+  private setAgentTimer(sessionId: string, ms: number, fn: () => void): void {
+    this.clearAgentTimer(sessionId);
+    const timer = setTimeout(() => {
+      this.agentTimers.delete(sessionId);
+      fn();
+    }, ms);
+    timer.unref();
+    this.agentTimers.set(sessionId, timer);
+  }
+
+  private clearAgentTimer(sessionId: string): void {
+    const timer = this.agentTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.agentTimers.delete(sessionId);
+  }
+
+  /** Drop a deleted session's sub-agent record (tokens go with its process). */
+  private forgetAgent(sessionId: string): void {
+    this.clearAgentTimer(sessionId);
+    this.tokens.revoke(sessionId);
+    this.agents.remove(sessionId);
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Live session pool (one agent process per session)
   // -------------------------------------------------------------------------------------------
 
@@ -756,12 +1041,21 @@ export class AppService {
     const record = this.requireSession(id);
     const workspace = this.requireWorkspace(record.workspaceId);
     mkdirSync(workspace.cwd, { recursive: true });
-    const session = await this.harness.openSession({
-      cwd: workspace.cwd,
-      sessionRef: record.sessionRef,
-      model: record.model,
-      thinkingLevel: record.thinkingLevel,
-    });
+    const agent = this.agents.get(id);
+    let session: HarnessSession;
+    try {
+      session = await this.harness.openSession({
+        cwd: workspace.cwd,
+        sessionRef: record.sessionRef,
+        model: record.model,
+        thinkingLevel: record.thinkingLevel,
+        env: this.agentEnv(record),
+        ...(agent ? { appendSystemPrompt: agent.systemPrompt, ...(agent.tools ? { tools: agent.tools } : {}) } : {}),
+      });
+    } catch (err) {
+      this.tokens.revoke(id);
+      throw err;
+    }
     const transcript = await session.loadTranscript();
     const live: LiveSession = {
       session,
@@ -815,6 +1109,7 @@ export class AppService {
       delete next.interrupted;
       this.saveSession(next, { touch: true });
     } else if (event.type === "run_end") {
+      this.options.onRunEnd?.(id);
       this.usage?.onRunEnd();
       this.clearPendingUi(live);
       live.lastUsedAt = Date.now();
@@ -822,6 +1117,7 @@ export class AppService {
         { ...session, lastActivityAt: Date.now(), runInProgress: false, unread: session.unread || !this.viewers.has(id) },
         { touch: true },
       );
+      if (this.agents.get(id)?.closing) void this.stopAgent(id);
       this.evictIdle();
     } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
       this.saveSession(session); // pendingInputs/status changed
@@ -875,9 +1171,18 @@ export class AppService {
     this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
+    this.tokens.revoke(id);
     const wasRunning = live.running;
     const session = this.store.getSession(id);
     if (!session) return;
+    const agent = this.agents.get(id);
+    if (agent && !agent.closed) {
+      this.clearAgentTimer(id);
+      this.agents.update(id, { closed: true, closing: false });
+      if (agent.doneAt === null) {
+        this.deliver(agent.parentSessionId, exitedText(agent.name, "Process ended without calling report_done (crashed)."), "followUp");
+      }
+    }
     if (error) {
       this.options.log?.(`session ${id}: agent exited: ${error.message}`);
       this.emitSessionEvent(session, { type: "error", message: error.message });
@@ -902,6 +1207,7 @@ export class AppService {
     this.clearPendingUi(live);
     live.unsubscribe();
     this.live.delete(id);
+    this.tokens.revoke(id);
     await live.session.dispose();
   }
 
@@ -917,6 +1223,9 @@ export class AppService {
 
   async dispose(): Promise<void> {
     this.usage?.stop();
+    for (const timer of this.agentTimers.values()) clearTimeout(timer);
+    this.agentTimers.clear();
+    this.agents.flush();
     await Promise.all([...this.live.keys()].map((id) => this.closeLive(id)));
     await this.harness.dispose();
     this.store.flush();

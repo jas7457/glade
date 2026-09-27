@@ -8,7 +8,9 @@
  *                   onRun={(id) => …} />
  *
  * `badge` + `onSubmit` turn the field into a text prompt (e.g. "Rename Chat"): Enter with no
- * highlighted row calls `onSubmit(query)`.
+ * highlighted row calls `onSubmit(query)`. `status` replaces the empty text (e.g. "Searching…"),
+ * `onInputKeyDown` sees keys first (e.g. Tab to switch modes), and an item's `detail` adds a
+ * muted second line (e.g. a message snippet).
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useState } from "preact/hooks";
@@ -17,6 +19,7 @@ import { Search } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { Kbd } from "./Kbd";
 import { floatingSurfaceClass } from "./floating";
+import { keepRowVisible } from "./list-scroll";
 
 export interface CommandPaletteItem {
   id: string;
@@ -28,6 +31,8 @@ export interface CommandPaletteItem {
   shortcut?: string;
   /** Indices of `title` characters to emphasise (matched query letters). */
   highlights?: readonly number[];
+  /** Muted second line under the title (the row grows to two lines). */
+  detail?: ComponentChildren;
 }
 
 export interface CommandPaletteSection {
@@ -51,6 +56,10 @@ export interface CommandPaletteProps {
   emptyText?: string;
   /** Accessible name of the dialog. */
   label?: string;
+  /** Shown in the list area while there are no items, instead of `emptyText` (also in prompt mode). */
+  status?: ComponentChildren;
+  /** Called first for every key in the field; return true when handled (default handling is skipped). */
+  onInputKeyDown?: (e: KeyboardEvent) => boolean;
 }
 
 function Highlighted({ text, indices }: { text: string; indices?: readonly number[] }) {
@@ -78,6 +87,8 @@ export function CommandPalette({
   onSubmit,
   emptyText = "No results",
   label = "Command Palette",
+  status,
+  onInputKeyDown,
 }: CommandPaletteProps) {
   const listId = useId();
   const items = sections.flatMap((s) => s.items);
@@ -88,11 +99,12 @@ export function CommandPalette({
   // A new query (or mode) starts from the best match.
   useEffect(() => setActive(0), [query, badge]);
   useEffect(() => {
-    if (index !== -1) document.getElementById(`${listId}-${index}`)?.scrollIntoView?.({ block: "nearest" });
+    if (index !== -1) keepRowVisible(document.getElementById(listId), document.getElementById(`${listId}-${index}`));
   }, [index, current?.id]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing) return;
+    if (onInputKeyDown?.(e)) return;
     const move = (to: number) => {
       e.preventDefault();
       if (items.length) setActive(((to % items.length) + items.length) % items.length);
@@ -154,9 +166,9 @@ export function CommandPalette({
               class="h-full min-w-0 flex-1 bg-transparent text-[1.3rem] font-light text-fg outline-none placeholder:text-fg-subtle"
             />
           </div>
-          {(items.length > 0 || !onSubmit) && (
+          {(items.length > 0 || !onSubmit || status) && (
             <div id={listId} role="listbox" aria-label="Results" class="min-h-0 flex-1 overflow-y-auto border-t border-separator p-1.5">
-              {items.length === 0 && <div class="px-3 py-6 text-center text-fg-muted">{emptyText}</div>}
+              {items.length === 0 && <div class="px-3 py-6 text-center text-fg-muted">{status ?? emptyText}</div>}
               {sections.map((section) =>
                 section.items.length === 0 ? null : (
                   <div key={section.title} role="group" aria-label={section.title}>
@@ -175,16 +187,22 @@ export function CommandPalette({
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => onRun(item.id)}
                           class={cn(
-                            "flex h-8 items-center gap-2.5 rounded-[6px] px-2.5",
+                            "flex items-center gap-2.5 rounded-[6px] px-2.5",
+                            item.detail ? "min-h-8 py-1" : "h-8",
                             selected ? "bg-accent text-accent-fg" : "text-fg",
                           )}
                         >
                           <span class={cn("flex w-4 shrink-0 items-center justify-center [&_svg]:size-4", selected ? "text-accent-fg" : "text-fg-muted")}>
                             {item.icon}
                           </span>
-                          <span class="min-w-0 flex-1 truncate">
-                            <Highlighted text={item.title} indices={item.highlights} />
-                            {item.subtitle && <span class={cn("ml-2", selected ? "text-accent-fg/75" : "text-fg-subtle")}>{item.subtitle}</span>}
+                          <span class="min-w-0 flex-1">
+                            <span class="block truncate">
+                              <Highlighted text={item.title} indices={item.highlights} />
+                              {item.subtitle && <span class={cn("ml-2", selected ? "text-accent-fg/75" : "text-fg-subtle")}>{item.subtitle}</span>}
+                            </span>
+                            {item.detail && (
+                              <span class={cn("block truncate text-[0.9rem]", selected ? "text-accent-fg/80" : "text-fg-muted")}>{item.detail}</span>
+                            )}
                           </span>
                           {item.shortcut && (
                             <Kbd keys={item.shortcut} class={cn("shrink-0", selected && "border-accent-fg/30 bg-accent-fg/15 text-accent-fg")} />

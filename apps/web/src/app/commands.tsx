@@ -21,21 +21,24 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   RefreshCw,
   Settings as SettingsIcon,
   SquarePen,
   Sun,
   Trash2,
+  X,
 } from "lucide-preact";
 import { StatusIndicator, confirm } from "@/ui";
-import { loadModels, projects, projectsById, workspaces, workspacesById } from "@/state/store";
+import { loadModels, mainSessionsFor, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
 import { deleteWorkspace, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
+import { closeTab, openNewTab } from "@/features/workspace";
 import type { RouteContext } from "./paths";
 import { SETTINGS_SECTIONS, chatPath, routes } from "./routes";
-import { SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
+import { SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
 
 export type CommandGroup = "Chats" | "Projects" | "Actions";
 export const COMMAND_GROUPS: readonly CommandGroup[] = ["Chats", "Projects", "Actions"];
@@ -149,6 +152,35 @@ export function buildCommands(ctx: CommandContext): Command[] {
       shortcut: SHORTCUTS["toggle-sidebar"],
       icon: <PanelLeft />,
       run: global["toggle-sidebar"],
+    },
+    {
+      id: "new-tab",
+      title: "New Tab",
+      group: "Actions",
+      keywords: ["session"],
+      shortcut: TAB_SHORTCUTS["new-tab"],
+      icon: <Plus />,
+      available: hasChat,
+      run: async () => {
+        const chat = current();
+        if (chat) await openNewTab(chat.id, (path) => navigate(path));
+      },
+    },
+    {
+      id: "close-tab",
+      title: "Close Tab",
+      group: "Actions",
+      shortcut: TAB_SHORTCUTS["close-tab"],
+      icon: <X />,
+      // A workspace always keeps its last main tab.
+      available: () => !!route.workspaceId && mainSessionsFor(route.workspaceId).length > 1,
+      run: async () => {
+        if (!route.workspaceId) return;
+        const tab = new URLSearchParams(window.location.search).get("tab");
+        const id = resolveSessionId(route.workspaceId, tab);
+        const session = id ? sessionsById.value.get(id) : undefined;
+        if (session) await closeTab(session, (path) => navigate(path), { focused: true });
+      },
     },
     {
       id: "rename-chat",

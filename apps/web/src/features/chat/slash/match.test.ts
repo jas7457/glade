@@ -56,6 +56,31 @@ describe("filterCommands", () => {
     ];
     expect(names(filterCommands(list, "mcp"))).toEqual(["mcp", "team"]);
   });
+  it("sorts each group alphabetically (case-insensitive, ignoring skill:) for an empty query", () => {
+    const list: SlashCommand[] = [
+      { name: "settings", source: "builtin" },
+      { name: "compact", source: "builtin" },
+      { name: "reply", source: "extension" },
+      { name: "Queue", source: "extension" },
+      { name: "cd", source: "extension" },
+      { name: "skill:zebra", source: "skill" },
+      { name: "skill:alpha", source: "skill" },
+    ];
+    expect(filterCommands(list, "").map((g) => g.commands.map((c) => c.name))).toEqual([
+      ["compact", "settings"],
+      ["cd", "Queue", "reply"],
+      ["skill:alpha", "skill:zebra"],
+    ]);
+  });
+  it("keeps match quality first and breaks ties alphabetically", () => {
+    const list: SlashCommand[] = [
+      { name: "prompt-web", source: "extension" },
+      { name: "webz", source: "extension" },
+      { name: "weba", source: "extension" },
+      { name: "web", source: "extension" },
+    ];
+    expect(names(filterCommands(list, "web"))).toEqual(["web", "weba", "webz", "prompt-web"]);
+  });
 });
 
 describe("mergeCommands / builtinCommands", () => {

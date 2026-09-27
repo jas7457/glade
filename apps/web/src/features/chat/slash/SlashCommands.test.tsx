@@ -8,6 +8,7 @@ import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { toasts } from "@/state/toasts";
 import { Composer } from "../Composer";
+import { resetFolderCommands } from "./folder-commands";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -25,6 +26,11 @@ vi.mock("@/lib/api", () => ({
     revealFile: vi.fn(async () => undefined),
   },
 }));
+vi.mock("@/lib/api-folder", () => ({
+  listFolderCommands: vi.fn(async () => FOLDER),
+  searchFiles: vi.fn(async () => ({ entries: [], truncated: false })),
+  getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
+}));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const HARNESS: SlashCommand[] = [
@@ -33,7 +39,16 @@ const HARNESS: SlashCommand[] = [
   { name: "fix-tests", source: "prompt", description: "Fix failing tests" },
 ];
 
+/** Folder commands for the new-chat composer (a clash with a built-in name is dropped). */
+const FOLDER: SlashCommand[] = [
+  { name: "reply", source: "extension", description: "Reply" },
+  { name: "cd", source: "extension", description: "Change directory" },
+  { name: "compact", source: "extension", description: "Clashes with the built-in" },
+  { name: "skill:web-design", source: "skill", description: "Design websites" },
+];
+
 const { api } = await import("@/lib/api");
+const folderApi = await import("@/lib/api-folder");
 
 const MODELS: ModelInfo[] = [
   { provider: "anthropic", id: "haiku", name: "Claude Haiku", thinkingLevels: ["off", "low", "medium", "high"], input: ["text"] },
@@ -74,6 +89,7 @@ const options = () => screen.queryAllByRole("option").map((o) => o.textContent ?
 beforeEach(() => {
   vi.clearAllMocks();
   resetChatSessions();
+  resetFolderCommands();
   settings.value = defaultSettings();
   models.value = MODELS;
   toasts.value = [];
@@ -260,16 +276,44 @@ describe("built-in commands", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p1"));
   });
 
-  it("new-chat composer offers only chat-independent built-ins", async () => {
+  it("new-chat composer offers chat-independent built-ins + the folder's commands, A→Z", async () => {
     const router = renderAt(<Composer projectId="p1" />);
+    await waitFor(() => expect(folderApi.listFolderCommands).toHaveBeenCalledWith("p1"));
     type("/");
-    expect(options().map((o) => o.match(/^\/[a-z:-]+/)?.[0])).toEqual(["/model", "/thinking", "/settings"]);
+    await waitFor(() => expect(options().length).toBeGreaterThan(3));
+    expect(options().map((o) => o.match(/^\/[a-z:-]+/)?.[0])).toEqual(["/model", "/settings", "/thinking", "/cd", "/reply", "/skill:web-design"]);
     type("/compact");
     expect(screen.queryByRole("listbox")).toBeNull();
     type("/settings");
     key("Enter");
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
     expect(api.createWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("folder commands + hidden commands", () => {
+  it("picking a folder command in a new chat starts the chat with it", async () => {
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+    renderAt(<Composer projectId="p1" />);
+    type("/");
+    await waitFor(() => expect(options().some((o) => o.startsWith("/reply"))).toBe(true));
+    type("/rep");
+    key("Enter"); // completes "/reply "
+    expect(box().value).toBe("/reply ");
+    type("/reply hello");
+    key("Enter");
+    await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", prompt: "/reply hello" })));
+  });
+
+  it("leaves hidden commands out of the menu but still runs them typed in full", async () => {
+    settings.value = { ...defaultSettings(), slashCommands: { hidden: ["builtin:settings", "extension:mcp"] } };
+    const router = renderAt(<Composer projectId="p1" />);
+    type("/");
+    await waitFor(() => expect(options().some((o) => o.startsWith("/cd"))).toBe(true));
+    expect(options().some((o) => o.startsWith("/settings"))).toBe(false);
+    type("/settings");
+    key("Enter");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
   });
 });
 

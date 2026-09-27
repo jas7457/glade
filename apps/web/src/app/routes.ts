@@ -19,7 +19,7 @@ export const routes = {
   settings: (section: SettingsSection = "general") => `/settings/${section}`,
 };
 
-export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent"] as const;
+export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent", "commands"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Link to a workspace in the right context (inside its project or standalone), optionally a tab. */

@@ -138,6 +138,11 @@ export interface Settings {
     busyBehavior: "steer" | "followUp";
     /** Generate a title for new chats with a model (a quick title is always set first). */
     generateTitles: boolean;
+    /**
+     * Generate a one-line summary of each chat with the fast (title) model after its runs (I-046).
+     * Summaries help the chat finder (⌘K "Ask") match paraphrased requests.
+     */
+    generateSummaries: boolean;
   };
   models: {
     /** Model for new chats. `null` = harness default. */
@@ -162,6 +167,15 @@ export interface Settings {
     autoCompaction: boolean;
     autoRetry: boolean;
   };
+  /** Slash menu (I-048). */
+  slashCommands: {
+    /**
+     * Commands hidden from the slash menu, as `<source>:<name>` keys (e.g. `builtin:compact`,
+     * `extension:powerline`, `skill:skill:web-design`). Hidden commands still run when typed in
+     * full. Unknown keys are ignored.
+     */
+    hidden: string[];
+  };
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
@@ -172,6 +186,7 @@ export function defaultSettings(): Settings {
       sendKey: "enter",
       busyBehavior: "steer",
       generateTitles: true,
+      generateSummaries: true,
     },
     models: {
       defaultModel: null,
@@ -189,6 +204,9 @@ export function defaultSettings(): Settings {
       maxIdleProcesses: 4,
       autoCompaction: true,
       autoRetry: true,
+    },
+    slashCommands: {
+      hidden: [],
     },
   };
 }

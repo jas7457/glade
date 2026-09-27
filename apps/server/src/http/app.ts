@@ -28,8 +28,13 @@ import {
   type UpdateWorkspaceRequest,
 } from "@pi-ui/protocol";
 import { HttpError, type AppService } from "../services/app-service.js";
+import type { FolderInfoService } from "../services/folder-info.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
 import { RevealUnavailableError } from "../services/reveal.js";
+import { folderRoutes } from "./folder.js";
+import { searchRoutes } from "./search.js";
+import { createAgentsRoutes } from "./agents.js";
+import type { SearchService } from "../services/search/search-service.js";
 import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
 
@@ -40,9 +45,13 @@ export interface CreateAppOptions {
   staticDir?: string;
   /** Native folder dialog (injectable for tests). Default: `osascript` on macOS. */
   pickFolder?: FolderPicker;
+  /** Folder-level commands, file search and harness defaults (I-043/I-044/I-050). */
+  folderInfo?: FolderInfoService;
+  /** Chat search (I-045/I-046); routes are mounted only when given. */
+  search?: SearchService;
 }
 
-export function createApp({ service, security, staticDir, pickFolder = createFolderPicker() }: CreateAppOptions) {
+export function createApp({ service, security, staticDir, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -54,6 +63,11 @@ export function createApp({ service, security, staticDir, pickFolder = createFol
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   });
 
+  // Feature routers first: `apiRoutes` ends with a catch-all 404.
+  if (folderInfo) app.route("/api", folderRoutes(folderInfo));
+  if (search) app.route("/api", searchRoutes(search));
+  // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams pi-ui backend.
+  app.route("/api/agents", createAgentsRoutes(service));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 

@@ -5,6 +5,7 @@ import {
   emptyTranscript,
   type AgentEvent,
   type CompactResult,
+  type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
   type PromptRequest,
@@ -108,6 +109,14 @@ export class FakeHarness implements AgentHarness {
 
   async listModels(): Promise<ModelInfo[]> {
     return FAKE_MODELS;
+  }
+
+  async getDefaults(): Promise<HarnessDefaults> {
+    return { model: { provider: FAKE_MODELS[0]!.provider, id: FAKE_MODELS[0]!.id }, thinkingLevel: null };
+  }
+
+  async listFolderCommands(): Promise<SlashCommand[]> {
+    return FAKE_COMMANDS;
   }
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {

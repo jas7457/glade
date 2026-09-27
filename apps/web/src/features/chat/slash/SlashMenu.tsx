@@ -3,10 +3,11 @@
  * the composer owns the query, the highlighted item and the keyboard handling (focus never
  * leaves the textarea; items don't take focus on click).
  */
-import { useEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import type { SlashCommand } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
 import { menuContentClass, menuItemClass } from "@/ui";
+import { keepRowVisible } from "@/ui/list-scroll";
 import type { CommandGroup } from "./match";
 
 export const SLASH_MENU_ID = "slash-command-menu";
@@ -26,9 +27,10 @@ export interface SlashMenuProps {
 export function SlashMenu({ groups, activeIndex, onHover, onPick }: SlashMenuProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const el = listRef.current?.querySelector<HTMLElement>(`#${slashOptionId(activeIndex)}`);
-    el?.scrollIntoView?.({ block: "nearest" });
+  useLayoutEffect(() => {
+    // Scroll only the list (scrollIntoView would also move the transcript behind it).
+    const list = listRef.current;
+    keepRowVisible(list, list?.querySelector<HTMLElement>(`#${slashOptionId(activeIndex)}`));
   }, [activeIndex, groups]);
 
   let index = 0;

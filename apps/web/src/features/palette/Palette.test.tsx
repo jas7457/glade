@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 
 vi.mock("@/lib/api", () => ({ api: {} }));
+vi.mock("@/lib/api-search", () => ({
+  searchChats: vi.fn(async (q: string) => ({ query: q, hits: [] })),
+  askChats: vi.fn(),
+}));
 vi.mock("@/state/actions", () => ({
   renameWorkspace: vi.fn(async () => true),
   setChatPinned: vi.fn(async () => true),
@@ -9,6 +13,8 @@ vi.mock("@/state/actions", () => ({
   updateSettings: vi.fn(async () => true),
 }));
 
+import type { AskResponse, SearchHit } from "@pi-ui/protocol";
+import { askChats, searchChats } from "@/lib/api-search";
 import { renameWorkspace, updateSettings } from "@/state/actions";
 import { projects, workspaces } from "@/state/store";
 import { paletteOpen, sidebarCollapsed } from "@/state/ui";
@@ -107,6 +113,103 @@ describe("Palette", () => {
     const { input } = renderPalette();
     fireEvent.keyDown(input(), { key: "Escape" });
     expect(paletteOpen.value).toBe(false);
+  });
+});
+
+function hit(over: Partial<SearchHit> = {}): SearchHit {
+  return {
+    workspaceId: "c2",
+    sessionId: "s2",
+    sessionKind: "main",
+    title: "Old notes",
+    workspaceTitle: "Old notes",
+    projectId: null,
+    project: null,
+    snippet: { text: "…we fixed the null coupon bug", highlights: [[19, 25]] },
+    matchedIn: "assistant",
+    score: 3,
+    updatedAt: 1,
+    ...over,
+  };
+}
+
+describe("Palette: message search and Ask (I-045/I-046)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    paletteOpen.value = true;
+    projects.value = [makeProject({ id: "p1", name: "Alpha", sortOrder: 0 })];
+    workspaces.value = [
+      makeWorkspace({ id: "c1", projectId: "p1", title: "Fix login bug", lastActivityAt: 5 }),
+      makeWorkspace({ id: "c2", projectId: null, title: "Old notes", lastActivityAt: 1 }),
+    ];
+  });
+
+  it("shows message hits with snippets under Chats and opens the hit's tab", async () => {
+    vi.mocked(searchChats).mockResolvedValue({ query: "coupon", hits: [hit(), hit({ sessionId: "x", matchedIn: "title" })] });
+    const { navigate, input } = renderPalette();
+    type(input(), "coupon");
+    await waitFor(() => expect(screen.getByRole("group", { name: "Messages" })).toBeTruthy());
+    expect(searchChats).toHaveBeenCalledWith("coupon", 12);
+    const rows = within(screen.getByRole("group", { name: "Messages" })).getAllByRole("option");
+    expect(rows.map((r) => r.textContent)).toEqual(["Old notes…we fixed the null coupon bug"]); // title-only hits are dropped
+    expect(rows[0]!.querySelector("b")?.textContent).toBe("coupon");
+    fireEvent.click(rows[0]!);
+    expect(navigate).toHaveBeenCalledWith("/chats/c2?tab=s2");
+    expect(paletteOpen.value).toBe(false);
+  });
+
+  it("enters Ask mode with ? and opens a confident match directly", async () => {
+    vi.mocked(askChats).mockResolvedValue({
+      query: "q",
+      confident: true,
+      model: "anthropic/claude-haiku-4-5",
+      matches: [{ workspaceId: "c1", sessionId: "s1", sessionKind: "main", title: "Fix login bug", project: "Alpha", summary: null, reason: "r", updatedAt: 5 }],
+    } satisfies AskResponse);
+    const { navigate, input } = renderPalette();
+    type(input(), "?the chat about signing in");
+    expect(screen.getByText("Ask")).toBeTruthy();
+    expect((input() as HTMLInputElement).value).toBe("the chat about signing in");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(askChats).toHaveBeenCalledWith("the chat about signing in");
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/projects/p1/chats/c1?tab=s1"));
+    expect(paletteOpen.value).toBe(false);
+  });
+
+  it("Tab switches to Ask; unsure answers are listed with reasons; Backspace goes back", async () => {
+    vi.mocked(askChats).mockResolvedValue({
+      query: "q",
+      confident: false,
+      model: "m",
+      matches: [
+        { workspaceId: "c2", sessionId: "s2", sessionKind: "main", title: "Old notes", project: null, summary: null, reason: "Mentions coupons", updatedAt: 1 },
+        { workspaceId: "c1", sessionId: "s1", sessionKind: "subagent", title: "Fix login bug", project: "Alpha", summary: "Login", reason: "", updatedAt: 5 },
+      ],
+    } satisfies AskResponse);
+    const { navigate, input } = renderPalette();
+    type(input(), "discount codes");
+    fireEvent.keyDown(input(), { key: "Tab" });
+    expect(screen.getByText("Ask")).toBeTruthy();
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("group", { name: "Best Matches" })).toBeTruthy());
+    expect(groups()).toEqual([["Best Matches", ["Old notesMentions coupons", "Fix login bugAlphaLogin"]]]);
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(navigate).toHaveBeenCalledWith("/projects/p1/chats/c1"); // sub-agents open their workspace
+    paletteOpen.value = true;
+  });
+
+  it("offers “Find a chat” for sentence-like queries and leaves Ask mode on Backspace", async () => {
+    vi.mocked(askChats).mockResolvedValue({ query: "q", confident: false, model: null, matches: [] });
+    const { input } = renderPalette();
+    type(input(), "where we added buttons");
+    const entry = within(screen.getByRole("group", { name: "Ask" })).getByRole("option");
+    expect(entry.textContent).toContain("Find a chat: “where we added buttons”");
+    fireEvent.click(entry);
+    expect(askChats).toHaveBeenCalledWith("where we added buttons");
+    await waitFor(() => expect(screen.getByText("No matching chat found.")).toBeTruthy());
+    type(input(), "");
+    fireEvent.keyDown(input(), { key: "Backspace" });
+    expect(screen.queryByText("Ask")).toBeNull();
   });
 });
 

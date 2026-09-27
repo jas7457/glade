@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@pi-ui/protocol";
 import { TooltipProvider } from "@/ui";
-import { models, settings, workspacesById } from "@/state/store";
+import { harnessDefaults, models, settings, workspacesById } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { isSendKey } from "./composer-utils";
@@ -20,9 +20,24 @@ vi.mock("@/lib/api", () => ({
     respondToUi: vi.fn(async () => undefined),
   },
 }));
+vi.mock("@/lib/api-folder", () => ({
+  listFolderCommands: vi.fn(async () => []),
+  searchFiles: vi.fn(async (_projectId: string | null, q: string) => ({
+    entries: q.startsWith("src/")
+      ? [{ path: "src/app.ts", kind: "file" }]
+      : [
+          { path: "apps/web/Composer.tsx", kind: "file" },
+          { path: "src", kind: "dir" },
+          { path: "my docs/read me.md", kind: "file" },
+        ],
+    truncated: false,
+  })),
+  getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
+}));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const { api } = await import("@/lib/api");
+const folderApi = await import("@/lib/api-folder");
 
 const MODELS: ModelInfo[] = [
   { provider: "anthropic", id: "haiku", name: "Claude Haiku", thinkingLevels: ["off", "low", "medium", "high"], input: ["text", "image"] },
@@ -197,4 +212,68 @@ describe("Composer (new chat)", () => {
     // Text-only model: no attach button.
     expect(screen.queryByRole("button", { name: "Attach images" })).toBeNull();
   });
+
+  it('"Default" preselects the harness default model/thinking and sends no model (I-050)', async () => {
+    models.value = [MODELS[1]!, MODELS[0]!]; // the harness default isn't the first model
+    harnessDefaults.value = { model: { provider: "anthropic", id: "haiku" }, thinkingLevel: "low" };
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+    try {
+      renderAt(<Composer projectId="p1" />);
+      expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Claude Haiku");
+      expect(screen.getByRole("button", { name: "Thinking level" }).textContent).toContain("Low");
+      const box = screen.getByRole("textbox", { name: "Message" });
+      fireEvent.input(box, { target: { value: "Hi" } });
+      fireEvent.keyDown(box, { key: "Enter" });
+      await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ model: null, thinkingLevel: "low" })));
+    } finally {
+      harnessDefaults.value = null;
+    }
+  });
 });
+
+describe("Composer @ file mentions", () => {
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const typeAt = (value: string) => {
+    box().value = value;
+    box().setSelectionRange(value.length, value.length);
+    fireEvent.input(box(), { target: { value } });
+  };
+  const files = () => screen.queryAllByRole("option").map((o) => o.getAttribute("aria-label"));
+
+  it("opens after @, navigates with arrows, inserts with Enter, closes on Escape", async () => {
+    renderAt(<Composer projectId="p1" />);
+    typeAt("look at @comp");
+    await waitFor(() => expect(files()).toEqual(["apps/web/Composer.tsx", "src/", "my docs/read me.md"]));
+    expect(folderApi.searchFiles).toHaveBeenLastCalledWith("p1", "comp");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(box().value).toBe("look at @apps/web/Composer.tsx ");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(api.createWorkspace).not.toHaveBeenCalled();
+
+    // Folders complete stepwise; quoted paths with spaces.
+    typeAt("@s");
+    await waitFor(() => expect(files().length).toBe(3));
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(box().value).toBe("@src/");
+    await waitFor(() => expect(files()).toEqual(["src/app.ts"]));
+    typeAt("x @m");
+    await waitFor(() => expect(files().length).toBe(3));
+    fireEvent.keyDown(box(), { key: "ArrowUp" });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(box().value).toBe('x @"my docs/read me.md" ');
+
+    typeAt("@c");
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeNull());
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("doesn't open for @ inside a word (e.g. an email address)", async () => {
+    renderAt(<Composer projectId="p1" />);
+    typeAt("mail me@example.com");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+});
+

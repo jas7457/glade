@@ -7,6 +7,7 @@
 import type {
   AgentEvent,
   CompactResult,
+  HarnessDefaults,
   ModelInfo,
   ModelRef,
   PromptRequest,
@@ -25,6 +26,12 @@ export interface OpenSessionOptions {
   sessionRef: string | null;
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
+  /** Extra environment for the agent process (agent API identity, I-037). */
+  env?: Record<string, string>;
+  /** Text appended to the agent's system prompt (sub-agent role, I-037). */
+  appendSystemPrompt?: string;
+  /** Tool allowlist (sub-agents from a definition with `tools`, I-037). */
+  tools?: string[];
 }
 
 export interface GenerateTitleOptions {
@@ -38,6 +45,10 @@ export interface AgentHarness {
   readonly id: string;
   /** Available models. Implementations may cache; `force` bypasses the cache. */
   listModels(force?: boolean): Promise<ModelInfo[]>;
+  /** Model/thinking level the harness uses when none is given (I-050). `force` refreshes. */
+  getDefaults?(force?: boolean): Promise<HarnessDefaults>;
+  /** Slash commands available in `cwd` without an open session (I-043). Callers cache. */
+  listFolderCommands?(cwd: string): Promise<SlashCommand[]>;
   openSession(options: OpenSessionOptions): Promise<HarnessSession>;
   /** Permanently remove a persisted session. */
   deleteSession(sessionRef: string): Promise<void>;

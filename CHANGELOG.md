@@ -89,7 +89,18 @@ Every entry corresponds to a ticked item in PLAN.md.
 - `pnpm dev:agent`: throwaway, self-cleaning pi-ui servers for agents, so testing never touches your
   data.
 
+- Sub-agents inside pi-ui: when a chat's agent delegates with `spawn_agent`, each sub-agent runs as a
+  tab in the right-hand pane, and its result comes back to the chat.
+- `@` in the message box searches the project's files and inserts a file reference.
+- Search inside chats from ⌘K (matching messages with snippets), and ask for a chat in plain words
+  ("?" then e.g. "the chat about the new button"): a fast model picks the best match.
+- Settings → Slash Commands: choose which commands appear in the `/` menu.
+
 ### Changed
+
+- New chats list your pi commands and skills in the `/` menu too, and every group is sorted A→Z.
+- "Default" model now means the model set in pi (e.g. Claude Opus 5.5) rather than the first model
+  in the list, for new chats and in Settings.
 
 - Under the hood, each sidebar row is now a workspace that can hold several conversations
   (groundwork for tabs and sub-agents). Existing chats were migrated automatically.
@@ -124,6 +135,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- Moving through a long `/` menu or ⌘K list with the arrow keys no longer makes the list jump.
+- A message sent right after another is queued instead of failing with "already processing".
 
 - Agents started by pi-ui no longer inherit the terminal's cmux settings, so they can't open panes
   in your cmux window.

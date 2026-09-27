@@ -1,0 +1,107 @@
+/**
+ * Agent API (I-037): lets an agent running inside pi-ui spawn and talk to sub-agents, which run
+ * as `subagent` sessions of the caller's workspace. Used by the ext-kit agent-teams extension's
+ * pi-ui backend (it duplicates these shapes; keep them in sync).
+ *
+ * Every agent process pi-ui starts gets {@link AGENT_ENV} variables. Requests to `/api/agents/…`
+ * carry `Authorization: Bearer <PI_UI_TOKEN>`; the token identifies the calling session.
+ */
+
+/** Environment variables pi-ui sets for every agent process it starts. */
+export const AGENT_ENV = {
+  /** Base URL of the pi-ui server, e.g. `http://127.0.0.1:4317`. */
+  url: "PI_UI_URL",
+  /** The session this process runs. */
+  sessionId: "PI_UI_SESSION_ID",
+  /** Secret for the agent API; per process, only valid while the process runs. */
+  token: "PI_UI_TOKEN",
+  /** Set only for sub-agents: their agent name (the process is a child and can't spawn). */
+  agentName: "PI_UI_AGENT_NAME",
+} as const;
+
+/** Max sub-agents running at once per workspace (closed ones don't count). */
+export const MAX_ACTIVE_AGENTS = 4;
+
+/**
+ * - `working` / `idle`: running (idle = waiting between turns)
+ * - `done`: called report_done and is still open (kept open or the user typed in it)
+ * - `closed`: its process was stopped (done + auto-close, close_agent, or crashed); the tab and
+ *   transcript stay until the user closes the tab.
+ */
+export type AgentStatus = "working" | "idle" | "done" | "closed";
+
+export interface AgentInfo {
+  name: string;
+  /** Its session (tab) id. */
+  sessionId: string;
+  /** Agent definition used, if any. */
+  agent: string | null;
+  task: string;
+  status: AgentStatus;
+  keepOpenReason: string | null;
+  /** The user typed in its tab: it's never closed automatically. */
+  userEngaged: boolean;
+  spawnedAt: number;
+  doneAt: number | null;
+  /** The report_done summary. */
+  result: string | null;
+}
+
+/** `POST /api/agents/spawn` (main sessions only). */
+export interface SpawnAgentRequest {
+  /** Lowercase letters, digits, dashes; normalized by the server. Unique among the caller's active agents. */
+  name: string;
+  /** Complete task; sent as the sub-agent's first prompt. */
+  task: string;
+  /** Name of the agent definition (for display/list). */
+  agent?: string;
+  /** The definition's instructions, appended to the sub-agent's role prompt. */
+  agentPrompt?: string;
+  /** `provider/id` or a bare model id. Default: the caller's model. */
+  model?: string;
+  /** Default: the caller's thinking level. */
+  thinking?: string;
+  /** Tool allowlist (report_done and message_agent are always added). */
+  tools?: string[];
+  /** Keep it running after report_done. Requires `keepOpenReason`. */
+  keepOpen?: boolean;
+  keepOpenReason?: string;
+}
+
+export interface SpawnAgentResponse {
+  agent: AgentInfo;
+}
+
+/** `POST /api/agents/message`. `to` is a sub-agent name, or `"main"` (a sub-agent's parent). */
+export interface MessageAgentRequest {
+  to: string;
+  text: string;
+}
+
+/** `POST /api/agents/close` (the parent closes one of its sub-agents). */
+export interface CloseAgentRequest {
+  name: string;
+}
+
+export interface CloseAgentResponse {
+  /** `true`: stopped now; `false`: stops when its current turn ends. */
+  closed: boolean;
+}
+
+/** `POST /api/agents/report-done` (sub-agents only). */
+export interface ReportDoneRequest {
+  summary: string;
+  /** Stay open even if auto-close is on. */
+  keepOpen?: boolean;
+}
+
+export interface ReportDoneResponse {
+  /** The sub-agent is stopped when its current turn ends. */
+  closing: boolean;
+}
+
+/** `GET /api/agents`: the caller's team (a main session's sub-agents, or a sub-agent's siblings). */
+export interface ListAgentsResponse {
+  self: { sessionId: string; role: "main" | "subagent"; name: string | null };
+  agents: AgentInfo[];
+}

@@ -10,6 +10,7 @@ import {
   modelKey,
   type AgentEvent,
   type CompactResult,
+  type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
   type PromptRequest,
@@ -26,6 +27,7 @@ import { PiRpcProcess } from "./rpc-process.js";
 import {
   PiEventTranslator,
   translateCommands,
+  translateDefaults,
   translateMessages,
   translateModel,
   translateSessionStats,
@@ -47,7 +49,7 @@ export class PiHarness implements AgentHarness {
   readonly id = "pi";
   /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
   getUsageLimits = () => fetchAnthropicUsageLimits();
-  private modelsCache: { at: number; models: ModelInfo[] } | null = null;
+  private modelsCache: { at: number; models: ModelInfo[]; defaults: HarnessDefaults } | null = null;
   private modelsInflight: Promise<ModelInfo[]> | null = null;
 
   constructor(private readonly options: PiHarnessOptions) {}
@@ -61,14 +63,46 @@ export class PiHarness implements AgentHarness {
     return this.modelsInflight;
   }
 
+  /**
+   * pi's own default model + thinking level (`~/.pi/agent/settings.json`), as reported by the
+   * model-listing utility process's `get_state` (it starts on them). Cached with the models.
+   */
+  async getDefaults(force = false): Promise<HarnessDefaults> {
+    await this.listModels(force);
+    return this.modelsCache?.defaults ?? { model: null, thinkingLevel: null };
+  }
+
   private async fetchModels(): Promise<ModelInfo[]> {
     // Extensions stay enabled: they can register providers/models (and handle provider auth).
     const proc = this.spawn(this.options.utilityCwd, ["--no-session", "--no-skills"]);
     try {
-      const data = await proc.request<{ models: PiModel[] }>({ type: "get_available_models" });
+      const [data, state] = await Promise.all([
+        proc.request<{ models: PiModel[] }>({ type: "get_available_models" }),
+        proc.request<Record<string, unknown>>({ type: "get_state" }).catch((err: Error) => {
+          this.options.log?.(`get_state (defaults) failed: ${err.message}`);
+          return null;
+        }),
+      ]);
       const models = data.models.map(translateModel);
-      this.modelsCache = { at: Date.now(), models };
+      this.modelsCache = { at: Date.now(), models, defaults: translateDefaults(state ?? {}) };
       return models;
+    } finally {
+      void proc.kill();
+    }
+  }
+
+  /**
+   * Commands (extensions, skills, prompt templates) pi loads in `cwd`, via a short-lived utility
+   * process there (project `.pi/` skills and prompts depend on the folder). Not cached here.
+   */
+  async listFolderCommands(cwd: string): Promise<SlashCommand[]> {
+    const proc = this.spawn(cwd, ["--no-session"]);
+    try {
+      const data = await proc.request<Record<string, unknown>>({ type: "get_commands" });
+      return translateCommands(data ?? {});
+    } catch (err) {
+      const stderr = proc.recentStderr;
+      throw new Error(`${(err as Error).message}${stderr ? `\n${stderr}` : ""}`);
     } finally {
       void proc.kill();
     }
@@ -79,7 +113,9 @@ export class PiHarness implements AgentHarness {
     if (options.sessionRef) args.push("--session", options.sessionRef);
     if (options.model) args.push("--model", modelKey(options.model));
     if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
-    const proc = this.spawn(options.cwd, args);
+    if (options.appendSystemPrompt) args.push("--append-system-prompt", options.appendSystemPrompt);
+    if (options.tools?.length) args.push("--tools", options.tools.join(","));
+    const proc = this.spawn(options.cwd, args, options.env);
     const session = new PiSession(proc, this.options.log, options.cwd);
     try {
       await session.init(this.options.config());
@@ -130,9 +166,9 @@ export class PiHarness implements AgentHarness {
 
   async dispose(): Promise<void> {}
 
-  private spawn(cwd: string, args: string[]): PiRpcProcess {
+  private spawn(cwd: string, args: string[], env?: Record<string, string>): PiRpcProcess {
     const { piPath, extraArgs } = this.options.config();
-    const proc = new PiRpcProcess({ command: piPath, args: ["--mode", "rpc", ...args, ...extraArgs], cwd, env: piChildEnv() });
+    const proc = new PiRpcProcess({ command: piPath, args: ["--mode", "rpc", ...args, ...extraArgs], cwd, env: piChildEnv(process.env, env) });
     proc.on("stderr", (text) => this.options.log?.(`[pi ${cwd}] ${text.trimEnd()}`));
     proc.start();
     return proc;
@@ -283,7 +319,9 @@ export class PiSession implements HarnessSession {
       type: "prompt",
       message: request.text,
       ...(images?.length ? { images } : {}),
-      ...(this.state.isRunning ? { streamingBehavior: request.behavior ?? "steer" } : {}),
+      // pi only reads streamingBehavior while streaming; pass it whenever we have one, since our
+      // isRunning lags right after a prompt (e.g. a sub-agent message arriving just after its task).
+      ...(this.state.isRunning || request.behavior ? { streamingBehavior: request.behavior ?? "steer" } : {}),
     });
   }
 

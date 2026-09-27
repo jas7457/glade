@@ -7,6 +7,7 @@ import {
   activeMainSessionId,
   defaultSettings,
   mainSessionsOf,
+  type HarnessDefaults,
   type ModelInfo,
   type Project,
   type ServerMessage,
@@ -15,6 +16,7 @@ import {
   type WorkspaceSummary,
 } from "@pi-ui/protocol";
 import { api } from "@/lib/api";
+import { getHarnessDefaults } from "@/lib/api-folder";
 import { socket } from "@/lib/socket";
 import { handleSessionEvent, reloadOpenChatSessions } from "./chat-session";
 import { notify } from "./toasts";
@@ -26,6 +28,8 @@ export const workspaces = signal<WorkspaceSummary[]>([]);
 /** Every session of every workspace (main tabs and sub-agents). */
 export const sessions = signal<SessionSummary[]>([]);
 export const models = signal<ModelInfo[]>([]);
+/** What the harness itself uses when no model is given (pi's settings); "Default" means this (I-050). */
+export const harnessDefaults = signal<HarnessDefaults | null>(null);
 export const settings = signal<Settings>(defaultSettings());
 export const initialized = signal(false);
 export const initError = signal<string | null>(null);
@@ -104,11 +108,23 @@ export async function loadAll(): Promise<void> {
 }
 
 export async function loadModels(refresh = false): Promise<void> {
+  // Same utility process on the server (shared in-flight request), so a refresh updates both.
+  const defaults = Promise.resolve()
+    .then(() => getHarnessDefaults(refresh))
+    .then(
+    (d) => {
+      harnessDefaults.value = d;
+    },
+    () => {
+      /* not fatal: "Default" then falls back to the first model */
+    },
+  );
   try {
     models.value = await api.listModels(refresh);
   } catch (err) {
     notify("error", `Could not load models: ${(err as Error).message}`);
   }
+  await defaults;
 }
 
 export function upsert<T extends { id: string }>(list: T[], item: T): T[] {

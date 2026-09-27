@@ -51,6 +51,20 @@ export function scoreCommand(command: SlashCommand, query: string): number | nul
   return null;
 }
 
+/** Sort key: the name without a `skill:`-style prefix, lower-cased. */
+function sortName(command: SlashCommand): string {
+  const name = command.name.toLowerCase();
+  return name.includes(":") ? name.slice(name.indexOf(":") + 1) : name;
+}
+
+/** Alphabetical (case-insensitive, ignoring the `skill:` prefix); full name breaks ties. */
+export function compareCommandNames(a: SlashCommand, b: SlashCommand): number {
+  const x = sortName(a);
+  const y = sortName(b);
+  if (x !== y) return x < y ? -1 : 1;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
 export interface CommandGroup {
   source: SlashCommandSource;
   label: string;
@@ -59,13 +73,14 @@ export interface CommandGroup {
 
 /**
  * Commands matching `query` (substring/fuzzy on name + description), grouped Built-in /
- * Extensions / Skills / Prompts; best matches first within a group.
+ * Extensions / Skills / Prompts; best matches first within a group, ties (and everything for
+ * an empty query) in alphabetical order (I-049).
  */
 export function filterCommands(commands: SlashCommand[], query: string): CommandGroup[] {
   let scored = commands
     .map((command, index) => ({ command, index, score: scoreCommand(command, query) }))
     .filter((s): s is { command: SlashCommand; index: number; score: number } => s.score !== null)
-    .sort((a, b) => a.score - b.score || a.index - b.index);
+    .sort((a, b) => a.score - b.score || compareCommandNames(a.command, b.command) || a.index - b.index);
   // Fuzzy (subsequence) matches are only a fallback; they're noise next to real matches.
   if (scored.some((s) => s.score < FUZZY_SCORE)) scored = scored.filter((s) => s.score < FUZZY_SCORE);
   const groups = GROUP_ORDER.map((source, order) => {

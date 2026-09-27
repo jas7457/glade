@@ -9,7 +9,12 @@
  * keys, toolbar and the slash-command menu but none of the data flow.
  *
  * Slash commands: typing `/` at the start opens a menu of pi-ui built-ins (slash/builtins.ts,
- * run here in the browser) plus the chat's harness commands (sent to the agent as a prompt).
+ * run here in the browser) plus the harness commands (sent to the agent as a prompt): the
+ * chat's, or before a chat exists the folder's (I-043). Hidden ones (I-048) are left out of the
+ * menu but still run when typed in full.
+ *
+ * File mentions (I-044): typing `@` at the start or after whitespace opens a file menu for the
+ * chat's folder; picking inserts `@relative/path` (folders complete stepwise).
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -19,6 +24,7 @@ import {
   DEFAULT_IMAGE_LIMITS,
   clampThinkingLevel,
   sameModel,
+  type FileEntry,
   type ModelInfo,
   type ModelRef,
   type PromptImage,
@@ -30,7 +36,8 @@ import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { createWorkspace } from "@/state/actions";
-import { sessionsById, settings, visibleModels } from "@/state/store";
+import { harnessDefaults, models as allModels, sessionsById, settings, visibleModels, workspacesById } from "@/state/store";
+import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
 import { Spinner, Tooltip } from "@/ui";
 import { imageFiles, isSendKey, readImageFile, type Attachment } from "./composer-utils";
@@ -41,6 +48,10 @@ import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
 import { filterCommands, mergeCommands, parseSlash } from "./slash/match";
 import { SLASH_MENU_ID, SlashMenu, slashOptionId } from "./slash/SlashMenu";
+import { useFolderCommands } from "./slash/folder-commands";
+import { applyMention, findMention } from "./mentions/parse";
+import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
+import { useFileSearch } from "./mentions/useFileSearch";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -84,6 +95,8 @@ export interface ComposerBoxProps {
   /** Extra toolbar items after the pickers (e.g. the context meter). */
   toolbarExtra?: ComponentChildren;
   slash?: ComposerSlashOptions;
+  /** Enables `@` file mentions for the folder of this project (`null` = scratch folder). */
+  mentions?: { projectId: string | null };
   class?: string;
 }
 
@@ -104,10 +117,31 @@ export function ComposerBox(props: ComposerBoxProps) {
   // Slash menu: open while typing a command name at the very start of the text.
   const parsed = slash ? parseSlash(text) : null;
   const typingName = parsed && !parsed.hasArgs ? parsed.name : null;
-  const groups = useMemo(() => (slash && typingName !== null ? filterCommands(slash.commands, typingName) : []), [slash?.commands, typingName]);
+  const slashSettings = settings.value;
+  const menuCommands = useMemo(
+    () => (slash ? slash.commands.filter((c) => !isSlashCommandHidden(slashSettings, c)) : []),
+    [slash?.commands, slashSettings.slashCommands],
+  );
+  const groups = useMemo(() => (slash && typingName !== null ? filterCommands(menuCommands, typingName) : []), [menuCommands, typingName]);
   const flat = groups.flatMap((g) => g.commands);
   const menuOpen = typingName !== null && !menuDismissed && !busy && flat.length > 0;
   const active = Math.min(activeIndex, Math.max(0, flat.length - 1));
+
+  // `@` file mentions: the token at the caret; the menu lists matching files of the folder.
+  const [caret, setCaret] = useState(0);
+  const pendingCaret = useRef<number | null>(null);
+  const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mention = props.mentions && !menuOpen && !busy ? findMention(text, Math.min(caret, text.length)) : null;
+  const mentionWanted = mention !== null && mention.start !== mentionDismissedAt;
+  const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null);
+  const mentionOpen = mentionWanted && fileEntries.length > 0;
+  const mentionActive = Math.min(mentionIndex, Math.max(0, fileEntries.length - 1));
+  useEffect(() => setMentionIndex(0), [mention?.start, mention?.query]);
+  useEffect(() => {
+    if (mention === null) setMentionDismissedAt(null);
+  }, [mention === null]);
+  const syncCaret = (e: Event) => setCaret((e.currentTarget as HTMLTextAreaElement).selectionStart ?? 0);
 
   useEffect(() => setActiveIndex(0), [typingName]);
   useEffect(() => {
@@ -128,6 +162,11 @@ export function ComposerBox(props: ComposerBoxProps) {
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (pendingCaret.current !== null) {
+      // Put the caret after an inserted mention.
+      el.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }
     el.style.height = "auto";
     const max = Math.round(window.innerHeight * 0.4);
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
@@ -161,6 +200,16 @@ export function ComposerBox(props: ComposerBoxProps) {
   const complete = (command: SlashCommand) => {
     updateText(`/${command.name} `);
     setMenuDismissed(false);
+    textareaRef.current?.focus();
+  };
+
+  /** Insert the picked file/folder for the `@` token at the caret. */
+  const pickMention = (entry: FileEntry) => {
+    if (!mention) return;
+    const next = applyMention(text, mention, entry);
+    updateText(next.text);
+    setCaret(next.caret);
+    pendingCaret.current = next.caret;
     textareaRef.current?.focus();
   };
 
@@ -262,6 +311,24 @@ export function ComposerBox(props: ComposerBoxProps) {
         return;
       }
     }
+    if (mentionOpen && mention && !composing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setMentionIndex((mentionActive + step + fileEntries.length) % fileEntries.length);
+        return;
+      }
+      if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && !e.shiftKey && !e.altKey)) {
+        e.preventDefault();
+        pickMention(fileEntries[mentionActive]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionDismissedAt(mention.start);
+        return;
+      }
+    }
     if (isSendKey(e, sendKey)) {
       e.preventDefault();
       void send();
@@ -298,6 +365,7 @@ export function ComposerBox(props: ComposerBoxProps) {
         }}
       >
         {menuOpen && <SlashMenu groups={groups} activeIndex={active} onHover={setActiveIndex} onPick={complete} />}
+        {mentionOpen && <MentionMenu entries={fileEntries} activeIndex={mentionActive} onHover={setMentionIndex} onPick={pickMention} />}
         {images.length > 0 && (
           <div class="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attachments">
             {images.map((img) => (
@@ -326,13 +394,18 @@ export function ComposerBox(props: ComposerBoxProps) {
           disabled={busy}
           placeholder={props.placeholder ?? (isRunning ? "Queue a message…" : "Ask anything…")}
           aria-label="Message"
-          aria-autocomplete={slash ? "list" : undefined}
-          aria-expanded={slash ? menuOpen : undefined}
-          aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
-          aria-activedescendant={menuOpen ? slashOptionId(active) : undefined}
+          aria-autocomplete={slash || props.mentions ? "list" : undefined}
+          aria-expanded={slash || props.mentions ? menuOpen || mentionOpen : undefined}
+          aria-controls={menuOpen ? SLASH_MENU_ID : mentionOpen ? MENTION_MENU_ID : undefined}
+          aria-activedescendant={menuOpen ? slashOptionId(active) : mentionOpen ? mentionOptionId(mentionActive) : undefined}
           class="selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60"
-          onInput={(e) => updateText(e.currentTarget.value)}
+          onInput={(e) => {
+            updateText(e.currentTarget.value);
+            syncCaret(e);
+          }}
           onKeyDown={onKeyDown}
+          onKeyUp={syncCaret}
+          onClick={syncCaret}
           onPaste={(e) => {
             const files = imageFiles(e.clipboardData?.files);
             if (files.length) {
@@ -485,7 +558,9 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     });
   };
 
-  const interrupted = sessionsById.value.get(chatId)?.interrupted === true;
+  const summary = sessionsById.value.get(chatId);
+  const interrupted = summary?.interrupted === true;
+  const projectId = (summary && workspacesById.value.get(summary.workspaceId)?.projectId) ?? null;
 
   const above = (
     <>
@@ -546,6 +621,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       above={above}
       toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} />}
       slash={{ commands: slashCommands, chatId, projectId: null, navigate }}
+      mentions={{ projectId }}
       class={className}
     />
   );
@@ -563,6 +639,8 @@ export interface NewChatComposerProps {
 }
 
 const NEW_CHAT_COMMANDS = builtinCommands(false);
+/** Every built-in name: harness commands with these names stay hidden in new chats too. */
+const BUILTIN_NAMES = new Set(builtinCommands(true).map((c) => c.name));
 
 function NewChatComposer({ projectId, placeholder, autoFocus, class: className }: NewChatComposerProps) {
   const navigate = useNavigate();
@@ -572,12 +650,25 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
   const [pickedLevel, setPickedLevel] = useState<ThinkingLevel | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043).
+  const folderCommands = useFolderCommands(projectId);
+  const slashCommands = useMemo(
+    () => mergeCommands(NEW_CHAT_COMMANDS, (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))),
+    [folderCommands],
+  );
+
+  // pi-ui's default model, else ("Default") the harness's own default (I-050), else the first.
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
+  const harness = harnessDefaults.value;
+  const harnessModel = !defaultModel && harness?.model ? harness.model : null;
   const first = models[0];
-  const model: ModelRef | null = pickedModel ?? defaultModel ?? (first ? { provider: first.provider, id: first.id } : null);
-  const info = modelInfo(models, model);
+  const model: ModelRef | null = pickedModel ?? defaultModel ?? harnessModel ?? (first ? { provider: first.provider, id: first.id } : null);
+  // The harness's default may be hidden from the picker; still describe it correctly.
+  const info = modelInfo(models, model) ?? modelInfo(allModels.value, model);
   const levels = info?.thinkingLevels ?? ["off"];
-  const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaults.defaultThinkingLevel);
+  const followsHarness = !pickedModel && harnessModel !== null;
+  const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
+  const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaultLevel);
 
   const onSend = async (text: string, images: PromptImage[]) => {
     setBusy(true);
@@ -586,7 +677,8 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
         projectId,
         prompt: text,
         images: images.length ? images : undefined,
-        model,
+        // Following the harness default: send no model, so the harness decides (its settings apply).
+        model: followsHarness ? null : model,
         thinkingLevel: model ? thinkingLevel : null,
       });
       navigate(chatPath(created.workspace));
@@ -613,8 +705,8 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
       thinkingLevels={levels}
       onThinkingChange={setPickedLevel}
       onSend={onSend}
-      // No agent yet, so no harness commands: only built-ins that work before the chat exists.
-      slash={{ commands: NEW_CHAT_COMMANDS, chatId: null, projectId, navigate }}
+      slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
+      mentions={{ projectId }}
       class={className}
     />
   );

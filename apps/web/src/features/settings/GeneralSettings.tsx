@@ -46,6 +46,16 @@ export function GeneralSettings() {
             onCheckedChange={(generateTitles) => void updateSettings({ general: { generateTitles } })}
           />
         </FormRow>
+        <FormRow
+          label="Summarize chats"
+          description="Write a one-line summary of each chat with the title model after it replies, so “Ask” in the command palette (⌘K, then ⇥) finds chats more reliably."
+        >
+          <Switch
+            aria-label="Summarize chats"
+            checked={g.generateSummaries}
+            onCheckedChange={(generateSummaries) => void updateSettings({ general: { generateSummaries } })}
+          />
+        </FormRow>
       </FormGroup>
     </>
   );

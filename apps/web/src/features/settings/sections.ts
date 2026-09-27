@@ -1,5 +1,5 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
-import { Cpu, Palette, Settings2, SquareTerminal } from "lucide-preact";
+import { Cpu, Palette, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
 import type { SettingsSection } from "@/app/routes";
 
 export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Cpu }> = {
@@ -7,6 +7,7 @@ export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof
   models: { label: "Models", Icon: Cpu },
   appearance: { label: "Appearance", Icon: Palette },
   agent: { label: "Agent (pi)", Icon: SquareTerminal },
+  commands: { label: "Slash Commands", Icon: SlashSquare },
 };
 
 export interface SettingsGroup {
@@ -17,5 +18,5 @@ export interface SettingsGroup {
 /** Sidebar categories in order. Every section must appear in exactly one group. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   { title: "App", sections: ["general", "appearance"] },
-  { title: "AI", sections: ["models", "agent"] },
+  { title: "AI", sections: ["models", "agent", "commands"] },
 ];
