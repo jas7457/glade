@@ -1,7 +1,7 @@
 /**
  * Global keyboard shortcuts: ⌘N new chat, ⌘, settings, ⌘B toggle sidebar (⌘\ as a silent
  * alias), ⌘K command palette; plus the workspace tab shortcuts (⌘T, ⌘W, ⌃Tab, ⌃⇧Tab, see
- * `TAB_SHORTCUTS`). (Ctrl is accepted in place of ⌘ on non-Mac platforms.) In the
+ * `TAB_SHORTCUTS`, bound by the workspace view). (Ctrl is accepted in place of ⌘ on non-Mac platforms.) In the
  * desktop app the same actions also arrive from the native menu bar (menu item ids are the
  * command ids). `SHORTCUTS` is the one place the key bindings are defined; tooltips, the command
  * palette and `shortcutFor` all read it.
@@ -45,10 +45,25 @@ export function tabShortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlK
   return key === "t" ? "new-tab" : key === "w" ? "close-tab" : null;
 }
 
-/** Bind the tab shortcuts while mounted (the caller decides what they act on). */
+function isTabCommand(action: MenuAction): action is TabCommandId {
+  return action in TAB_SHORTCUTS;
+}
+
+/**
+ * Bind the tab shortcuts while mounted (the caller decides what they act on). In the desktop app
+ * the File/Window menu items (New Tab, Close Tab, Show Next/Previous Tab, I-053) own these keys
+ * and arrive here as menu actions.
+ */
 export function useTabShortcuts(handlers: TabShortcutHandlers): void {
   const latest = useRef(handlers);
   latest.current = handlers;
+  useEffect(
+    () =>
+      onMenuAction((action) => {
+        if (isTabCommand(action)) latest.current[action]();
+      }),
+    [],
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const action = tabShortcutFor(e);
@@ -78,7 +93,8 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey"
   return BINDINGS.get(`mod+${e.key.toLowerCase()}`) ?? null;
 }
 
-const MENU_ACTIONS: Record<MenuAction, GlobalCommandId> = {
+/** Menu actions handled globally; the tab ones (`TAB_SHORTCUTS`) go to `useTabShortcuts`. */
+const MENU_ACTIONS: Record<Exclude<MenuAction, TabCommandId>, GlobalCommandId> = {
   "new-chat": "new-chat",
   settings: "settings",
   "toggle-sidebar": "toggle-sidebar",
@@ -88,7 +104,13 @@ const MENU_ACTIONS: Record<MenuAction, GlobalCommandId> = {
 export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
   const latest = useRef(handlers);
   latest.current = handlers;
-  useEffect(() => onMenuAction((action) => latest.current[MENU_ACTIONS[action]]()), []);
+  useEffect(
+    () =>
+      onMenuAction((action) => {
+        if (!isTabCommand(action)) latest.current[MENU_ACTIONS[action]]();
+      }),
+    [],
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const action = shortcutFor(e);

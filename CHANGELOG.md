@@ -98,6 +98,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Tabs are as wide as their titles (up to a limit), and the active tab has a blue line on top.
+- Mac app menu: New Tab ⌘T, Close Tab ⌘W, Close Window ⇧⌘W, and Show Next/Previous Tab ⌃Tab / ⌃⇧Tab.
+
 - New chats list your pi commands and skills in the `/` menu too, and every group is sorted A→Z.
 - "Default" model now means the model set in pi (e.g. Claude Opus 5.5) rather than the first model
   in the list, for new chats and in Settings.

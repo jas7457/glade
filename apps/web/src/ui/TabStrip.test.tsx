@@ -32,6 +32,37 @@ describe("TabStrip", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it("sizes tabs to their content (capped) and marks the active one", () => {
+    render(<TabStrip label="Tabs" tabs={tabs} activeId="a" onSelect={() => {}} onClose={() => {}} />);
+    const [a, b] = screen.getAllByRole("tab");
+    for (const tab of [a!, b!]) {
+      expect(tab.className).toContain("max-w-[220px]");
+      expect(tab.className).not.toMatch(/\bbasis-\[/);
+      expect(tab.querySelector("span.truncate")!.className).not.toContain("flex-1");
+    }
+    // Active: accent line on top, window background, full-strength text; inactive: muted.
+    expect(a!.className).toContain("before:bg-accent");
+    expect(a!.className).toContain("bg-window");
+    expect(a!.className).toContain("text-fg ");
+    expect(b!.className).not.toContain("before:bg-accent");
+    expect(b!.className).toContain("text-fg-muted");
+    // The close button keeps its space on inactive tabs (hidden, not removed).
+    expect(screen.getByRole("button", { name: "Close Beta" }).className).toContain("opacity-0");
+  });
+
+  it("shows an optional badge after the title and a custom tooltip", () => {
+    const withBadge = [{ id: "a", title: "Alpha", status: "idle" as const, badge: <span data-testid="done">✓</span>, tooltip: "Alpha — done" }, tabs[1]!];
+    render(<TabStrip label="Tabs" tabs={withBadge} activeId="a" onSelect={() => {}} onClose={() => {}} />);
+    const [a, b] = screen.getAllByRole("tab");
+    const badge = screen.getByTestId("done");
+    expect(a!.contains(badge)).toBe(true);
+    // After the title, before the close button.
+    expect(a!.textContent).toBe("Alpha✓");
+    expect(badge.compareDocumentPosition(screen.getByRole("button", { name: "Close Alpha" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(a!.getAttribute("title")).toBe("Alpha — done");
+    expect(b!.getAttribute("title")).toBe("Beta");
+  });
+
   it("renames inline: Enter reports the new title, Escape cancels", () => {
     const onRenameDone = vi.fn();
     const { rerender } = render(<TabStrip label="Tabs" tabs={tabs} activeId="a" onSelect={() => {}} renamingId="a" onRenameDone={onRenameDone} />);

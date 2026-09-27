@@ -1,6 +1,6 @@
 /**
  * Native-looking tab strip (a row of document tabs, like Safari/Finder window tabs) for a tab
- * group: status glyph + title + close button per tab, trailing actions (e.g. "+").
+ * group: status glyph + title (+ optional badge) + close button per tab, trailing actions (e.g. "+").
  *
  *   <TabStrip label="Conversations" tabs={[{ id, title, status }]} activeId={id}
  *     onSelect={focus} onClose={close} onTabDoubleClick={maximize}
@@ -29,6 +29,10 @@ export interface TabStripTab {
   closable?: boolean;
   /** Right-click menu items. */
   contextMenu?: ComponentChildren;
+  /** Small muted marker after the title, before the × (e.g. a "done" glyph). Never truncated. */
+  badge?: ComponentChildren;
+  /** Hover text; defaults to the title. */
+  tooltip?: string;
 }
 
 export interface TabStripProps {
@@ -86,7 +90,13 @@ export function TabStrip({
   return (
     <div
       style={{ height: `${TAB_STRIP_HEIGHT}px` }}
-      class={cn("flex shrink-0 items-stretch border-b-[0.5px] border-separator bg-tabbar", className)}
+      class={cn(
+        // The bottom separator is drawn under the tabs (not as a border) so the active tab can cover
+        // it and connect to the content below.
+        "relative flex shrink-0 items-stretch bg-tabbar",
+        "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b-[0.5px] after:border-separator",
+        className,
+      )}
     >
       <div
         ref={listRef}
@@ -106,7 +116,7 @@ export function TabStrip({
               aria-selected={active}
               aria-controls={active ? panelId : undefined}
               tabIndex={active ? 0 : -1}
-              title={tab.title}
+              title={tab.tooltip ?? tab.title}
               onMouseDown={(e) => {
                 // Middle click closes (and must not start autoscroll).
                 if (e.button === 1) e.preventDefault();
@@ -127,16 +137,23 @@ export function TabStrip({
                 else if (e.key === "End") (e.preventDefault(), move(tab.id, tabs.length - 1));
               }}
               class={cn(
-                "group/tab relative flex max-w-[220px] min-w-[96px] shrink-0 basis-[180px] items-center gap-1.5 border-r-[0.5px] border-separator pr-1 pl-2 text-[0.92rem] outline-none",
+                // Sized to the content (title + reserved × space), truncating at 220px.
+                "group/tab relative flex max-w-[220px] min-w-12 shrink-0 items-center gap-1.5 border-r-[0.5px] border-separator pr-1.5 pl-2.5 text-[0.92rem] outline-none",
                 "focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--pi-accent)_45%,transparent)]",
-                active ? "bg-window text-fg -mb-[0.5px]" : "text-fg-muted hover:bg-hover",
+                active
+                  ? // Accent line on top; lighter background covering the strip's bottom separator.
+                    "z-[1] bg-window text-fg before:absolute before:inset-x-0 before:top-0 before:h-[2px] before:bg-accent"
+                  : "text-fg-muted hover:bg-hover",
               )}
             >
               <StatusIndicator status={tab.status} failed={tab.failed} size={12} tooltip={false} />
               {renaming ? (
                 <TabRenameInput value={tab.title} onDone={(title) => onRenameDone?.(tab.id, title)} />
               ) : (
-                <span class={cn("min-w-0 flex-1 truncate", active && "font-medium")}>{tab.title}</span>
+                <span class={cn("min-w-0 truncate", active && "font-medium")}>{tab.title}</span>
+              )}
+              {!!tab.badge && !renaming && (
+                <span class="flex shrink-0 items-center text-[0.85em] text-fg-muted [&_svg]:size-3">{tab.badge}</span>
               )}
               {closable && !renaming && (
                 <button
