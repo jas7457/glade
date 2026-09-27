@@ -62,8 +62,9 @@ user promotes them to the Inbox.
   (then `git worktree remove --force /tmp/glade-verify`).
 - Tick the Inbox items (`Outcome:` line), add CHANGELOG entries, record decisions in
   `docs/ARCHITECTURE.md`, push.
-- After a round, update the user's app with `pnpm tauri:install` (needs `. "$HOME/.cargo/env"`
-  in non-login shells). It doesn't quit the running app; the user reopens it when convenient.
+- **Only install the app when the user explicitly asks** (`pnpm tauri:install`; needs
+  `. "$HOME/.cargo/env"` in non-login shells). Building takes a while, so never run it on your own
+  after a round or a fix; offer it instead. It doesn't quit the running app; the user reopens it.
 
 ## Commands
 
