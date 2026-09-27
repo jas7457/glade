@@ -31,7 +31,7 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: pi-band-sweep 2.4s linear infinite;
+  animation: pi-band-sweep 1.4s linear infinite;
 }
 /* The spinner next to the label stays plain. */
 .pi-rainbow-color,
