@@ -10,6 +10,7 @@
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { env, isTemporaryDir, LEGACY_APP_DIR_NAME, loadConfig, platformDataDir, startupBanner } from "./config.js";
+import { AcpHarnessProvider, acpTranscriptsDir } from "./harness/acp/acp-harness.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import { HarnessRegistry } from "./harness/registry.js";
@@ -43,7 +44,13 @@ for (const other of registry.others()) {
 const store = new Store(config.dataDir);
 
 // The first registered harness is the default unless the `agent.defaultHarness` setting names another.
-const harnesses = new HarnessRegistry([], { preferred: () => store.getSettings().agent.defaultHarness });
+// ACP agents the user added in Settings (I-119) are harnesses too, read from the settings on use;
+// none by default, and an agent's process only starts with a chat's first prompt.
+const acp = new AcpHarnessProvider(() => store.getSettings().harnesses.acp?.agents, {
+  transcriptsDir: acpTranscriptsDir(config.dataDir),
+  log: env("DEBUG") ? log : undefined,
+});
+const harnesses = new HarnessRegistry([], { preferred: () => store.getSettings().agent.defaultHarness, dynamic: () => acp.list() });
 harnesses.register(
   config.harness === "fake"
     ? new FakeHarness(undefined, 30)

@@ -111,8 +111,16 @@ export class Sessions {
       if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
     }
     const settings = this.ctx.store.getSettings();
-    // Sub-agents run in their parent's harness; other new sessions in the default one.
-    const harness = how.kind === "subagent" ? records.requireHarness(records.requireSession(how.parentSessionId)) : this.ctx.harnesses.default();
+    // Sub-agents run in their parent's harness; other new sessions in the chosen or the default one.
+    const harness =
+      how.kind === "subagent"
+        ? records.requireHarness(records.requireSession(how.parentSessionId))
+        : req.harness
+          ? this.ctx.harnesses.get(req.harness)
+          : this.ctx.harnesses.default();
+    if (!harness) throw new HttpError(400, `The agent "${req.harness}" isn't installed`);
+    // Harnesses without Glade's model picker (ACP agents, I-119) choose their own model.
+    const usesModels = harness.info.capabilities.models !== false;
     const now = Date.now();
     const session: Session = {
       id: randomUUID(),
@@ -128,8 +136,8 @@ export class Sessions {
       unread: false,
       createdAt: now,
       lastActivityAt: now,
-      model: req.model ?? settings.models.defaultModel,
-      thinkingLevel: req.thinkingLevel ?? settings.models.defaultThinkingLevel,
+      model: usesModels ? (req.model ?? settings.models.defaultModel) : null,
+      thinkingLevel: usesModels ? (req.thinkingLevel ?? settings.models.defaultThinkingLevel) : null,
     };
     records.saveSession(session);
     if (how.kind === "subagent") how.register?.(session);

@@ -51,7 +51,7 @@ import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { createWorkspace } from "@/state/actions";
 import { attachFilesToText } from "@/state/attachments";
-import { harnessCapabilities } from "@/state/harnesses";
+import { harnessCapabilities, newChatHarnessInfo } from "@/state/harnesses";
 import { harnessDefaults, models as allModels, sessionsById, settings, visibleModels, workspacesById } from "@/state/store";
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
@@ -120,6 +120,8 @@ export interface ComposerBoxProps {
   thinkingLevel: ThinkingLevel;
   thinkingLevels: ThinkingLevel[];
   onThinkingChange: (level: ThinkingLevel) => void;
+  /** Hide the model and thinking pickers (harnesses that choose their own model, e.g. ACP agents; I-119). */
+  hideModelPickers?: boolean;
   /** Resolve true to clear the input. `files` = attached by reference (I-090), in order. */
   onSend: (text: string, images: PromptImage[], files: File[]) => Promise<boolean>;
   onStop?: () => void;
@@ -553,20 +555,24 @@ export function ComposerBox(props: ComposerBoxProps) {
               e.currentTarget.value = "";
             }}
           />
-          <ModelPicker
-            value={props.model}
-            models={props.models}
-            onChange={props.onModelChange}
-            disabled={busy}
-            {...pickerProps("model")}
-          />
-          <ThinkingPicker
-            value={props.thinkingLevel}
-            levels={props.thinkingLevels}
-            onChange={props.onThinkingChange}
-            disabled={busy}
-            {...pickerProps("thinking")}
-          />
+          {!props.hideModelPickers && (
+            <>
+              <ModelPicker
+                value={props.model}
+                models={props.models}
+                onChange={props.onModelChange}
+                disabled={busy}
+                {...pickerProps("model")}
+              />
+              <ThinkingPicker
+                value={props.thinkingLevel}
+                levels={props.thinkingLevels}
+                onChange={props.onThinkingChange}
+                disabled={busy}
+                {...pickerProps("thinking")}
+              />
+            </>
+          )}
           {props.toolbarExtra}
           <div class="flex-1" />
           {loading && <Spinner size={14} class="mr-1" />}
@@ -757,6 +763,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       thinkingLevel={state.thinkingLevel}
       thinkingLevels={state.thinkingLevels}
       onThinkingChange={onThinkingChange}
+      hideModelPickers={capabilities.models === false}
       onSend={onSend}
       onStop={() => void runAction(() => api.abort(chatId), "Could not stop")}
       above={above}
@@ -792,11 +799,17 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
   const [pickedLevel, setPickedLevel] = useState<ThinkingLevel | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The agent picked in the context bar (I-119); ACP agents choose their own model.
+  const target = newChatHarnessInfo.value;
+  const otherHarness = target && !target.isDefault ? target.id : undefined;
+  const usesModels = target?.capabilities.models !== false;
+
   // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043).
+  // Those are the default harness's; another agent's commands are only known once its chat runs.
   const folderCommands = useFolderCommands(projectId);
   const slashCommands = useMemo(
-    () => mergeCommands(NEW_CHAT_COMMANDS, (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))),
-    [folderCommands],
+    () => mergeCommands(NEW_CHAT_COMMANDS, otherHarness ? [] : (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))),
+    [folderCommands, otherHarness],
   );
 
   // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
@@ -822,8 +835,9 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
         prompt: withFiles ? undefined : text,
         images: !withFiles && images.length ? images : undefined,
         // Following the harness default: send no model, so the harness decides (its settings apply).
-        model: followsHarness ? null : model,
-        thinkingLevel: model ? thinkingLevel : null,
+        model: followsHarness || !usesModels ? null : model,
+        thinkingLevel: model && usesModels ? thinkingLevel : null,
+        ...(otherHarness ? { harness: otherHarness } : {}),
       });
       if (withFiles) {
         const sessionId = created.session.session.id;
@@ -850,13 +864,14 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
       placeholder={placeholder}
       autoFocus={autoFocus}
       busy={busy}
-      supportsImages={supportsImageInput(info)}
+      supportsImages={usesModels ? supportsImageInput(info) : true}
       model={model}
       models={models}
       onModelChange={setPickedModel}
       thinkingLevel={thinkingLevel}
       thinkingLevels={levels}
       onThinkingChange={setPickedLevel}
+      hideModelPickers={!usesModels}
       onSend={onSend}
       slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
       mentions={{ projectId }}

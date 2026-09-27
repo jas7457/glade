@@ -249,6 +249,8 @@ export interface Settings {
   /** Per-harness settings (I-066), keyed by harness id. Before I-066 pi's lived in `agent`. */
   harnesses: {
     pi: PiHarnessSettings;
+    /** ACP agents the user added (I-119); each is its own harness (`acp-<id>`). */
+    acp: import("./acp.js").AcpHarnessSettings;
   };
   /** Slash menu (I-048). */
   slashCommands: {
@@ -309,6 +311,8 @@ export function defaultSettings(): Settings {
         autoCompaction: true,
         autoRetry: true,
       },
+      // No ACP agent by default: nothing is started until the user adds one (I-119).
+      acp: { agents: [] },
     },
     slashCommands: {
       hidden: [],
@@ -376,6 +380,8 @@ export interface CreateWorkspaceRequest {
    * worktree starts from the folder's current branch (400 otherwise).
    */
   carryChanges?: boolean;
+  /** Harness the chat runs in (`HarnessInfo.id`, I-119); default: the default harness. 400 if not installed. */
+  harness?: string;
 }
 
 export interface UpdateWorkspaceRequest {
@@ -391,6 +397,8 @@ export interface CreateSessionRequest {
   images?: PromptImage[];
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
+  /** Harness the session runs in (I-119); default: the default harness. 400 if not installed. */
+  harness?: string;
 }
 
 export interface UpdateSessionRequest {

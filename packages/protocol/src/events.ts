@@ -51,7 +51,29 @@ export type UiRequest =
   | { id: string; kind: "select"; title: string; options: string[]; timeoutMs?: number }
   | { id: string; kind: "confirm"; title: string; message?: string; timeoutMs?: number }
   | { id: string; kind: "input"; title: string; placeholder?: string; timeoutMs?: number }
-  | { id: string; kind: "editor"; title: string; prefill?: string; timeoutMs?: number };
+  | { id: string; kind: "editor"; title: string; prefill?: string; timeoutMs?: number }
+  /**
+   * The agent asks before running a tool (ACP `session/request_permission`, I-119). Answered with
+   * `{ id, value: option.id }`, or `{ id, cancelled: true }` (e.g. when the run is stopped).
+   */
+  | {
+      id: string;
+      kind: "permission";
+      title: string;
+      /** Details of the tool call (command, file…), when known. */
+      message?: string;
+      /** The tool call it's about, when it's in the transcript. */
+      toolCallId?: string;
+      options: PermissionOption[];
+      timeoutMs?: number;
+    };
+
+/** One answer the agent offers to a {@link UiRequest} of kind `permission` (ACP's option kinds). */
+export interface PermissionOption {
+  id: string;
+  label: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+}
 
 export type UiResponse =
   | { id: string; value: string }

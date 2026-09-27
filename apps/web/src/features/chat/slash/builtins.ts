@@ -122,6 +122,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   {
     name: "model",
     source: "builtin",
+    requires: "models",
     description: "Switch model (opens the picker without a query)",
     argsHint: "[query]",
     needsChat: false,
@@ -142,6 +143,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   {
     name: "thinking",
     source: "builtin",
+    requires: "models",
     description: "Set the thinking level",
     argsHint: "[level]",
     needsChat: false,
@@ -219,7 +221,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
  * all).
  */
 export function builtinCommands(hasChat: boolean, capabilities?: HarnessCapabilities): SlashCommand[] {
-  return BUILTIN_COMMANDS.filter((c) => (hasChat || !c.needsChat) && (!c.requires || !capabilities || capabilities[c.requires])).map(({ name, description, source, argsHint }) => ({
+  return BUILTIN_COMMANDS.filter((c) => (hasChat || !c.needsChat) && (!c.requires || !capabilities || capabilities[c.requires] !== false)).map(({ name, description, source, argsHint }) => ({
     name,
     source,
     ...(description ? { description } : {}),

@@ -9,11 +9,13 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.5.0",
+    "@glade/protocol": "workspace:*",
     "@hono/node-server": "^1.19.17",
     "@hono/node-ws": "^1.3.1",
-    "@glade/protocol": "workspace:*",
     "hono": "^4.13.9",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

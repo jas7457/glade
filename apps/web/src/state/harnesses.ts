@@ -20,6 +20,7 @@ const ALL: HarnessCapabilities = {
   commands: true,
   subagents: true,
   shell: true,
+  models: true,
 };
 
 /** The harness new chats use (first `isDefault`, else the first one). */
@@ -30,6 +31,18 @@ function find(id: string | null | undefined): HarnessInfo | null {
   if (!list) return null;
   return (id ? list.find((h) => h.id === id) : null) ?? defaultHarness.value;
 }
+
+/**
+ * The agent picked in the new-chat context bar (I-119); `null` = the default harness. Kept while
+ * the app runs; a pick that's no longer installed falls back to the default.
+ */
+export const newChatHarness = signal<string | null>(null);
+
+/** The harness a new chat will use (`newChatHarness` if installed, else the default). */
+export const newChatHarnessInfo = computed(() => {
+  const picked = newChatHarness.value;
+  return (picked ? harnesses.value?.find((h) => h.id === picked) : undefined) ?? defaultHarness.value;
+});
 
 /** Capabilities of a harness (`null` id = the default harness). All true until loaded. */
 export function harnessCapabilities(id?: string | null): HarnessCapabilities {

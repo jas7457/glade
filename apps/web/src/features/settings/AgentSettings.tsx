@@ -1,13 +1,15 @@
 /**
  * The agent settings page (`/settings/agent`): harness-independent settings (sub-agents on/off,
  * idle processes, the harness new chats use when several are installed), then each installed
- * harness's own settings (I-066). Until `GET /api/harnesses` has loaded, every known harness panel is shown.
+ * harness's own settings (I-066), then the ACP agents the user added (I-119). Until
+ * `GET /api/harnesses` has loaded, every known harness panel is shown.
  */
 import type { ComponentType } from "preact";
 import { FormGroup, FormRow, Select, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
 import { defaultHarness, harnesses } from "@/state/harnesses";
+import { AcpSettings } from "./AcpSettings";
 import { CommitField } from "./CommitField";
 import { PiSettings } from "./PiSettings";
 
@@ -64,6 +66,7 @@ export function AgentSettings() {
         // One harness: the page is titled with its name already.
         return <Panel key={id} title={several ? label : undefined} />;
       })}
+      <AcpSettings />
     </>
   );
 }

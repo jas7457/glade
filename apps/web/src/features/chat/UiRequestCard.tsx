@@ -1,11 +1,12 @@
 /**
  * An extension dialog (select / confirm / input / editor) shown as a prominent card above
  * the composer. The agent is paused ("blocked") until the user answers, so the card grabs
- * focus and uses the warning accent.
+ * focus and uses the warning accent. `permission` requests (ACP agents asking before a tool
+ * call, I-119) show the agent's own options (allow once / always / reject …) as buttons.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import { MessageCircleQuestion } from "lucide-preact";
-import type { UiRequest, UiResponse } from "@glade/protocol";
+import { MessageCircleQuestion, ShieldQuestion } from "lucide-preact";
+import type { PermissionOption, UiRequest, UiResponse } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Button, TextArea, TextField } from "@/ui";
 
@@ -49,9 +50,16 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
       }}
     >
       <div class="flex items-start gap-2 border-b-[0.5px] border-separator bg-warning/10 px-3 py-2">
-        <MessageCircleQuestion size={15} class="mt-[2px] shrink-0 text-warning" />
+        {request.kind === "permission" ? (
+          <ShieldQuestion size={15} class="mt-[2px] shrink-0 text-warning" />
+        ) : (
+          <MessageCircleQuestion size={15} class="mt-[2px] shrink-0 text-warning" />
+        )}
         <div class="min-w-0 flex-1">
-          <div class="text-[0.85rem] font-medium text-warning">The agent needs your input{more > 0 ? ` · ${more} more` : ""}</div>
+          <div class="text-[0.85rem] font-medium text-warning">
+            {request.kind === "permission" ? "The agent asks for permission" : "The agent needs your input"}
+            {more > 0 ? ` · ${more} more` : ""}
+          </div>
           <div class="selectable font-semibold break-words whitespace-pre-wrap">{request.title}</div>
         </div>
       </div>
@@ -64,6 +72,24 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
               <Button variant="primary" data-autofocus onClick={() => onRespond({ id: request.id, confirmed: true })}>
                 Allow
               </Button>
+            </div>
+          </>
+        )}
+
+        {request.kind === "permission" && (
+          <>
+            {request.message && <p class="selectable mb-3 font-mono text-[0.92rem] break-words whitespace-pre-wrap text-fg-muted">{request.message}</p>}
+            <div class="flex flex-wrap justify-end gap-2">
+              {permissionOrder(request.options).map((option) => (
+                <Button
+                  key={option.id}
+                  variant={option === primaryPermission(request.options) ? "primary" : undefined}
+                  data-autofocus={option === primaryPermission(request.options) ? true : undefined}
+                  onClick={() => onRespond({ id: request.id, value: option.id })}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
           </>
         )}
@@ -148,4 +174,16 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
       </div>
     </div>
   );
+}
+
+const PERMISSION_ORDER: Record<PermissionOption["kind"], number> = { reject_always: 0, reject_once: 1, allow_always: 2, allow_once: 3 };
+
+/** Rejections first, the default answer (allow once) last, like macOS dialogs. */
+export function permissionOrder(options: readonly PermissionOption[]): PermissionOption[] {
+  return [...options].sort((a, b) => (PERMISSION_ORDER[a.kind] ?? 1.5) - (PERMISSION_ORDER[b.kind] ?? 1.5));
+}
+
+/** The default button: the first "allow once", else the first option. */
+export function primaryPermission(options: readonly PermissionOption[]): PermissionOption | undefined {
+  return options.find((o) => o.kind === "allow_once") ?? options[0];
 }

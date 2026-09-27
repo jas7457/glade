@@ -262,6 +262,31 @@ describe("Composer (new chat)", () => {
   });
 });
 
+describe("Composer (new chat in another agent, I-119)", () => {
+  it("sends the picked ACP agent, no model, and hides the model pickers", async () => {
+    models.value = MODELS;
+    harnesses.value = [
+      { id: "pi", label: "pi", isDefault: true, capabilities: ALL_CAPS },
+      { id: "acp-gem", label: "Gemini", isDefault: false, capabilities: { ...ALL_CAPS, models: false, steering: false, shell: false } },
+    ];
+    const { newChatHarness } = await import("@/state/harnesses");
+    newChatHarness.value = "acp-gem";
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+    try {
+      renderAt(<Composer projectId="p1" />);
+      expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Thinking level" })).toBeNull();
+      const box = screen.getByRole("textbox", { name: "Message" });
+      fireEvent.input(box, { target: { value: "Hi" } });
+      fireEvent.keyDown(box, { key: "Enter" });
+      await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ harness: "acp-gem", model: null, thinkingLevel: null })));
+    } finally {
+      newChatHarness.value = null;
+      harnesses.value = null;
+    }
+  });
+});
+
 describe("Composer @ file mentions", () => {
   const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
   const typeAt = (value: string) => {

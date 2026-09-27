@@ -32,6 +32,7 @@ import { createWorkspace } from "@/state/actions";
 import { projects, workspaces } from "@/state/store";
 import { addProjectOpen } from "@/state/ui";
 import { newChatWorktree, newChatWorktreeOptions, projectGit } from "@/state/worktrees";
+import { harnesses, newChatHarness } from "@/state/harnesses";
 import { makeProject, makeWorkspace } from "@/test/fixtures";
 import { TooltipProvider } from "@/ui";
 import { ContextBar } from "./ContextBar";
@@ -81,6 +82,27 @@ beforeEach(() => {
 });
 
 describe("context bar", () => {
+  it("offers an agent picker only when several agents are installed (I-119)", async () => {
+    const caps = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
+    harnesses.value = [{ id: "pi", label: "pi", isDefault: true, capabilities: caps }];
+    const { unmount } = renderBar(null);
+    expect(screen.queryByRole("button", { name: /Agent:/ })).toBeNull();
+    unmount();
+
+    harnesses.value = [...harnesses.value, { id: "acp-gem", label: "Gemini", isDefault: false, capabilities: { ...caps, models: false } }];
+    try {
+      renderBar(null);
+      const agent = button(/Agent: pi/);
+      fireEvent.pointerDown(agent, { button: 0, ctrlKey: false });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: /Gemini/ }));
+      expect(newChatHarness.value).toBe("acp-gem");
+      expect(await screen.findByRole("button", { name: /Agent: Gemini/ })).toBeTruthy();
+    } finally {
+      newChatHarness.value = null;
+      harnesses.value = null;
+    }
+  });
+
   it("shows project, work-in and branch for git projects; only the project otherwise", async () => {
     const { unmount } = renderBar("p");
     expect(await screen.findByRole("button", { name: /Branch: main/ })).toBeTruthy();

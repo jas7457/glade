@@ -133,6 +133,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.5.0
+        version: 1.5.0(zod@4.6.5)
       '@glade/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -148,6 +151,9 @@ importers:
       ws:
         specifier: ^8.21.3
         version: 8.21.3
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -253,6 +259,11 @@ importers:
   packages/protocol: {}
 
 packages:
+
+  '@agentclientprotocol/sdk@1.5.0':
+    resolution: {integrity: sha512-524jwbB2iYWA+kWWyv9fhKbhU89dH/lu9u5EXwVNmfYzopV8BujCDxByBDZhxRUkB7RWIJzISCnwivdDk+bdVg==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@asamuzakjp/css-color@7.0.1':
     resolution: {integrity: sha512-C9duntabagkBZ1LebM7FKmphR4Q1pBclLxVbZETQV0akkFjV0ooFxo8FlvAQyKj9F6l8rEnmidgcTlpyxFYizg==}
@@ -2829,10 +2840,17 @@ packages:
   zimmerframe@1.1.5:
     resolution: {integrity: sha512-msJxIvYDYcoNL+PJsu+7qmpDWsYmAxTY+2TNYXXF0hzBzBk0BMecOqDOG/EckUoKCuKwObfbugIl8QpqHDXeFA==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@1.5.0(zod@4.6.5)':
+    dependencies:
+      zod: 4.6.5
 
   '@asamuzakjp/css-color@7.0.1':
     dependencies:
@@ -5544,5 +5562,7 @@ snapshots:
       yargs-parser: 22.0.0
 
   zimmerframe@1.1.5: {}
+
+  zod@4.6.5: {}
 
   zwitch@2.0.4: {}

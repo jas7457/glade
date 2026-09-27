@@ -7,6 +7,9 @@
  *   const harnesses = new HarnessRegistry([pi], { preferred: () => settings().agent.defaultHarness });
  *   harnesses.get(session.harness)  // undefined when not installed
  *   harnesses.default()             // for new chats
+ *
+ * Harnesses the user configures (ACP agents, I-119) come from `dynamic`, read on every lookup,
+ * so adding/removing one in Settings takes effect without a restart. Static ones win on id clashes.
  */
 import type { HarnessInfo } from "@glade/protocol";
 import type { AgentHarness } from "./types.js";
@@ -14,6 +17,8 @@ import type { AgentHarness } from "./types.js";
 export interface HarnessRegistryOptions {
   /** Preferred default id (a setting); ignored when that harness isn't registered. */
   preferred?: () => string | null | undefined;
+  /** Harnesses configured at runtime (ACP agents from the settings, I-119), after the static ones. */
+  dynamic?: () => AgentHarness[];
 }
 
 export class HarnessRegistry {
@@ -32,22 +37,26 @@ export class HarnessRegistry {
   }
 
   get(id: string): AgentHarness | undefined {
-    return this.byId.get(id);
+    return this.byId.get(id) ?? this.dynamic().find((h) => h.id === id);
   }
 
   has(id: string): boolean {
-    return this.byId.has(id);
+    return this.get(id) !== undefined;
   }
 
-  /** Registered harnesses in registration order. */
+  /** Registered harnesses in registration order, then the dynamic ones. */
   list(): AgentHarness[] {
-    return [...this.byId.values()];
+    return [...this.byId.values(), ...this.dynamic()];
+  }
+
+  private dynamic(): AgentHarness[] {
+    return (this.options.dynamic?.() ?? []).filter((h) => !this.byId.has(h.id));
   }
 
   /** The harness new chats use. Throws when nothing is registered. */
   default(): AgentHarness {
     const preferred = this.options.preferred?.();
-    const harness = (preferred ? this.byId.get(preferred) : undefined) ?? this.byId.values().next().value;
+    const harness = (preferred ? this.get(preferred) : undefined) ?? this.byId.values().next().value ?? this.dynamic()[0];
     if (!harness) throw new Error("No harness is registered");
     return harness;
   }

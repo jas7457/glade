@@ -2,10 +2,13 @@
  * The new-chat context bar (I-105): a slim shelf tucked under the top edge of the new-chat
  * composer with three pickers — project, where the chat works (Local / New worktree; git
  * projects only) and the branch (git projects only). Replaces I-096's "New worktree" switch.
- * The Work-in choice is cleared when the screen goes away (`resetNewChatWorktree`).
+ * The Work-in choice is cleared when the screen goes away (`resetNewChatWorktree`). With several
+ * agents installed (ACP agents, I-119) an agent picker comes first.
  */
 import { useEffect } from "preact/hooks";
 import { loadProjectGit, projectGit, resetNewChatWorktree } from "@/state/worktrees";
+import { harnesses } from "@/state/harnesses";
+import { AgentPicker } from "./AgentPicker";
 import { BranchPicker } from "./BranchPicker";
 import { ProjectPicker } from "./ProjectPicker";
 import { WorkInPicker } from "./WorkInPicker";
@@ -28,6 +31,12 @@ export function ContextBar({ projectId }: { projectId: string | null }) {
       aria-label="New chat context"
       class="mx-3 -mb-3 flex min-w-0 items-center gap-0.5 rounded-t-[12px] bg-tabbar px-1.5 pt-1 pb-[15px] shadow-[0_0_0_0.5px_var(--pi-separator)] select-none"
     >
+      {(harnesses.value?.length ?? 0) > 1 && (
+        <>
+          <AgentPicker />
+          <Divider />
+        </>
+      )}
       <ProjectPicker projectId={projectId} />
       {projectId && git?.isRepo && (
         <>

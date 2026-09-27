@@ -3,7 +3,7 @@
  * The context bar above the composer (I-105) picks the project, where the chat works (Local or a
  * new worktree, I-096) and the branch.
  */
-import { harnessLabel } from "@/state/harnesses";
+import { harnessLabel, newChatHarnessInfo } from "@/state/harnesses";
 import { projectsById } from "@/state/store";
 import { TITLEBAR_HEIGHT } from "@/ui";
 import { Composer } from "./Composer";
@@ -37,7 +37,7 @@ export function NewChatView({ projectId }: { projectId: string | null }) {
             )}
           </div>
           <ContextBar projectId={project ? project.id : null} />
-          <Composer projectId={projectId} placeholder={project ? `Ask ${harnessLabel()} to work on ${project.name}…` : "Ask anything…"} />
+          <Composer projectId={projectId} placeholder={project ? `Ask ${harnessLabel(newChatHarnessInfo.value?.id)} to work on ${project.name}…` : "Ask anything…"} />
         </div>
       </div>
     </div>

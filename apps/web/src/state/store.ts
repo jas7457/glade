@@ -162,9 +162,13 @@ export function handleServerMessage(message: ServerMessage): void {
     case "project_removed":
       projects.value = projects.value.filter((p) => p.id !== message.projectId);
       break;
-    case "settings":
+    case "settings": {
+      // ACP agents added/removed (I-119), maybe in another window: they're harnesses too.
+      const acpChanged = JSON.stringify(settings.value.harnesses.acp) !== JSON.stringify(message.settings.harnesses.acp);
       settings.value = message.settings;
+      if (acpChanged) void loadHarnesses();
       break;
+    }
     case "models":
       models.value = message.models;
       break;

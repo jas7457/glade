@@ -8,6 +8,7 @@
  *   const search = createSearchService({ app: service, harnesses, dataDir });
  */
 import type { HarnessRegistry } from "../../harness/registry.js";
+import type { AgentHarness } from "../../harness/types.js";
 import { SearchService, type SearchAppSource } from "./search-service.js";
 import type { SmallModel, SessionTextReader } from "./types.js";
 
@@ -18,15 +19,27 @@ export interface CreateSearchServiceOptions {
   log?: (msg: string) => void;
 }
 
-/** Session readers by harness id, for harnesses that can read their sessions without an agent. */
+/**
+ * Session readers by harness id, for harnesses that can read their sessions without an agent.
+ * Looked up live, so harnesses added later (ACP agents configured in Settings, I-119) are included.
+ */
 export function sessionReaders(harnesses: HarnessRegistry): Record<string, SessionTextReader> {
-  const readers: Record<string, SessionTextReader> = {};
-  for (const harness of harnesses.list()) {
+  const readerOf = (harness: AgentHarness | undefined): SessionTextReader | undefined => {
+    if (!harness) return undefined;
     const { statSession, readSessionText } = harness;
-    if (!statSession || !readSessionText) continue;
-    readers[harness.id] = { stat: (ref) => statSession.call(harness, ref), read: (ref) => readSessionText.call(harness, ref) };
-  }
-  return readers;
+    if (!statSession || !readSessionText) return undefined;
+    return { stat: (ref) => statSession.call(harness, ref), read: (ref) => readSessionText.call(harness, ref) };
+  };
+  const ids = () => harnesses.list().filter((h) => readerOf(h)).map((h) => h.id);
+  return new Proxy({} as Record<string, SessionTextReader>, {
+    get: (_, id) => (typeof id === "string" ? readerOf(harnesses.get(id)) : undefined),
+    has: (_, id) => typeof id === "string" && !!readerOf(harnesses.get(id)),
+    ownKeys: () => ids(),
+    getOwnPropertyDescriptor: (_, id) => {
+      const reader = typeof id === "string" ? readerOf(harnesses.get(id)) : undefined;
+      return reader ? { value: reader, enumerable: true, configurable: true, writable: false } : undefined;
+    },
+  });
 }
 
 /** The default harness's one-shot completion, or `undefined` when no harness has one. */
