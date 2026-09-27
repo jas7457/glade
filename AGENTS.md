@@ -24,6 +24,8 @@ We keep a strict ledger of planned and finished work:
 When the user reports issues or ideas, follow `.agents/skills/issue-queue/SKILL.md`: record them
 in the `## Inbox` section of PLAN.md and **do not start work** until the user says "go". Then split
 the queue into sub-agent workstreams by file ownership, integrate, tick items, and commit.
+Ideas for later go to `## Future features` in PLAN.md (`F-###` ids) and are never worked on until the
+user promotes them to the Inbox.
 
 ## Commands
 
@@ -63,6 +65,38 @@ pnpm dev:agent --name <agent> --stop    # done: stops it and deletes everything 
   start with that name; otherwise swept after 24h). `pnpm dev:agent --sweep` removes every
   sandbox nobody uses.
 - Server tests still use `FakeHarness` in-process (`pnpm test`), no sandbox needed.
+
+## Dogfooding: developing pi-ui from inside pi-ui (I-058)
+
+The user develops pi-ui with the installed app (`/Applications/pi-ui.app`). The setup:
+
+- **The installed app is for real work.** Its chats (including the one orchestrating a round of
+  sub-agents) run in the app's own server (`PI_UI_SERVER_KIND=desktop`, a free port). Sub-agents
+  run in the same server as their parent chat.
+- **`pnpm dev` runs alongside it** on the same data folder (`:4317`/`:5317`). That's safe (I-062):
+  every server has its own agent processes; shared files are written under a lock and watched;
+  a chat runs in one server at a time (session leases). In the other server it is read-only
+  while it's working, and typing in it takes it over once it's idle there.
+- **Agents never touch either of them**: the rules in "Testing as an agent" still apply, test in
+  `pnpm dev:agent` sandboxes only. Agent processes don't inherit the app server's port/host/kind
+  (`PI_UI_PORT`, `PI_UI_SERVER_KIND`, … are stripped, see `harness/pi/child-env.ts`).
+- **Updating the app**: `pnpm tauri:install --when-idle` builds, waits until no chat on the app's
+  server is working or blocked (printing which ones it's waiting for), then quits the app and
+  replaces it. Agents don't install; the lead/user does, after integrating a round. To test a
+  release build next to the installed app, run its binary with a temp data folder and its own
+  identifier: `PI_UI_APP_IDENTIFIER=io.github.jas7457.pi-ui.<agent> PI_UI_DATA_DIR=/tmp/…
+  apps/desktop/src-tauri/target/release/bundle/macos/pi-ui.app/Contents/MacOS/pi-ui`.
+
+What happens to running chats when a server stops:
+
+| Event | Chats running in that server | Chats running in the other server |
+| --- | --- | --- |
+| `tsx watch` restarts the dev server (an agent edited `apps/server/**`) | cut off; shown as interrupted (Continue) | unaffected |
+| App quit / `pnpm tauri:install` | quit asks first if any are working/blocked; cut-off runs show as interrupted (the dev server marks them within ~2s) | unaffected |
+| A server crashes | the other server marks its runs interrupted within ~2s | unaffected |
+
+So: keep orchestrating chats in the app, and never restart the app in the middle of a round
+(use `--when-idle`).
 
 ## Rules
 

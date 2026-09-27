@@ -39,6 +39,12 @@ Triggered by the user describing problems, bugs, annoyances, or feature ideas.
 
 Also in intake mode: "what's queued?" → summarize open Inbox items grouped by area.
 
+**Future features.** When the user describes an idea they want documented but *not* planned ("for later",
+"someday", "future feature"), add it to the `## Future features` section of PLAN.md instead of the Inbox,
+with the next `F-###` id, the user's words, background and a design sketch. Never work on future features.
+When the user promotes one ("let's do F-003"), create an Inbox item with a new `I-###` id that links to it,
+and strike the F entry through with "promoted to I-###".
+
 ## Mode 2 — Work the queue
 
 Only when the user explicitly says **go** (or "start", "work the queue", "do I-003 and I-005").
