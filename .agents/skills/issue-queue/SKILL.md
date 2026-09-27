@@ -59,8 +59,15 @@ If they name ids, only those; otherwise all open Inbox items without open questi
    - **do not commit, and do not stage anything** (no `git add`/`git rm`; delete files with plain `rm`);
    - **do not edit PLAN.md or CHANGELOG.md** (the lead owns the ledger);
    - write/adjust tests; run `pnpm --filter <pkg> typecheck` and `pnpm vitest run --project <proj>`;
-   - verify visually for UI work (`PI_UI_HARNESS=fake pnpm dev`, chrome-devtools MCP); reuse a
-     running dev server on :4317/:5317 instead of starting another;
+   - **test in a sandbox, never on the user's data**: anything that writes data (creating chats,
+     prompts, settings, projects) runs against `pnpm dev:agent --name <worker-name>` (own ports,
+     own data under `/tmp/pi-ui-sandbox/<name>`, fake harness; `--real` only if the task needs
+     real pi, with one tiny prompt). Start it in the background
+     (`pnpm dev:agent --name <worker-name> > /tmp/pi-ui-<worker-name>.log 2>&1 &`), read the
+     Web/API URLs from the log, verify visually there (chrome-devtools MCP), and stop it when done
+     (`pnpm dev:agent --name <worker-name> --stop`), which deletes the sandbox and its pi session
+     files. Never write through the user's servers on :4317/:5317 or their data folder;
+     read-only screenshots of the user's running app are fine;
    - final report: files changed, what was verified, per-id status (done / partial / blocked + why).
 3. **While they work**, relay cross-agent info (e.g. new ui primitives) with `message_agent`.
 4. **Integrate** as each finishes: run `pnpm check` and `pnpm --filter @pi-ui/web build`, check the

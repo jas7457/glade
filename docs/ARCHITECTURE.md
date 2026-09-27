@@ -62,8 +62,36 @@ Built-in / Extensions / Skills / Prompts). Two kinds of command:
   as a normal prompt; pi expands skills/templates and runs extension commands itself.
 
 The server returns harness commands only and the web merges them after its built-ins (a harness
-command with a built-in's name is hidden). The new-chat composer has no agent yet, so it offers
-only built-ins that don't need a chat (`/model`, `/thinking`, `/settings`).
+command with a built-in's name is hidden). Each group is sorted A→Z (case-insensitive, ignoring
+the `skill:` prefix); with a query, match quality ranks first and ties fall back to A→Z (I-049,
+`slash/match.ts`). The new-chat composer has no agent yet (I-043): it offers the built-ins that
+don't need a chat (`/model`, `/thinking`, `/settings`) plus the **folder's** harness commands from
+`GET /api/commands?projectId=` (a short-lived `pi --mode rpc --no-session` in the project/scratch
+folder answering `get_commands`; cached 60 s per folder on the server, refreshed on mount/window
+focus when older than 30 s in `slash/folder-commands.ts`). Picking one sends it as the first message.
+
+Keyboard-navigated lists (slash menu, `@` menu, ⌘K palette) keep the highlighted row visible with
+`ui/list-scroll.ts`, which scrolls only the list container (I-047; `scrollIntoView` also scrolled
+the transcript behind the menu) and reveals a group's header when its first row is selected.
+
+## File mentions (I-044)
+
+Typing `@` at the start or after whitespace opens a file menu above the composer
+(`features/chat/mentions/`). `GET /api/files?projectId=&q=` lists the chat's folder
+(`git ls-files -co --exclude-standard` in a git work tree, else a bounded walk skipping
+`node_modules`/`.git`/`dist`…; capped at 50k files, cached 10 s per folder) and ranks on the
+server (`services/file-index.ts`: basename exact/prefix/substring, then path, then fuzzy; shorter
+basenames and shallower paths win ties; path queries like `src/ap` match from the root). Enter/Tab
+inserts `@relative/path ` (quoted when it has spaces); folders insert `@dir/` and keep the menu
+open. The agent reads the files itself; nothing is inlined. Only project/scratch folders are
+listed (callers pass a project id, never a path).
+
+## Default model (I-050)
+
+pi-ui's "Default" model setting (`settings.models.defaultModel = null`) means the **harness's**
+default: `GET /api/models/default` → `HarnessDefaults` (pi: `get_state` of the model-listing
+utility process, cached with the model list; `?refresh=1` refreshes both). The new-chat composer
+preselects it (and its thinking level) and sends `model: null`, so pi applies its own settings.
 
 ## Workspaces and sessions (I-035)
 
@@ -94,6 +122,34 @@ stored verbatim by the server for I-036), falling back to creation order and the
 default.
 
 New sessions use the request's model/thinking, else the settings defaults (like new workspaces).
+
+## Agent API (I-037)
+
+Agents running in pi-ui can spawn sub-agents (the ext-kit agent-teams extension's pi-ui backend).
+Every agent process gets `PI_UI_URL`, `PI_UI_SESSION_ID`, `PI_UI_TOKEN` (random, per process,
+memory only, revoked when the process stops) and, for sub-agents, `PI_UI_AGENT_NAME`
+(`AGENT_ENV` in `packages/protocol/src/agents.ts`). The server never passes its own copies of
+these on (`child-env.ts`). Routes (`http/agents.ts`, mounted at `/api/agents`, `Authorization:
+Bearer <token>`; the token names the calling session):
+
+| Method | Path | Body → result |
+| --- | --- | --- |
+| GET | `/agents` | → `ListAgentsResponse` (a main session's sub-agents, or a sub-agent's teammates) |
+| POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429) |
+| POST | `/agents/message` | `{ to, text }` → 204; `to: "main"` = the parent |
+| POST | `/agents/close` | `{ name }` → `{ closed }` (now if idle, else at the end of its turn, 30 s max) |
+| POST | `/agents/report-done` | `{ summary, keepOpen? }` → `{ closing }`; sub-agents only |
+
+A sub-agent is a `subagent` session of the caller's workspace (same folder), started with the
+role prompt (`--append-system-prompt`, like agent-teams' role.md, plus the agent definition's
+instructions), optional `--tools`, the caller's model/thinking unless the definition sets them,
+and the task as its first prompt. Messages and results reach sessions **as prompts**:
+`[agent-teams] message from <name>:` (steer) and `[agent-teams] <name> finished: …` /
+`… exited: …` (follow-up if the parent is running), queued in order per target. After
+report_done a sub-agent's process is stopped when its turn ends; kept-open ones stop after 10
+idle minutes, and ones the user typed in are never stopped automatically. The tab and transcript
+stay either way. Records (role, tools, state) live in `<dataDir>/agents.json` so a
+sub-agent reopened after a restart keeps its role.
 
 ## Data on disk
 
@@ -186,6 +242,9 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | POST   | `/sessions/:id/export`        | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
 | POST   | `/fs/reveal`                  | `{ path }` → 204; reveals a file this server exported in Finder (404 for other paths, 501 off macOS) |
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
+| GET    | `/models/default[?refresh=1]` | → `HarnessDefaults` `{ model, thinkingLevel }`: what the harness uses when no model is given (I-050) |
+| GET    | `/commands?projectId=[&refresh=1]` | → `SlashCommand[]`: harness commands for a project's folder (no `projectId` = scratch); 404 unknown project |
+| GET    | `/files?projectId=&q=[&limit=]` | → `FileSearchResponse` `{ entries: FileEntry[], truncated }`, ranked, default 50 (max 200); 404 unknown project |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
 | POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
@@ -319,6 +378,10 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   button at all.
 
 ## Decisions
+
+- **Agent sandboxes** (2026-09-26, I-052): agents test against `pnpm dev:agent` sandboxes (one per name,
+  shared via an owner list, cleaned up by a detached supervisor when the last owner leaves), never the
+  user's servers or data folder.
 
 - **Custom tab strip + split instead of dockview-core** (2026-09-26, I-036): the layout is
   derived from server data (main tabs = the workspace's main sessions; right pane = the active

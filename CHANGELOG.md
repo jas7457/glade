@@ -86,6 +86,9 @@ Every entry corresponds to a ticked item in PLAN.md.
   rename or close them, and see each tab's status. A chat's sub-agents appear as tabs in a
   resizable right-hand pane that hides when there are none. Double-click a tab to maximize it.
 
+- `pnpm dev:agent`: throwaway, self-cleaning pi-ui servers for agents, so testing never touches your
+  data.
+
 ### Changed
 
 - Under the hood, each sidebar row is now a workspace that can hold several conversations

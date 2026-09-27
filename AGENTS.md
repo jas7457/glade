@@ -31,10 +31,38 @@ the queue into sub-agent workstreams by file ownership, integrate, tick items, a
 pnpm install
 pnpm dev            # server (:4317) + web (:5317). Open http://127.0.0.1:5317
 PI_UI_HARNESS=fake pnpm dev   # UI development without an LLM / pi
+pnpm dev:agent --name <agent> [--real] [--keep]   # agents: throwaway sandbox (see below)
 pnpm test           # all vitest projects
 pnpm typecheck      # all packages
 pnpm check          # typecheck + test — must pass before you commit
 ```
+
+## Testing as an agent: use a sandbox (I-052)
+
+The servers on :4317/:5317 and the data folder (`~/Library/Application Support/pi-ui`) belong to
+the user. **Agents never write to them**: no creating/renaming/deleting chats or projects, no
+prompts, no settings changes, no `PI_UI_DATA_DIR` pointing at the real folder. Read-only
+screenshots of the user's running app are fine. For anything that writes data, start a sandbox:
+
+```bash
+pnpm dev:agent --name <agent> > /tmp/pi-ui-<agent>.log 2>&1 &   # background it, then read the log
+#   prints Web http://127.0.0.1:<port>, API http://127.0.0.1:<port>/api, data/repo/log paths
+pnpm dev:agent --name <agent> --real    # real pi harness (costs tokens: one short prompt, e.g.
+                                        #   claude-haiku-4-5 with thinking off)
+pnpm dev:agent --name <agent> --stop    # done: stops it and deletes everything it created
+```
+
+- Each sandbox has its own free ports (never 4317/5317) and data under
+  `/tmp/pi-ui-sandbox/<name>`, seeded with a project (`sample-repo`, a small git repo) and a few
+  chats. The fake harness is the default; use `--real` only when the task needs real pi.
+- Same `--name` = shared sandbox (ref-counted); different names = separate sandboxes.
+- The server runs under `tsx watch` and the web under Vite, so your edits reload live.
+- **Clean up**: stop your sandbox when done (`--stop`, Ctrl-C, or `kill <pid>` of the
+  `pnpm dev:agent` process). The last user out deletes the folder and the pi session files its
+  chats created in `~/.pi/agent/sessions`. `--keep` keeps it for inspection (resumed by the next
+  start with that name; otherwise swept after 24h). `pnpm dev:agent --sweep` removes every
+  sandbox nobody uses.
+- Server tests still use `FakeHarness` in-process (`pnpm test`), no sandbox needed.
 
 ## Rules
 

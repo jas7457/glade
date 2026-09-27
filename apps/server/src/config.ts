@@ -1,5 +1,6 @@
-import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { homedir, platform, tmpdir } from "node:os";
+import { join, relative, isAbsolute, resolve } from "node:path";
 
 export const VERSION = "0.1.0";
 
@@ -8,7 +9,11 @@ export const VERSION = "0.1.0";
  * Session transcripts themselves are owned by the harness (pi stores them in ~/.pi/agent/sessions).
  */
 export function defaultDataDir(): string {
-  if (process.env.PI_UI_DATA_DIR) return process.env.PI_UI_DATA_DIR;
+  return process.env.PI_UI_DATA_DIR || platformDataDir();
+}
+
+/** The per-platform data folder, ignoring `PI_UI_DATA_DIR`. */
+export function platformDataDir(): string {
   const home = homedir();
   if (platform() === "darwin") return join(home, "Library", "Application Support", "pi-ui");
   if (platform() === "win32") return join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "pi-ui");
@@ -41,4 +46,60 @@ export function loadConfig(): ServerConfig {
     staticDir: process.env.PI_UI_STATIC_DIR || undefined,
     exitOnStdinClose: process.env.PI_UI_EXIT_ON_STDIN_CLOSE === "1",
   };
+}
+
+/** Resolves symlinks where possible (macOS: /tmp → /private/tmp), else just normalises. */
+function realish(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * True when `dir` lies inside a temporary folder (`os.tmpdir()`, /tmp, /var/tmp), where data can
+ * vanish on reboot or cleanup (I-051). Sandboxes from `pnpm dev:agent` live there on purpose.
+ */
+export function isTemporaryDir(dir: string, tempRoots: string[] = [tmpdir(), "/tmp", "/var/tmp"]): boolean {
+  const candidates = new Set([resolve(dir), realish(dir)]);
+  for (const root of tempRoots) {
+    for (const r of new Set([resolve(root), realish(root)])) {
+      for (const c of candidates) {
+        const rel = relative(r, c);
+        if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * The startup banner: where the data lives, where to open the app, which harness runs. Plus a
+ * warning when the data folder is temporary (unless this is a `pnpm dev:agent` sandbox).
+ */
+export function startupBanner(opts: {
+  url: string;
+  dataDir: string;
+  harness: string;
+  kind: string;
+  sandbox?: string;
+  temporary: boolean;
+}): string[] {
+  const title = opts.sandbox ? `pi-ui sandbox "${opts.sandbox}" (agent testing only)` : `pi-ui ${opts.kind} server`;
+  const lines = [
+    `┌─ ${title}`,
+    `│  URL:      ${opts.url}`,
+    `│  Data:     ${opts.dataDir}`,
+    `│  Harness:  ${opts.harness}`,
+    `└─`,
+  ];
+  if (opts.temporary && !opts.sandbox) {
+    lines.push(
+      `⚠  The data folder is in a temporary directory (PI_UI_DATA_DIR=${opts.dataDir}).`,
+      `⚠  Chats saved here are separate from your real ones and can be deleted by the system.`,
+      `⚠  Unset PI_UI_DATA_DIR to use the normal folder (${platformDataDir()}).`,
+    );
+  }
+  return lines;
 }
