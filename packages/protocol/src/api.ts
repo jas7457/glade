@@ -81,6 +81,13 @@ export interface Session {
   parentSessionId: string | null;
   /** Agent name shown on a sub-agent's tab (`subagent` only). */
   agentName: string | null;
+  /**
+   * Fun human display name assigned at spawn, e.g. "Maya" (I-084; `subagent` only). Display-only:
+   * `agentName` stays the id used by message_agent/close_agent. Absent for older agents.
+   */
+  agentDisplayName?: string;
+  /** Colour key assigned at spawn (I-084), one of `AGENT_COLORS`; unique among active siblings. */
+  agentColor?: string;
   /** Tab title. */
   title: string;
   /** `auto` titles may be replaced by generated ones; `user` titles never are. */

@@ -68,6 +68,8 @@ export interface ToolInput {
   query?: string;
   /** task: what the sub-agent was asked to do (short); shell: optional description. */
   description?: string;
+  /** task: the spawned agent's name (links the call to its sub-agent session, I-084). */
+  agentName?: string;
 }
 
 export interface ToolCallBlock {

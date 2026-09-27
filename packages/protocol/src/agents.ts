@@ -142,3 +142,10 @@ export interface ListAgentsResponse {
   self: { sessionId: string; role: "main" | "subagent"; name: string | null };
   agents: AgentInfo[];
 }
+
+/**
+ * Sub-agent colours (I-084): keys of CSS tokens `--pi-agent-<key>` in the web app. Assigned at
+ * spawn, unique among a workspace's active agents while possible.
+ */
+export const AGENT_COLORS = ["coral", "amber", "lime", "teal", "sky", "indigo", "violet", "pink"] as const;
+export type AgentColor = (typeof AGENT_COLORS)[number];
