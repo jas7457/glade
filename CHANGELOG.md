@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- The Mac app reopens where you left off: the last chat (and tab) or settings page. Sidebar width
+  and collapsed projects are remembered across restarts too.
 - Run shell commands from the composer: `!command` runs it in the chat's folder and the agent sees
   the output with your next message; `!!command` runs it without telling the agent.
 - `/name` without a title asks the small model to name the chat from what you've discussed so far.
@@ -184,6 +186,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Reopening a chat no longer adds a duplicate title entry to pi's session file each time.
 - Long replies no longer appear as one big block after the agent thinks: the text streams in at a
   steady pace from the start.
 - A chat you mark as unread stays unread even when it's open in another Glade window or server.

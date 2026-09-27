@@ -190,6 +190,12 @@ export class PiSession implements HarnessSession {
   /** `get_session_stats` in flight; further requests meanwhile coalesce into one follow-up. */
   private statsInflight = false;
   private statsDirty = false;
+  /**
+   * pi's current session name (`get_state.sessionName`, then what we set). `set_session_name`
+   * appends a `session_info` entry to the session file on every call, so unchanged names are
+   * skipped (every process start re-applies the chat title).
+   */
+  private sessionName: string | null = null;
 
   constructor(
     private readonly proc: PiRpcProcess,
@@ -358,7 +364,9 @@ export class PiSession implements HarnessSession {
   }
 
   async setTitle(title: string): Promise<void> {
+    if (title === this.sessionName) return;
     await this.proc.request({ type: "set_session_name", name: title });
+    this.sessionName = title;
   }
 
   respondToUi(response: UiResponse): void {
@@ -381,6 +389,7 @@ export class PiSession implements HarnessSession {
   private async refreshState(): Promise<void> {
     const data = await this.proc.request<Record<string, unknown>>({ type: "get_state" });
     if (typeof data.sessionFile === "string") this.ref = data.sessionFile;
+    this.sessionName = typeof data.sessionName === "string" ? data.sessionName : null;
     this.setState(translateState(data));
   }
 

@@ -1,5 +1,5 @@
-//! The bundled Glade server: find the user's `node` and `pi`, start `node server.mjs` on a free
-//! loopback port, wait until it answers, and stop it again when the app exits.
+//! The bundled Glade server: find the user's `node` and `pi`, start `node server.mjs` on a stable
+//! preferred loopback port (free fallback), wait until it answers, and stop it again when the app exits.
 //!
 //! Apps launched from Finder get a minimal PATH (no nvm/Homebrew), so `node` and `pi` are
 //! resolved through the user's login shell, and that shell's PATH is handed to the server so
@@ -189,6 +189,27 @@ fn node_major(node: &Path, path: &str) -> Option<u32> {
     v.trim().trim_start_matches('v').split('.').next()?.parse().ok()
 }
 
+/// Port the installed app's server prefers (I-083). The web view's origin includes the port and
+/// `localStorage` is per origin, so a stable port keeps UI state (last screen, collapsed projects,
+/// sidebar width…) across relaunches. Chosen away from `pnpm dev` (4317/5317), OTLP (4318) and
+/// the OS's ephemeral range that sandboxes draw from.
+pub const PREFERRED_PORT: u16 = 4327;
+/// Same for `tauri dev` builds, so they never take the installed app's port.
+pub const PREFERRED_DEV_PORT: u16 = 4328;
+
+/// `preferred` if it's free, else any free port (that launch then starts with fresh UI state).
+fn pick_port(preferred: Option<u16>) -> std::io::Result<u16> {
+    if let Some(port) = preferred {
+        // Also probe with a connect: a listener on 0.0.0.0 doesn't always stop a loopback bind.
+        let addr = (Ipv4Addr::LOCALHOST, port).into();
+        let in_use = TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok();
+        if !in_use && TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    free_port()
+}
+
 fn free_port() -> std::io::Result<u16> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     Ok(listener.local_addr()?.port())
@@ -272,9 +293,9 @@ fn log_tail(log: &Path) -> String {
     lines[lines.len().saturating_sub(15)..].join("\n")
 }
 
-/// Start our server on a free port and wait until it serves requests. Errors are user-facing
-/// messages.
-pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> {
+/// Start our server on `preferred_port` (a free one if that's taken or None) and wait until it
+/// serves requests. Errors are user-facing messages.
+pub fn start(bundle: &Bundle, log_path: &Path, preferred_port: Option<u16>) -> Result<RunningServer, String> {
     if !bundle.server_js.exists() {
         return Err(format!("The bundled server is missing:\n{}", bundle.server_js.display()));
     }
@@ -302,7 +323,7 @@ pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> 
         );
     }
 
-    let port = free_port().map_err(|e| format!("Couldn't find a free port: {e}"))?;
+    let port = pick_port(preferred_port).map_err(|e| format!("Couldn't find a free port: {e}"))?;
     if let Some(dir) = log_path.parent() {
         let _ = fs::create_dir_all(dir);
     }
@@ -383,6 +404,16 @@ impl RunningServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picks_the_preferred_port_unless_taken() {
+        let port = free_port().unwrap();
+        assert_eq!(pick_port(Some(port)).unwrap(), port);
+        let taken = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).unwrap();
+        assert_ne!(pick_port(Some(port)).unwrap(), port);
+        drop(taken);
+        assert_ne!(pick_port(None).unwrap(), 0);
+    }
 
     #[test]
     fn counts_busy_chats() {

@@ -62,7 +62,17 @@ fn start_server(app: AppHandle) {
             .app_log_dir()
             .unwrap_or_else(|_| std::env::temp_dir())
             .join("server.log");
-        match server::start(&bundle, &log_path) {
+        // A stable port keeps the web view's origin, and so its localStorage, across launches
+        // (I-083). Builds with an overridden identifier (agents testing next to the installed
+        // app) take any free port so they never grab the app's.
+        let preferred_port = if server::env_var(dev::IDENTIFIER_ENV).is_some() {
+            None
+        } else if tauri::is_dev() {
+            Some(server::PREFERRED_DEV_PORT)
+        } else {
+            Some(server::PREFERRED_PORT)
+        };
+        match server::start(&bundle, &log_path, preferred_port) {
             Ok(running) => {
                 let url = running.url();
                 *app.state::<ServerState>().0.lock().unwrap() = Some(running);

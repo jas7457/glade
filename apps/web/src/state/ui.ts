@@ -1,6 +1,8 @@
 /**
  * App-shell UI state that isn't server data: sidebar width/collapse (persisted in
- * localStorage), collapsed project groups, the "Add project" dialog and the command palette.
+ * localStorage), collapsed project groups, the last route (I-083), the "Add project" dialog and
+ * the command palette. The desktop app's server uses a stable port so this origin-scoped storage
+ * survives relaunches.
  */
 import { effect, signal } from "@preact/signals";
 
@@ -26,6 +28,7 @@ export function resolveSidebarDrag(startWidth: number, deltaX: number): { width:
 const KEY_WIDTH = "glade.sidebar.width";
 const KEY_COLLAPSED = "glade.sidebar.collapsed";
 const KEY_CLOSED_PROJECTS = "glade.sidebar.closedProjects";
+const KEY_LAST_ROUTE = "glade.lastRoute";
 /** Key prefixes before the rename (I-059): read once when the new key is missing. */
 const KEY_PREFIX = "glade.";
 const LEGACY_KEY_PREFIX = "pi-ui.";
@@ -57,6 +60,13 @@ export const closedProjects = signal<ReadonlySet<string>>(new Set(JSON.parse(rea
 effect(() => write(KEY_WIDTH, String(sidebarWidth.value)));
 effect(() => write(KEY_COLLAPSED, sidebarCollapsed.value ? "1" : "0"));
 effect(() => write(KEY_CLOSED_PROJECTS, JSON.stringify([...closedProjects.value])));
+
+/** Route (path + search) the previous page load was showing, read before this load overwrites it. */
+export const previousRoute: string | null = read(KEY_LAST_ROUTE);
+/** Remember the route in view so the next launch can reopen it (I-083). */
+export function rememberRoute(route: string): void {
+  write(KEY_LAST_ROUTE, route);
+}
 
 export function toggleSidebar(): void {
   sidebarCollapsed.value = !sidebarCollapsed.value;
