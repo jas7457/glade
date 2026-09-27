@@ -12,7 +12,7 @@
  * group's tabs ("focused" = the group containing keyboard focus, else the main group).
  * Every tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
  */
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
@@ -27,7 +27,7 @@ import { sessionAgentIdentity } from "@/features/chat/agent-identity";
 import { AgentBar } from "./AgentBar";
 import { SubagentStrip } from "./SubagentStrip";
 import { agentDisplay } from "./agent-status";
-import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, isSubagentPaneOpen, type TabGroupId } from "./layout";
+import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, isSubagentPaneOpen, shouldClearSubagentPane, type TabGroupId } from "./layout";
 import {
   closeTab,
   focusMainTab,
@@ -64,6 +64,15 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   const paneOpen = isSubagentPaneOpen(workspace?.layout);
   const showSubagents = paneOpen && activeSub !== null && maximized !== "main";
   const showMain = !(maximized === "subagents" && showSubagents);
+  // The last agent in the pane went away: the pane is closed, so the next spawn doesn't reopen it (I-085).
+  const clearPane = shouldClearSubagentPane(
+    workspace?.layout,
+    sessions.value.some((s) => s.id === sessionId),
+    subagents.length,
+  );
+  useEffect(() => {
+    if (clearPane) hideSubagentPane(workspaceId);
+  }, [clearPane, workspaceId]);
 
   // Live pane size while dragging; the saved one otherwise.
   const [dragSize, setDragSize] = useState<number | null>(null);

@@ -35,6 +35,19 @@ export function isSubagentPaneOpen(layout: WorkspaceLayout | null | undefined): 
   return layout?.subagentPaneOpen === true;
 }
 
+/**
+ * The saved "pane open" flag should be cleared (I-085): the main session is loaded but has no
+ * sub-agents left, so the pane has nothing to show. Otherwise the flag would linger and the next
+ * spawn would pop the pane open by itself; new agents only appear in the pane when the user opens one.
+ */
+export function shouldClearSubagentPane(
+  layout: WorkspaceLayout | null | undefined,
+  mainSessionLoaded: boolean,
+  subagentCount: number,
+): boolean {
+  return isSubagentPaneOpen(layout) && mainSessionLoaded && subagentCount === 0;
+}
+
 /** Layout patch that opens the pane on `subagentId` (a sub-agent of `mainSessionId`). */
 export function openSubagentPatch(mainSessionId: string, subagentId: string): WorkspaceLayout {
   return { subagentPaneOpen: true, activeSubagentSessionId: { [mainSessionId]: subagentId } };

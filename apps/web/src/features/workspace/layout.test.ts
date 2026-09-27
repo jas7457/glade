@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubagentId, clampPaneSize, cycleTab, isSubagentPaneOpen, mergeLayout, openSubagentPatch, neighbourAfterClose, withoutSession } from "./layout";
+import { activeSubagentId, clampPaneSize, cycleTab, isSubagentPaneOpen, mergeLayout, openSubagentPatch, neighbourAfterClose, shouldClearSubagentPane, withoutSession } from "./layout";
 
 describe("workspace layout helpers", () => {
   it("clamps the pane size and defaults to half", () => {
@@ -54,5 +54,18 @@ describe("workspace layout helpers", () => {
     expect(opened).toEqual({ subagentPaneSize: 0.3, subagentPaneOpen: true, activeSubagentSessionId: { m2: "x", m1: "b" } });
     expect(isSubagentPaneOpen(opened)).toBe(true);
     expect(isSubagentPaneOpen(mergeLayout(opened, { subagentPaneOpen: false }))).toBe(false);
+  });
+});
+
+describe("shouldClearSubagentPane (I-085)", () => {
+  const open = openSubagentPatch("main", "a1");
+  it("clears the saved flag once the pane has no agents left", () => {
+    expect(shouldClearSubagentPane(open, true, 0)).toBe(true);
+  });
+  it("keeps it while agents remain, while loading, or when already closed", () => {
+    expect(shouldClearSubagentPane(open, true, 2)).toBe(false);
+    expect(shouldClearSubagentPane(open, false, 0)).toBe(false);
+    expect(shouldClearSubagentPane({ subagentPaneOpen: false }, true, 0)).toBe(false);
+    expect(shouldClearSubagentPane(undefined, true, 0)).toBe(false);
   });
 });

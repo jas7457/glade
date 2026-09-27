@@ -192,6 +192,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- New sub-agents no longer pop the side pane open just because you opened an earlier one; the pane
+  closes once its last agent is gone and only opens when you click an agent.
 - Reopening a chat no longer adds a duplicate title entry to pi's session file each time.
 - Long replies no longer appear as one big block after the agent thinks: the text streams in at a
   steady pace from the start.
