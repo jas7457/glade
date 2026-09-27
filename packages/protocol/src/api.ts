@@ -359,6 +359,19 @@ export interface PromptRequest {
   behavior?: "steer" | "followUp";
 }
 
+/** `POST /api/sessions/:id/shell` (I-076): run a command in the chat's folder. */
+export interface ShellRequest {
+  command: string;
+  /** `!cmd` = true (the agent sees it with the next prompt), `!!cmd` = false. */
+  shareWithAgent: boolean;
+}
+
+/** Answer to {@link ShellRequest}: sent once it started; output arrives as `shell_*` events. */
+export interface ShellResponse {
+  /** Id of the `ShellMessage` / `shell_*` events. */
+  id: string;
+}
+
 /** A session with its live state (`GET /api/sessions/:id`; starts the agent if needed). */
 export interface SessionDetail {
   session: SessionSummary;

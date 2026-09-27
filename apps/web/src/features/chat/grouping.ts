@@ -13,6 +13,7 @@ import type {
   AssistantMessage,
   ImageBlock,
   NoticeMessage,
+  ShellMessage,
   ThinkingBlock,
   ToolCallBlock,
   ToolResult,
@@ -105,6 +106,8 @@ export type TurnPart = TextPart | ThinkingPart | ImagePart | ToolCallPart | Tool
 export type RenderItem =
   | { type: "user"; key: string; message: UserMessage }
   | { type: "notice"; key: string; message: NoticeMessage }
+  /** A shell command the user ran (`!cmd` / `!!cmd`, I-076). */
+  | { type: "shell"; key: string; message: ShellMessage }
   | { type: "turn"; key: string; parts: TurnPart[]; streaming: boolean };
 
 export interface GroupingContext {
@@ -147,11 +150,9 @@ export function groupTranscript(
       continue;
     }
     flush();
-    items.push(
-      message.role === "user"
-        ? { type: "user", key: message.id, message }
-        : { type: "notice", key: message.id, message },
-    );
+    if (message.role === "user") items.push({ type: "user", key: message.id, message });
+    else if (message.role === "shell") items.push({ type: "shell", key: message.id, message });
+    else items.push({ type: "notice", key: message.id, message });
   }
   flush();
   return items;

@@ -57,6 +57,13 @@ renderer and summary tables (`features/chat/tools/`) are keyed by kind. pi's map
 `harness/pi/tools.ts`: bash/powershell→shell, read, write, edit (every edit argument shape;
 `details.diff` → `diff`), grep/find→search, ls→list, extension tools→other.
 
+**User shell commands (I-076).** `!cmd` / `!!cmd` in the composer call `POST /sessions/:id/shell
+{ command, shareWithAgent }` (abort: `/shell/abort`), which runs `HarnessSession.runShell` (capability
+`shell`). Output streams as `shell_start` / `shell_update` / `shell_end` events into a user shell
+message (`shared` = whether the agent sees it). pi: RPC `bash` with `excludeFromContext` for `!!`
+(no timeout; `abort_bash` stops it); the result is stored as a `bashExecution` message and reaches
+the model with the next prompt.
+
 ### pi adapter
 
 - Spawns `pi --mode rpc [--session <file>] [--model p/id] [--thinking lvl]` with `cwd` = the

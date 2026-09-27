@@ -98,4 +98,37 @@ describe("applyAgentEvent", () => {
     const unstamped = fold([{ type: "tool_start", toolCallId: "c1", toolName: "bash", args: {} }]);
     expect(unstamped.toolResults.c1?.startedAt).toBeUndefined();
   });
+
+  it("folds user shell commands (I-076): start, streamed output, end", () => {
+    const t = fold([
+      { type: "shell_start", id: "s1", command: "ls", shared: true, at: 1000 },
+      { type: "shell_update", id: "s1", delta: "a.txt\n" },
+      { type: "shell_update", id: "s1", delta: "b.txt\n" },
+    ]);
+    expect(t.messages[0]).toMatchObject({ id: "s1", role: "shell", command: "ls", shared: true, running: true, output: "a.txt\nb.txt\n", timestamp: 1000 });
+    const done = applyAgentEvent(t, {
+      type: "shell_end",
+      id: "s1",
+      result: { output: "a.txt\nb.txt\n", exitCode: 2, cancelled: false, truncated: true, fullOutputPath: "/tmp/x.log" },
+      at: 3000,
+    });
+    expect(done.messages[0]).toEqual({
+      id: "s1",
+      role: "shell",
+      command: "ls",
+      shared: true,
+      running: false,
+      output: "a.txt\nb.txt\n",
+      exitCode: 2,
+      cancelled: false,
+      truncated: true,
+      fullOutputPath: "/tmp/x.log",
+      timestamp: 1000,
+      endedAt: 3000,
+    });
+    // Late output and duplicate starts are ignored; unknown ids leave the transcript alone.
+    expect(applyAgentEvent(done, { type: "shell_update", id: "s1", delta: "late" })).toBe(done);
+    expect(applyAgentEvent(done, { type: "shell_start", id: "s1", command: "ls", shared: true })).toBe(done);
+    expect(applyAgentEvent(done, { type: "shell_update", id: "nope", delta: "x" })).toBe(done);
+  });
 });

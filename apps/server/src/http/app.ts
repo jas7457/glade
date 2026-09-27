@@ -21,6 +21,7 @@ import {
   type ReorderPinnedWorkspacesRequest,
   type ReorderProjectsRequest,
   type Settings,
+  type ShellRequest,
   type ThinkingLevel,
   type UiResponse,
   type UpdateProjectRequest,
@@ -191,6 +192,16 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   });
   api.post("/sessions/:id/abort", async (c) => {
     await service.abort(c.req.param("id"));
+    return c.body(null, 204);
+  });
+  api.post("/sessions/:id/shell", async (c) => {
+    const body = await readBody<ShellRequest>(c);
+    requireString(body.command, "command");
+    if (typeof body.shareWithAgent !== "boolean") throw new HttpError(400, "shareWithAgent must be a boolean");
+    return c.json(await service.runShell(c.req.param("id"), { command: body.command, shareWithAgent: body.shareWithAgent }));
+  });
+  api.post("/sessions/:id/shell/abort", async (c) => {
+    await service.abortShell(c.req.param("id"));
     return c.body(null, 204);
   });
   api.put("/sessions/:id/model", async (c) => {

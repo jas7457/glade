@@ -20,6 +20,8 @@ export interface HarnessCapabilities {
   commands: boolean;
   /** Glade sub-agents (spawn_agent & co). */
   subagents: boolean;
+  /** `!cmd` / `!!cmd` in the composer: run a shell command in the chat's folder (I-076). */
+  shell: boolean;
 }
 
 export interface HarnessInfo {

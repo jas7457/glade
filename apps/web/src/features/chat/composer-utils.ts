@@ -58,3 +58,17 @@ const THINKING_LABELS: Record<ThinkingLevel, string> = {
 export function thinkingLabel(level: ThinkingLevel): string {
   return THINKING_LABELS[level] ?? level;
 }
+
+/** A composer text in shell mode (I-076): `!cmd` = shared with the agent, `!!cmd` = not shared. */
+export interface ShellInput {
+  command: string;
+  shareWithAgent: boolean;
+}
+
+/** `!cmd` / `!!cmd` → the command (trimmed; may be empty while typing), else `null`. */
+export function parseShellInput(text: string): ShellInput | null {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith("!!")) return { command: trimmed.slice(2).trim(), shareWithAgent: false };
+  if (trimmed.startsWith("!")) return { command: trimmed.slice(1).trim(), shareWithAgent: true };
+  return null;
+}

@@ -312,7 +312,7 @@ describe("harness capabilities (I-065)", () => {
   });
 
   it("hides /compact and /export when the chat's harness can't do them", async () => {
-    const all = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
+    const all = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
     harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...all, compact: false, exportHtml: false } }];
     await openChat();
     type("/");

@@ -4,7 +4,7 @@
  * {@link applyAgentEvent}.
  */
 import type { ModelRef, ThinkingLevel } from "./models.js";
-import type { ChatMessage, ContentBlock, ToolInput, ToolResult } from "./transcript.js";
+import type { ChatMessage, ContentBlock, ShellResult, ToolInput, ToolResult } from "./transcript.js";
 
 export interface SessionState {
   model: ModelRef | null;
@@ -86,6 +86,15 @@ export type AgentEvent =
     }
   | { type: "tool_update"; toolCallId: string; result: ToolResult }
   | { type: "tool_end"; toolCallId: string; result: ToolResult; /** Epoch ms, stamped by the server (I-070). */ at?: number }
+  /**
+   * A shell command the user ran (`!cmd` / `!!cmd`, I-076) started; it becomes a `ShellMessage`
+   * with this id. Independent of runs (it can run while the agent works). `at`: epoch ms.
+   */
+  | { type: "shell_start"; id: string; command: string; shared: boolean; at?: number }
+  /** More output of a running shell command (appended). */
+  | { type: "shell_update"; id: string; delta: string }
+  /** A shell command finished (or was stopped / failed to run). */
+  | { type: "shell_end"; id: string; result: ShellResult; at?: number }
   /** Partial session state change. */
   | { type: "state"; state: Partial<SessionState> }
   | { type: "ui_request"; request: UiRequest }

@@ -21,7 +21,7 @@ import { SETTINGS_SECTIONS } from "@/app/routes";
 
 const mocked = vi.mocked(api);
 
-const ALL: HarnessCapabilities = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
+const ALL: HarnessCapabilities = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
 const harness = (id: string, label: string, extra: Partial<HarnessInfo> = {}): HarnessInfo => ({
   id,
   label,

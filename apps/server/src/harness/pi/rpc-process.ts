@@ -54,7 +54,7 @@ export interface PiRpcResponse {
 interface Pending {
   resolve: (data: unknown) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | undefined;
 }
 
 /**
@@ -111,12 +111,17 @@ export class PiRpcProcess extends EventEmitter<{
   /** Send a command and wait for its response `data`. Rejects on `success: false`. */
   request<T = unknown>(command: Record<string, unknown> & { type: string }, timeoutMs?: number): Promise<T> {
     if (!this.isAlive) return Promise.reject(new Error("pi process is not running"));
-    const id = `req-${this.nextId++}`;
+    // A caller-chosen id (e.g. `bash`, whose output events carry it) must be unique.
+    const id = typeof command.id === "string" && command.id && !this.pending.has(command.id) ? command.id : `req-${this.nextId++}`;
+    const ms = timeoutMs ?? this.options.requestTimeoutMs ?? 30_000;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`pi command "${command.type}" timed out`));
-      }, timeoutMs ?? this.options.requestTimeoutMs ?? 30_000);
+      // `Infinity` = no timeout (long-running commands like `bash`).
+      const timer = Number.isFinite(ms)
+        ? setTimeout(() => {
+            this.pending.delete(id);
+            reject(new Error(`pi command "${command.type}" timed out`));
+          }, ms)
+        : undefined;
       this.pending.set(id, { resolve: resolve as (d: unknown) => void, reject, timer });
       this.write({ ...command, id });
     });

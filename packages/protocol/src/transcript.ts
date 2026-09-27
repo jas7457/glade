@@ -132,16 +132,49 @@ export interface AssistantMessage {
   streaming?: boolean;
 }
 
-/** Non-conversational entries worth showing inline (compaction, bash, extension notes...). */
+/** Non-conversational entries worth showing inline (compaction, extension notes...). */
 export interface NoticeMessage {
   id: string;
   role: "notice";
-  kind: "info" | "warning" | "error" | "compaction" | "bash";
+  kind: "info" | "warning" | "error" | "compaction";
   text: string;
   timestamp: number;
 }
 
-export type ChatMessage = UserMessage | AssistantMessage | NoticeMessage;
+/** How a shell command the user ran (`!cmd` / `!!cmd`, I-076) ended. */
+export interface ShellResult {
+  /** Final output (the harness may truncate it; see `truncated`). */
+  output: string;
+  /** `null` when unknown (killed, cancelled, or it never ran). */
+  exitCode: number | null;
+  /** Stopped by the user. */
+  cancelled: boolean;
+  /** The output was cut; the full text may be in `fullOutputPath`. */
+  truncated: boolean;
+  fullOutputPath?: string;
+  /** The command couldn't be run at all (harness error). */
+  error?: string;
+}
+
+/**
+ * A shell command the user ran in the chat's folder from the composer (I-076): `!cmd` shares the
+ * output with the agent (it sees it with the next prompt), `!!cmd` doesn't.
+ */
+export interface ShellMessage extends ShellResult {
+  id: string;
+  role: "shell";
+  command: string;
+  /** The agent sees the command and its output (with the next prompt). */
+  shared: boolean;
+  /** Still running (output streams into `output`). */
+  running: boolean;
+  /** When it started (epoch ms; for history, when it was recorded). */
+  timestamp: number;
+  /** When it finished (epoch ms), if known. */
+  endedAt?: number;
+}
+
+export type ChatMessage = UserMessage | AssistantMessage | NoticeMessage | ShellMessage;
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -184,6 +217,7 @@ export function emptyTranscript(): Transcript {
 /** Plain text of a message (text blocks only). */
 export function messageText(message: ChatMessage): string {
   if (message.role === "notice") return message.text;
+  if (message.role === "shell") return `$ ${message.command}\n${message.output}`;
   const blocks: ContentBlock[] = message.content;
   return blocks
     .filter((b): b is TextBlock => b.type === "text")

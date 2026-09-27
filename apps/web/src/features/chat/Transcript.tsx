@@ -3,7 +3,7 @@
  *
  * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles (sub-agent reports
  * as cards, AgentMessageCard.tsx), assistant turns (markdown, thinking, tool rows/groups,
- * errors) and notices. Sticks to the bottom while
+ * errors), the user's shell commands (ShellCard.tsx) and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
  *
  * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
@@ -11,7 +11,7 @@
  */
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, Terminal, TriangleAlert } from "lucide-preact";
+import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
 import { parseAgentMessage, type ImageBlock, type NoticeMessage, type UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
@@ -19,6 +19,7 @@ import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { ShellCard } from "./ShellCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
@@ -51,9 +52,12 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const contentRef = useRef<HTMLDivElement>(null);
   const { atBottom, scrollToBottom } = useStickToBottom(scrollRef, contentRef);
 
-  // Jump to the bottom when the user sends a message, and when switching chats.
+  // Jump to the bottom when the user sends a message or runs a command, and when switching chats.
   const lastUserId = useMemo(() => {
-    for (let i = transcript.messages.length - 1; i >= 0; i--) if (transcript.messages[i]!.role === "user") return transcript.messages[i]!.id;
+    for (let i = transcript.messages.length - 1; i >= 0; i--) {
+      const m = transcript.messages[i]!;
+      if (m.role === "user" || m.role === "shell") return m.id;
+    }
     return null;
   }, [transcript.messages]);
   useEffect(() => scrollToBottom(), [lastUserId, chatId, status === "ready"]);
@@ -87,7 +91,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
         {placeholder}
         <div ref={contentRef} class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}>
           {items.map((item) => (
-            <ItemView key={item.key} item={item} />
+            <ItemView key={item.key} item={item} chatId={chatId} />
           ))}
           {working.mounted && <WorkingIndicator key="working" visible={working.visible} label={working.label} startedAt={state.runStartedAt ?? null} />}
         </div>
@@ -106,12 +110,14 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   );
 }
 
-function ItemView({ item }: { item: RenderItem }) {
+function ItemView({ item, chatId }: { item: RenderItem; chatId: string }) {
   switch (item.type) {
     case "user":
       return <UserBubble message={item.message} />;
     case "notice":
       return <NoticeRow message={item.message} />;
+    case "shell":
+      return <ShellCard message={item.message} chatId={chatId} />;
     case "turn":
       return (
         <div class="mt-4 flex flex-col first:mt-0" data-role="assistant">
@@ -213,19 +219,10 @@ export function ErrorNotice({ kind, message, details }: { kind: "error" | "abort
   );
 }
 
-const noticeIcons = { info: Info, warning: TriangleAlert, error: CircleAlert, compaction: Scissors, bash: Terminal } as const;
+const noticeIcons = { info: Info, warning: TriangleAlert, error: CircleAlert, compaction: Scissors } as const;
 
 export const NoticeRow = memo(function NoticeRow({ message }: { message: NoticeMessage }) {
   const Icon = noticeIcons[message.kind];
-  if (message.kind === "bash") {
-    return (
-      <div class="my-3 overflow-hidden rounded-[8px] border-[0.5px] border-separator bg-code" data-role="notice">
-        <pre class="selectable max-h-72 overflow-auto px-3 py-2 font-mono text-[0.88rem] leading-[1.45] whitespace-pre-wrap break-words text-fg-muted">
-          {message.text}
-        </pre>
-      </div>
-    );
-  }
   return (
     <div
       data-role="notice"

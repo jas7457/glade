@@ -18,6 +18,8 @@ import type {
   SessionDetail,
   SessionSummary,
   Settings,
+  ShellRequest,
+  ShellResponse,
   SlashCommand,
   ThinkingLevel,
   UiResponse,
@@ -90,6 +92,9 @@ export const api = {
   deleteSession: (id: string) => request<void>("DELETE", `/sessions/${id}`),
   prompt: (id: string, body: PromptRequest) => request<void>("POST", `/sessions/${id}/prompt`, body),
   abort: (id: string) => request<void>("POST", `/sessions/${id}/abort`),
+  /** `!cmd` / `!!cmd` (I-076): run a shell command in the chat's folder; output arrives as `shell_*` events. */
+  runShell: (id: string, body: ShellRequest) => request<ShellResponse>("POST", `/sessions/${id}/shell`, body),
+  abortShell: (id: string) => request<void>("POST", `/sessions/${id}/shell/abort`),
   setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
   setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),
   respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/sessions/${id}/ui-response`, body),

@@ -19,6 +19,7 @@ const ALL: HarnessCapabilities = {
   usageLimits: true,
   commands: true,
   subagents: true,
+  shell: true,
 };
 
 /** The harness new chats use (first `isDefault`, else the first one). */

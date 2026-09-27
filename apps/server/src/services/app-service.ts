@@ -37,6 +37,8 @@ import {
   type Project,
   type PromptImage,
   type PromptRequest,
+  type ShellRequest,
+  type ShellResponse,
   type ReportDoneRequest,
   type ReportDoneResponse,
   type ServerMessage,
@@ -142,6 +144,8 @@ interface LiveSession {
   lastPromptAt: number;
   /** A prompt was sent and its run hasn't started (or ended) yet: refuse take-overs meanwhile. */
   awaitingRun: boolean;
+  /** Ids of the user's shell commands still running (I-076): keep the process alive meanwhile. */
+  shells: Set<string>;
   unsubscribe: () => void;
 }
 
@@ -945,6 +949,36 @@ export class AppService {
     if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) throw new ActiveElsewhereError(elsewhere);
   }
 
+  /**
+   * `!cmd` / `!!cmd` (I-076): run a shell command in the session's folder. Answers once it has
+   * started; output and the result arrive as `shell_*` events. Allowed while the agent runs.
+   */
+  async runShell(id: string, req: ShellRequest): Promise<ShellResponse> {
+    const command = req.command.trim();
+    if (!command) throw new HttpError(400, "command is empty");
+    const record = this.requireSession(id);
+    const harness = this.requireHarness(record);
+    if (!harness.info.capabilities.shell) throw new HttpError(501, `${harness.info.label} can't run shell commands`);
+    this.assertNotBusyElsewhere(id);
+    const live = await this.ensureLive(id);
+    if (!live.session.runShell) throw new HttpError(501, `${harness.info.label} can't run shell commands`);
+    const shellId = `shell-${randomUUID()}`;
+    live.lastUsedAt = Date.now();
+    void live.session
+      .runShell({ id: shellId, command, shareWithAgent: req.shareWithAgent })
+      .catch((err: Error) => this.options.log?.(`shell command failed: ${err.message}`));
+    return { id: shellId };
+  }
+
+  /** Stop the session's running shell command(s) (I-076). */
+  async abortShell(id: string): Promise<void> {
+    this.requireSession(id);
+    const live = this.live.get(id);
+    if (!live) return;
+    if (!live.session.abortShell) throw new HttpError(501, `${live.harness.info.label} can't run shell commands`);
+    await live.session.abortShell();
+  }
+
   async setModel(id: string, model: ModelRef): Promise<void> {
     this.requireSession(id);
     const live = await this.ensureLive(id);
@@ -1381,6 +1415,7 @@ export class AppService {
     const busy =
       live.running ||
       live.pendingUi.size > 0 ||
+      live.shells.size > 0 ||
       this.deliveries.has(id) ||
       live.session.getState().isCompacting ||
       (live.awaitingRun && Date.now() - live.lastPromptAt < 5000);
@@ -1502,6 +1537,7 @@ export class AppService {
       lastUsedAt: Date.now(),
       lastPromptAt: 0,
       awaitingRun: false,
+      shells: new Set(),
       unsubscribe: () => {},
     };
     const offEvent = session.onEvent((event) => this.handleEvent(id, live, event));
@@ -1543,6 +1579,11 @@ export class AppService {
       live.runStartedAt = null;
     }
     if (event.type === "run_start" || event.type === "run_end") live.awaitingRun = false;
+    if (event.type === "shell_start") live.shells.add(event.id);
+    if (event.type === "shell_end") {
+      live.shells.delete(event.id);
+      live.lastUsedAt = Date.now();
+    }
     if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
@@ -1687,7 +1728,7 @@ export class AppService {
   private evictIdle(keepId?: string): void {
     const max = this.store.getSettings().agent.maxIdleProcesses;
     const idle = [...this.live.entries()]
-      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && !this.viewers.has(id))
+      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && !this.viewers.has(id))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
     const excess = idle.length - max;
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);
@@ -1713,10 +1754,16 @@ export class AppService {
   }
 }
 
-/** Timing stamps on run/tool events (I-070): harnesses don't send them, the server adds them once. */
+/** Timing stamps on run/tool/shell events (I-070): harnesses don't send them, the server adds them once. */
 function stampEvent(event: AgentEvent): AgentEvent {
-  if ((event.type === "run_start" || event.type === "tool_start" || event.type === "tool_end") && event.at === undefined) {
-    return { ...event, at: Date.now() };
+  switch (event.type) {
+    case "run_start":
+    case "tool_start":
+    case "tool_end":
+    case "shell_start": // I-076
+    case "shell_end":
+      return event.at === undefined ? { ...event, at: Date.now() } : event;
+    default:
+      return event;
   }
-  return event;
 }

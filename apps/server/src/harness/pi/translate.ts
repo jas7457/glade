@@ -15,6 +15,7 @@ import {
   type ModelInfo,
   type SessionState,
   type SessionStats,
+  type ShellResult,
   type SlashCommand,
   type StopReason,
   type ThinkingLevel,
@@ -257,11 +258,14 @@ export function translateMessage(raw: Json, id: string): ChatMessage | null {
       return message;
     }
     case "bashExecution":
+      // A command the user ran with `!cmd` / `!!cmd` (`excludeFromContext`), I-076.
       return {
         id,
-        role: "notice",
-        kind: "bash",
-        text: `$ ${String(raw.command ?? "")}\n${String(raw.output ?? "")}`,
+        role: "shell",
+        command: String(raw.command ?? ""),
+        shared: !raw.excludeFromContext,
+        running: false,
+        ...translateShellResult(raw),
         timestamp,
       };
     case "compactionSummary":
@@ -273,6 +277,18 @@ export function translateMessage(raw: Json, id: string): ChatMessage | null {
     default:
       return null;
   }
+}
+
+/** A pi `BashResult` (the `bash` response, or the fields of a `bashExecution` message) → `ShellResult`. */
+export function translateShellResult(raw: Json): ShellResult {
+  const result: ShellResult = {
+    output: typeof raw.output === "string" ? raw.output : "",
+    exitCode: finiteNumber(raw.exitCode),
+    cancelled: Boolean(raw.cancelled),
+    truncated: Boolean(raw.truncated),
+  };
+  if (typeof raw.fullOutputPath === "string" && raw.fullOutputPath) result.fullOutputPath = raw.fullOutputPath;
+  return result;
 }
 
 export function translateToolResult(raw: Json, status?: ToolResult["status"]): ToolResult {
@@ -420,6 +436,12 @@ export class PiEventTranslator {
           },
         ];
       }
+
+      case "bash_execution_update":
+        // Output of a `bash` command (`!cmd`, I-076); `id` is the request id PiSession chose.
+        return typeof event.id === "string" && typeof event.delta === "string" && event.delta
+          ? [{ type: "shell_update", id: event.id, delta: event.delta }]
+          : [];
 
       case "queue_update":
         return [

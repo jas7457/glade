@@ -11,6 +11,7 @@ import {
   type ModelRef,
   type PromptRequest,
   type SessionState,
+  type ShellResult,
   type SlashCommand,
   type ThinkingLevel,
   type Transcript,
@@ -18,7 +19,7 @@ import {
 } from "@glade/protocol";
 import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
-import type { AgentHarness, GenerateTitleOptions, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
+import type { AgentHarness, GenerateTitleOptions, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
 
 export const FAKE_MODELS: ModelInfo[] = [
   {
@@ -104,6 +105,7 @@ export const FAKE_CAPABILITIES: HarnessCapabilities = {
   usageLimits: false,
   commands: true,
   subagents: false,
+  shell: true,
 };
 
 export interface FakeHarnessOptions {
@@ -189,6 +191,10 @@ export class FakeSession implements HarnessSession {
   readonly uiResponses: UiResponse[] = [];
   readonly prompts: PromptRequest[] = [];
   readonly compactions: Array<string | undefined> = [];
+  /** Shell commands run (`!cmd` / `!!cmd`, I-076). */
+  readonly shells: ShellRunRequest[] = [];
+  /** Stops the running fake shell commands. */
+  private readonly shellAborts = new Set<() => void>();
 
   constructor(
     private readonly harness: FakeHarness,
@@ -311,6 +317,51 @@ export class FakeSession implements HarnessSession {
       message: { id: `${this.sessionRef}-${this.idCounter++}`, role: "notice", kind: "compaction", text: compactionNoticeText(tokensBefore, tokensAfter), timestamp: Date.now() },
     });
     return { tokensBefore, tokensAfter };
+  }
+
+  /**
+   * Simulated shell (nothing is executed): `sleep N` waits N seconds (stoppable), `exit N` fails
+   * with that code, anything else prints `fake output of: <command>` in two chunks.
+   */
+  async runShell(request: ShellRunRequest): Promise<ShellResult> {
+    const { id, command, shareWithAgent } = request;
+    this.shells.push(request);
+    this.emit({ type: "shell_start", id, command, shared: shareWithAgent, at: Date.now() });
+    let cancelled = false;
+    let stop = () => {};
+    const stopped = new Promise<void>((resolve) => {
+      stop = () => {
+        cancelled = true;
+        resolve();
+      };
+    });
+    this.shellAborts.add(stop);
+    const wait = (ms: number) => Promise.race([new Promise((r) => setTimeout(r, ms)), stopped]);
+    let output = "";
+    let exitCode: number | null = 0;
+    const sleep = /^sleep\s+(\d+(?:\.\d+)?)$/.exec(command.trim());
+    const exit = /^exit\s+(\d+)$/.exec(command.trim());
+    if (sleep) {
+      await wait(Number(sleep[1]) * 1000);
+    } else if (exit) {
+      exitCode = Number(exit[1]);
+    } else {
+      for (const chunk of ["fake output of: ", `${command}\n`]) {
+        await Promise.resolve();
+        if (this.harness.eventDelayMs > 0) await wait(this.harness.eventDelayMs);
+        if (cancelled) break;
+        output += chunk;
+        this.emit({ type: "shell_update", id, delta: chunk });
+      }
+    }
+    this.shellAborts.delete(stop);
+    const result: ShellResult = { output, exitCode: cancelled ? null : exitCode, cancelled, truncated: false };
+    this.emit({ type: "shell_end", id, result, at: Date.now() });
+    return result;
+  }
+
+  async abortShell(): Promise<void> {
+    for (const stop of [...this.shellAborts]) stop();
   }
 
   async exportHtml(): Promise<string> {

@@ -14,6 +14,7 @@ import {
   type PiHarnessSettings,
   type PromptRequest,
   type SessionState,
+  type ShellResult,
   type SlashCommand,
   type ThinkingLevel,
   type Transcript,
@@ -21,7 +22,7 @@ import {
 } from "@glade/protocol";
 import { fetchAnthropicUsageLimits } from "../../services/providers/anthropic-usage.js";
 import { SessionEvents } from "../session-events.js";
-import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
+import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
 import { readPiAnthropicAuth } from "./anthropic-auth.js";
 import { piChildEnv } from "./child-env.js";
 import { piOneShot } from "./one-shot.js";
@@ -35,6 +36,7 @@ import {
   translateMessages,
   translateModel,
   translateSessionStats,
+  translateShellResult,
   translateState,
   type PiModel,
 } from "./translate.js";
@@ -51,7 +53,7 @@ export class PiHarness implements AgentHarness {
   readonly id = "pi";
   readonly info: HarnessDescription = {
     label: "pi",
-    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true },
+    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true },
   };
   /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
   getUsageLimits = () => fetchAnthropicUsageLimits({ token: () => readPiAnthropicAuth() });
@@ -290,6 +292,31 @@ export class PiSession implements HarnessSession {
     const data = await this.proc.request<{ path?: unknown }>({ type: "export_html", outputPath: join(this.exportDir(), name) }, 60_000);
     const path = typeof data?.path === "string" ? data.path : join(this.exportDir(), name);
     return isAbsolute(path) ? path : resolve(this.cwd, path);
+  }
+
+  /**
+   * `!cmd` / `!!cmd` (I-076): pi's RPC `bash` runs it right away in the session's cwd (no model
+   * turn) and stores a `bashExecution` message (`excludeFromContext` for `!!`) that reaches the
+   * model with the next prompt. Output streams as `bash_execution_update` events carrying our id.
+   */
+  async runShell({ id, command, shareWithAgent }: ShellRunRequest): Promise<ShellResult> {
+    this.emit({ type: "shell_start", id, command, shared: shareWithAgent, at: Date.now() });
+    let result: ShellResult;
+    try {
+      const data = await this.proc.request<Record<string, unknown>>(
+        { type: "bash", id, command, excludeFromContext: !shareWithAgent },
+        Number.POSITIVE_INFINITY, // runs until it ends or is stopped
+      );
+      result = translateShellResult(data ?? {});
+    } catch (err) {
+      result = { output: "", exitCode: null, cancelled: false, truncated: false, error: (err as Error).message };
+    }
+    this.emit({ type: "shell_end", id, result, at: Date.now() });
+    return result;
+  }
+
+  async abortShell(): Promise<void> {
+    await this.proc.request({ type: "abort_bash" });
   }
 
   getState(): SessionState {

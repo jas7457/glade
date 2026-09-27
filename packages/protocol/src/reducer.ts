@@ -1,5 +1,5 @@
 import type { AgentEvent } from "./events.js";
-import type { AssistantMessage, ChatMessage, ContentBlock, Transcript } from "./transcript.js";
+import type { AssistantMessage, ChatMessage, ContentBlock, ShellMessage, Transcript } from "./transcript.js";
 
 /**
  * Fold an {@link AgentEvent} into a transcript. Pure and immutable: unchanged messages keep
@@ -72,6 +72,38 @@ export function applyAgentEvent(t: Transcript, event: AgentEvent): Transcript {
       return { ...t, toolResults: { ...t.toolResults, [event.toolCallId]: result } };
     }
 
+    case "shell_start": {
+      if (t.messages.some((m) => m.id === event.id)) return t;
+      const message: ShellMessage = {
+        id: event.id,
+        role: "shell",
+        command: event.command,
+        shared: event.shared,
+        running: true,
+        output: "",
+        exitCode: null,
+        cancelled: false,
+        truncated: false,
+        timestamp: event.at ?? Date.now(),
+      };
+      return { ...t, messages: [...t.messages, message] };
+    }
+
+    case "shell_update":
+      return updateShell(t, event.id, (m) => (m.running && event.delta ? { ...m, output: m.output + event.delta } : m));
+
+    case "shell_end":
+      return updateShell(t, event.id, (m) => {
+        const { fullOutputPath, error, ...result } = event.result;
+        const next: ShellMessage = { ...m, ...result, running: false };
+        delete next.fullOutputPath;
+        delete next.error;
+        if (fullOutputPath) next.fullOutputPath = fullOutputPath;
+        if (error) next.error = error;
+        if (event.at !== undefined) next.endedAt = event.at;
+        return next;
+      });
+
     case "run_end": {
       // Safety net: nothing can still be streaming once the run is over.
       let changed = false;
@@ -101,6 +133,17 @@ function updateAssistant(
     if (m.id !== messageId) continue;
     if (m.role !== "assistant") return t;
     return { ...t, messages: replaceAt(t.messages, i, fn(m)) };
+  }
+  return t;
+}
+
+function updateShell(t: Transcript, id: string, fn: (m: ShellMessage) => ShellMessage): Transcript {
+  for (let i = t.messages.length - 1; i >= 0; i--) {
+    const m = t.messages[i]!;
+    if (m.id !== id) continue;
+    if (m.role !== "shell") return t;
+    const next = fn(m);
+    return next === m ? t : { ...t, messages: replaceAt(t.messages, i, next) };
   }
   return t;
 }

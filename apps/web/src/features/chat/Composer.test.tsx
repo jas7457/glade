@@ -6,11 +6,11 @@ import { TooltipProvider } from "@/ui";
 import { harnessDefaults, models, sessions, settings, workspacesById } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { isSendKey } from "./composer-utils";
+import { isSendKey, parseShellInput } from "./composer-utils";
 import { Composer } from "./Composer";
 import { harnesses } from "@/state/harnesses";
 
-const ALL_CAPS = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
+const ALL_CAPS = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
     setModel: vi.fn(async () => undefined),
     setThinkingLevel: vi.fn(async () => undefined),
     respondToUi: vi.fn(async () => undefined),
+    runShell: vi.fn(async () => ({ id: "shell-1" })),
   },
 }));
 vi.mock("@/lib/api-folder", () => ({
@@ -307,3 +308,78 @@ describe("Composer @ file mentions", () => {
   });
 });
 
+describe("parseShellInput (I-076)", () => {
+  it("! shares, !! doesn't, anything else is a message", () => {
+    expect(parseShellInput("!ls -la")).toEqual({ command: "ls -la", shareWithAgent: true });
+    expect(parseShellInput("  ! git status ")).toEqual({ command: "git status", shareWithAgent: true });
+    expect(parseShellInput("!!echo secret")).toEqual({ command: "echo secret", shareWithAgent: false });
+    expect(parseShellInput("!")).toEqual({ command: "", shareWithAgent: true });
+    expect(parseShellInput("!!")).toEqual({ command: "", shareWithAgent: false });
+    expect(parseShellInput("hello!")).toBeNull();
+    expect(parseShellInput("/compact")).toBeNull();
+  });
+});
+
+describe("Composer shell mode (I-076)", () => {
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+
+  it("runs !cmd (shared) and !!cmd (not shared) instead of sending, even while running", async () => {
+    readyChat("c1", true);
+    renderAt(<Composer chatId="c1" />);
+    fireEvent.input(box(), { target: { value: "!ls" } });
+    expect(screen.getByText("Run a command — shared with the agent")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run command" })).toBeTruthy();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.runShell).toHaveBeenCalledWith("c1", { command: "ls", shareWithAgent: true }));
+    expect(box().value).toBe("");
+
+    fireEvent.input(box(), { target: { value: "!!echo secret" } });
+    expect(screen.getByText("Run a command — not shared with the agent")).toBeTruthy();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.runShell).toHaveBeenCalledWith("c1", { command: "echo secret", shareWithAgent: false }));
+    expect(api.prompt).not.toHaveBeenCalled();
+  });
+
+  it("doesn't run an empty command and restores the text when it fails", async () => {
+    readyChat("c1");
+    renderAt(<Composer chatId="c1" />);
+    fireEvent.input(box(), { target: { value: "!! " } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(api.runShell).not.toHaveBeenCalled();
+    vi.mocked(api.runShell).mockRejectedValueOnce(new Error("nope"));
+    fireEvent.input(box(), { target: { value: "!false" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(box().value).toBe("!false"));
+  });
+
+  it("keeps the @ menu closed in shell mode", async () => {
+    readyChat("c1");
+    renderAt(<Composer chatId="c1" />);
+    box().value = "!cat @comp";
+    box().setSelectionRange(10, 10);
+    fireEvent.input(box(), { target: { value: "!cat @comp" } });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("is plain text when the harness can't run commands", async () => {
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...ALL_CAPS, shell: false } }];
+    try {
+      readyChat("c1");
+      renderAt(<Composer chatId="c1" />);
+      fireEvent.input(box(), { target: { value: "!ls" } });
+      expect(screen.queryByText("Run a command — shared with the agent")).toBeNull();
+      fireEvent.keyDown(box(), { key: "Enter" });
+      await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "!ls", images: undefined, behavior: undefined }));
+      expect(api.runShell).not.toHaveBeenCalled();
+    } finally {
+      harnesses.value = null;
+    }
+  });
+
+  it("isn't offered in the new-chat composer (no chat folder session yet)", () => {
+    renderAt(<Composer projectId="p1" />);
+    fireEvent.input(box(), { target: { value: "!ls" } });
+    expect(screen.queryByText("Run a command — shared with the agent")).toBeNull();
+  });
+});

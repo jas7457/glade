@@ -15,11 +15,16 @@
  *
  * File mentions (I-044): typing `@` at the start or after whitespace opens a file menu for the
  * chat's folder; picking inserts `@relative/path` (folders complete stepwise).
+ *
+ * Shell mode (I-076, harnesses with the `shell` capability): text starting with `!` runs as a
+ * shell command in the chat's folder instead of being sent (`!cmd` shares the output with the
+ * agent for its next prompt, `!!cmd` doesn't); the box gets the shell tone and a hint, and the
+ * slash/`@` menus are off.
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { ArrowUp, Paperclip, Square, TriangleAlert, X } from "lucide-preact";
+import { ArrowUp, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
   activeElsewhereMessage,
@@ -42,7 +47,7 @@ import { harnessDefaults, models as allModels, sessionsById, settings, visibleMo
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
 import { Spinner, Tooltip } from "@/ui";
-import { imageFiles, isSendKey, readImageFile, type Attachment } from "./composer-utils";
+import { imageFiles, isSendKey, parseShellInput, readImageFile, type Attachment, type ShellInput } from "./composer-utils";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ThinkingPicker } from "./Pickers";
 import { InterruptedBanner } from "./InterruptedBanner";
@@ -104,6 +109,8 @@ export interface ComposerBoxProps {
   slash?: ComposerSlashOptions;
   /** Enables `@` file mentions for the folder of this project (`null` = scratch folder). */
   mentions?: { projectId: string | null };
+  /** Enables shell mode (`!cmd` / `!!cmd`, I-076). `run` resolves true when the command started. */
+  shell?: { run: (input: ShellInput) => Promise<boolean> };
   class?: string;
 }
 
@@ -123,8 +130,12 @@ export function ComposerBox(props: ComposerBoxProps) {
   const sendKey = settings.value.general.sendKey;
   const slash = props.slash;
 
+  // Shell mode (I-076): `!cmd` / `!!cmd` runs a command instead of sending a message.
+  const shellInput = props.shell ? parseShellInput(text) : null;
+  const shellHintId = `shell-hint-${draftKey}`;
+
   // Slash menu: open while typing a command name at the very start of the text.
-  const parsed = slash ? parseSlash(text) : null;
+  const parsed = slash && !shellInput ? parseSlash(text) : null;
   const typingName = parsed && !parsed.hasArgs ? parsed.name : null;
   const slashSettings = settings.value;
   const menuCommands = useMemo(
@@ -141,7 +152,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const pendingCaret = useRef<number | null>(null);
   const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const mention = props.mentions && !menuOpen && !busy ? findMention(text, Math.min(caret, text.length)) : null;
+  const mention = props.mentions && !menuOpen && !busy && !shellInput ? findMention(text, Math.min(caret, text.length)) : null;
   const mentionWanted = mention !== null && mention.start !== mentionDismissedAt;
   const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null);
   const mentionOpen = mentionWanted && fileEntries.length > 0;
@@ -203,7 +214,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
   };
 
-  const canSend = !busy && (text.trim().length > 0 || images.length > 0);
+  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0);
 
   /** Insert `/name ` and keep typing arguments. */
   const complete = (command: SlashCommand) => {
@@ -269,6 +280,13 @@ export function ComposerBox(props: ComposerBoxProps) {
 
   const send = async () => {
     if (!canSend) return;
+    if (shellInput && props.shell) {
+      // Runs in the chat's folder instead of being sent (attached images stay for the next message).
+      const typed = text;
+      updateText("");
+      if (!(await props.shell.run(shellInput))) updateText(typed);
+      return;
+    }
     const sentText = text.trim();
     const sentImages = images;
     const builtin = builtinFor(sentText);
@@ -354,9 +372,14 @@ export function ComposerBox(props: ComposerBoxProps) {
       {props.above}
       <div
         class={cn(
-          "relative flex flex-col rounded-[14px] bg-surface-raised shadow-[0_0_0_0.5px_var(--pi-separator),0_2px_10px_-4px_rgb(0_0_0/0.12)] transition-shadow focus-within:shadow-[0_0_0_0.5px_var(--pi-fg-subtle),0_2px_12px_-4px_rgb(0_0_0/0.16)]",
-          dragging && "shadow-[0_0_0_2px_var(--pi-accent)]",
+          "relative flex flex-col rounded-[14px] bg-surface-raised transition-shadow",
+          dragging
+            ? "shadow-[0_0_0_2px_var(--pi-accent)]"
+            : shellInput
+              ? "shadow-[0_0_0_1.5px_var(--pi-tool-shell),0_2px_10px_-4px_rgb(0_0_0/0.12)]"
+              : "shadow-[0_0_0_0.5px_var(--pi-separator),0_2px_10px_-4px_rgb(0_0_0/0.12)] focus-within:shadow-[0_0_0_0.5px_var(--pi-fg-subtle),0_2px_12px_-4px_rgb(0_0_0/0.16)]",
         )}
+        data-shell-mode={shellInput ? (shellInput.shareWithAgent ? "shared" : "private") : undefined}
         onDragOver={(e) => {
           if (e.dataTransfer?.types.includes("Files")) {
             e.preventDefault();
@@ -396,6 +419,14 @@ export function ComposerBox(props: ComposerBoxProps) {
             ))}
           </div>
         )}
+        {shellInput && (
+          <div id={shellHintId} data-tone="shell" class="flex items-center gap-1.5 px-3.5 pt-2 -mb-1.5 text-[0.85rem] select-none">
+            <Terminal size={12} strokeWidth={2.25} class="pi-tone-text" aria-hidden="true" />
+            <span class="pi-tone-text font-medium">Shell</span>
+            <span class="text-fg-muted">{shellInput.shareWithAgent ? "Run a command — shared with the agent" : "Run a command — not shared with the agent"}</span>
+            {shellInput.shareWithAgent && <span class="text-fg-subtle">· start with !! to keep it private</span>}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -407,7 +438,11 @@ export function ComposerBox(props: ComposerBoxProps) {
           aria-expanded={slash || props.mentions ? menuOpen || mentionOpen : undefined}
           aria-controls={menuOpen ? SLASH_MENU_ID : mentionOpen ? MENTION_MENU_ID : undefined}
           aria-activedescendant={menuOpen ? slashOptionId(active) : mentionOpen ? mentionOptionId(mentionActive) : undefined}
-          class="selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60"
+          aria-describedby={shellInput ? shellHintId : undefined}
+          class={cn(
+            "selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60",
+            shellInput && "font-mono text-[0.95rem]",
+          )}
           onInput={(e) => {
             updateText(e.currentTarget.value);
             syncCaret(e);
@@ -481,7 +516,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           {(!isRunning || canSend) && (
             <button
               type="button"
-              aria-label={isRunning ? "Queue message" : "Send"}
+              aria-label={shellInput ? "Run command" : isRunning ? "Queue message" : "Send"}
               disabled={!canSend}
               onClick={() => void send()}
               class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
@@ -552,6 +587,9 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
         }),
       "Could not send message",
     );
+
+  const runShell = ({ command, shareWithAgent }: ShellInput) =>
+    runAction(() => api.runShell(chatId, { command, shareWithAgent }), "Could not run the command");
 
   const onModelChange = (model: ModelRef) => {
     const info = modelInfo(models, model);
@@ -640,6 +678,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} model={state.model} />}
       slash={{ commands: slashCommands, chatId, projectId: null, navigate }}
       mentions={{ projectId }}
+      shell={capabilities.shell ? { run: runShell } : undefined}
       class={className}
     />
   );

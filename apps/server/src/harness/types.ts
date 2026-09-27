@@ -15,6 +15,7 @@ import type {
   ModelRef,
   PromptRequest,
   SessionState,
+  ShellResult,
   SlashCommand,
   ThinkingLevel,
   Transcript,
@@ -35,6 +36,15 @@ export interface OpenSessionOptions {
   appendSystemPrompt?: string;
   /** Tool allowlist (sub-agents from a definition with `tools`, I-037). */
   tools?: string[];
+}
+
+/** A shell command the user runs in the session's folder (`!cmd` / `!!cmd`, I-076). */
+export interface ShellRunRequest {
+  /** Id for the `shell_*` events and the transcript's `ShellMessage` (chosen by the caller). */
+  id: string;
+  command: string;
+  /** false = never show it to the agent (`!!cmd`). */
+  shareWithAgent: boolean;
 }
 
 export interface GenerateTitleOptions {
@@ -147,6 +157,15 @@ export interface HarnessSession {
   compact?(instructions?: string): Promise<CompactResult>;
   /** Export the session to an HTML file; returns its path. */
   exportHtml?(): Promise<string>;
+  /**
+   * Run a shell command in the session's folder (I-076; capability `shell`). Emits `shell_start`,
+   * `shell_update`s and `shell_end` with `request.id` and resolves with the result when it ends
+   * (never rejects: failures end with `result.error`). Allowed while the agent is running. When
+   * shared, the harness gives the agent the command and output with the next prompt.
+   */
+  runShell?(request: ShellRunRequest): Promise<ShellResult>;
+  /** Stop the running shell command(s). */
+  abortShell?(): Promise<void>;
   /** Subscribe to normalized events. Returns an unsubscribe function. */
   onEvent(listener: (event: AgentEvent) => void): () => void;
   /** Called once if the underlying agent dies unexpectedly. */

@@ -116,6 +116,14 @@ describe("groupTranscript", () => {
     expect(groupTranscript(t, idle).map((i) => i.type)).toEqual(["turn", "notice", "turn"]);
   });
 
+  it("user shell commands are their own items and end a turn (I-076)", () => {
+    const shell = { id: "s1", role: "shell", command: "ls", output: "a\n", exitCode: 0, cancelled: false, truncated: false, shared: false, running: false, timestamp: 0 } as const;
+    const t = transcript([assistant([text("a")]), shell, assistant([text("b")])]);
+    const items = groupTranscript(t, idle);
+    expect(items.map((i) => i.type)).toEqual(["turn", "shell", "turn"]);
+    expect(items[1]).toMatchObject({ key: "s1", message: { command: "ls", shared: false } });
+  });
+
   it("aggregates running and error status", () => {
     const t = transcript(
       [assistant([call("c1"), call("c2"), call("c3"), { type: "toolCall", id: "c4", name: "Bash", kind: "shell", args: undefined, argsText: "{\"com" }], { streaming: true })],

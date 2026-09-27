@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Run shell commands from the composer: `!command` runs it in the chat's folder and the agent sees
+  the output with your next message; `!!command` runs it without telling the agent.
 - `/name` without a title asks the small model to name the chat from what you've discussed so far.
 - Settings → Models → Sub-agents: pick a cheaper model and thinking level for agents your chats
   start (default: same as the parent chat).
@@ -102,6 +104,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- "Working…" and "Thinking…" are grey again with a small rainbow shimmer sweeping across, instead
+  of a fully rainbow label.
 - More colour in chats: teal inline code, coloured list markers and links, a rainbow "Working…"
   (violet-blue "Thinking…"), and tool calls coloured by kind (shell green, read blue, edit amber…).
 - Sub-agent reports show as a compact card you can expand, rendered as Markdown, instead of a long
