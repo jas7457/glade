@@ -1,9 +1,10 @@
 /**
- * Route elements: resolve URL params against the stores and render the chat feature views
- * (or a not-found state).
+ * Route elements: resolve URL params against the stores and render the feature views (new
+ * chat, a workspace with its tabs) or a not-found state.
  */
 import { Navigate, useParams, useSearchParams } from "react-router";
-import { ChatView, NewChatView } from "@/features/chat";
+import { NewChatView } from "@/features/chat";
+import { WorkspaceView } from "@/features/workspace";
 import { projectsById, resolveSessionId, workspacesById } from "@/state/store";
 import { NotFound } from "./NotFound";
 import { TAB_PARAM, chatPath } from "./routes";
@@ -38,5 +39,5 @@ export function ChatRoute() {
   if (!sessionId) {
     return <NotFound title="Chat not found" message="This chat has no conversation. Your other chats are in the sidebar." />;
   }
-  return <ChatView key={sessionId} workspaceId={workspaceId} sessionId={sessionId} />;
+  return <WorkspaceView key={workspaceId} workspaceId={workspaceId} sessionId={sessionId} />;
 }

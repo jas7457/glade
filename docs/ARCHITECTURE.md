@@ -252,7 +252,22 @@ Routes: `/` (new chat), `/chats/:chatId`, `/projects/:projectId` (new chat in pr
 `/projects/:projectId/chats/:chatId`, `/settings/:section`. `:chatId` is a **workspace** id; an
 optional `?tab=<sessionId>` picks its main tab (a refresh restores it; unknown tabs redirect
 without it). `ChatRoute` resolves the session with `resolveSessionId` and renders
-`<ChatView workspaceId sessionId>`.
+`<WorkspaceView workspaceId sessionId>`.
+
+**Workspace layout (I-036, `features/workspace/`)**: the header, then the workspace's main
+sessions as tabs (`ui/TabStrip`, "+" / ⌘T opens a new conversation in the same folder) and, in a
+resizable right pane (`ui/SplitView`), the sub-agents of the **active** main tab as tabs; the
+pane is absent when that tab has none. Each group shows one `<ChatPane sessionId>` (transcript +
+composer); only the visible sessions are mounted, so only they are "viewing". Double-click a tab
+(or its context menu) maximizes its group; that is per window, not saved. Everything else is
+saved in `Workspace.layout` via `updateWorkspace` (applied to the signal first): `mainOrder`
+(new tabs appended), `activeMainSessionId` (on click/⌃Tab/new/close; the URL's `?tab=` wins),
+`activeSubagentSessionId[mainId]`, `subagentPaneSize` (on drag end). Closing a tab deletes its
+conversation (and its sub-agents); it asks first when it has history or sub-agents, the last
+main tab has no close button (the server answers 409 anyway), and focus moves to the right
+neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view): ⌘T, ⌘W, ⌃Tab,
+⌃⇧Tab; ⌘W/⌃Tab act on the group holding keyboard focus (else the main group). Browsers keep
+⌘T/⌘W/⌃Tab for themselves, so these are for the desktop app (whose menu must not claim ⌘W).
 
 ## Desktop app (`apps/desktop`)
 
@@ -304,6 +319,14 @@ without it). `ChatRoute` resolves the session with `resolveSessionId` and render
   button at all.
 
 ## Decisions
+
+- **Custom tab strip + split instead of dockview-core** (2026-09-26, I-036): the layout is
+  derived from server data (main tabs = the workspace's main sessions; right pane = the active
+  tab's sub-agents, swapped whenever the main tab changes, hidden when empty), which maps poorly
+  onto dockview's imperative, user-arranged panels (we'd sync add/remove on every change and
+  disable its drag-and-drop to keep the model intact) and it brings its own theme to override.
+  `ui/TabStrip` + `ui/SplitView` are ~300 lines, native-styled with our tokens. Groups are a
+  `TabGroupId` union so extra panes can be added; revisit dockview for drag-to-dock (I-039).
 
 - **Workspaces contain sessions** (2026-09-26, I-035): a sidebar row is a workspace; each
   conversation is a session (kind `main` = tab, `subagent` = spawned). Per-conversation state and

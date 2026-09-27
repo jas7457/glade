@@ -35,6 +35,8 @@
   /* Floating UI (tooltips, menus, popovers, palette): see ui/floating.ts. */
   --color-popover: var(--pi-popover);
   --color-popover-border: var(--pi-popover-border);
+  /* Tab strips (ui/TabStrip.tsx): the bar behind inactive tabs; the active tab uses bg-window. */
+  --color-tabbar: var(--pi-tabbar);
 
   --radius-control: 6px;
   --radius-panel: 10px;
@@ -73,6 +75,7 @@
   --pi-popover: #ffffff;
   --pi-popover-border: rgb(0 0 0 / 0.12);
   --pi-popover-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 12px 32px -6px rgb(0 0 0 / 0.28);
+  --pi-tabbar: color-mix(in srgb, var(--pi-sidebar) 70%, var(--pi-window));
   --pi-font-size: 13px;
   color-scheme: light;
 }
@@ -102,6 +105,7 @@
   --pi-popover: #3a3a3c;
   --pi-popover-border: rgb(255 255 255 / 0.16);
   --pi-popover-shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 14px 36px -6px rgb(0 0 0 / 0.6);
+  --pi-tabbar: color-mix(in srgb, #000 22%, var(--pi-window));
   color-scheme: dark;
 }
 

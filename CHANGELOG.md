@@ -82,6 +82,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 - If the dev server is already running, the Mac app uses it instead of starting a second server
   on the same data.
 
+- Tabs in a workspace: open more conversations in the same folder with **+** (⌘T in the Mac app),
+  rename or close them, and see each tab's status. A chat's sub-agents appear as tabs in a
+  resizable right-hand pane that hides when there are none. Double-click a tab to maximize it.
+
 ### Changed
 
 - Under the hood, each sidebar row is now a workspace that can hold several conversations

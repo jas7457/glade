@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
-vi.mock("@/features/chat", () => ({
-  ChatView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
-  NewChatView: () => <div>new chat</div>,
+vi.mock("@/features/chat", () => ({ NewChatView: () => <div>new chat</div> }));
+vi.mock("@/features/workspace", () => ({
+  WorkspaceView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
 }));
 
 import { projects, sessions, workspaces } from "@/state/store";

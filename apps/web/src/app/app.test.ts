@@ -4,7 +4,7 @@ import { resolveTheme } from "./appearance";
 import { routeContext } from "./paths";
 import { chatPath, routes } from "./routes";
 import { formatShortcut } from "@/ui/Kbd";
-import { SHORTCUTS, shortcutFor } from "./shortcuts";
+import { SHORTCUTS, TAB_SHORTCUTS, shortcutFor, tabShortcutFor } from "./shortcuts";
 
 describe("resolveTheme", () => {
   it("follows the system only when set to system", () => {
@@ -54,5 +54,27 @@ describe("shortcutFor", () => {
   it("shows ⌘B for the sidebar", () => {
     expect(formatShortcut(SHORTCUTS["toggle-sidebar"])).toBe("⌘B");
     expect(formatShortcut(SHORTCUTS["command-palette"])).toBe("⌘K");
+  });
+});
+
+describe("tabShortcutFor", () => {
+  const k = (key: string, mods: Partial<KeyboardEvent> = {}) =>
+    tabShortcutFor({ key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
+  it("maps ⌘T, ⌘W, ⌃Tab and ⌃⇧Tab", () => {
+    expect(k("t", { metaKey: true })).toBe("new-tab");
+    expect(k("W", { metaKey: true })).toBe("close-tab");
+    expect(k("Tab", { ctrlKey: true })).toBe("next-tab");
+    expect(k("Tab", { ctrlKey: true, shiftKey: true })).toBe("previous-tab");
+    expect(k("Tab")).toBeNull();
+    expect(k("Tab", { metaKey: true })).toBeNull();
+    expect(k("t")).toBeNull();
+    expect(k("t", { metaKey: true, shiftKey: true })).toBeNull();
+    expect(k("w", { metaKey: true, altKey: true })).toBeNull();
+    expect(shortcutFor({ key: "t", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
+  });
+
+  it("formats them natively", () => {
+    expect(formatShortcut(TAB_SHORTCUTS["new-tab"])).toBe("⌘T");
+    expect(formatShortcut(TAB_SHORTCUTS["previous-tab"])).toBe("⌃⇧⇥");
   });
 });

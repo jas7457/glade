@@ -36,3 +36,5 @@ export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./Statu
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
 export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";
 export { CommandPalette, type CommandPaletteProps, type CommandPaletteItem, type CommandPaletteSection } from "./CommandPalette";
+export { TabStrip, TAB_STRIP_HEIGHT, type TabStripProps, type TabStripTab } from "./TabStrip";
+export { SplitView, type SplitViewProps } from "./SplitView";
