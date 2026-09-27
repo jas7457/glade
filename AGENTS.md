@@ -1,7 +1,28 @@
 # AGENTS.md — how we work on pi-ui
 
-pi-ui is a desktop-style GUI for the [pi](https://github.com/earendil-works/pi) coding agent
-(web app now, packaged with Tauri later). Read `docs/ARCHITECTURE.md` before changing code.
+pi-ui is a native-feeling macOS app (Tauri) and web UI for coding agents. It runs the
+[pi](https://github.com/earendil-works/pi) harness today and is designed to support other harnesses
+(e.g. Claude Code) later. It is being renamed to **Glade** (PLAN.md I-059). Read
+`docs/ARCHITECTURE.md` before changing code.
+
+## Picking up where we left off (new sessions start here)
+
+1. Read `PLAN.md` top to bottom: `## Inbox` holds every open item (`- [ ] **I-###**`) with the
+   user's words, notes, decisions and open questions; ticked items have an `Outcome:` line.
+   `## Future features` holds ideas that are *not* planned. Look for "Open question" and
+   "Status:" lines: they are the loose ends.
+2. Skim `CHANGELOG.md` `[Unreleased]` for what the user already has, and `git log --oneline -20`.
+3. Nothing is started without the user's "go" (see Issue queue). When in doubt, summarise the open
+   Inbox items and ask.
+
+Related repos and places:
+- GitHub: `jas7457/pi-ui` (private; to become `jas7457/glade`). Push after every commit.
+- `the extension kit` (separate git repo): the user's pi extensions, incl. `extensions/agent-teams`
+  (`spawn_agent`, `message_agent`, …) with a cmux backend and a pi-ui backend (`piui.ts`, used
+  when `PI_UI_URL`/`PI_UI_TOKEN` are set). Changes there are committed and pushed there.
+- pi itself: installed globally (`which pi`); docs in its package's `docs/` folder (rpc.md,
+  session-format.md, extensions.md, skills.md).
+- User data: `~/Library/Application Support/pi-ui`; pi sessions: `~/.pi/agent/sessions`.
 
 ## The ledger (mandatory)
 
@@ -26,6 +47,22 @@ in the `## Inbox` section of PLAN.md and **do not start work** until the user sa
 the queue into sub-agent workstreams by file ownership, integrate, tick items, and commit.
 Ideas for later go to `## Future features` in PLAN.md (`F-###` ids) and are never worked on until the
 user promotes them to the Inbox.
+
+## Lead routine (the session coordinating sub-agents)
+
+- Split work by **file ownership** so parallel workers never edit the same files; do shared
+  protocol/API contract changes yourself first. Workers never stage or commit and never edit
+  PLAN.md/CHANGELOG.md.
+- While workers run, commit **explicit paths only** (`git add <paths>`; `git commit -- <paths>`),
+  never `git add -A`, so another worker's half-finished files aren't swept in. If a shared file
+  mixes two workers' changes, wait and commit both together.
+- Before pushing, verify the commit in a clean worktree:
+  `git worktree add /tmp/pi-ui-verify HEAD && cd /tmp/pi-ui-verify && pnpm install --offline --frozen-lockfile && pnpm typecheck && pnpm test`
+  (then `git worktree remove --force /tmp/pi-ui-verify`).
+- Tick the Inbox items (`Outcome:` line), add CHANGELOG entries, record decisions in
+  `docs/ARCHITECTURE.md`, push.
+- After a round, update the user's app with `pnpm tauri:install --when-idle` (needs
+  `. "$HOME/.cargo/env"` in non-login shells).
 
 ## Commands
 
