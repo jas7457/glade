@@ -31,7 +31,9 @@ export function applyAgentEvent(t: Transcript, event: AgentEvent): Transcript {
       return updateAssistant(t, event.messageId, (m) => {
         const block = m.content[event.index];
         if (!block) return m;
-        return { ...m, content: replaceAt(m.content, event.index, appendDelta(block, event.delta)) };
+        let next = appendDelta(block, event.delta);
+        if (event.input && next.type === "toolCall") next = { ...next, input: event.input };
+        return { ...m, content: replaceAt(m.content, event.index, next) };
       });
 
     case "block_end":

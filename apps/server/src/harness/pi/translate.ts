@@ -25,6 +25,7 @@ import {
 } from "@glade/protocol";
 import { compactionNoticeText } from "../format";
 import { readableError } from "../provider-error";
+import { partialJsonArgs, piToolCallBlock, piToolDiff, piToolInput, piToolKind } from "./tools";
 
 // ---------------------------------------------------------------------------------------------
 // Loose pi wire types (only the fields we read)
@@ -198,12 +199,7 @@ export function translateBlock(raw: Json): ContentBlock | null {
       return { type: "thinking", text, ...(text.length === 0 || raw.redacted ? { redacted: true } : {}) };
     }
     case "toolCall":
-      return {
-        type: "toolCall",
-        id: String(raw.id),
-        name: String(raw.name),
-        args: (raw.arguments as Record<string, unknown> | undefined) ?? {},
-      };
+      return piToolCallBlock(String(raw.id), String(raw.name), (raw.arguments as Record<string, unknown> | undefined) ?? {});
     case "image":
       return { type: "image", mimeType: String(raw.mimeType ?? "image/png"), data: String(raw.data ?? "") };
     default:
@@ -280,12 +276,15 @@ export function translateMessage(raw: Json, id: string): ChatMessage | null {
 }
 
 export function translateToolResult(raw: Json, status?: ToolResult["status"]): ToolResult {
+  const toolName = String(raw.toolName);
+  const diff = piToolDiff(toolName, raw.details);
   return {
     toolCallId: String(raw.toolCallId),
-    toolName: String(raw.toolName),
+    toolName,
     status: status ?? (raw.isError ? "error" : "done"),
     output: textOf(raw.content),
     images: imagesOf(raw.content),
+    ...(diff ? { diff } : {}),
     details: raw.details,
   };
 }
@@ -318,6 +317,8 @@ export class PiEventTranslator {
   /** role:timestamp -> id, so message_end maps to the id assigned at message_start. */
   private readonly ids = new Map<string, string>();
   private streamingAssistantId: string | null = null;
+  /** Tool calls streaming in the current assistant message, by content index (I-068). */
+  private readonly streamingCalls = new Map<number, { name: string; argsText: string; inputJson: string }>();
 
   constructor(private readonly prefix = "m") {}
 
@@ -347,6 +348,7 @@ export class PiEventTranslator {
 
       case "agent_settled":
         this.streamingAssistantId = null;
+        this.streamingCalls.clear();
         return [{ type: "run_end" }, { type: "state", state: { isRunning: false } }];
 
       case "message_start": {
@@ -357,6 +359,7 @@ export class PiEventTranslator {
         if (!message) return [];
         if (message.role === "assistant") {
           this.streamingAssistantId = id;
+          this.streamingCalls.clear();
           message.streaming = true;
         }
         return [{ type: "message_start", message }];
@@ -482,18 +485,22 @@ export class PiEventTranslator {
         return [{ type: "block_start", messageId, index, block: { type: "text", text: "" } }];
       case "thinking_start":
         return [{ type: "block_start", messageId, index, block: { type: "thinking", text: "" } }];
-      case "toolcall_start":
+      case "toolcall_start": {
+        const name = String(update.toolName);
+        this.streamingCalls.set(index, { name, argsText: "", inputJson: "{}" }); // nothing known yet
         return [
           {
             type: "block_start",
             messageId,
             index,
-            block: { type: "toolCall", id: String(update.id), name: String(update.toolName), args: undefined },
+            block: { type: "toolCall", id: String(update.id), name, kind: piToolKind(name), args: undefined },
           },
         ];
+      }
+      case "toolcall_delta":
+        return this.translateToolCallDelta(messageId, index, String(update.delta ?? ""));
       case "text_delta":
-      case "thinking_delta":
-      case "toolcall_delta": {
+      case "thinking_delta": {
         const delta = String(update.delta ?? "");
         return delta ? [{ type: "block_delta", messageId, index, delta }] : [];
       }
@@ -511,12 +518,30 @@ export class PiEventTranslator {
         ];
       }
       case "toolcall_end": {
+        this.streamingCalls.delete(index);
         const block = translateBlock((update.toolCall as Json | undefined) ?? {});
         return block ? [{ type: "block_end", messageId, index, block }] : [];
       }
       default:
         return [];
     }
+  }
+
+  /**
+   * Argument delta of a streaming tool call. pi only sends raw JSON chunks, so the partial args
+   * are parsed here and the normalized input is attached whenever it changed (e.g. once the
+   * command string is complete), letting the UI summarize the call before it finishes.
+   */
+  private translateToolCallDelta(messageId: string, index: number, delta: string): AgentEvent[] {
+    if (!delta) return [];
+    const call = this.streamingCalls.get(index);
+    if (!call) return [{ type: "block_delta", messageId, index, delta }];
+    call.argsText += delta;
+    const input = piToolInput(call.name, partialJsonArgs(call.argsText), { partial: true });
+    const inputJson = input ? JSON.stringify(input) : "";
+    if (!input || inputJson === call.inputJson) return [{ type: "block_delta", messageId, index, delta }];
+    call.inputJson = inputJson;
+    return [{ type: "block_delta", messageId, index, delta, input }];
   }
 
   private translateUiRequest(event: Json): AgentEvent[] {

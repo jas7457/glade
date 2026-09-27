@@ -3,10 +3,12 @@ import type { AssistantMessage, ContentBlock, ChatMessage, ToolResult, Transcrip
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type RenderItem, type ToolGroupPart, type TurnPart } from "./grouping";
 
 let seq = 0;
-const call = (id: string, name = "bash", args: Record<string, unknown> | undefined = { command: `echo ${id}` }): ContentBlock => ({
+const call = (id: string, name = "Bash", args: Record<string, unknown> | undefined = { command: `echo ${id}` }): ContentBlock => ({
   type: "toolCall",
   id,
   name,
+  kind: "shell",
+  input: typeof args?.command === "string" ? { command: args.command } : undefined,
   args,
 });
 const text = (t: string): ContentBlock => ({ type: "text", text: t });
@@ -19,7 +21,7 @@ const assistant = (content: ContentBlock[], extra: Partial<AssistantMessage> = {
   ...extra,
 });
 const user = (t: string): ChatMessage => ({ id: `u${seq++}`, role: "user", content: [{ type: "text", text: t }], timestamp: 0 });
-const done = (id: string, status: ToolResult["status"] = "done"): ToolResult => ({ toolCallId: id, toolName: "bash", status, output: "" });
+const done = (id: string, status: ToolResult["status"] = "done"): ToolResult => ({ toolCallId: id, toolName: "Bash", status, output: "" });
 
 function transcript(messages: ChatMessage[], results: ToolResult[] = []): Transcript {
   return { messages, toolResults: Object.fromEntries(results.map((r) => [r.toolCallId, r])) };
@@ -116,7 +118,7 @@ describe("groupTranscript", () => {
 
   it("aggregates running and error status", () => {
     const t = transcript(
-      [assistant([call("c1"), call("c2"), call("c3"), { type: "toolCall", id: "c4", name: "bash", args: undefined, argsText: "{\"com" }], { streaming: true })],
+      [assistant([call("c1"), call("c2"), call("c3"), { type: "toolCall", id: "c4", name: "Bash", kind: "shell", args: undefined, argsText: "{\"com" }], { streaming: true })],
       [done("c1"), done("c2", "error"), { ...done("c3"), status: "running" }],
     );
     const group = turnParts(groupTranscript(t, running))[0] as ToolGroupPart;

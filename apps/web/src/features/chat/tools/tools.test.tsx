@@ -1,54 +1,67 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
-import type { ToolCallBlock } from "@glade/protocol";
+import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { groupLabel, partialArgs, summarizeToolCall } from "./summaries";
-import { diffFromEdits, diffStats, editsFromArgs, languageFromPath, parsePiDiff, stripAnsi } from "./text";
+import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 import { ToolCallRow, ToolGroup } from "./ToolViews";
 import type { ToolCallPart, ToolGroupPart } from "../grouping";
 
 Element.prototype.scrollTo ??= function () {};
 
-const call = (name: string, args: Record<string, unknown> | undefined, argsText?: string): ToolCallBlock => ({
+// Tool names are deliberately not real harness names: the UI must only look at kind + input.
+const call = (kind: ToolKind, input: ToolInput | undefined, extra: Partial<ToolCallBlock> = {}): ToolCallBlock => ({
   type: "toolCall",
-  id: `id-${name}`,
-  name,
-  args,
-  argsText,
+  id: `id-${kind}`,
+  name: `x_${kind}`,
+  kind,
+  input,
+  args: {},
+  ...extra,
 });
-const summary = (name: string, args: Record<string, unknown> | undefined, active = false) => {
-  const s = summarizeToolCall(call(name, args), active);
+const summary = (kind: ToolKind, input: ToolInput, active = false) => {
+  const s = summarizeToolCall(call(kind, input), active);
   return `${s.verb} ${s.subject}`.trim();
 };
 
 describe("summarizeToolCall", () => {
-  it("summarizes built-in pi tools", () => {
-    expect(summary("bash", { command: "ls -la" })).toBe("Ran ls -la");
-    expect(summary("bash", { command: "npm test" }, true)).toBe("Running npm test");
+  it("summarizes each canonical kind from the normalized input", () => {
+    expect(summary("shell", { command: "ls -la" })).toBe("Ran ls -la");
+    expect(summary("shell", { command: "npm test" }, true)).toBe("Running npm test");
     expect(summary("read", { path: "src/a.ts" })).toBe("Read src/a.ts");
     expect(summary("read", { path: "a.ts", offset: 10, limit: 5 })).toBe("Read a.ts:10-14");
     expect(summary("write", { path: "b.md", content: "x" })).toBe("Wrote b.md");
     expect(summary("edit", { path: "c.ts", edits: [] })).toBe("Edited c.ts");
-    expect(summary("grep", { pattern: "TODO", path: "src" })).toBe("Searched TODO in src");
-    expect(summary("find", { pattern: "*.ts" })).toBe("Searched *.ts");
-    expect(summary("ls", {})).toBe("Listed .");
+    expect(summary("search", { pattern: "TODO", path: "src" })).toBe("Searched TODO in src");
+    expect(summary("search", { pattern: "useState", glob: "*.tsx" })).toBe("Searched useState (*.tsx)");
+    expect(summary("search", { pattern: "*.ts" })).toBe("Searched *.ts");
+    expect(summary("list", {})).toBe("Listed .");
+    expect(summary("web", { url: "https://example.com" })).toBe("Fetched https://example.com");
+    expect(summary("web", { query: "preact signals" }, true)).toBe("Searching the web for preact signals");
+    expect(summary("task", { description: "Review the diff" })).toBe("Ran task Review the diff");
   });
 
   it("truncates long / multi-line commands", () => {
-    const s = summarizeToolCall(call("bash", { command: `echo ${"x".repeat(300)}\nsecond` }), false);
+    const s = summarizeToolCall(call("shell", { command: `echo ${"x".repeat(300)}\nsecond` }), false);
     expect(s.subject.length).toBeLessThanOrEqual(120);
     expect(s.subject.endsWith("…")).toBe(true);
-    expect(summarizeToolCall(call("bash", { command: "a\nb" }), false).subject).toBe("a ⏎ b");
+    expect(summarizeToolCall(call("shell", { command: "a\nb" }), false).subject).toBe("a ⏎ b");
   });
 
-  it("falls back to tool name + arg preview for unknown tools", () => {
-    expect(summary("web_search", { query: "preact signals", limit: 5, nested: { a: 1 } })).toBe("web_search preact signals 5");
+  it("falls back to the tool name + raw arg preview for `other` tools", () => {
+    const s = summarizeToolCall(call("other", undefined, { name: "web_search", args: { query: "preact signals", limit: 5, nested: { a: 1 } } }), false);
+    expect(`${s.verb} ${s.subject}`).toBe("web_search preact signals 5");
+    // A kind this build doesn't know behaves like `other`.
+    const unknown = summarizeToolCall(call("teleport" as ToolKind, { path: "x" }, { name: "beam", args: { to: "mars" } }), false);
+    expect(`${unknown.verb} ${unknown.subject}`).toBe("beam mars");
   });
 
-  it("uses partial args while the call is streaming", () => {
-    const s = summarizeToolCall(call("bash", undefined, '{"command": "git sta'), true);
-    expect(s.verb).toBe("Running");
-    const s2 = summarizeToolCall(call("read", undefined, '{"path": "src/x.ts", "off'), true);
+  it("uses the partial input while the call is streaming", () => {
+    const s = summarizeToolCall(call("shell", undefined, { args: undefined, argsText: '{"command": "git sta' }), true);
+    expect(s).toMatchObject({ verb: "Running", subject: "" });
+    const s2 = summarizeToolCall(call("read", { path: "src/x.ts" }, { args: undefined, argsText: '{"path": "src/x.ts", "off' }), true);
     expect(s2.subject).toBe("src/x.ts");
+    const s3 = summarizeToolCall(call("other", undefined, { name: "ask", args: undefined, argsText: '{"question": "why?", "x' }), true);
+    expect(`${s3.verb} ${s3.subject}`).toBe("ask why?");
   });
 
   it("partialArgs parses complete JSON and complete string fields of partial JSON", () => {
@@ -75,29 +88,19 @@ describe("text helpers", () => {
     expect(languageFromPath("README")).toBe("");
   });
 
-  it("parses pi's edit diff format", () => {
-    const lines = parsePiDiff([" 1 keep", "-2 old", "+2 new", "   ...", " 9 tail"].join("\n"));
-    expect(lines.map((l) => l.kind)).toEqual(["ctx", "del", "add", "gap", "ctx"]);
-    expect(lines[1]).toMatchObject({ text: "old", oldNo: 2 });
-    expect(lines[2]).toMatchObject({ text: "new", newNo: 2 });
-    expect(diffStats(lines)).toEqual({ added: 1, removed: 1 });
-  });
-
-  it("normalizes edit args in all shapes pi accepts", () => {
-    const e = { oldText: "a", newText: "b" };
-    expect(editsFromArgs({ path: "x", edits: [e] })).toEqual([e]);
-    expect(editsFromArgs({ path: "x", edits: JSON.stringify([e]) })).toEqual([e]);
-    expect(editsFromArgs({ path: "x", edits: e })).toEqual([e]);
-    expect(editsFromArgs({ path: "x", oldText: "a", newText: "b" })).toEqual([e]);
-    expect(diffFromEdits([e, e]).map((l) => l.kind)).toEqual(["del", "add", "gap", "del", "add"]);
+  it("builds a preview diff from normalized edits and counts it", () => {
+    const e = { oldText: "a", newText: "b\nc" };
+    const lines = diffFromEdits([e, e]);
+    expect(lines.map((l) => l.type)).toEqual(["del", "add", "add", "gap", "del", "add", "add"]);
+    expect(diffStats(lines)).toEqual({ added: 4, removed: 2 });
   });
 });
 
 const part = (id: string, status: ToolCallPart["status"] = "done", output = "hi"): ToolCallPart => ({
   type: "tool",
   key: id,
-  call: { type: "toolCall", id, name: "bash", args: { command: `echo ${id}` } },
-  result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "bash", status: status === "cancelled" ? "done" : status, output },
+  call: { type: "toolCall", id, name: "x_shell", kind: "shell", input: { command: `echo ${id}` }, args: {} },
+  result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "x_shell", status: status === "cancelled" ? "done" : status, output },
   status,
 });
 
@@ -144,7 +147,7 @@ describe("ToolGroup / ToolCallRow", () => {
   });
 
   it("a streaming call shows a spinner and can't expand", () => {
-    const p: ToolCallPart = { type: "tool", key: "s", call: { type: "toolCall", id: "s", name: "bash", args: undefined, argsText: "" }, result: undefined, status: "streaming" };
+    const p: ToolCallPart = { type: "tool", key: "s", call: { type: "toolCall", id: "s", name: "x_shell", kind: "shell", args: undefined, argsText: "" }, result: undefined, status: "streaming" };
     render(<ToolCallRow part={p} />);
     const row = screen.getByRole("button", { name: /Running/ });
     expect((row as HTMLButtonElement).disabled).toBe(true);
@@ -155,8 +158,19 @@ describe("ToolGroup / ToolCallRow", () => {
     const p: ToolCallPart = {
       type: "tool",
       key: "e",
-      call: { type: "toolCall", id: "e", name: "edit", args: { path: "a.ts", edits: [{ oldText: "a", newText: "b\nc" }] } },
-      result: { toolCallId: "e", toolName: "edit", status: "done", output: "ok", details: { diff: "-1 a\n+1 b\n+2 c" } },
+      call: { type: "toolCall", id: "e", name: "x_edit", kind: "edit", input: { path: "a.ts", edits: [{ oldText: "a", newText: "b\nc" }] }, args: {} },
+      result: {
+        toolCallId: "e",
+        toolName: "x_edit",
+        status: "done",
+        output: "ok",
+        diff: [
+          { type: "context", text: "keep", oldLine: 1 },
+          { type: "del", text: "a", oldLine: 2 },
+          { type: "add", text: "b", newLine: 2 },
+          { type: "add", text: "c", newLine: 3 },
+        ],
+      },
       status: "done",
     };
     const { container } = render(<ToolCallRow part={p} />);
@@ -166,5 +180,35 @@ describe("ToolGroup / ToolCallRow", () => {
     fireEvent.click(row);
     expect(container.textContent).toContain("b");
     expect(container.querySelectorAll(".bg-success\\/10")).toHaveLength(2);
+  });
+
+  it("previews an edit from its normalized edits before the harness reports a diff", () => {
+    const p: ToolCallPart = {
+      type: "tool",
+      key: "e2",
+      call: { type: "toolCall", id: "e2", name: "x_edit", kind: "edit", input: { path: "a.ts", edits: [{ oldText: "old", newText: "new" }] }, args: {} },
+      result: undefined,
+      status: "pending",
+    };
+    const { container } = render(<ToolCallRow part={p} />);
+    const row = screen.getByRole("button", { name: /Editing a.ts/ });
+    expect(row.textContent).toContain("+1");
+    fireEvent.click(row);
+    expect(container.querySelectorAll(".bg-danger\\/10")).toHaveLength(1);
+  });
+
+  it("shows an `other` tool's raw args and output", () => {
+    const p: ToolCallPart = {
+      type: "tool",
+      key: "o",
+      call: { type: "toolCall", id: "o", name: "spawn_helper", kind: "other", args: { goal: "tidy up" } },
+      result: { toolCallId: "o", toolName: "spawn_helper", status: "done", output: "all tidy" },
+      status: "done",
+    };
+    const { container } = render(<ToolCallRow part={p} />);
+    const row = screen.getByRole("button", { name: /spawn_helper tidy up/ });
+    fireEvent.click(row);
+    expect(container.textContent).toContain('"goal": "tidy up"');
+    expect(container.textContent).toContain("all tidy");
   });
 });

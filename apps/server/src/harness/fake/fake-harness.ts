@@ -52,14 +52,15 @@ export const defaultFakeScript: FakeScript = (request, nextId) => {
   const answerId = nextId();
   return [
     { type: "message_start", message: { id: assistantId, role: "assistant", content: [], timestamp: Date.now(), streaming: true } },
-    { type: "block_start", messageId: assistantId, index: 0, block: { type: "toolCall", id: toolCallId, name: "bash", args: undefined } },
-    { type: "block_end", messageId: assistantId, index: 0, block: { type: "toolCall", id: toolCallId, name: "bash", args: { command: "echo hi" } } },
+    { type: "block_start", messageId: assistantId, index: 0, block: { type: "toolCall", id: toolCallId, name: "bash", kind: "shell", args: undefined } },
+    { type: "block_delta", messageId: assistantId, index: 0, delta: '{"command":"echo hi"}', input: { command: "echo hi" } },
+    { type: "block_end", messageId: assistantId, index: 0, block: { type: "toolCall", id: toolCallId, name: "bash", kind: "shell", input: { command: "echo hi" }, args: { command: "echo hi" } } },
     {
       type: "message_end",
       message: {
         id: assistantId,
         role: "assistant",
-        content: [{ type: "toolCall", id: toolCallId, name: "bash", args: { command: "echo hi" } }],
+        content: [{ type: "toolCall", id: toolCallId, name: "bash", kind: "shell", input: { command: "echo hi" }, args: { command: "echo hi" } }],
         timestamp: Date.now(),
         stopReason: "toolUse",
       },

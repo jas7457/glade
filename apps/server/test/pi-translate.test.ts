@@ -30,10 +30,10 @@ function assertToolRunTranscript(t: Transcript): void {
 
   const [a1, a2, a3] = t.messages.slice(1) as AssistantMessage[];
   expect(a1!.content.map((b) => b.type)).toEqual(["thinking", "toolCall"]);
-  expect(a1!.content[1]).toMatchObject({ type: "toolCall", id: BASH_ID, name: "bash", args: { command: "ls" } });
+  expect(a1!.content[1]).toMatchObject({ type: "toolCall", id: BASH_ID, name: "bash", kind: "shell", input: { command: "ls" }, args: { command: "ls" } });
   expect(a1!.stopReason).toBe("toolUse");
   expect(a2!.content.map((b) => b.type)).toEqual(["thinking", "toolCall"]);
-  expect(a2!.content[1]).toMatchObject({ type: "toolCall", id: READ_ID, name: "read", args: { path: "a.txt" } });
+  expect(a2!.content[1]).toMatchObject({ type: "toolCall", id: READ_ID, name: "read", kind: "read", input: { path: "a.txt" }, args: { path: "a.txt" } });
   expect(a3!.content.map((b) => b.type)).toEqual(["thinking", "text"]);
   expect(a3!.content[0]).toMatchObject({ type: "thinking", text: expect.stringContaining("Perfect!") });
   expect(messageText(a3!)).toContain("**");

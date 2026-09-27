@@ -29,15 +29,16 @@ describe("applyAgentEvent", () => {
   it("accumulates tool call argument text and replaces it on block_end", () => {
     const t = fold([
       { type: "message_start", message: assistant("a1") },
-      { type: "block_start", messageId: "a1", index: 0, block: { type: "toolCall", id: "c1", name: "bash", args: undefined } },
+      { type: "block_start", messageId: "a1", index: 0, block: { type: "toolCall", id: "c1", name: "bash", kind: "shell", args: undefined } },
       { type: "block_delta", messageId: "a1", index: 0, delta: '{"command":' },
+      { type: "block_delta", messageId: "a1", index: 0, delta: '"ls"', input: { command: "ls" } },
     ]);
-    expect(t.messages[0]).toMatchObject({ content: [{ argsText: '{"command":' }] });
+    expect(t.messages[0]).toMatchObject({ content: [{ kind: "shell", argsText: '{"command":"ls"', input: { command: "ls" } }] });
     const done = applyAgentEvent(t, {
       type: "block_end",
       messageId: "a1",
       index: 0,
-      block: { type: "toolCall", id: "c1", name: "bash", args: { command: "ls" } },
+      block: { type: "toolCall", id: "c1", name: "bash", kind: "shell", input: { command: "ls" }, args: { command: "ls" } },
     });
     expect(done.messages[0]).toMatchObject({ content: [{ args: { command: "ls" } }] });
   });

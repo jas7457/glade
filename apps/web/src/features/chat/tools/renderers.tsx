@@ -1,14 +1,15 @@
 /**
- * Tool renderer registry: per tool name, an icon and an expanded body. To support a new tool,
- * add an entry here (and a summarizer in summaries.ts). Unknown tools use the fallback.
+ * Tool renderer registry: per canonical tool kind (I-068), an icon and an expanded body. Bodies
+ * read only the normalized `call.input` / `result.diff`; `other` tools use the fallback, which
+ * shows the harness's raw args. A new kind needs an entry here and a summarizer in summaries.ts.
  */
 import type { ComponentType } from "preact";
-import type { ToolCallBlock, ToolResult } from "@glade/protocol";
-import { FilePen, FilePlus, FileText, FolderOpen, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
+import type { DiffLine, ToolCallBlock, ToolKind, ToolResult } from "@glade/protocol";
+import { Bot, FilePen, FilePlus, FileText, FolderOpen, Globe, Search, Terminal, Wrench, type LucideProps } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { CodeView } from "../Markdown";
 import type { ToolCallStatus } from "../grouping";
-import { diffFromEdits, diffStats, editsFromArgs, languageFromPath, parsePiDiff, stripAnsi, type DiffLine } from "./text";
+import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 
 export interface ToolBodyProps {
   call: ToolCallBlock;
@@ -22,8 +23,6 @@ export interface ToolRenderer {
   /** Optional short detail shown at the right end of the collapsed row (e.g. "+3 −1"). */
   Badge?: ComponentType<ToolBodyProps>;
 }
-
-const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
 // ---------------------------------------------------------------------------------------------
 // Shared pieces
@@ -58,11 +57,11 @@ function ResultImages({ result }: { result: ToolResult | undefined }) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// bash
+// shell
 // ---------------------------------------------------------------------------------------------
 
-function BashBody({ call, result, status }: ToolBodyProps) {
-  const command = str(call.args?.command) ?? "";
+function ShellBody({ call, result, status }: ToolBodyProps) {
+  const command = call.input?.command ?? "";
   const output = stripAnsi(result?.output ?? "").replace(/\n+$/, "");
   return (
     <div class={panel}>
@@ -87,18 +86,18 @@ function ReadBody({ call, result, status }: ToolBodyProps) {
   if (status === "error") return <div class={panel}><OutputText text={result.output} error /></div>;
   return (
     <div class={panel}>
-      {result.output && <CodeView source={result.output} language={languageFromPath(str(call.args?.path))} />}
+      {result.output && <CodeView source={result.output} language={languageFromPath(call.input?.path)} />}
       <ResultImages result={result} />
     </div>
   );
 }
 
 function WriteBody({ call, result, status }: ToolBodyProps) {
-  const content = str(call.args?.content) ?? "";
+  const content = call.input?.content ?? "";
   return (
     <div class={panel}>
       {status === "error" && result ? <OutputText text={result.output} error /> : null}
-      {content ? <CodeView source={content} language={languageFromPath(str(call.args?.path))} /> : null}
+      {content ? <CodeView source={content} language={languageFromPath(call.input?.path)} /> : null}
     </div>
   );
 }
@@ -107,35 +106,35 @@ function WriteBody({ call, result, status }: ToolBodyProps) {
 // edit
 // ---------------------------------------------------------------------------------------------
 
+/** The harness's diff once the edit ran, else a preview built from the requested edits. */
 function editDiffLines(call: ToolCallBlock, result: ToolResult | undefined): DiffLine[] {
-  const details = result?.details as { diff?: unknown } | undefined;
-  if (details && typeof details.diff === "string" && details.diff) return parsePiDiff(details.diff);
-  return diffFromEdits(editsFromArgs(call.args));
+  if (result?.diff?.length) return result.diff;
+  return diffFromEdits(call.input?.edits ?? []);
 }
 
 export function DiffView({ lines }: { lines: DiffLine[] }) {
   return (
     <div class="selectable max-h-96 overflow-auto py-1 font-mono text-[0.88rem] leading-[1.5]">
       {lines.map((l, i) =>
-        l.kind === "gap" ? (
+        l.type === "gap" ? (
           <div key={i} class="px-3 text-fg-subtle">⋯</div>
         ) : (
           <div
             key={i}
             class={cn(
               "flex min-w-fit",
-              l.kind === "add" && "bg-success/10",
-              l.kind === "del" && "bg-danger/10",
+              l.type === "add" && "bg-success/10",
+              l.type === "del" && "bg-danger/10",
             )}
           >
-            <span class="w-10 shrink-0 pr-2 text-right text-fg-subtle select-none">{l.newNo ?? l.oldNo ?? ""}</span>
+            <span class="w-10 shrink-0 pr-2 text-right text-fg-subtle select-none">{l.newLine ?? l.oldLine ?? ""}</span>
             <span
               class={cn(
                 "w-4 shrink-0 select-none",
-                l.kind === "add" ? "text-success" : l.kind === "del" ? "text-danger" : "text-fg-subtle",
+                l.type === "add" ? "text-success" : l.type === "del" ? "text-danger" : "text-fg-subtle",
               )}
             >
-              {l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}
+              {l.type === "add" ? "+" : l.type === "del" ? "-" : " "}
             </span>
             <span class="pr-3 whitespace-pre">{l.text || " "}</span>
           </div>
@@ -156,7 +155,7 @@ function EditBody({ call, result, status }: ToolBodyProps) {
 }
 
 function EditBadge({ call, result, status }: ToolBodyProps) {
-  if (status === "error" || !call.args) return null;
+  if (status === "error" || call.args === undefined) return null;
   const { added, removed } = diffStats(editDiffLines(call, result));
   if (!added && !removed) return null;
   return (
@@ -167,7 +166,7 @@ function EditBadge({ call, result, status }: ToolBodyProps) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// grep / find / ls / fallback
+// search / list / web / task / fallback
 // ---------------------------------------------------------------------------------------------
 
 function PlainOutputBody({ result, status }: ToolBodyProps) {
@@ -195,18 +194,21 @@ function DefaultBody({ call, result, status }: ToolBodyProps) {
   );
 }
 
-export const toolRenderers: Record<string, ToolRenderer> = {
-  bash: { icon: Terminal, Body: BashBody },
+export const fallbackRenderer: ToolRenderer = { icon: Wrench, Body: DefaultBody };
+
+export const toolRenderers: Record<ToolKind, ToolRenderer> = {
+  shell: { icon: Terminal, Body: ShellBody },
   read: { icon: FileText, Body: ReadBody },
   write: { icon: FilePlus, Body: WriteBody },
   edit: { icon: FilePen, Body: EditBody, Badge: EditBadge },
-  grep: { icon: Search, Body: PlainOutputBody },
-  find: { icon: Search, Body: PlainOutputBody },
-  ls: { icon: FolderOpen, Body: PlainOutputBody },
+  search: { icon: Search, Body: PlainOutputBody },
+  list: { icon: FolderOpen, Body: PlainOutputBody },
+  web: { icon: Globe, Body: PlainOutputBody },
+  task: { icon: Bot, Body: PlainOutputBody },
+  other: fallbackRenderer,
 };
 
-export const fallbackRenderer: ToolRenderer = { icon: Wrench, Body: DefaultBody };
-
-export function rendererFor(name: string): ToolRenderer {
-  return toolRenderers[name] ?? fallbackRenderer;
+/** Renderer for a kind; kinds this build doesn't know render like `other`. */
+export function rendererFor(kind: ToolKind): ToolRenderer {
+  return (toolRenderers as Partial<Record<string, ToolRenderer>>)[kind] ?? fallbackRenderer;
 }

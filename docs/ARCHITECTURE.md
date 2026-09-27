@@ -45,6 +45,18 @@ To add a harness: implement the two interfaces under `harness/<name>/`, give it 
 translator with fixture tests, register it in `src/index.ts`, and add its settings to
 `Settings.harnesses` plus a settings panel.
 
+**Tool calls (I-068).** The UI never switches on a harness's tool names or argument shapes. Each
+adapter sets on every `ToolCallBlock` a canonical `kind` (`shell|read|write|edit|search|list|web|
+task|other`, known when the call starts) and a normalized `input` (`command`, `path`,
+`offset`/`limit`, `content`, `edits[{oldText,newText}]`, `pattern`, `glob`, `url`, `query`,
+`description`). While arguments stream, the adapter may add the partial input (summary fields only)
+to `block_delta.input`. Where the harness reports a diff, the adapter normalizes it into
+`ToolResult.diff` (`DiffLine[]`: add/del/context/gap with old/new line numbers). `name`/`args`/
+`details` stay raw: the web shows them only for `other` (and kinds it doesn't know). The web's
+renderer and summary tables (`features/chat/tools/`) are keyed by kind. pi's mapping is in
+`harness/pi/tools.ts`: bash/powershell→shell, read, write, edit (every edit argument shape;
+`details.diff` → `diff`), grep/find→search, ls→list, extension tools→other.
+
 ### pi adapter
 
 - Spawns `pi --mode rpc [--session <file>] [--model p/id] [--thinking lvl]` with `cwd` = the

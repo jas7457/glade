@@ -87,15 +87,15 @@ describe("ChatView", () => {
         {
           id: "a1", role: "assistant", timestamp: 0, stopReason: "toolUse",
           content: [
-            { type: "toolCall", id: "t1", name: "bash", args: { command: "ls" } },
-            { type: "toolCall", id: "t2", name: "read", args: { path: "a.ts" } },
+            { type: "toolCall", id: "t1", name: "Bash", kind: "shell", input: { command: "ls" }, args: { command: "ls" } },
+            { type: "toolCall", id: "t2", name: "Read", kind: "read", input: { path: "a.ts" }, args: { file_path: "a.ts" } },
           ],
         },
         { id: "a2", role: "assistant", timestamp: 0, stopReason: "stop", content: [{ type: "text", text: "All **done**." }] },
       ],
       toolResults: {
-        t1: { toolCallId: "t1", toolName: "bash", status: "done", output: "a.ts" },
-        t2: { toolCallId: "t2", toolName: "read", status: "done", output: "x" },
+        t1: { toolCallId: "t1", toolName: "Bash", status: "done", output: "a.ts" },
+        t2: { toolCallId: "t2", toolName: "Read", status: "done", output: "x" },
       },
     });
     expect(screen.getByText("list files")).toBeTruthy();
@@ -149,15 +149,15 @@ describe("ChatView", () => {
     const calls = {
       id: "a1", role: "assistant" as const, timestamp: 0, stopReason: "toolUse" as const,
       content: [
-        { type: "toolCall" as const, id: "t1", name: "bash", args: { command: "ls" } },
-        { type: "toolCall" as const, id: "t2", name: "bash", args: { command: "pwd" } },
+        { type: "toolCall" as const, id: "t1", name: "Bash", kind: "shell" as const, input: { command: "ls" }, args: { command: "ls" } },
+        { type: "toolCall" as const, id: "t2", name: "Bash", kind: "shell" as const, input: { command: "pwd" }, args: { command: "pwd" } },
       ],
     };
     setup({
       messages: [calls],
       toolResults: {
-        t1: { toolCallId: "t1", toolName: "bash", status: "done", output: "", startedAt: 1_000, endedAt: 20_000 },
-        t2: { toolCallId: "t2", toolName: "bash", status: "done", output: "", startedAt: 30_000, endedAt: 49_000 },
+        t1: { toolCallId: "t1", toolName: "Bash", status: "done", output: "", startedAt: 1_000, endedAt: 20_000 },
+        t2: { toolCallId: "t2", toolName: "Bash", status: "done", output: "", startedAt: 30_000, endedAt: 49_000 },
       },
     });
     expect(screen.getByRole("button", { name: /Ran 2 tool calls\s*· 48s/ })).toBeTruthy();
@@ -169,14 +169,14 @@ describe("ChatView", () => {
         {
           id: "a1", role: "assistant", timestamp: 0, stopReason: "toolUse",
           content: [
-            { type: "toolCall", id: "t1", name: "bash", args: { command: "ls" } },
-            { type: "toolCall", id: "t2", name: "bash", args: { command: "pwd" } },
+            { type: "toolCall", id: "t1", name: "Bash", kind: "shell", input: { command: "ls" }, args: { command: "ls" } },
+            { type: "toolCall", id: "t2", name: "Bash", kind: "shell", input: { command: "pwd" }, args: { command: "pwd" } },
           ],
         },
       ],
       toolResults: {
-        t1: { toolCallId: "t1", toolName: "bash", status: "done", output: "" },
-        t2: { toolCallId: "t2", toolName: "bash", status: "done", output: "" },
+        t1: { toolCallId: "t1", toolName: "Bash", status: "done", output: "" },
+        t2: { toolCallId: "t2", toolName: "Bash", status: "done", output: "" },
       },
     });
     expect(screen.getByRole("button", { name: "Ran 2 tool calls" })).toBeTruthy();

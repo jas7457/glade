@@ -1,8 +1,9 @@
 /**
- * One-line summaries for tool calls ("Ran `ls -la`", "Read src/app.ts"...). Pure; keyed by
- * tool name so new tools are one entry away. Unknown tools fall back to name + arg preview.
+ * One-line summaries for tool calls ("Ran `ls -la`", "Read src/app.ts"...). Pure; keyed by the
+ * canonical tool kind and reading only the normalized input (I-068). `other` tools fall back to
+ * the harness's tool name + a preview of the raw args.
  */
-import type { ToolCallBlock } from "@glade/protocol";
+import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 
 export interface ToolSummary {
   /** Leading verb, e.g. "Ran" / "Running". */
@@ -14,11 +15,9 @@ export interface ToolSummary {
 }
 
 type Args = Record<string, unknown>;
-type Summarizer = (args: Args, active: boolean) => ToolSummary;
+type Summarizer = (input: ToolInput, active: boolean) => ToolSummary;
 
 const MAX_SUBJECT = 120;
-
-const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 
 export function truncate(text: string, max = MAX_SUBJECT): string {
   const oneLine = text.replace(/\s*\n\s*/g, " ⏎ ").trim();
@@ -27,26 +26,26 @@ export function truncate(text: string, max = MAX_SUBJECT): string {
 
 const verb = (active: boolean, past: string, present: string) => (active ? present : past);
 
-export const toolSummarizers: Record<string, Summarizer> = {
-  bash: (a, active) => ({ verb: verb(active, "Ran", "Running"), subject: truncate(str(a.command) ?? ""), mono: true }),
-  read: (a, active) => {
-    const range =
-      typeof a.offset === "number" ? `:${a.offset}${typeof a.limit === "number" ? `-${a.offset + a.limit - 1}` : ""}` : "";
-    return { verb: verb(active, "Read", "Reading"), subject: `${str(a.path) ?? ""}${range}`, mono: true };
+/** Summaries per canonical kind; `other` has none (name + raw args preview). */
+export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
+  shell: (i, active) => ({ verb: verb(active, "Ran", "Running"), subject: truncate(i.command ?? ""), mono: true }),
+  read: (i, active) => {
+    const range = i.offset !== undefined ? `:${i.offset}${i.limit !== undefined ? `-${i.offset + i.limit - 1}` : ""}` : "";
+    return { verb: verb(active, "Read", "Reading"), subject: `${i.path ?? ""}${range}`, mono: true };
   },
-  write: (a, active) => ({ verb: verb(active, "Wrote", "Writing"), subject: str(a.path) ?? "", mono: true }),
-  edit: (a, active) => ({ verb: verb(active, "Edited", "Editing"), subject: str(a.path) ?? "", mono: true }),
-  grep: (a, active) => ({
+  write: (i, active) => ({ verb: verb(active, "Wrote", "Writing"), subject: i.path ?? "", mono: true }),
+  edit: (i, active) => ({ verb: verb(active, "Edited", "Editing"), subject: i.path ?? "", mono: true }),
+  search: (i, active) => ({
     verb: verb(active, "Searched", "Searching"),
-    subject: truncate(`${str(a.pattern) ?? ""}${str(a.path) ? ` in ${str(a.path)}` : ""}${str(a.glob) ? ` (${str(a.glob)})` : ""}`),
+    subject: truncate(`${i.pattern ?? ""}${i.path ? ` in ${i.path}` : ""}${i.glob ? ` (${i.glob})` : ""}`),
     mono: true,
   }),
-  find: (a, active) => ({
-    verb: verb(active, "Searched", "Searching"),
-    subject: truncate(`${str(a.pattern) ?? ""}${str(a.path) ? ` in ${str(a.path)}` : ""}`),
-    mono: true,
-  }),
-  ls: (a, active) => ({ verb: verb(active, "Listed", "Listing"), subject: str(a.path) ?? ".", mono: true }),
+  list: (i, active) => ({ verb: verb(active, "Listed", "Listing"), subject: i.path ?? ".", mono: true }),
+  web: (i, active) =>
+    i.url
+      ? { verb: verb(active, "Fetched", "Fetching"), subject: truncate(i.url), mono: true }
+      : { verb: verb(active, "Searched the web for", "Searching the web for"), subject: truncate(i.query ?? ""), mono: false },
+  task: (i, active) => ({ verb: verb(active, "Ran task", "Running task"), subject: truncate(i.description ?? ""), mono: false }),
 };
 
 /** Preview of arbitrary args: string/number values joined, truncated. */
@@ -58,8 +57,8 @@ export function argsPreview(args: Args): string {
 }
 
 /**
- * Best-effort extraction of complete string fields from partial JSON (tool args while they
- * are still streaming), so e.g. a bash command can be shown before the call is complete.
+ * Best-effort extraction of complete string fields from partial JSON: the raw args of an
+ * `other` tool while they are still streaming (known kinds get a normalized `input` instead).
  */
 export function partialArgs(argsText: string | undefined): Args {
   if (!argsText) return {};
@@ -81,11 +80,11 @@ export function partialArgs(argsText: string | undefined): Args {
   return out;
 }
 
-export function summarizeToolCall(call: Pick<ToolCallBlock, "name" | "args" | "argsText">, active: boolean): ToolSummary {
-  const args = call.args ?? partialArgs(call.argsText);
-  const summarizer = toolSummarizers[call.name];
-  if (summarizer) return summarizer(args, active);
-  return { verb: call.name, subject: argsPreview(args), mono: false };
+export function summarizeToolCall(call: Pick<ToolCallBlock, "name" | "kind" | "input" | "args" | "argsText">, active: boolean): ToolSummary {
+  // Looked up defensively: a kind this build doesn't know renders like `other`.
+  const summarizer = call.kind === "other" ? undefined : (toolSummarizers[call.kind] as Summarizer | undefined);
+  if (summarizer) return summarizer(call.input ?? {}, active);
+  return { verb: call.name, subject: argsPreview(call.args ?? partialArgs(call.argsText)), mono: false };
 }
 
 /** Header for a collapsed group of calls. */

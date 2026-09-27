@@ -98,6 +98,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Tool calls are described in an agent-neutral way (shell, read, edit, search…), so other agents'
+  tool calls will display just like pi's. pi chats look the same as before.
 - Under the hood, Glade can now run more than one kind of agent: each chat remembers which agent
   it was created with, settings are kept per agent (pi's are migrated automatically), and controls
   an agent doesn't support are hidden. pi works exactly as before.

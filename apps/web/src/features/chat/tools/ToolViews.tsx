@@ -48,7 +48,7 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const { call, result, status } = part;
   const active = isActiveStatus(status);
   const summary = summarizeToolCall(call, active);
-  const renderer = rendererFor(call.name);
+  const renderer = rendererFor(call.kind);
   const Icon = renderer.icon;
   const Badge = renderer.Badge;
   const expandable = status !== "streaming";

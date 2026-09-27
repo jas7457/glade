@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ToolResult } from "@glade/protocol";
 import { formatDuration, groupDuration, toolDuration } from "./duration";
 
-const r = (over: Partial<ToolResult>): ToolResult => ({ toolCallId: "t", toolName: "bash", status: "done", output: "", ...over });
+const r = (over: Partial<ToolResult>): ToolResult => ({ toolCallId: "t", toolName: "Bash", status: "done", output: "", ...over });
 
 describe("formatDuration", () => {
   it("formats seconds, minutes and hours", () => {

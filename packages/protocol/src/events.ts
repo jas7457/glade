@@ -4,7 +4,7 @@
  * {@link applyAgentEvent}.
  */
 import type { ModelRef, ThinkingLevel } from "./models.js";
-import type { ChatMessage, ContentBlock, ToolResult } from "./transcript.js";
+import type { ChatMessage, ContentBlock, ToolInput, ToolResult } from "./transcript.js";
 
 export interface SessionState {
   model: ModelRef | null;
@@ -67,8 +67,11 @@ export type AgentEvent =
   | { type: "message_start"; message: ChatMessage }
   /** A content block started streaming in the given message. */
   | { type: "block_start"; messageId: string; index: number; block: ContentBlock }
-  /** Text/thinking/tool-argument delta for a streaming block. */
-  | { type: "block_delta"; messageId: string; index: number; delta: string }
+  /**
+   * Text/thinking/tool-argument delta for a streaming block. For tool calls the adapter may add
+   * the normalized input parsed so far (replaces the block's `input`; I-068).
+   */
+  | { type: "block_delta"; messageId: string; index: number; delta: string; input?: ToolInput }
   /** Final version of a block. */
   | { type: "block_end"; messageId: string; index: number; block: ContentBlock }
   /** Authoritative final version of a message. */

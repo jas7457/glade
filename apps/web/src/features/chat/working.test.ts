@@ -21,12 +21,12 @@ describe("workingStatus", () => {
 
   it("shows Working… while running with nothing streaming (before the reply, between tool calls)", () => {
     expect(workingStatus(transcript(), running)).toEqual({ mounted: true, visible: true, label: "Working…" });
-    const done = reply([{ type: "toolCall", id: "t1", name: "bash", args: { command: "ls" } }], false);
+    const done = reply([{ type: "toolCall", id: "t1", name: "Bash", kind: "shell", input: { command: "ls" }, args: { command: "ls" } }], false);
     expect(workingStatus(transcript(done), running)).toEqual({ mounted: true, visible: true, label: "Working…" });
   });
 
   it("stays shown while a tool call's arguments stream, and while an empty message starts", () => {
-    const t = transcript(reply([{ type: "text", text: "Let me look." }, { type: "toolCall", id: "t1", name: "bash", args: undefined }]));
+    const t = transcript(reply([{ type: "text", text: "Let me look." }, { type: "toolCall", id: "t1", name: "Bash", kind: "shell", args: undefined }]));
     expect(workingStatus(t, running)).toMatchObject({ visible: true, label: "Working…" });
     expect(workingStatus(transcript(reply([])), running)).toMatchObject({ visible: true, label: "Working…" });
   });
@@ -40,7 +40,7 @@ describe("workingStatus", () => {
   it("stays hidden after the final reply until the run ends, but not after tool use", () => {
     const final = { ...reply([{ type: "text", text: "Done." }], false), stopReason: "stop" as const };
     expect(workingStatus(transcript(final), running)).toMatchObject({ mounted: true, visible: false });
-    const tools = { ...reply([{ type: "toolCall", id: "t1", name: "bash", args: {} }], false), stopReason: "toolUse" as const };
+    const tools = { ...reply([{ type: "toolCall", id: "t1", name: "Bash", kind: "shell", args: {} }], false), stopReason: "toolUse" as const };
     expect(workingStatus(transcript(tools), running).visible).toBe(true);
     // A new run that starts before its user message arrives: the old reply doesn't hide it.
     expect(workingStatus(transcript({ ...final, timestamp: 1_000 }), { ...running, runStartedAt: 2_000 }).visible).toBe(true);

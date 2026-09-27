@@ -1,6 +1,7 @@
 /**
- * Small pure text helpers for tool rendering.
+ * Small pure text helpers for tool rendering (harness-neutral: they only see protocol types).
  */
+import type { DiffLine, ToolEdit } from "@glade/protocol";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))/g;
@@ -29,61 +30,15 @@ export function languageFromPath(path: string | undefined): string {
   return EXT_LANG[name.slice(dot + 1)] ?? "";
 }
 
-export type DiffLine = { kind: "add" | "del" | "ctx" | "gap"; text: string; oldNo?: number; newNo?: number };
-
-/**
- * Parse pi's edit diff (`details.diff`): lines are `+NN text`, `-NN text`, ` NN text` or
- * ` <pad> ...` for skipped context.
- */
-export function parsePiDiff(diff: string): DiffLine[] {
-  const out: DiffLine[] = [];
-  for (const raw of diff.split("\n")) {
-    if (raw === "") continue;
-    const sign = raw[0];
-    const rest = raw.slice(1);
-    const m = /^(\s*)(\d*) ?(.*)$/.exec(rest);
-    if (!m) continue;
-    const [, , num, text = ""] = m;
-    if (!num && text.trim() === "...") {
-      out.push({ kind: "gap", text: "" });
-      continue;
-    }
-    const n = num ? Number(num) : undefined;
-    if (sign === "+") out.push({ kind: "add", text, newNo: n });
-    else if (sign === "-") out.push({ kind: "del", text, oldNo: n });
-    else out.push({ kind: "ctx", text, oldNo: n });
-  }
-  return out;
-}
-
-/** Diff lines built from edit args alone (before a result with a real diff exists). */
-export function diffFromEdits(edits: Array<{ oldText: string; newText: string }>): DiffLine[] {
+/** Diff lines built from an edit call's normalized edits (before a result with a real diff exists). */
+export function diffFromEdits(edits: readonly ToolEdit[]): DiffLine[] {
   const out: DiffLine[] = [];
   edits.forEach((e, i) => {
-    if (i > 0) out.push({ kind: "gap", text: "" });
-    for (const line of e.oldText.split("\n")) out.push({ kind: "del", text: line });
-    for (const line of e.newText.split("\n")) out.push({ kind: "add", text: line });
+    if (i > 0) out.push({ type: "gap", text: "" });
+    for (const line of e.oldText.split("\n")) out.push({ type: "del", text: line });
+    for (const line of e.newText.split("\n")) out.push({ type: "add", text: line });
   });
   return out;
-}
-
-/** Normalize pi edit args: `{edits:[...]}`, `{oldText,newText}` or edits as a JSON string. */
-export function editsFromArgs(args: Record<string, unknown> | undefined): Array<{ oldText: string; newText: string }> {
-  if (!args) return [];
-  const isEdit = (v: unknown): v is { oldText: string; newText: string } =>
-    !!v && typeof v === "object" && typeof (v as { oldText?: unknown }).oldText === "string" && typeof (v as { newText?: unknown }).newText === "string";
-  let edits: unknown = args.edits;
-  if (typeof edits === "string") {
-    try {
-      edits = JSON.parse(edits);
-    } catch {
-      edits = undefined;
-    }
-  }
-  if (Array.isArray(edits)) return edits.filter(isEdit);
-  if (isEdit(edits)) return [edits];
-  if (isEdit(args)) return [{ oldText: args.oldText, newText: args.newText }];
-  return [];
 }
 
 /** Count added/removed lines. */
@@ -91,8 +46,8 @@ export function diffStats(lines: DiffLine[]): { added: number; removed: number }
   let added = 0;
   let removed = 0;
   for (const l of lines) {
-    if (l.kind === "add") added++;
-    else if (l.kind === "del") removed++;
+    if (l.type === "add") added++;
+    else if (l.type === "del") removed++;
   }
   return { added, removed };
 }
