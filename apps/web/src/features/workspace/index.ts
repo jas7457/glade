@@ -4,5 +4,5 @@
  *   - openNewTab / closeTab / focusMainTab   tab actions (also used by shortcuts)
  */
 export { WorkspaceView, type WorkspaceViewProps } from "./WorkspaceView";
-export { closeTab, focusMainTab, focusSubagentTab, openNewTab, saveLayout, toggleMaximized, maximizedGroup } from "./layout-actions";
+export { closeTab, focusMainTab, focusSubagentTab, hideSubagentPane, openNewTab, openSubagent, saveLayout, toggleMaximized, maximizedGroup } from "./layout-actions";
 export type { TabGroupId } from "./layout";

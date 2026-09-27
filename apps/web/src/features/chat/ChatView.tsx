@@ -4,20 +4,25 @@
  *     The workspace layout (features/workspace, I-036) puts one in each tab group.
  *   - <ChatView workspaceId sessionId>: header + one pane (a single session, no tabs).
  */
+import type { ComponentChildren } from "preact";
 import { useChatSession } from "@/state/chat-session";
 import { workspacesById } from "@/state/store";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { Transcript, columnClass } from "./Transcript";
 
-/** `autoFocus` (default true): focus the composer when the pane mounts. */
-export function ChatPane({ sessionId, autoFocus = true }: { sessionId: string; autoFocus?: boolean }) {
+/**
+ * `autoFocus` (default true): focus the composer when the pane mounts. `aboveComposer`: shown
+ * between the transcript and the composer (the workspace's sub-agent strip, I-080).
+ */
+export function ChatPane({ sessionId, autoFocus = true, aboveComposer }: { sessionId: string; autoFocus?: boolean; aboveComposer?: ComponentChildren }) {
   // Marks the session as viewed (so finished runs don't turn unread) and loads it.
   useChatSession(sessionId);
   return (
     <div class="flex h-full min-h-0 flex-col bg-window">
       <Transcript chatId={sessionId} />
       <div class={`${columnClass} shrink-0 pb-4`}>
+        {aboveComposer}
         <Composer chatId={sessionId} autoFocus={autoFocus} />
       </div>
     </div>

@@ -40,6 +40,9 @@
   /* Modals (ui/Dialog.tsx, ui/AlertDialog.tsx): dimmed backdrop and the destructive button fill. */
   --color-backdrop: var(--pi-backdrop);
   --color-danger-fill: var(--pi-danger-fill);
+  /* Attention tints (I-080): a sub-agent chip that needs input (warning) or failed (danger). */
+  --color-warning-tint: var(--pi-warning-tint);
+  --color-danger-tint: var(--pi-danger-tint);
 
   --radius-control: 6px;
   --radius-panel: 10px;
@@ -84,6 +87,8 @@
   --pi-dialog-shadow: 0 4px 12px rgb(0 0 0 / 0.08), 0 24px 64px -12px rgb(0 0 0 / 0.35);
   --pi-backdrop: rgb(0 0 0 / 0.28);
   --pi-danger-fill: #e5484d;
+  --pi-warning-tint: color-mix(in srgb, var(--pi-warning) 12%, transparent);
+  --pi-danger-tint: color-mix(in srgb, var(--pi-danger) 10%, transparent);
   /*
    * Chat colour (I-077). Markdown accents (features/chat/markdown.css): inline code, list
    * markers, links, headings, quote border, table header. Text colours meet WCAG AA on the
@@ -146,6 +151,8 @@
   --pi-dialog-shadow: 0 4px 16px rgb(0 0 0 / 0.35), 0 28px 72px -12px rgb(0 0 0 / 0.7);
   --pi-backdrop: rgb(0 0 0 / 0.5);
   --pi-danger-fill: #d9363e;
+  --pi-warning-tint: color-mix(in srgb, var(--pi-warning) 14%, transparent);
+  --pi-danger-tint: color-mix(in srgb, var(--pi-danger) 14%, transparent);
   --pi-md-code: #5fd4c4;
   --pi-md-code-bg: color-mix(in srgb, var(--pi-md-code) 11%, transparent);
   --pi-md-link: #4ea4ff;

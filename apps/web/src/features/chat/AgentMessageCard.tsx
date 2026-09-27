@@ -5,13 +5,17 @@
  * expanding renders the body as Markdown with a copy button, and the "still open" note as a
  * muted footnote. The text is recognized with `parseAgentMessage` (protocol), so live messages
  * and history look the same.
+ *
+ * In the main chat of a workspace (I-080) the agent's name is a link that opens the agent in the
+ * right-hand pane (while it still exists), with an "Open" button on the row for the keyboard.
  */
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
-import { Bot, Check, ChevronRight, Copy, MessageSquare, OctagonAlert } from "lucide-preact";
+import { Bot, Check, ChevronRight, Copy, MessageSquare, OctagonAlert, PanelRight } from "lucide-preact";
 import type { AgentMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { IconButton } from "@/ui";
+import { useAgentLinks } from "./agent-links";
 import { Markdown } from "./Markdown";
 import "./chat.css";
 
@@ -22,7 +26,23 @@ const kinds = {
 } as const;
 
 function Name({ children }: { children: string }) {
-  return <span class="font-medium text-fg-strong">{children}</span>;
+  const links = useAgentLinks();
+  if (!links?.canOpen(children)) return <span class="font-medium text-fg-strong">{children}</span>;
+  // Inside the row's toggle button, so a click opens the agent instead of expanding the card;
+  // the row's "Open" button is the keyboard route.
+  return (
+    <span
+      data-agent-link
+      title={`Open ${children}`}
+      class="font-medium text-fg-strong hover:underline"
+      onClick={(e) => {
+        e.stopPropagation();
+        links.open(children);
+      }}
+    >
+      {children}
+    </span>
+  );
 }
 
 /**
@@ -47,6 +67,8 @@ export const AgentMessageCard = memo(function AgentMessageCard({ message, defaul
   const { icon: Icon, tone, title } = kinds[message.kind];
   const body = message.body.trim();
   const preview = agentPreview(body);
+  const links = useAgentLinks();
+  const canOpen = message.from !== "main" && !!links?.canOpen(message.from);
   const copy = () => {
     void navigator.clipboard?.writeText(body).then(() => {
       setCopied(true);
@@ -78,6 +100,11 @@ export const AgentMessageCard = memo(function AgentMessageCard({ message, defaul
             class={cn("shrink-0 text-fg-subtle transition-transform", open && "rotate-90")}
           />
         </button>
+        {canOpen && (
+          <IconButton label={`Open ${message.from}`} size="sm" onClick={() => links?.open(message.from)}>
+            <PanelRight />
+          </IconButton>
+        )}
         {open && body && (
           <IconButton label={copied ? "Copied" : "Copy"} size="sm" onClick={copy}>
             {copied ? <Check /> : <Copy />}

@@ -1,8 +1,8 @@
-/** Workspace tabs (I-036): main tabs, sub-agent pane, new/close/switch, maximize, saved layout. */
+/** Workspace tabs (I-036): main tabs, sub-agent pane (+ strip, I-080), new/close/switch, maximize, saved layout. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSettings, type WorkspaceLayout } from "@glade/protocol";
+import { defaultSettings, formatAgentFinished, type WorkspaceLayout } from "@glade/protocol";
 import { ConfirmHost, TooltipProvider } from "@/ui";
 import { models, projects, sessions, settings, workspaces } from "@/state/store";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
@@ -23,6 +23,7 @@ vi.mock("@/lib/api", () => ({
     deleteSession: vi.fn(async () => undefined),
     deleteWorkspace: vi.fn(async () => undefined),
     prompt: vi.fn(async () => undefined),
+    abort: vi.fn(async () => undefined),
   },
 }));
 vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
@@ -57,7 +58,7 @@ beforeEach(() => {
   settings.value = defaultSettings();
   models.value = [];
   projects.value = [makeProject({ id: "p" })];
-  workspaces.value = [makeWorkspace({ id: "w", projectId: "p", title: "Workspace" })];
+  workspaces.value = [makeWorkspace({ id: "w", projectId: "p", title: "Workspace", layout: { subagentPaneOpen: true } })];
   sessions.value = [
     makeSession({ id: "m1", workspaceId: "w", title: "Fix login", createdAt: 1, status: "working" }),
     makeSession({ id: "m2", workspaceId: "w", title: "Tab 2", createdAt: 2 }),
@@ -85,14 +86,14 @@ describe("WorkspaceView", () => {
     expect(mainTabs()[1]!.getAttribute("aria-selected")).toBe("true");
     expect(subTablist()).toBeNull();
     expect(screen.queryByRole("separator", { name: "Resize sub-agents" })).toBeNull();
-    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { activeMainSessionId: "m2" } });
+    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, activeMainSessionId: "m2" } });
   });
 
   it("remembers the focused sub-agent per main tab", async () => {
     renderAt("/projects/p/chats/w");
     fireEvent.click(within(subTablist()!).getByRole("tab", { name: /tests/ }));
     await waitFor(() => expect(within(subTablist()!).getByRole("tab", { name: /tests/ }).getAttribute("aria-selected")).toBe("true"));
-    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { activeSubagentSessionId: { m1: "a2" } } });
+    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, activeSubagentSessionId: { m1: "a2" } } });
   });
 
   it("opens a new tab with + and focuses it", async () => {
@@ -108,7 +109,7 @@ describe("WorkspaceView", () => {
     await waitFor(() => expect(router.state.location.search).toBe("?tab=m3"));
     expect(api.createSession).toHaveBeenCalledWith("w", {});
     expect(mainTabs().map((t) => t.textContent)).toEqual(["Fix login", "Tab 2", "New chat"]);
-    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { mainOrder: ["m1", "m2", "m3"], activeMainSessionId: "m3" } });
+    expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, mainOrder: ["m1", "m2", "m3"], activeMainSessionId: "m3" } });
   });
 
   it("closes a tab (asking when it has history) and focuses its neighbour", async () => {
@@ -212,5 +213,107 @@ describe("WorkspaceView", () => {
     // The server deletes an agent once it closes (session_removed): its tab goes away.
     sessions.value = sessions.value.filter((s) => s.id !== "a1");
     return waitFor(() => expect(within(subTablist()!).getAllByRole("tab").map((t) => t.textContent)).toEqual(["tests"]));
+  });
+
+  describe("sub-agent strip and pane (I-080)", () => {
+    const strip = () => screen.getByRole("region", { name: "Sub-agents" });
+    const closedPane = () => {
+      workspaces.value = [makeWorkspace({ id: "w", projectId: "p", title: "Workspace" })];
+    };
+
+    it("keeps the pane closed by default and shows a strip row per agent above the composer", () => {
+      closedPane();
+      renderAt("/projects/p/chats/w");
+      expect(subTablist()).toBeNull();
+      expect(screen.queryByRole("separator", { name: "Resize sub-agents" })).toBeNull();
+      const rows = within(strip()).getAllByRole("button", { name: /^Open / });
+      expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Open reviewer (Idle)", "Open tests (Idle)"]);
+    });
+
+    it("clicking an agent opens it in the pane; hiding keeps it (and saves the state)", async () => {
+      closedPane();
+      renderAt("/projects/p/chats/w");
+      fireEvent.click(within(strip()).getByRole("button", { name: /^Open tests/ }));
+      await waitFor(() => expect(subTablist()).not.toBeNull());
+      expect(within(subTablist()!).getByRole("tab", { name: /tests/ }).getAttribute("aria-selected")).toBe("true");
+      expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { subagentPaneOpen: true, activeSubagentSessionId: { m1: "a2" } } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Hide Sub-agents (Esc)" }));
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.updateWorkspace).toHaveBeenLastCalledWith("w", { layout: { subagentPaneOpen: false, activeSubagentSessionId: { m1: "a2" } } });
+      expect(api.deleteSession).not.toHaveBeenCalled();
+      expect(within(strip()).getAllByRole("button", { name: /^Open / })).toHaveLength(2);
+    });
+
+    it("Esc inside the pane hides it", async () => {
+      renderAt("/projects/p/chats/w");
+      fireEvent.keyDown(within(subTablist()!).getAllByRole("tab")[0]!, { key: "Escape" });
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("⌘W on the pane's last tab hides the pane instead of closing the agent", async () => {
+      sessions.value = sessions.value.filter((s) => s.id !== "a2");
+      renderAt("/projects/p/chats/w");
+      within(subTablist()!).getAllByRole("tab")[0]!.focus();
+      fireEvent.keyDown(window, { key: "w", metaKey: true });
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+
+    it("collapses many agents to a summary line with pills and Stop all when expanded", async () => {
+      closedPane();
+      const running = { agent: null, task: "t", keepOpenReason: null, userEngaged: false, closing: false, doneAt: null, result: null };
+      sessions.value = [
+        ...sessions.value.map((s) => (s.id === "a1" ? { ...s, status: "working" as const, agent: { ...running, status: "working" as const } } : s)),
+        makeSession({ id: "a3", workspaceId: "w", kind: "subagent", parentSessionId: "m1", agentName: "docs", title: "docs", createdAt: 5, status: "blocked" }),
+      ];
+      renderAt("/projects/p/chats/w");
+      expect(strip().querySelector("[data-strip-summary]")!.textContent).toBe("3 agents · 1 needs input · 1 working · 1 idle");
+      expect(strip().querySelectorAll("[data-agent-chip]")).toHaveLength(0);
+      fireEvent.click(within(strip()).getByRole("button", { name: "Open docs" }));
+      await waitFor(() => expect(subTablist()).not.toBeNull());
+
+      fireEvent.click(within(strip()).getByRole("button", { expanded: false, name: /3 agents/ }));
+      expect(strip().querySelectorAll("[data-agent-chip]")).toHaveLength(3);
+      expect(strip().querySelector('[data-agent-chip="blocked"]')!.getAttribute("data-attention")).toBe("warning");
+      fireEvent.click(within(strip()).getByRole("button", { name: /Stop all/ }));
+      await waitFor(() => expect(api.abort).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(api.abort).mock.calls.map((c) => c[0]).sort()).toEqual(["a1", "a3"]);
+    });
+
+    it("a sub-agent's row expands to its task and report, with Open", async () => {
+      closedPane();
+      sessions.value = sessions.value.map((s) =>
+        s.id === "a1"
+          ? { ...s, agent: { agent: null, task: "Review login\nmore", keepOpenReason: null, userEngaged: false, closing: false, doneAt: 10, status: "done" as const, result: "All **good**." } }
+          : s,
+      );
+      renderAt("/projects/p/chats/w");
+      const row = strip().querySelector('[data-agent-chip="done"]') as HTMLElement;
+      expect(row.textContent).toContain("All good.");
+      fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
+      const details = row.querySelector("[data-agent-details]") as HTMLElement;
+      expect(details.textContent).toContain("Task: Review login");
+      await waitFor(() => expect(details.textContent).toContain("All good."));
+      fireEvent.click(within(details).getByRole("button", { name: /Open/ }));
+      await waitFor(() => expect(subTablist()).not.toBeNull());
+    });
+
+    it("clicking the agent's name in a report card opens it in the pane", async () => {
+      closedPane();
+      const store = getChatSession("m1");
+      store.transcript.value = {
+        messages: [{ id: "u1", role: "user", content: [{ type: "text", text: formatAgentFinished("reviewer", "Looks good.") }], timestamp: 1 }],
+        toolResults: {},
+      };
+      store.status.value = "ready";
+      renderAt("/projects/p/chats/w");
+      const card = await waitFor(() => document.querySelector('[data-role="agent-message"]') as HTMLElement);
+      fireEvent.click(card.querySelector("[data-agent-link]")!);
+      await waitFor(() => expect(subTablist()).not.toBeNull());
+      expect(within(subTablist()!).getByRole("tab", { name: /reviewer/ }).getAttribute("aria-selected")).toBe("true");
+    });
   });
 });

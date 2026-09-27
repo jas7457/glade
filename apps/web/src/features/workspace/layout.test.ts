@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeSubagentId, clampPaneSize, cycleTab, mergeLayout, neighbourAfterClose, withoutSession } from "./layout";
+import { activeSubagentId, clampPaneSize, cycleTab, isSubagentPaneOpen, mergeLayout, openSubagentPatch, neighbourAfterClose, withoutSession } from "./layout";
 
 describe("workspace layout helpers", () => {
   it("clamps the pane size and defaults to half", () => {
@@ -45,5 +45,14 @@ describe("workspace layout helpers", () => {
     );
     expect(layout).toEqual({ mainOrder: ["a"], activeMainSessionId: null, activeSubagentSessionId: { a: "y" }, subagentPaneSize: 0.3 });
     expect(withoutSession({ activeSubagentSessionId: { a: "y" } }, "y").activeSubagentSessionId).toEqual({});
+  });
+
+  it("keeps the sub-agent pane closed unless opened; opening focuses the agent (I-080)", () => {
+    expect(isSubagentPaneOpen(null)).toBe(false);
+    expect(isSubagentPaneOpen({ activeSubagentSessionId: { m1: "a" } })).toBe(false);
+    const opened = mergeLayout({ subagentPaneSize: 0.3, activeSubagentSessionId: { m2: "x" } }, openSubagentPatch("m1", "b"));
+    expect(opened).toEqual({ subagentPaneSize: 0.3, subagentPaneOpen: true, activeSubagentSessionId: { m2: "x", m1: "b" } });
+    expect(isSubagentPaneOpen(opened)).toBe(true);
+    expect(isSubagentPaneOpen(mergeLayout(opened, { subagentPaneOpen: false }))).toBe(false);
   });
 });

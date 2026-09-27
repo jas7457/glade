@@ -30,6 +30,16 @@ export function activeSubagentId(
   return (wanted && subagentIds.includes(wanted) ? wanted : subagentIds[0]) ?? null;
 }
 
+/** The sub-agent pane is open (I-080): closed unless the user opened an agent from the strip. */
+export function isSubagentPaneOpen(layout: WorkspaceLayout | null | undefined): boolean {
+  return layout?.subagentPaneOpen === true;
+}
+
+/** Layout patch that opens the pane on `subagentId` (a sub-agent of `mainSessionId`). */
+export function openSubagentPatch(mainSessionId: string, subagentId: string): WorkspaceLayout {
+  return { subagentPaneOpen: true, activeSubagentSessionId: { [mainSessionId]: subagentId } };
+}
+
 /** The tab `delta` steps from `current` (wrapping). `null` when there's nothing to move to. */
 export function cycleTab(ids: readonly string[], current: string | null, delta: 1 | -1): string | null {
   if (ids.length === 0) return null;

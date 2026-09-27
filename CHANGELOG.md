@@ -106,6 +106,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agents show as a compact list above the composer (status, model, what each is doing, time),
+  with Stop all. Their conversation opens on the right only when you click one, and closing that pane
+  keeps them running.
 - `pnpm tauri:install` no longer quits Glade: it replaces the app on disk and the new version starts
   the next time you open it (`--when-idle` is gone).
 - "Working…" and "Thinking…" are grey again with a small rainbow shimmer sweeping across, instead

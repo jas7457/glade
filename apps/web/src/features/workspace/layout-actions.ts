@@ -14,7 +14,7 @@ import { createSession, deleteSession, deleteWorkspace, updateWorkspace } from "
 import { getChatSession } from "@/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@/state/store";
 import { confirm } from "@/ui";
-import { mergeLayout, neighbourAfterClose, withoutSession, type TabGroupId } from "./layout";
+import { mergeLayout, neighbourAfterClose, openSubagentPatch, withoutSession, type TabGroupId } from "./layout";
 
 export type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -46,6 +46,19 @@ export function focusMainTab(workspaceId: string, sessionId: string, navigate: N
 export function focusSubagentTab(workspaceId: string, mainSessionId: string, sessionId: string): void {
   const saved = workspacesById.value.get(workspaceId)?.layout?.activeSubagentSessionId?.[mainSessionId];
   if (saved !== sessionId) void saveLayout(workspaceId, { activeSubagentSessionId: { [mainSessionId]: sessionId } });
+}
+
+/** Open a sub-agent in the right-hand pane (I-080: clicking it in the strip or a report card). */
+export function openSubagent(workspaceId: string, mainSessionId: string, sessionId: string): void {
+  const layout = workspacesById.value.get(workspaceId)?.layout;
+  if (layout?.subagentPaneOpen && layout.activeSubagentSessionId?.[mainSessionId] === sessionId) return;
+  void saveLayout(workspaceId, openSubagentPatch(mainSessionId, sessionId));
+}
+
+/** Hide the sub-agent pane (×, Esc, ⌘W on its last tab); its agents keep running. */
+export function hideSubagentPane(workspaceId: string): void {
+  if (maximizedGroup.value[workspaceId] === "subagents") toggleMaximized(workspaceId, "subagents");
+  if (workspacesById.value.get(workspaceId)?.layout?.subagentPaneOpen) void saveLayout(workspaceId, { subagentPaneOpen: false });
 }
 
 /** "+" / ⌘T: a new conversation in the workspace's folder, focused and added at the end. */

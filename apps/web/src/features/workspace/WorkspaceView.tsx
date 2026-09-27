@@ -1,7 +1,11 @@
 /**
  * Workspace screen (I-036): the workspace header, then its main sessions as tabs on the left
- * and the **active main tab's** sub-agents as tabs in a resizable right pane (hidden when it has
- * none). Double-click a tab to maximize its group (again to restore). The layout (tab order,
+ * and the **active main tab's** sub-agents as tabs in a resizable right pane.
+ *
+ * Sub-agents (I-080): the main chat shows a summary strip above its composer; the pane is
+ * closed by default (even when agents spawn) and opens when an agent is clicked there or in a
+ * report card. Hiding it (its × button, Esc inside it, ⌘W on its last tab) leaves the agents
+ * running. Open state and width are saved in the workspace layout. Double-click a tab to maximize its group (again to restore). The layout (tab order,
  * focused tabs, pane width) is saved with the workspace; the URL's `?tab=` is the focused main tab.
  *
  * Tab shortcuts: ⌘T new tab, ⌘W close the focused group's tab, ⌃Tab / ⌃⇧Tab cycle the focused
@@ -10,7 +14,7 @@
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, Pencil, Plus, X } from "lucide-preact";
+import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
 import { markSessionRead, markSessionUnread, renameFromSession } from "@/state/actions";
@@ -18,15 +22,19 @@ import { mainSessionsFor, sessions, workspacesById } from "@/state/store";
 import { IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, formatShortcut, type TabStripTab } from "@/ui";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
+import { AgentLinksContext, type AgentLinks } from "@/features/chat/agent-links";
 import { AgentBar } from "./AgentBar";
+import { SubagentStrip } from "./SubagentStrip";
 import { agentDisplay } from "./agent-status";
-import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, type TabGroupId } from "./layout";
+import { activeSubagentId, clampPaneSize, cycleTab, DEFAULT_SUBAGENT_PANE_SIZE, isSubagentPaneOpen, type TabGroupId } from "./layout";
 import {
   closeTab,
   focusMainTab,
   focusSubagentTab,
+  hideSubagentPane,
   maximizedGroup,
   openNewTab,
+  openSubagent,
   saveLayout,
   tabTitle,
   toggleMaximized,
@@ -52,7 +60,8 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   );
   const activeSubSession = subagents.find((s) => s.id === activeSub);
   const maximized = maximizedGroup.value[workspaceId];
-  const showSubagents = activeSub !== null && maximized !== "main";
+  const paneOpen = isSubagentPaneOpen(workspace?.layout);
+  const showSubagents = paneOpen && activeSub !== null && maximized !== "main";
   const showMain = !(maximized === "subagents" && showSubagents);
 
   // Live pane size while dragging; the saved one otherwise.
@@ -75,6 +84,18 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     setSubagentFocus(true);
     focusSubagentTab(workspaceId, sessionId, id);
   };
+  const openSub = (id: string) => {
+    setSubagentFocus(true);
+    openSubagent(workspaceId, sessionId, id);
+  };
+  const hidePane = () => hideSubagentPane(workspaceId);
+  const agentLinks: AgentLinks = {
+    canOpen: (name) => subagents.some((s) => s.agentName === name),
+    open: (name) => {
+      const agent = subagents.find((s) => s.agentName === name);
+      if (agent) openSub(agent.id);
+    },
+  };
   const close = (session: SessionSummary | undefined, focused: boolean) => {
     if (session) void closeTab(session, navigate, { focused });
   };
@@ -83,7 +104,11 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   useTabShortcuts({
     "new-tab": newTab,
     "close-tab": () => {
-      if (focusedGroup() === "subagents") close(subagents.find((s) => s.id === activeSub), true);
+      // ⌘W on the pane's last tab hides the pane; the agent keeps running (I-080).
+      if (focusedGroup() === "subagents") {
+        if (subagents.length <= 1) hidePane();
+        else close(subagents.find((s) => s.id === activeSub), true);
+      }
       else close(main.find((s) => s.id === sessionId), true);
     },
     "next-tab": () => cycle(1),
@@ -108,7 +133,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   }
 
   const tabFor = (s: SessionSummary, group: TabGroupId, closable: boolean): TabStripTab => {
-    const canMaximize = group === "subagents" || activeSub !== null;
+    const canMaximize = group === "subagents" || showSubagents;
     const isMax = maximized === group;
     // Sub-agents (I-054): ✓ once done, ⊘ when stopped; the tooltip has the task and result.
     const agent = agentDisplay(s);
@@ -171,7 +196,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         panelId={`tabpanel-${workspaceId}-main`}
         onSelect={selectMain}
         onClose={(id) => close(main.find((s) => s.id === id), id === sessionId)}
-        onTabDoubleClick={() => activeSub !== null && toggleMaximized(workspaceId, "main")}
+        onTabDoubleClick={() => showSubagents && toggleMaximized(workspaceId, "main")}
         renamingId={renaming}
         onRenameDone={onRenameDone}
         actions={
@@ -181,13 +206,30 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         }
       />
       <div id={`tabpanel-${workspaceId}-main`} role="tabpanel" class="min-h-0 flex-1">
-        <ChatPane key={sessionId} sessionId={sessionId} />
+        <AgentLinksContext.Provider value={agentLinks}>
+          <ChatPane
+            key={sessionId}
+            sessionId={sessionId}
+            aboveComposer={<SubagentStrip subagents={subagents} openId={showSubagents ? activeSub : null} onOpen={openSub} />}
+          />
+        </AgentLinksContext.Provider>
       </div>
     </div>
   );
 
   const subagentGroup = activeSub && (
-    <div ref={subagentGroupRef} class="flex h-full min-h-0 flex-col" data-tab-group="subagents">
+    <div
+      ref={subagentGroupRef}
+      class="flex h-full min-h-0 flex-col"
+      data-tab-group="subagents"
+      onKeyDown={(e) => {
+        // Esc hides the pane unless something inside used it (stopping a run, closing a menu…).
+        if (e.key === "Escape" && !e.defaultPrevented) {
+          e.preventDefault();
+          hidePane();
+        }
+      }}
+    >
       <TabStrip
         label="Sub-agents"
         tabs={subagents.map((s) => tabFor(s, "subagents", true))}
@@ -198,6 +240,11 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
         onTabDoubleClick={() => toggleMaximized(workspaceId, "subagents")}
         renamingId={renaming}
         onRenameDone={onRenameDone}
+        actions={
+          <IconButton size="sm" label="Hide Sub-agents (Esc)" onClick={hidePane}>
+            <PanelRightClose />
+          </IconButton>
+        }
       />
       <div id={`tabpanel-${workspaceId}-subagents`} role="tabpanel" class="flex min-h-0 flex-1 flex-col">
         {activeSubSession && <AgentBar key={activeSub} session={activeSubSession} />}
