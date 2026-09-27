@@ -171,7 +171,7 @@ Bearer <token>`; the token names the calling session):
 | Method | Path | Body → result |
 | --- | --- | --- |
 | GET | `/agents` | → `ListAgentsResponse` (a main session's sub-agents, or a sub-agent's teammates) |
-| POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429) |
+| POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429). Model/thinking: the request's → `settings.models.subagentModel`/`subagentThinkingLevel` (if the parent's harness lists the model) → the parent's (I-078) |
 | POST | `/agents/message` | `{ to, text }` → 204; `to: "main"` = the parent |
 | POST | `/agents/close` | `{ name }` → `{ closed, alreadyClosed? }` (now if idle, else at the end of its turn, 30 s max); closing a closed agent is not an error (`alreadyClosed: true`), 404 only for unknown names |
 | POST | `/agents/report-done` | `{ summary, keepOpen? }` → `{ closing }`; sub-agents only |
@@ -350,6 +350,7 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | PUT    | `/sessions/:id/model`         | `ModelRef` → 204                               |
 | PUT    | `/sessions/:id/thinking`      | `{ level }` → 204                              |
 | POST   | `/sessions/:id/ui-response`   | `UiResponse` → 204                             |
+| POST   | `/sessions/:id/title/generate` | → `GenerateTitleResponse { title, session }`: names the chat from its conversation with the small model (I-074); 409 no messages yet, 501 harness can't |
 | GET    | `/sessions/:id/commands`      | → `SlashCommand[]`: the harness's commands only (extensions, skills, prompts); built-ins live in the web app |
 | POST   | `/sessions/:id/compact`       | `{ instructions? }` (body optional) → `CompactResult`; 409 while a reply is running |
 | POST   | `/sessions/:id/export`        | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
@@ -579,9 +580,12 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **UI kit**: own components on Radix primitives (via preact/compat), styled like macOS.
 - **Markdown**: Streamdown (handles incomplete markdown while streaming) + `@streamdown/code`.
 - **Titles**: instant title from the first message, then (if enabled) replaced by a model-generated
-  title via a one-shot `pi -p`. User-edited titles are never overwritten. The title model is
-  `settings.models.titleModel`, or when unset `anthropic/claude-haiku-4-5` if the harness lists it,
-  else the chat's model (a default, not a stored value).
+  title via the harness's one-shot `complete` (`harness/title.ts`). User-edited titles are never
+  overwritten. `/name` without a title (`POST /sessions/:id/title/generate`, I-074) names the chat
+  from a conversation excerpt with the same prompt and marks it user-set. One **small model** does
+  all quick tasks (titles, `/name`, summaries, the ⌘K finder): `settings.models.smallModel`, or when
+  unset `anthropic/claude-haiku-4-5` if the harness lists it, else the chat's model (a default, not a
+  stored value; the old `titleModel` key is migrated).
 - **Tool grouping** is a pure function with options (e.g. whether thinking breaks a group) so the
   behaviour can be changed in one place.
 - **Closed sub-agents are deleted** (I-055, user decision 2026-09-26): closing a sub-agent removes

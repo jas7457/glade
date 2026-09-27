@@ -53,7 +53,7 @@ export function GeneralSettings() {
         </FormRow>
         <FormRow
           label="Summarize chats"
-          description="Write a one-line summary of each chat with the title model after it replies, so “Ask” in the command palette (⌘K, then ⇥) finds chats more reliably."
+          description="Write a one-line summary of each chat with the small model after it replies, so “Ask” in the command palette (⌘K, then ⇥) finds chats more reliably."
         >
           <Switch
             aria-label="Summarize chats"

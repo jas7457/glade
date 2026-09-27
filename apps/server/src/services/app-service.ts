@@ -15,6 +15,7 @@ import {
   deriveChatStatus,
   emptyTranscript,
   firstMainSession,
+  messageText as transcriptText,
   quickTitle,
   rollupWorkspace,
   sameModel,
@@ -26,6 +27,7 @@ import {
   type CreateWorkspaceRequest,
   type CreateWorkspaceResponse,
   type DeepPartial,
+  type GenerateTitleResponse,
   type ListAgentsResponse,
   type MessageAgentRequest,
   type HarnessInfo,
@@ -58,7 +60,7 @@ import {
   type WorkspaceSummary,
 } from "@glade/protocol";
 import type { HarnessRegistry } from "../harness/registry.js";
-import { canGenerateTitles, generateTitleWith } from "../harness/title.js";
+import { canGenerateTitles, conversationExcerpt, generateTitleWith } from "../harness/title.js";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store, StoreChange } from "../store/store.js";
 import {
@@ -93,8 +95,8 @@ function formatMB(bytes: number): string {
   return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
 }
 
-/** Default title model when `settings.models.titleModel` is unset (used only if available). */
-export const DEFAULT_TITLE_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
+/** Default small model when `settings.models.smallModel` is unset (used only if available). */
+export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
 
 /** True when `ids` holds exactly the ids in `expected`, each once. */
 function sameIdSet(ids: string[], expected: string[]): boolean {
@@ -855,11 +857,11 @@ export class AppService {
     if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
     const workspace = this.store.getWorkspace(session.workspaceId);
     if (!workspace) return;
-    // The chat's own harness writes its title (the title model is one of its models).
+    // The chat's own harness writes its title (the small model is one of its models).
     const title = await generateTitleWith(harness, {
       firstMessage,
       cwd: workspace.cwd,
-      model: settings.models.titleModel ?? (await this.defaultTitleModel(harness)) ?? session.model,
+      model: settings.models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model,
     });
     const current = this.store.getSession(id);
     if (!title || !current || current.titleSource !== "auto") return;
@@ -869,10 +871,61 @@ export class AppService {
     await this.live.get(id)?.session.setTitle(title).catch(() => {});
   }
 
-  /** Titles use a cheap, fast model by default (Haiku) when it's available. */
-  private async defaultTitleModel(harness: AgentHarness): Promise<ModelRef | null> {
+  /**
+   * `/name` without a title (I-074): name the session from its conversation (first user message +
+   * the latest few texts) with the small model, applied like a rename (`titleSource: "user"`;
+   * while it's the workspace's only main tab the workspace is renamed with it).
+   */
+  async generateSessionTitle(id: string): Promise<GenerateTitleResponse> {
+    const session = this.requireSession(id);
+    const harness = this.requireHarness(session);
+    if (!canGenerateTitles(harness)) throw new HttpError(501, `${harness.info.label} can't generate titles`);
+    const workspace = this.requireWorkspace(session.workspaceId);
+    const messages = await this.conversationText(session, harness);
+    const excerpt = conversationExcerpt(messages);
+    const firstMessage = messages.find((m) => m.role === "user" && m.text.trim())?.text;
+    if (!excerpt || !firstMessage) throw new HttpError(409, "Nothing to name yet: this chat has no messages");
+    const title = await generateTitleWith(harness, {
+      firstMessage,
+      excerpt,
+      cwd: workspace.cwd,
+      model: await this.smallModelFor(harness, session),
+    });
+    if (!title) throw new HttpError(500, "The model didn't come up with a title");
+    const current = this.requireSession(id);
+    const mainTabs = this.store.listSessions(current.workspaceId).filter((s) => s.kind === "main");
+    if (current.kind === "main" && mainTabs.length <= 1) await this.updateWorkspace(current.workspaceId, { title });
+    else await this.renameSession(current, title);
+    return { title, session: this.summarizeSession(this.requireSession(id)) };
+  }
+
+  /** The user/assistant texts of a session: live transcript, else its persisted data. */
+  private async conversationText(session: Session, harness: AgentHarness): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
+    const fromTranscript = (t: Transcript) =>
+      t.messages.flatMap((m) => (m.role === "user" || m.role === "assistant" ? [{ role: m.role, text: transcriptText(m) }] : []));
+    const live = this.live.get(session.id);
+    if (live) return fromTranscript(live.transcript);
+    if (!session.sessionRef) return [];
+    if (harness.readSessionText) {
+      const text = await harness.readSessionText(session.sessionRef).catch(() => null);
+      if (text) return text.messages;
+    }
+    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
+    return transcript ? fromTranscript(transcript) : [];
+  }
+
+  /**
+   * The small model for quick tasks (titles, `/name`; I-074): `settings.models.smallModel`, else
+   * Haiku when the harness lists it, else the session's model.
+   */
+  private async smallModelFor(harness: AgentHarness, session: Session): Promise<ModelRef | null> {
+    return this.store.getSettings().models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model;
+  }
+
+  /** Quick tasks use a cheap, fast model by default (Haiku) when it's available. */
+  private async defaultSmallModel(harness: AgentHarness): Promise<ModelRef | null> {
     const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => sameModel(m, DEFAULT_TITLE_MODEL)) ? DEFAULT_TITLE_MODEL : null;
+    return models.some((m) => sameModel(m, DEFAULT_SMALL_MODEL)) ? DEFAULT_SMALL_MODEL : null;
   }
 
   async abort(id: string): Promise<void> {
@@ -1008,11 +1061,16 @@ export class AppService {
     if (req.keepOpen && !keepOpenReason) {
       throw new HttpError(400, "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.");
     }
-    const model = req.model ? await this.resolveModel(this.requireHarness(caller), req.model) : caller.model;
+    // Precedence (I-078): the spawn request / agent definition → the sub-agent settings → the parent's.
+    const harness = this.requireHarness(caller);
+    const settingsModels = this.store.getSettings().models;
+    const model = req.model
+      ? await this.resolveModel(harness, req.model)
+      : ((await this.availableModel(harness, settingsModels.subagentModel)) ?? caller.model);
     if (req.thinking !== undefined && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
       throw new HttpError(400, `thinking must be one of ${THINKING_LEVELS.join(", ")}`);
     }
-    const thinkingLevel = (req.thinking as ThinkingLevel | undefined) ?? caller.thinkingLevel;
+    const thinkingLevel = (req.thinking as ThinkingLevel | undefined) ?? settingsModels.subagentThinkingLevel ?? caller.thinkingLevel;
 
     // No awaits from here until the record is registered, so parallel spawns can't overshoot.
     if (this.agents.findActive(caller.id, name)) throw new HttpError(409, `An agent named "${name}" is already running. Pick another name.`);
@@ -1059,6 +1117,13 @@ export class AppService {
       },
     );
     return { agent: agentInfo(this.agents.get(detail.session.id) ?? record!, detail.session.running) };
+  }
+
+  /** `model` when the harness lists it, else `null` (a setting's model from another harness). */
+  private async availableModel(harness: AgentHarness, model: ModelRef | null): Promise<ModelRef | null> {
+    if (!model) return null;
+    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
+    return models.some((m) => sameModel(m, model)) ? model : null;
   }
 
   /** `provider/id`, or a bare id matched against the harness's models. */

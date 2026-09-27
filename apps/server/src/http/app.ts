@@ -174,6 +174,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
     return c.json(await service.updateSession(c.req.param("id"), body));
   });
+  api.post("/sessions/:id/title/generate", async (c) => c.json(await service.generateSessionTitle(c.req.param("id"))));
   api.delete("/sessions/:id", async (c) => {
     await service.deleteSession(c.req.param("id"));
     return c.body(null, 204);

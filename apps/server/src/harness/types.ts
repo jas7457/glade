@@ -39,6 +39,11 @@ export interface OpenSessionOptions {
 
 export interface GenerateTitleOptions {
   firstMessage: string;
+  /**
+   * A compact excerpt of the whole conversation (`conversationExcerpt` in `title.ts`): title the
+   * conversation so far instead of only its first message (`/name` without a title, I-074).
+   */
+  excerpt?: string;
   cwd: string;
   model: ModelRef | null;
 }

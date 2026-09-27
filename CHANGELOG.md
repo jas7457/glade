@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- `/name` without a title asks the small model to name the chat from what you've discussed so far.
+- Settings → Models → Sub-agents: pick a cheaper model and thinking level for agents your chats
+  start (default: same as the parent chat).
+- Mark a chat as unread from the sidebar, a tab's menu or ⌘K, so you remember to come back to it.
 - Project skeleton: pnpm monorepo with web app, server and shared protocol package.
 - Working agreement for humans and agents (AGENTS.md), plan ledger (PLAN.md), architecture notes.
 - Shared protocol describing models, transcripts and streaming agent events independent of pi.
@@ -98,6 +102,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The "Title model" setting is now "Small model": one quick model for naming chats, summaries and
+  search. Your choice carries over.
 - Tool calls are described in an agent-neutral way (shell, read, edit, search…), so other agents'
   tool calls will display just like pi's. pi chats look the same as before.
 - Under the hood, Glade can now run more than one kind of agent: each chat remembers which agent

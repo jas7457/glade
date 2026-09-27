@@ -205,7 +205,8 @@ export class Store {
 
   /** Effective settings (defaults merged with the stored overrides). */
   getSettings(): Settings {
-    return deepMerge(defaultSettings(), this.settingsFile.get());
+    // Migrated on read too: a server from before a rename may write the old keys meanwhile (I-062).
+    return deepMerge(defaultSettings(), migrateSettings(this.settingsFile.get()));
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
@@ -241,7 +242,19 @@ function replaceOrAppend<T extends { id: string }>(list: T[], item: T): T[] {
 
 /** Stored-settings upgrades. Returns the same object when nothing changes. */
 export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  return migratePiSettings(migrateNotifications(stored));
+  return migrateSmallModel(migratePiSettings(migrateNotifications(stored)));
+}
+
+/**
+ * I-074: `models.titleModel` became `models.smallModel` (one small model for titles, `/name`,
+ * summaries and search). A value already under `smallModel` wins.
+ */
+function migrateSmallModel(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+  const models = (stored as { models?: Record<string, unknown> }).models;
+  if (!models || !("titleModel" in models)) return stored;
+  const { titleModel, ...rest } = models;
+  const next = "smallModel" in rest ? rest : { ...rest, smallModel: titleModel };
+  return { ...stored, models: next } as DeepPartial<Settings>;
 }
 
 /** I-028: system notifications were removed; drop the old toggle from stored settings. */

@@ -11,7 +11,7 @@ import { routes } from "@/app/routes";
 import { renameFromSession } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
 import { sessionsById, workspacesById } from "@/state/store";
-import { notify, showToast } from "@/state/toasts";
+import { dismissToast, notify, showToast } from "@/state/toasts";
 import { describeStats } from "../context-meter";
 import { thinkingLabel } from "../composer-utils";
 
@@ -98,15 +98,25 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   {
     name: "name",
     source: "builtin",
-    description: "Rename this chat",
-    argsHint: "<title>",
+    description: "Rename this chat (without a title: name it from the conversation)",
+    argsHint: "[title]",
     needsChat: true,
     run: async (args, ctx) => {
-      if (!args) {
-        notify("warning", "Usage: /name <title>");
+      const chatId = requireChat(ctx);
+      if (args) return renameFromSession(chatId, args);
+      // I-074: the small model names it from the conversation; the server applies it like a
+      // rename and pushes the new titles.
+      const naming = showToast({ level: "info", message: "Naming this chat…", timeoutMs: 60_000 });
+      try {
+        const { title } = await api.generateSessionTitle(chatId);
+        dismissToast(naming);
+        notify("success", `Renamed to “${title}”`);
+        return true;
+      } catch (err) {
+        dismissToast(naming);
+        notify("error", `Could not name the chat: ${(err as Error).message}`);
         return false;
       }
-      return renameFromSession(requireChat(ctx), args);
     },
   },
   {

@@ -156,6 +156,28 @@ describe("settings migration", () => {
     const current = { agent: { maxIdleProcesses: 1 }, harnesses: { pi: { autoRetry: false } } };
     expect(migrateSettings(current)).toBe(current);
   });
+
+  it("renames models.titleModel to smallModel, keeping the choice (I-074)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
+    const haiku = { provider: "anthropic", id: "claude-haiku-4-5" };
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ models: { titleModel: haiku, hiddenModels: ["a/b"] } }));
+    const store = new Store(dir, 0);
+    expect(store.getSettings().models).toMatchObject({ smallModel: haiku, hiddenModels: ["a/b"], subagentModel: null, subagentThinkingLevel: null });
+    expect(store.getSettings().models).not.toHaveProperty("titleModel");
+    store.flush();
+    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({ models: { smallModel: haiku, hiddenModels: ["a/b"] } });
+    // An older server writing the old key later is read as the new one.
+    const fast = { provider: "fake", id: "fast" };
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ models: { titleModel: fast } }));
+    store.reload();
+    expect(store.getSettings().models.smallModel).toEqual(fast);
+    rmSync(dir, { recursive: true, force: true });
+    // A value already under smallModel wins; migrated files are left alone.
+    const both = { models: { titleModel: null, smallModel: haiku } } as never;
+    expect(migrateSettings(both)).toEqual({ models: { smallModel: haiku } });
+    const current = { models: { smallModel: null } };
+    expect(migrateSettings(current)).toBe(current);
+  });
 });
 
 describe("workspaces migration (I-035)", () => {

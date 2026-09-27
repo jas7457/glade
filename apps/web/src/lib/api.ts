@@ -8,6 +8,7 @@ import type {
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   DeepPartial,
+  GenerateTitleResponse,
   ModelInfo,
   OpenTarget,
   ModelRef,
@@ -83,6 +84,8 @@ export const api = {
   listSessions: () => request<SessionSummary[]>("GET", "/sessions"),
   getSession: (id: string) => request<SessionDetail>("GET", `/sessions/${id}`),
   updateSession: (id: string, body: UpdateSessionRequest) => request<SessionSummary>("PATCH", `/sessions/${id}`, body),
+  /** Name the session from its conversation with the small model, applied like a rename (`/name`, I-074). */
+  generateSessionTitle: (id: string) => request<GenerateTitleResponse>("POST", `/sessions/${id}/title/generate`),
   /** Close a tab (deletes its session file). Refused (409) for a workspace's last main session. */
   deleteSession: (id: string) => request<void>("DELETE", `/sessions/${id}`),
   prompt: (id: string, body: PromptRequest) => request<void>("POST", `/sessions/${id}/prompt`, body),

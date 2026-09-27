@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
     setThinkingLevel: vi.fn(async () => undefined),
     respondToUi: vi.fn(async () => undefined),
     updateWorkspace: vi.fn(async (id: string, body: { title: string }) => ({ id, title: body.title })),
+    generateSessionTitle: vi.fn(async (id: string) => ({ title: "Fixing the login bug", session: { id } })),
     listCommands: vi.fn(async () => HARNESS),
     compact: vi.fn(async () => ({ tokensBefore: 150_000, tokensAfter: 32_000 })),
     exportSession: vi.fn(async () => ({ path: "/Users/me/Downloads/pi-session-x.html" })),
@@ -213,12 +214,25 @@ describe("built-in commands", () => {
     expect(getChatSession("c1").state.value.isCompacting).toBe(false);
   });
 
-  it("/name renames; without a title it keeps the text and explains", async () => {
+  it("/name renames; without a title it names the chat from the conversation (I-074)", async () => {
+    let finish!: () => void;
+    vi.mocked(api.generateSessionTitle).mockImplementationOnce(
+      (id) => new Promise((r) => (finish = () => r({ title: "Fixing the login bug", session: { id } as never }))),
+    );
     await openChat();
     type("/name ");
     key("Enter");
-    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Usage: /name"))).toBe(true));
-    expect(box().value).toBe("/name ");
+    await waitFor(() => expect(api.generateSessionTitle).toHaveBeenCalledWith("c1"));
+    expect(toasts.value.some((t) => t.message === "Naming this chat…")).toBe(true);
+    await act(async () => finish());
+    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Renamed to “Fixing the login bug”"))).toBe(true));
+    expect(toasts.value.some((t) => t.message === "Naming this chat…")).toBe(false);
+    expect(box().value).toBe("");
+    vi.mocked(api.generateSessionTitle).mockRejectedValueOnce(new Error("Nothing to name yet"));
+    type("/name");
+    key("Enter");
+    await waitFor(() => expect(toasts.value.some((t) => t.message.includes("Nothing to name yet"))).toBe(true));
+    expect(box().value).toBe("/name");
     type("/name Better title");
     key("Enter");
     await waitFor(() => expect(api.updateWorkspace).toHaveBeenCalledWith("w1", { title: "Better title" }));

@@ -37,7 +37,7 @@ async function titleModelFor(chatModel: ModelRef = { provider: "fake", id: "smar
 }
 
 describe("title model", () => {
-  it("uses Haiku when it's available and no title model is set", async () => {
+  it("uses Haiku when it's available and no small model is set", async () => {
     env.harness.listModels = async () => [...FAKE_MODELS, HAIKU];
     expect(await titleModelFor()).toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
   });
@@ -46,9 +46,9 @@ describe("title model", () => {
     expect(await titleModelFor({ provider: "fake", id: "fast" })).toEqual({ provider: "fake", id: "fast" });
   });
 
-  it("an explicit title model wins", async () => {
+  it("an explicit small model wins", async () => {
     env.harness.listModels = async () => [...FAKE_MODELS, HAIKU];
-    env.service.updateSettings({ models: { titleModel: { provider: "fake", id: "fast" } } });
+    env.service.updateSettings({ models: { smallModel: { provider: "fake", id: "fast" } } });
     expect(await titleModelFor()).toEqual({ provider: "fake", id: "fast" });
   });
 

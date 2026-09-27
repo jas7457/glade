@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings, type AskResponse, type ModelInfo, type SearchResponse, type Project, type SessionSummary, type Settings, type WorkspaceSummary } from "@glade/protocol";
 import { searchRoutes } from "../src/http/search.js";
 import { SearchService, type SearchAppSource } from "../src/services/search/search-service.js";
-import type { FastModel, SessionText, SessionTextReader } from "../src/services/search/types.js";
+import type { SmallModel, SessionText, SessionTextReader } from "../src/services/search/types.js";
 
 function session(id: string, title: string, extra: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -83,8 +83,8 @@ const app: SearchAppSource = {
   listModels: async () => models,
 };
 const services: SearchService[] = [];
-const make = (fastModel?: FastModel) => {
-  const s = new SearchService({ app, dataDir: dir, readers: { mem: reader }, fastModel, pollMs: 0, debounceMs: 0, now: () => clock });
+const make = (smallModel?: SmallModel) => {
+  const s = new SearchService({ app, dataDir: dir, readers: { mem: reader }, smallModel, pollMs: 0, debounceMs: 0, now: () => clock });
   services.push(s);
   return s;
 };
@@ -159,7 +159,7 @@ describe("SearchService.search", () => {
 
 describe("SearchService summaries", () => {
   it("summarizes settled sessions active since enabling, once per change", async () => {
-    const fast = vi.fn<FastModel>(async ({ prompt }) => (prompt.includes("checkout") ? "Fixing a checkout crash." : "Other."));
+    const fast = vi.fn<SmallModel>(async ({ prompt }) => (prompt.includes("checkout") ? "Fixing a checkout crash." : "Other."));
     sessions = sessions.map((s) => (s.id === "c" ? { ...s, lastActivityAt: 10 } : s.id === "a" ? { ...s, running: true } : s));
     const search = make(fast);
     await search.refresh();
@@ -175,7 +175,7 @@ describe("SearchService summaries", () => {
   });
 
   it("can be turned off", async () => {
-    const fast = vi.fn<FastModel>(async () => "x");
+    const fast = vi.fn<SmallModel>(async () => "x");
     settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
     const search = make(fast);
     await search.refresh();
@@ -185,9 +185,9 @@ describe("SearchService summaries", () => {
 });
 
 describe("SearchService.ask", () => {
-  it("lets the fast model pick among keyword + recent candidates", async () => {
+  it("lets the small model pick among keyword + recent candidates", async () => {
     settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
-    const fast = vi.fn<FastModel>(async ({ prompt }) => {
+    const fast = vi.fn<SmallModel>(async ({ prompt }) => {
       const label = /(c\d+): "Casual greeting"/.exec(prompt)![1];
       return `{"matches":[{"id":"${label}","reason":"talked about the toolbar button"}],"confident":true}`;
     });
@@ -195,12 +195,12 @@ describe("SearchService.ask", () => {
     expect(res).toMatchObject({ confident: true, matches: [{ sessionId: "a", reason: "talked about the toolbar button" }] });
     // Every session is a candidate (keyword hits + recent padding).
     expect(fast.mock.calls[0]![0].prompt).toContain('"Database work"');
-    expect(fast.mock.calls[0]![0].model).toBeNull(); // no title model, Haiku not listed
+    expect(fast.mock.calls[0]![0].model).toBeNull(); // no small model, Haiku not listed
   });
 
-  it("uses the title model setting, else Haiku when available", async () => {
+  it("uses the small model setting, else Haiku when available", async () => {
     settings = { ...settings, general: { ...settings.general, generateSummaries: false } };
-    const fast = vi.fn<FastModel>(async () => '{"matches":[]}');
+    const fast = vi.fn<SmallModel>(async () => '{"matches":[]}');
     models.push({ provider: "anthropic", id: "claude-haiku-4-5" } as ModelInfo);
     try {
       const res = await make(fast).ask("anything");

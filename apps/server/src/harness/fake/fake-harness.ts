@@ -173,7 +173,9 @@ export class FakeHarness implements AgentHarness {
     return this.sessions.get(sessionRef)?.transcript ?? null;
   }
 
-  async generateTitle({ firstMessage }: GenerateTitleOptions): Promise<string | null> {
+  async generateTitle({ firstMessage, excerpt }: GenerateTitleOptions): Promise<string | null> {
+    // `/name` (I-074): name it after the latest text of the conversation excerpt.
+    if (excerpt) return `Named: ${(excerpt.split("\n\n").at(-1) ?? "").replace(/^\w+: /, "").slice(0, 24)}`;
     return `Generated: ${firstMessage.slice(0, 20)}`;
   }
 

@@ -9,10 +9,10 @@
  *   than a second, on a background poll, and shortly after `onRunEnd`. Titles and summaries are
  *   re-indexed whenever they change.
  * - Summaries: after a session settles (not running, new messages since the last summary), a
- *   one-line summary is generated with the fast model, one at a time, and kept in
+ *   one-line summary is generated with the small model, one at a time, and kept in
  *   `<dataDir>/session-summaries.json`. Only sessions active since the feature was first enabled
  *   are summarized (no backfill of old chats); `settings.general.generateSummaries` turns it off.
- * - `ask`: keyword candidates (any word) padded with recent chats, then the fast model picks the
+ * - `ask`: keyword candidates (any word) padded with recent chats, then the small model picks the
  *   best matches (`finder.ts`). Without a model (or on failure) it falls back to keyword ranking.
  */
 import { join } from "node:path";
@@ -32,10 +32,10 @@ import {
 import { JsonFile } from "../../store/json-file.js";
 import { cleanSummary, finderPrompt, parseFinderReply, summaryPrompt, type FinderCandidate } from "./finder.js";
 import { TextIndex, type FieldInput } from "./text-index.js";
-import type { FastModel, SessionTextMessage, SessionTextReader } from "./types.js";
+import type { SmallModel, SessionTextMessage, SessionTextReader } from "./types.js";
 
-/** The fast model used when no title model is set and the harness lists it. */
-export const DEFAULT_FAST_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
+/** The small model used when none is set and the harness lists it. */
+export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
 
 /** What the search service needs from the app (AppService satisfies it). */
 export interface SearchAppSource {
@@ -53,7 +53,7 @@ export interface SearchServiceOptions {
   /** Session readers by harness id (`sessionReaders(harnesses)` in `create.ts`). */
   readers: Readonly<Record<string, SessionTextReader>>;
   /** One-shot fast model; without it summaries are off and `ask` uses keyword ranking. */
-  fastModel?: FastModel;
+  smallModel?: SmallModel;
   /** Background poll interval (0 = no timer; tests). Default 20 s. */
   pollMs?: number;
   /** Delay after a run ends before re-reading the file and summarizing. Default 1.5 s. */
@@ -175,7 +175,7 @@ export class SearchService {
     return { query, hits };
   }
 
-  /** Natural-language chat finder: the fast model picks the best matches among candidates. */
+  /** Natural-language chat finder: the small model picks the best matches among candidates. */
   async ask(query: string, limit = 3): Promise<AskResponse> {
     const q = query.trim();
     if (!q) return { query, matches: [], confident: false, model: null };
@@ -197,7 +197,7 @@ export class SearchService {
       confident: false,
       model: null,
     });
-    const fast = this.options.fastModel;
+    const fast = this.options.smallModel;
     if (!fast || ids.length === 0) return fallback();
 
     const candidates: FinderCandidate[] = ids.map((id, i) => {
@@ -213,7 +213,7 @@ export class SearchService {
         excerpt: excerpts.get(id) ?? null,
       };
     });
-    const model = await this.fastModelRef();
+    const model = await this.smallModelRef();
     const reply = await fast({ prompt: finderPrompt(q, candidates, this.now()), model, timeoutMs: 30_000 });
     const parsed = reply ? parseFinderReply(reply, new Set(candidates.map((c) => c.label))) : null;
     if (!parsed) return fallback();
@@ -354,7 +354,7 @@ export class SearchService {
 
   private queueSummaries(sessions: readonly SessionSummary[]): void {
     const settings = this.options.app.getSettings();
-    if (!this.options.fastModel || settings.general.generateSummaries === false) return;
+    if (!this.options.smallModel || settings.general.generateSummaries === false) return;
     const { enabledAt, summaries } = this.summaries.get();
     const now = this.now();
     for (const session of sessions) {
@@ -384,12 +384,12 @@ export class SearchService {
   }
 
   private async summarize(sessionId: string): Promise<void> {
-    const fast = this.options.fastModel;
+    const fast = this.options.smallModel;
     const text = this.cache.get().sessions[sessionId];
     const session = this.options.app.listSessions().find((s) => s.id === sessionId);
     if (!fast || !text || !session) return;
     const count = text.messages.length;
-    const reply = await fast({ prompt: summaryPrompt(session.title, text.messages), model: await this.fastModelRef() });
+    const reply = await fast({ prompt: summaryPrompt(session.title, text.messages), model: await this.smallModelRef() });
     const summary = cleanSummary(reply);
     if (!summary) {
       this.summaryFailedAt.set(sessionId, this.now());
@@ -402,12 +402,12 @@ export class SearchService {
     this.indexSession(session, workspace, text);
   }
 
-  /** The title model setting, else Haiku when the harness lists it, else the harness default. */
-  private async fastModelRef(): Promise<ModelRef | null> {
-    const configured = this.options.app.getSettings().models.titleModel;
+  /** The small model setting, else Haiku when the harness lists it, else the harness default. */
+  private async smallModelRef(): Promise<ModelRef | null> {
+    const configured = this.options.app.getSettings().models.smallModel;
     if (configured) return configured;
     const models = await this.options.app.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => m.provider === DEFAULT_FAST_MODEL.provider && m.id === DEFAULT_FAST_MODEL.id) ? DEFAULT_FAST_MODEL : null;
+    return models.some((m) => m.provider === DEFAULT_SMALL_MODEL.provider && m.id === DEFAULT_SMALL_MODEL.id) ? DEFAULT_SMALL_MODEL : null;
   }
 
   // -------------------------------------------------------------------------------------------

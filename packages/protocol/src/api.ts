@@ -166,7 +166,7 @@ export interface Settings {
     /** Generate a title for new chats with a model (a quick title is always set first). */
     generateTitles: boolean;
     /**
-     * Generate a one-line summary of each chat with the fast (title) model after its runs (I-046).
+     * Generate a one-line summary of each chat with the small model after its runs (I-046).
      * Summaries help the chat finder (⌘K "Ask") match paraphrased requests.
      */
     generateSummaries: boolean;
@@ -175,8 +175,15 @@ export interface Settings {
     /** Model for new chats. `null` = harness default. */
     defaultModel: ModelRef | null;
     defaultThinkingLevel: ThinkingLevel;
-    /** Model used for title generation. `null` = use the chat's model. */
-    titleModel: ModelRef | null;
+    /**
+     * Small, fast model for quick tasks: chat titles, `/name`, chat summaries and search (I-074;
+     * was `titleModel`). `null` = Haiku when the harness lists it, else the chat's model.
+     */
+    smallModel: ModelRef | null;
+    /** Model for sub-agents (I-078). `null` = the parent chat's model. */
+    subagentModel: ModelRef | null;
+    /** Thinking level for sub-agents (I-078). `null` = the parent chat's level. */
+    subagentThinkingLevel: ThinkingLevel | null;
     /** Model keys (`provider/id`) hidden from the picker. */
     hiddenModels: string[];
   };
@@ -234,7 +241,9 @@ export function defaultSettings(): Settings {
     models: {
       defaultModel: null,
       defaultThinkingLevel: "medium",
-      titleModel: null,
+      smallModel: null,
+      subagentModel: null,
+      subagentThinkingLevel: null,
       hiddenModels: [],
     },
     appearance: {
@@ -320,6 +329,16 @@ export interface UpdateSessionRequest {
   unread?: boolean;
   /** Only `false` is accepted: dismiss the "interrupted" banner. */
   interrupted?: false;
+}
+
+/**
+ * `POST /sessions/:id/title/generate` (I-074, `/name` without a title): the title the small model
+ * gave the conversation, applied like a rename (`titleSource: "user"`; while the session is its
+ * workspace's only main tab the workspace is renamed too).
+ */
+export interface GenerateTitleResponse {
+  title: string;
+  session: SessionSummary;
 }
 
 export interface PromptImage {

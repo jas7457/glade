@@ -25,6 +25,9 @@ export function groupModels(list: readonly ModelInfo[]): Array<[provider: string
     .map(([p, ms]) => [p, ms.sort((a, b) => a.name.localeCompare(b.name))]);
 }
 
+/** The server's default small model when it's available (`DEFAULT_SMALL_MODEL`). */
+const SMALL_DEFAULT = { provider: "anthropic", id: "claude-haiku-4-5" };
+
 function modelOptions(list: readonly ModelInfo[], none: string): SelectOption<string>[] {
   return [
     { value: "", label: none },
@@ -38,6 +41,8 @@ export function ModelSettings() {
   const visible = visibleModels.value;
   const hidden = new Set(s.hiddenModels);
   const [refreshing, setRefreshing] = useState(false);
+  // I-074: the server picks Haiku for quick tasks when it's listed, else the chat's model.
+  const smallDefault = all.find((m) => m.provider === SMALL_DEFAULT.provider && m.id === SMALL_DEFAULT.id);
   // I-050: name the harness's own default so "Default" isn't a mystery.
   const harnessModel = harnessDefaults.value?.model;
   const harnessModelName = harnessModel ? (all.find((m) => m.provider === harnessModel.provider && m.id === harnessModel.id)?.name ?? harnessModel.id) : null;
@@ -75,13 +80,34 @@ export function ModelSettings() {
             onChange={(defaultThinkingLevel) => void updateSettings({ models: { defaultThinkingLevel } })}
           />
         </FormRow>
-        <FormRow label="Title model" description="Model used to name chats. A small, fast model works best.">
+        <FormRow label="Small model" description="Used for quick tasks: naming chats, summaries and search. A small, fast model works best.">
           <Select
-            aria-label="Title model"
+            aria-label="Small model"
             class="w-[240px]"
-            value={s.titleModel ? modelKey(s.titleModel) : ""}
-            options={modelOptions(visible, "Same as the chat")}
-            onChange={(key) => void updateSettings({ models: { titleModel: parseModelKey(key) } })}
+            value={s.smallModel ? modelKey(s.smallModel) : ""}
+            options={modelOptions(visible, smallDefault ? `Default (${smallDefault.name})` : "Same as the chat")}
+            onChange={(key) => void updateSettings({ models: { smallModel: parseModelKey(key) } })}
+          />
+        </FormRow>
+      </FormGroup>
+
+      <FormGroup title="Sub-agents">
+        <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
+          <Select
+            aria-label="Sub-agent model"
+            class="w-[240px]"
+            value={s.subagentModel ? modelKey(s.subagentModel) : ""}
+            options={modelOptions(visible, "Same as the parent chat")}
+            onChange={(key) => void updateSettings({ models: { subagentModel: parseModelKey(key) } })}
+          />
+        </FormRow>
+        <FormRow label="Sub-agent thinking">
+          <Select
+            aria-label="Sub-agent thinking"
+            class="w-[240px]"
+            value={s.subagentThinkingLevel ?? ""}
+            options={[{ value: "", label: "Same as the parent chat" }, ...THINKING_LEVELS.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}
+            onChange={(level) => void updateSettings({ models: { subagentThinkingLevel: (level || null) as ThinkingLevel | null } })}
           />
         </FormRow>
       </FormGroup>

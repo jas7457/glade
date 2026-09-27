@@ -122,6 +122,30 @@ describe("settings", () => {
     expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { hiddenModels: ["a/m2"] } });
   });
 
+  it("Models: small model and sub-agent model/thinking (I-074, I-078)", async () => {
+    models.value = [
+      { provider: "a", id: "m1", name: "M1", thinkingLevels: ["off"], input: ["text"] },
+      { provider: "a", id: "m2", name: "M2", thinkingLevels: ["off"], input: ["text"] },
+    ];
+    settings.value = { ...defaultSettings(), models: { ...defaultSettings().models, hiddenModels: ["a/m2"] } };
+    renderAt("/settings/models");
+    expect(screen.getByText("Small model")).toBeTruthy();
+    expect(screen.getByText(/Used for quick tasks: naming chats, summaries and search/)).toBeTruthy();
+    const pick = async (select: string, option: RegExp) => {
+      const trigger = screen.getByRole("button", { name: select });
+      expect(trigger.textContent).toContain("Same as the");
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      const item = await screen.findByRole("menuitemradio", { name: option });
+      // Hidden models aren't offered.
+      expect(screen.queryByRole("menuitemradio", { name: "M2" })).toBeNull();
+      fireEvent.click(item);
+    };
+    await pick("Sub-agent model", /^M1$/);
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { subagentModel: { provider: "a", id: "m1" } } });
+    await pick("Sub-agent thinking", /^Low$/);
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { subagentThinkingLevel: "low" } });
+  });
+
   it("Models: the empty state names the harness", () => {
     models.value = [];
     harnesses.value = [harness("other", "Other", { isDefault: true })];

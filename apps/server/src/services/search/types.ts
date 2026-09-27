@@ -1,7 +1,7 @@
 /**
  * Harness-agnostic inputs of the search service (I-045/I-046). `create.ts` builds them from each
  * registered harness: a {@link SessionTextReader} from `AgentHarness.statSession` +
- * `readSessionText`, and a {@link FastModel} from `AgentHarness.complete` (I-067).
+ * `readSessionText`, and a {@link SmallModel} from `AgentHarness.complete` (I-067).
  */
 import type { ModelRef } from "@glade/protocol";
 import type { SessionFileStat, SessionText } from "../../harness/types.js";
@@ -14,7 +14,7 @@ export interface SessionTextReader {
   read(sessionRef: string): Promise<SessionText | null>;
 }
 
-export interface FastModelRequest {
+export interface SmallModelRequest {
   prompt: string;
   /** `null` = the harness default. */
   model: ModelRef | null;
@@ -22,4 +22,4 @@ export interface FastModelRequest {
 }
 
 /** One-shot completion with a small, fast model. Returns `null` when unavailable or on failure. */
-export type FastModel = (request: FastModelRequest) => Promise<string | null>;
+export type SmallModel = (request: SmallModelRequest) => Promise<string | null>;
