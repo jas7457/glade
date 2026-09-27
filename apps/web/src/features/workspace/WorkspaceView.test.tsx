@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
     updateSession: vi.fn(async (id: string, patch: object) => ({ ...sessions.value.find((s) => s.id === id), ...patch })),
     createSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
+    deleteWorkspace: vi.fn(async () => undefined),
     prompt: vi.fn(async () => undefined),
   },
 }));
@@ -30,7 +31,13 @@ const { api } = await import("@/lib/api");
 Element.prototype.scrollTo ??= function () {};
 
 function renderAt(url: string) {
-  const router = createMemoryRouter([{ path: "/projects/:projectId/chats/:chatId", element: <ChatRoute /> }], { initialEntries: [url] });
+  const router = createMemoryRouter(
+    [
+      { path: "/projects/:projectId/chats/:chatId", element: <ChatRoute /> },
+      { path: "/projects/:projectId", element: <div>New chat screen</div> },
+    ],
+    { initialEntries: [url] },
+  );
   render(
     <TooltipProvider>
       <RouterProvider router={router} />
@@ -104,7 +111,7 @@ describe("WorkspaceView", () => {
     expect(api.updateWorkspace).toHaveBeenCalledWith("w", { layout: { mainOrder: ["m1", "m2", "m3"], activeMainSessionId: "m3" } });
   });
 
-  it("closes a tab (asking when it has history) and focuses its neighbour; the last tab can't be closed", async () => {
+  it("closes a tab (asking when it has history) and focuses its neighbour", async () => {
     sessions.value = sessions.value.map((s) => (s.id === "m1" ? { ...s, lastActivityAt: 10, status: "idle" } : s));
     const router = renderAt("/projects/p/chats/w");
     fireEvent.click(screen.getByRole("button", { name: "Close Fix login" }));
@@ -114,8 +121,34 @@ describe("WorkspaceView", () => {
     await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("m1"));
     await waitFor(() => expect(router.state.location.search).toBe("?tab=m2"));
     expect(mainTabs().map((t) => t.textContent)).toEqual(["Tab 2"]);
-    expect(screen.queryByRole("button", { name: "Close Tab 2" })).toBeNull();
     expect(subTablist()).toBeNull();
+  });
+
+  it("closing the last tab asks, then deletes the whole chat and leaves for the project (I-061)", async () => {
+    sessions.value = sessions.value.filter((s) => s.id === "m2");
+    const router = renderAt("/projects/p/chats/w");
+    fireEvent.click(screen.getByRole("button", { name: "Close Tab 2" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("Delete “Workspace”?");
+    expect(dialog.textContent).toContain("This is the last tab, so the whole chat will be deleted.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Chat" }));
+    await waitFor(() => expect(api.deleteWorkspace).toHaveBeenCalledWith("w"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p"));
+    expect(api.deleteSession).not.toHaveBeenCalled();
+    expect(workspaces.value).toEqual([]);
+  });
+
+  it("cancelling the last-tab confirm keeps the chat; ⌘W asks the same", async () => {
+    sessions.value = sessions.value.filter((s) => s.id === "m2");
+    const router = renderAt("/projects/p/chats/w");
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("This is the last tab");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(api.deleteWorkspace).not.toHaveBeenCalled();
+    expect(router.state.location.pathname).toBe("/projects/p/chats/w");
+    expect(mainTabs().map((t) => t.textContent)).toEqual(["Tab 2"]);
   });
 
   it("closes an empty tab without asking", async () => {

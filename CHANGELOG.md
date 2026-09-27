@@ -98,6 +98,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Every tab can be closed; closing a chat's last tab asks, then deletes the chat.
+
 - Sub-agent tabs show when they're done (✓) or stopped, with the task and result on hover and in a
   bar above the conversation.
 
@@ -141,6 +143,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Deleting a chat is permanent: its conversation file is erased, not moved to the Trash.
 
 ### Fixed
+
+- Status dots stay visible on the highlighted row in the ⌘K palette.
 
 - Finished sub-agents close their tab (the conversation is deleted; its result stays in the parent
   chat), and asking an agent to close an already-closed sub-agent no longer fails.

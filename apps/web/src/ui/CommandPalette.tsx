@@ -62,6 +62,18 @@ export interface CommandPaletteProps {
   onInputKeyDown?: (e: KeyboardEvent) => boolean;
 }
 
+/**
+ * Status glyphs (`StatusIndicator` in an item's icon) on the highlighted row (I-060): the spinner
+ * and the plain unread dot take the highlight's foreground colour (an accent dot on the accent
+ * highlight would vanish); coloured glyphs (failed dot, "needs input" badge) keep their colour and
+ * get a ring in that colour.
+ */
+const SELECTED_STATUS_CLASS = cn(
+  "[&_[data-status]_svg]:text-accent-fg",
+  "[&_[data-status=unread]>.bg-accent]:bg-accent-fg",
+  "[&_[data-status]>span:not(.bg-accent)]:shadow-[0_0_0_1.5px_var(--color-accent-fg)]",
+);
+
 function Highlighted({ text, indices }: { text: string; indices?: readonly number[] }) {
   if (!indices?.length) return <>{text}</>;
   const set = new Set(indices);
@@ -192,7 +204,12 @@ export function CommandPalette({
                             selected ? "bg-accent text-accent-fg" : "text-fg",
                           )}
                         >
-                          <span class={cn("flex w-4 shrink-0 items-center justify-center [&_svg]:size-4", selected ? "text-accent-fg" : "text-fg-muted")}>
+                          <span
+                            class={cn(
+                              "flex w-4 shrink-0 items-center justify-center [&_svg]:size-4",
+                              selected ? ["text-accent-fg", SELECTED_STATUS_CLASS] : "text-fg-muted",
+                            )}
+                          >
                             {item.icon}
                           </span>
                           <span class="min-w-0 flex-1">

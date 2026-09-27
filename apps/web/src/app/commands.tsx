@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-preact";
 import { StatusIndicator, confirm } from "@/ui";
-import { loadModels, mainSessionsFor, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
+import { loadModels, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
 import { deleteWorkspace, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
@@ -172,8 +172,8 @@ export function buildCommands(ctx: CommandContext): Command[] {
       group: "Actions",
       shortcut: TAB_SHORTCUTS["close-tab"],
       icon: <X />,
-      // A workspace always keeps its last main tab.
-      available: () => !!route.workspaceId && mainSessionsFor(route.workspaceId).length > 1,
+      // Closing the last main tab deletes the chat (closeTab asks first, I-061).
+      available: hasChat,
       run: async () => {
         if (!route.workspaceId) return;
         const tab = new URLSearchParams(window.location.search).get("tab");

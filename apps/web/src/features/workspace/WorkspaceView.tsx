@@ -6,6 +6,7 @@
  *
  * Tab shortcuts: ⌘T new tab, ⌘W close the focused group's tab, ⌃Tab / ⌃⇧Tab cycle the focused
  * group's tabs ("focused" = the group containing keyboard focus, else the main group).
+ * Every tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
  */
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -83,7 +84,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     "new-tab": newTab,
     "close-tab": () => {
       if (focusedGroup() === "subagents") close(subagents.find((s) => s.id === activeSub), true);
-      else if (main.length > 1) close(main.find((s) => s.id === sessionId), true);
+      else close(main.find((s) => s.id === sessionId), true);
     },
     "next-tab": () => cycle(1),
     "previous-tab": () => cycle(-1),
@@ -156,7 +157,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     <div class="flex h-full min-h-0 flex-col" data-tab-group="main">
       <TabStrip
         label="Conversations"
-        tabs={main.map((s) => tabFor(s, "main", main.length > 1))}
+        tabs={main.map((s) => tabFor(s, "main", true))}
         activeId={sessionId}
         panelId={`tabpanel-${workspaceId}-main`}
         onSelect={selectMain}

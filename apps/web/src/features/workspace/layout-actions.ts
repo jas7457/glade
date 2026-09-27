@@ -9,8 +9,8 @@
 import { signal } from "@preact/signals";
 import type { SessionSummary, WorkspaceLayout } from "@pi-ui/protocol";
 import { subagentSessionsOf } from "@pi-ui/protocol";
-import { chatPath } from "@/app/routes";
-import { createSession, deleteSession, updateWorkspace } from "@/state/actions";
+import { chatPath, routes } from "@/app/routes";
+import { createSession, deleteSession, deleteWorkspace, updateWorkspace } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@/state/store";
 import { confirm } from "@/ui";
@@ -71,13 +71,16 @@ export const tabTitle = (s: Pick<SessionSummary, "title" | "agentName">) => s.ti
 
 /**
  * Close a tab (deletes its conversation, and sub-agents it spawned). Asks first when it has
- * history. The last main tab can't be closed (the server refuses it too). Focuses the
- * neighbouring tab when the closed one was focused.
+ * history. Focuses the neighbouring tab when the closed one was focused.
+ *
+ * The last main tab (I-061): a workspace keeps at least one main session, so closing it deletes
+ * the whole workspace (always after a confirm) and leaves for the project's new-chat screen, or
+ * home for a standalone chat.
  */
 export async function closeTab(session: SessionSummary, navigate: Navigate, opts: { focused: boolean }): Promise<boolean> {
   const { workspaceId } = session;
   const main = mainSessionsFor(workspaceId);
-  if (session.kind === "main" && main.length <= 1) return false;
+  if (session.kind === "main" && main.length <= 1) return closeLastTab(session, navigate);
   const children = subagentSessionsOf(sessions.value, session.id);
   if (hasHistory(session) || children.length > 0) {
     const agents = children.length === 1 ? "its sub-agent" : `its ${children.length} sub-agents`;
@@ -106,5 +109,25 @@ export async function closeTab(session: SessionSummary, navigate: Navigate, opts
     // No sub-agents left: un-maximize their (now hidden) group.
     if (!next && maximizedGroup.value[workspaceId] === "subagents") toggleMaximized(workspaceId, "subagents");
   }
+  return true;
+}
+
+/** Closing the only main tab = deleting the workspace, after a confirm. */
+async function closeLastTab(session: SessionSummary, navigate: Navigate): Promise<boolean> {
+  const workspace = workspacesById.value.get(session.workspaceId);
+  if (!workspace) return false;
+  const ok = await confirm({
+    title: `Delete “${workspace.title || tabTitle(session)}”?`,
+    message: "This is the last tab, so the whole chat will be deleted. This can't be undone.",
+    confirmLabel: "Delete Chat",
+    destructive: true,
+  });
+  if (!ok || !(await deleteWorkspace(workspace.id))) return false;
+  if (maximizedGroup.value[workspace.id]) {
+    const rest = { ...maximizedGroup.value };
+    delete rest[workspace.id];
+    maximizedGroup.value = rest;
+  }
+  navigate(workspace.projectId ? routes.project(workspace.projectId) : routes.home(), { replace: true });
   return true;
 }
