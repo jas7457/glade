@@ -21,6 +21,7 @@ import { socket } from "@/lib/socket";
 import { handleSessionEvent, reloadIfChangedElsewhere, reloadOpenChatSessions } from "./chat-session";
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
+import { loadHarnesses } from "./harnesses";
 
 export const projects = signal<Project[]>([]);
 /** Sidebar rows (I-035). Each holds one or more sessions. */
@@ -105,6 +106,7 @@ export async function loadAll(): Promise<void> {
   }
   // Models can be slow (spawns the agent); don't block the UI on them.
   void loadModels();
+  void loadHarnesses();
 }
 
 export async function loadModels(refresh = false): Promise<void> {
