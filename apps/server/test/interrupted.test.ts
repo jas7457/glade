@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent, SessionSummary } from "@glade/protocol";
 import { FakeHarness, type FakeSession } from "../src/harness/fake/fake-harness.js";
+import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
 import { createTestEnv, flush, newChat, type TestEnv } from "./helpers.js";
@@ -49,7 +50,7 @@ describe("interrupted runs", () => {
 
     // Simulate a restart: a fresh store + service over the same data dir.
     const store = new Store(join(env.dir, "data"), 0);
-    const service = new AppService({ store, harness: new FakeHarness(), scratchDir: join(env.dir, "scratch") });
+    const service = new AppService({ store, harnesses: new HarnessRegistry([new FakeHarness()]), scratchDir: join(env.dir, "scratch") });
     try {
       const chat = service.listSessions().find((c) => c.id === chatId)!;
       expect(chat).toMatchObject({ runInProgress: false, interrupted: true, unread: true, lastRunFailed: true, status: "unread" });

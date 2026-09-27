@@ -1,63 +1,50 @@
 /**
- * Claude subscription usage limits (session / weekly / per-model) for pi's Anthropic OAuth login.
+ * Claude subscription usage limits (session / weekly / per-model) for an Anthropic OAuth login.
+ * Harness-independent (I-069): the harness supplies the OAuth token (pi:
+ * `harness/pi/anthropic-auth.ts`, from `~/.pi/agent/auth.json`).
  *
- * Reads pi's OAuth access token from `~/.pi/agent/auth.json` (written by the
- * `pi-anthropic-oauth` extension) and calls the undocumented `GET /api/oauth/usage` endpoint that
- * Claude Code's `/usage` uses. Rules:
- * - Only READ the token; never refresh it (refreshing rotates it and could log pi out). If it's
- *   expired we return `null` and the caller keeps showing the last values as stale.
+ * Calls the undocumented `GET /api/oauth/usage` endpoint that Claude Code's `/usage` uses. Rules:
+ * - Only READ the token; never refresh it (refreshing rotates it and could log the harness out).
+ *   If it's expired we return `null` and the caller keeps showing the last values as stale.
  * - Never log the token.
  * - Parse defensively and never throw: any failure or unexpected shape → `null` (feature hidden).
+ *
+ *   getUsageLimits = () => fetchAnthropicUsageLimits({ token: () => readPiAnthropicAuth() });
  */
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { UsageLimit, UsageLimits } from "@glade/protocol";
 
 export const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
-/** pi's provider id for Anthropic models (`ModelRef.provider`); the limits apply to these. */
+/** Provider id of Anthropic models (`ModelRef.provider`); the limits apply to these. */
 export const ANTHROPIC_PROVIDER = "anthropic";
 const TIMEOUT_MS = 10_000;
 
-export interface PiAnthropicAuth {
+/** An Anthropic OAuth access token as stored by a harness. */
+export interface AnthropicOAuthToken {
   access: string;
   /** Expiry, ms epoch (0 if unknown). */
   expires: number;
   type: "oauth";
 }
 
-export function defaultPiAuthPath(): string {
-  return join(homedir(), ".pi", "agent", "auth.json");
-}
-
-/** pi's Anthropic OAuth credentials, or `null` if missing / not OAuth / unreadable. */
-export function readPiAnthropicAuth(authPath = defaultPiAuthPath()): PiAnthropicAuth | null {
-  let data: unknown;
-  try {
-    data = JSON.parse(readFileSync(authPath, "utf8"));
-  } catch {
-    return null;
-  }
-  const entry = isRecord(data) ? data.anthropic : undefined;
-  if (!isRecord(entry) || entry.type !== "oauth") return null;
-  if (typeof entry.access !== "string" || entry.access === "") return null;
-  const expires = typeof entry.expires === "number" && Number.isFinite(entry.expires) ? entry.expires : 0;
-  return { access: entry.access, expires, type: "oauth" };
-}
-
 export interface FetchAnthropicUsageOptions {
+  /** The current OAuth token, or `null` when not logged in with OAuth. */
+  token: () => AnthropicOAuthToken | null;
   fetch?: typeof globalThis.fetch;
-  authPath?: string;
   now?: () => number;
 }
 
 /** Current subscription limits, or `null` if unavailable (no OAuth login, expired token, error). */
-export async function fetchAnthropicUsageLimits(options: FetchAnthropicUsageOptions = {}): Promise<UsageLimits | null> {
+export async function fetchAnthropicUsageLimits(options: FetchAnthropicUsageOptions): Promise<UsageLimits | null> {
   const now = options.now ?? Date.now;
   const doFetch = options.fetch ?? globalThis.fetch;
-  const auth = readPiAnthropicAuth(options.authPath);
+  let auth: AnthropicOAuthToken | null;
+  try {
+    auth = options.token();
+  } catch {
+    return null;
+  }
   if (!auth) return null;
-  if (auth.expires > 0 && auth.expires <= now()) return null; // pi refreshes it on its next request
+  if (auth.expires > 0 && auth.expires <= now()) return null; // the harness refreshes it on its next request
 
   try {
     const res = await doFetch(ANTHROPIC_USAGE_URL, {

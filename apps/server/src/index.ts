@@ -1,6 +1,7 @@
 /**
  * Server entry point: wires config, store, harness, AppService and the HTTP/WebSocket app.
- * Harnesses are registered here (`GLADE_HARNESS=fake` selects the fake one for UI work).
+ * Harnesses are registered here in a `HarnessRegistry` (I-064; `GLADE_HARNESS=fake` registers
+ * the fake one instead of pi, for UI work). Sessions run in the harness that created them.
  * The desktop app runs a bundled copy of this file (see apps/desktop/scripts/bundle-server.mjs).
  * Several servers may share one data folder (I-062: `pnpm dev` next to the installed app): each
  * announces itself in `<dataDir>/servers/<pid>.json` (services/server-registry.ts), and session
@@ -11,7 +12,7 @@ import { serve } from "@hono/node-server";
 import { env, isTemporaryDir, LEGACY_APP_DIR_NAME, loadConfig, platformDataDir, startupBanner } from "./config.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
-import type { AgentHarness } from "./harness/types.js";
+import { HarnessRegistry } from "./harness/registry.js";
 import { createApp } from "./http/app.js";
 import { AppService } from "./services/app-service.js";
 import { FolderInfoService } from "./services/folder-info.js";
@@ -41,23 +42,23 @@ for (const other of registry.others()) {
 }
 const store = new Store(config.dataDir);
 
-const harness: AgentHarness =
+// The first registered harness is the default unless the `agent.defaultHarness` setting names another.
+const harnesses = new HarnessRegistry([], { preferred: () => store.getSettings().agent.defaultHarness });
+harnesses.register(
   config.harness === "fake"
     ? new FakeHarness(undefined, 30)
     : new PiHarness({
-        config: () => {
-          const { piPath, extraArgs, autoCompaction, autoRetry } = store.getSettings().agent;
-          return { piPath, extraArgs, autoCompaction, autoRetry };
-        },
+        config: () => store.getSettings().harnesses.pi,
         utilityCwd: config.scratchDir,
         log: env("DEBUG") ? log : undefined,
-      });
+      }),
+);
 
 // `search` is created right after the service; the hook refreshes its index as runs settle.
 let search: ReturnType<typeof createSearchService> | undefined;
 const service = new AppService({
   store,
-  harness,
+  harnesses,
   scratchDir: config.scratchDir,
   dataDir: config.dataDir,
   log,
@@ -69,15 +70,9 @@ process.on("exit", () => {
   service.releaseLeases();
   registry.release();
 });
-search = createSearchService({
-  app: service,
-  harnessId: harness.id,
-  dataDir: config.dataDir,
-  scratchDir: config.scratchDir,
-  log: env("DEBUG") ? log : undefined,
-});
+search = createSearchService({ app: service, harnesses, dataDir: config.dataDir, log: env("DEBUG") ? log : undefined });
 const folderInfo = new FolderInfoService({
-  harness,
+  harness: () => harnesses.default(),
   scratchDir: config.scratchDir,
   projectPath: (id) => store.getProject(id)?.path,
 });
@@ -98,7 +93,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   const banner = startupBanner({
     url: `http://${host}:${info.port}`,
     dataDir: config.dataDir,
-    harness: harness.id,
+    harness: harnesses.list().map((h) => h.id).join(", "),
     kind: serverKind,
     sandbox: env("SANDBOX"),
     temporary: isTemporaryDir(config.dataDir),

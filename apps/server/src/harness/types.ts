@@ -1,12 +1,15 @@
 /**
  * The harness abstraction. pi is the first implementation; others (e.g. Claude Code) can be
- * added by implementing these two interfaces and registering them in `src/index.ts`.
+ * added by implementing these two interfaces and registering them in `src/index.ts` (a
+ * {@link HarnessRegistry}, `harness/registry.ts`). Optional methods are features a harness may
+ * lack; `info.capabilities` tells the web which controls to show (I-065).
  *
  * Everything crossing this boundary uses `@glade/protocol` types - never harness-native ones.
  */
 import type {
   AgentEvent,
   CompactResult,
+  HarnessCapabilities,
   HarnessDefaults,
   ModelInfo,
   ModelRef,
@@ -40,9 +43,50 @@ export interface GenerateTitleOptions {
   model: ModelRef | null;
 }
 
+/** What the web is told about a harness (`GET /api/harnesses`, I-065). */
+export interface HarnessDescription {
+  /** Display name ("pi", "Claude Code"). */
+  label: string;
+  capabilities: HarnessCapabilities;
+}
+
+/** One message of a persisted conversation's searchable text (search, I-045). */
+export interface SessionTextMessage {
+  role: "user" | "assistant";
+  /** Plain text (no tool output, no thinking). */
+  text: string;
+  /** ms epoch (0 if unknown). */
+  timestamp: number;
+}
+
+/** The searchable text of one persisted conversation. */
+export interface SessionText {
+  /** Name stored in the session file, if any. */
+  name: string | null;
+  messages: SessionTextMessage[];
+}
+
+/** Cheap change detection for a session's persisted data. */
+export interface SessionFileStat {
+  mtimeMs: number;
+  size: number;
+}
+
+/** A one-shot completion (titles, chat summaries, the chat finder; I-067). */
+export interface CompletionRequest {
+  prompt: string;
+  /** `null` = the harness default. */
+  model: ModelRef | null;
+  /** Working directory (default: a harness utility folder). */
+  cwd?: string;
+  timeoutMs?: number;
+}
+
 export interface AgentHarness {
   /** Stable identifier persisted on chats (e.g. "pi"). */
   readonly id: string;
+  /** Label + capabilities (I-065). */
+  readonly info: HarnessDescription;
   /** Available models. Implementations may cache; `force` bypasses the cache. */
   listModels(force?: boolean): Promise<ModelInfo[]>;
   /** Model/thinking level the harness uses when none is given (I-050). `force` refreshes. */
@@ -57,7 +101,22 @@ export interface AgentHarness {
    * are shown without restarting them). `null` if unreadable. Optional: callers start it instead.
    */
   readTranscript?(sessionRef: string): Promise<Transcript | null>;
-  /** One-shot short title for a conversation. Returns `null` if unavailable. */
+  /**
+   * Change detection for a persisted session (search re-reads it when this changes, I-067).
+   * `null` when it has no persisted data (yet). Search needs this and {@link readSessionText}.
+   */
+  statSession?(sessionRef: string): Promise<SessionFileStat | null>;
+  /** The user/assistant text of a persisted session, without starting an agent (search). */
+  readSessionText?(sessionRef: string): Promise<SessionText | null>;
+  /**
+   * One-shot completion with no tools and no session (titles, summaries, the chat finder).
+   * Returns `null` when unavailable or on failure; never throws.
+   */
+  complete?(request: CompletionRequest): Promise<string | null>;
+  /**
+   * One-shot short title for a conversation. Returns `null` if unavailable. Optional: without it
+   * titles are generated with {@link complete} (`harness/title.ts`).
+   */
   generateTitle?(options: GenerateTitleOptions): Promise<string | null>;
   /** Subscription/plan usage limits for the harness's current account, or `null` if unavailable. */
   getUsageLimits?(): Promise<UsageLimits | null>;

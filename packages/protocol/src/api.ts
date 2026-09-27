@@ -184,15 +184,19 @@ export interface Settings {
     theme: "system" | "light" | "dark";
     fontSize: "small" | "medium" | "large";
   };
+  /** Harness-independent agent settings. */
   agent: {
-    /** Path to the pi executable (or just "pi" to use PATH). */
-    piPath: string;
-    /** Extra CLI arguments passed to every pi process. */
-    extraArgs: string[];
     /** Maximum number of idle agent processes kept alive. Running ones are never killed. */
     maxIdleProcesses: number;
-    autoCompaction: boolean;
-    autoRetry: boolean;
+    /**
+     * Harness id new chats use (I-064). `null` (or an id that isn't installed) = the server's
+     * default harness (`GLADE_HARNESS`, else pi).
+     */
+    defaultHarness: string | null;
+  };
+  /** Per-harness settings (I-066), keyed by harness id. Before I-066 pi's lived in `agent`. */
+  harnesses: {
+    pi: PiHarnessSettings;
   };
   /** Slash menu (I-048). */
   slashCommands: {
@@ -203,6 +207,18 @@ export interface Settings {
      */
     hidden: string[];
   };
+}
+
+/** Settings of the pi harness (`Settings.harnesses.pi`, I-066). */
+export interface PiHarnessSettings {
+  /** Path to the pi executable (or just "pi" to use PATH). */
+  piPath: string;
+  /** Extra CLI arguments passed to every pi process. */
+  extraArgs: string[];
+  /** Compact the context automatically when it fills up. */
+  autoCompaction: boolean;
+  /** Retry after transient provider errors. */
+  autoRetry: boolean;
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
@@ -226,11 +242,16 @@ export function defaultSettings(): Settings {
       fontSize: "medium",
     },
     agent: {
-      piPath: "pi",
-      extraArgs: [],
       maxIdleProcesses: 4,
-      autoCompaction: true,
-      autoRetry: true,
+      defaultHarness: null,
+    },
+    harnesses: {
+      pi: {
+        piPath: "pi",
+        extraArgs: [],
+        autoCompaction: true,
+        autoRetry: true,
+      },
     },
     slashCommands: {
       hidden: [],

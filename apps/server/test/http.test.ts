@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type {
   CreateWorkspaceResponse,
+  HarnessInfo,
   PickFolderResponse,
   Project,
   ServerMessage,
@@ -14,6 +15,7 @@ import type {
   WorkspaceDetail,
   WorkspaceSummary,
 } from "@glade/protocol";
+import { FAKE_CAPABILITIES } from "../src/harness/fake/fake-harness.js";
 import { createApp } from "../src/http/app.js";
 import { createFolderPicker, type CreateFolderPickerOptions, type OsascriptRunner } from "../src/services/folder-picker.js";
 import { hostHeaderHostname, isLoopbackOrigin } from "../src/http/security.js";
@@ -131,6 +133,12 @@ describe("REST API", () => {
     expect(((await (await req("GET", "/api/settings")).json()) as { general: { sendKey: string } }).general.sendKey).toBe(
       "mod-enter",
     );
+  });
+
+  it("lists the installed harnesses with their capabilities (I-065)", async () => {
+    const res = await req("GET", "/api/harnesses");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual<HarnessInfo[]>([{ id: "fake", label: "Fake agent", isDefault: true, capabilities: FAKE_CAPABILITIES }]);
   });
 });
 

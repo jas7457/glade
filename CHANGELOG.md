@@ -98,6 +98,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Under the hood, Glade can now run more than one kind of agent: each chat remembers which agent
+  it was created with, settings are kept per agent (pi's are migrated automatically), and controls
+  an agent doesn't support are hidden. pi works exactly as before.
 - While the agent works, the "Working…" row stays in place for the whole run instead of blinking
   between tool calls, shows "Thinking…" while the model thinks, and counts the elapsed time
   ("Working… 1m 12s"). Tool groups and tool rows show how long they took.

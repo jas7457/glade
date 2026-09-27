@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CreateWorkspaceRequest, CreateWorkspaceResponse, ServerMessage, SessionSummary, WorkspaceSummary } from "@glade/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
+import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService, type AppServiceOptions } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
 
@@ -22,7 +23,7 @@ export function createTestEnv(options: Pick<AppServiceOptions, "revealPath" | "o
   const dir = mkdtempSync(join(tmpdir(), "glade-test-"));
   const store = new Store(join(dir, "data"), 0);
   const harness = new FakeHarness();
-  const service = new AppService({ store, harness, scratchDir: join(dir, "scratch"), ...options });
+  const service = new AppService({ store, harnesses: new HarnessRegistry([harness]), scratchDir: join(dir, "scratch"), ...options });
   const messages: ServerMessage[] = [];
   service.subscribe((m) => messages.push(m));
   return {

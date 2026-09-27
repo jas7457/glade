@@ -4,6 +4,7 @@ import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type Thinking
 import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@/ui";
 import { harnessDefaults, loadModels, models, settings, visibleModels } from "@/state/store";
 import { updateSettings } from "@/state/actions";
+import { harnessLabel } from "@/state/harnesses";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "Off",
@@ -96,7 +97,7 @@ export function ModelSettings() {
         }
       >
         {all.length === 0 ? (
-          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : "No models found. Check that pi is configured with a provider."}</span>} />
+          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${harnessLabel()} is configured with a provider.`}</span>} />
         ) : (
           groupModels(all).map(([provider, ms]) => (
             <div key={provider}>

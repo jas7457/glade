@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { rm, rmdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { promisify } from "node:util";
 import {
   clampThinkingLevel,
   defaultSessionState,
@@ -13,6 +11,7 @@ import {
   type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
+  type PiHarnessSettings,
   type PromptRequest,
   type SessionState,
   type SlashCommand,
@@ -20,10 +19,14 @@ import {
   type Transcript,
   type UiResponse,
 } from "@glade/protocol";
-import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
-import { fetchAnthropicUsageLimits } from "./anthropic-usage.js";
+import { fetchAnthropicUsageLimits } from "../../services/providers/anthropic-usage.js";
+import { SessionEvents } from "../session-events.js";
+import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
+import { readPiAnthropicAuth } from "./anthropic-auth.js";
 import { piChildEnv } from "./child-env.js";
+import { piOneShot } from "./one-shot.js";
 import { PiRpcProcess } from "./rpc-process.js";
+import { piSessionReader } from "./session-reader.js";
 import { readPiTranscript } from "./transcript-file.js";
 import {
   PiEventTranslator,
@@ -36,11 +39,9 @@ import {
   type PiModel,
 } from "./translate.js";
 
-const execFileAsync = promisify(execFile);
-
 export interface PiHarnessOptions {
-  /** Resolved lazily so settings changes apply to newly spawned processes. */
-  config: () => { piPath: string; extraArgs: string[]; autoCompaction: boolean; autoRetry: boolean };
+  /** `Settings.harnesses.pi`, resolved lazily so changes apply to newly spawned processes. */
+  config: () => PiHarnessSettings;
   /** Folder used for the model-listing utility process. */
   utilityCwd: string;
   log?: (msg: string) => void;
@@ -48,8 +49,15 @@ export interface PiHarnessOptions {
 
 export class PiHarness implements AgentHarness {
   readonly id = "pi";
+  readonly info: HarnessDescription = {
+    label: "pi",
+    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true },
+  };
   /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
-  getUsageLimits = () => fetchAnthropicUsageLimits();
+  getUsageLimits = () => fetchAnthropicUsageLimits({ token: () => readPiAnthropicAuth() });
+  /** Search reads pi's session files directly (I-045). */
+  statSession = (sessionRef: string) => piSessionReader.stat(sessionRef);
+  readSessionText = (sessionRef: string) => piSessionReader.read(sessionRef);
   private modelsCache: { at: number; models: ModelInfo[]; defaults: HarnessDefaults } | null = null;
   private modelsInflight: Promise<ModelInfo[]> | null = null;
 
@@ -139,34 +147,10 @@ export class PiHarness implements AgentHarness {
     return readPiTranscript(sessionRef);
   }
 
-  async generateTitle({ firstMessage, cwd, model }: GenerateTitleOptions): Promise<string | null> {
+  /** `pi -p` in the utility folder (or `cwd`); titles build on this (`harness/title.ts`). */
+  complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
     const { piPath } = this.options.config();
-    const prompt =
-      "Write a short title (max 6 words) for a conversation that starts with the message below. " +
-      "Reply with the title only: no quotes, no trailing punctuation.\n\n<message>\n" +
-      firstMessage.slice(0, 2000) +
-      "\n</message>";
-    // Not --no-extensions: extensions may provide the provider/auth the model needs (with them
-    // disabled, Anthropic subscription auth was rejected in testing).
-    const args = ["-p", "--no-session", "--no-tools", "--no-skills", "--no-context-files"];
-    if (model) args.push("--model", modelKey(model), "--thinking", "off");
-    args.push("--", prompt);
-    try {
-      const pending = execFileAsync(piPath, args, { cwd, env: piChildEnv(), timeout: 45_000, maxBuffer: 1024 * 1024 });
-      // `pi -p` reads piped stdin as extra input; close it so it doesn't wait for EOF.
-      pending.child.stdin?.end();
-      const { stdout } = await pending;
-      const title = stdout
-        .split("\n")
-        .map((l) => l.trim())
-        .find(Boolean)
-        ?.replace(/^["'#*\s]+|["'*.\s]+$/g, "")
-        .slice(0, 80);
-      return title || null;
-    } catch (err) {
-      this.options.log?.(`title generation failed: ${(err as Error).message}`);
-      return null;
-    }
+    return piOneShot({ piPath, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, log: this.options.log });
   }
 
   async dispose(): Promise<void> {}
@@ -196,8 +180,7 @@ export class PiSession implements HarnessSession {
   private state: SessionState = defaultSessionState();
   private ref: string | null = null;
   private readonly translator = new PiEventTranslator();
-  private readonly listeners = new Set<(event: AgentEvent) => void>();
-  private readonly exitListeners = new Set<(error: Error | null) => void>();
+  private readonly events: SessionEvents;
   private disposed = false;
   private commands: Promise<SlashCommand[]> | null = null;
   /** `compact` requests in flight (their failures are reported by the request, not as a toast). */
@@ -213,6 +196,7 @@ export class PiSession implements HarnessSession {
     /** Folder for `exportHtml` (injectable for tests). */
     private readonly exportDir: () => string = defaultExportDir,
   ) {
+    this.events = new SessionEvents(log);
     proc.on("event", (raw) => {
       for (const event of this.translator.translate(raw)) {
         if (event.type === "state") this.state = { ...this.state, ...event.state };
@@ -224,7 +208,7 @@ export class PiSession implements HarnessSession {
     });
     proc.on("exit", () => {
       const error = this.disposed ? null : new Error(proc.recentStderr || "pi process exited unexpectedly");
-      for (const listener of this.exitListeners) listener(error);
+      this.events.exit(error);
     });
   }
 
@@ -355,13 +339,11 @@ export class PiSession implements HarnessSession {
   }
 
   onEvent(listener: (event: AgentEvent) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    return this.events.onEvent(listener);
   }
 
   onExit(listener: (error: Error | null) => void): () => void {
-    this.exitListeners.add(listener);
-    return () => this.exitListeners.delete(listener);
+    return this.events.onExit(listener);
   }
 
   async dispose(): Promise<void> {
@@ -381,12 +363,6 @@ export class PiSession implements HarnessSession {
   }
 
   private emit(event: AgentEvent): void {
-    for (const listener of this.listeners) {
-      try {
-        listener(event);
-      } catch (err) {
-        this.log?.(`event listener failed: ${(err as Error).message}`);
-      }
-    }
+    this.events.emit(event);
   }
 }

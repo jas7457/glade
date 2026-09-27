@@ -28,6 +28,7 @@ import {
   type DeepPartial,
   type ListAgentsResponse,
   type MessageAgentRequest,
+  type HarnessInfo,
   type ModelInfo,
   type ModelRef,
   type OpenTarget,
@@ -56,6 +57,8 @@ import {
   type WorkspaceDetail,
   type WorkspaceSummary,
 } from "@glade/protocol";
+import type { HarnessRegistry } from "../harness/registry.js";
+import { canGenerateTitles, generateTitleWith } from "../harness/title.js";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
 import type { Store, StoreChange } from "../store/store.js";
 import {
@@ -121,6 +124,8 @@ const ORPHAN_GRACE_MS = 1500;
 const ELSEWHERE_RETRY_MS = 30 * 60_000;
 
 interface LiveSession {
+  /** The harness running it (`Session.harness`). */
+  harness: AgentHarness;
   session: HarnessSession;
   transcript: Transcript;
   pendingUi: Map<string, UiRequest>;
@@ -140,7 +145,11 @@ interface LiveSession {
 
 export interface AppServiceOptions {
   store: Store;
-  harness: AgentHarness;
+  /**
+   * Installed harnesses (I-064). Sessions run in the harness that created them
+   * (`Session.harness`); new chats and app-level things (model list, usage limits) use the default.
+   */
+  harnesses: HarnessRegistry;
   scratchDir: string;
   /** "Reveal in Finder" (injectable for tests). Default: `open -R` on macOS. */
   revealPath?: RevealPath;
@@ -188,7 +197,7 @@ export class AppService {
   /** sessionId -> number of clients currently viewing it. */
   private readonly viewers = new Map<string, number>();
   private readonly store: Store;
-  private readonly harness: AgentHarness;
+  private readonly harnesses: HarnessRegistry;
   /** Files written by `exportSession` this run; the only paths `revealPath` will show. */
   private readonly exported = new Set<string>();
   /** Agent API (I-037): sub-agent records, per-process tokens, timers, delivery queues. */
@@ -206,13 +215,20 @@ export class AppService {
 
   constructor(private readonly options: AppServiceOptions) {
     this.store = options.store;
-    this.harness = options.harness;
+    this.harnesses = options.harnesses;
     this.agents = new AgentRegistry(options.dataDir);
     this.serverUrl = options.serverUrl ?? null;
     mkdirSync(options.scratchDir, { recursive: true });
-    const getUsage = this.harness.getUsageLimits?.bind(this.harness);
-    this.usage = getUsage
-      ? new UsageLimitsPoller({ fetchLimits: getUsage, broadcast: (m) => this.broadcast(m), log: options.log })
+    // Usage limits are the default harness's account (the gauge is app-wide).
+    this.usage = this.harnesses.list().some((h) => h.getUsageLimits)
+      ? new UsageLimitsPoller({
+          fetchLimits: async () => {
+            const harness = this.harnesses.default();
+            return harness.getUsageLimits ? harness.getUsageLimits() : null;
+          },
+          broadcast: (m) => this.broadcast(m),
+          log: options.log,
+        })
       : null;
     this.usage?.start();
     this.leases = options.registry
@@ -299,8 +315,14 @@ export class AppService {
     return settings;
   }
 
+  /** The installed harnesses, the default first (`GET /api/harnesses`, I-065). */
+  listHarnesses(): HarnessInfo[] {
+    return this.harnesses.info();
+  }
+
+  /** The default harness's models (what the model settings and new chats offer). */
   async listModels(force = false): Promise<ModelInfo[]> {
-    const models = await this.harness.listModels(force);
+    const models = await this.harnesses.default().listModels(force);
     // A forced refresh may have changed the list; let every client know.
     if (force) this.broadcast({ type: "models", models });
     return models;
@@ -412,6 +434,15 @@ export class AppService {
     const session = this.store.getSession(id);
     if (!session) throw new HttpError(404, "Session not found");
     return session;
+  }
+
+  /** The harness that runs `session` (I-064); 409 when it isn't installed in this server. */
+  private requireHarness(session: Session): AgentHarness {
+    const harness = this.harnesses.get(session.harness);
+    if (!harness) {
+      throw new HttpError(409, `This chat was created with the "${session.harness}" agent, which isn't available in this Glade server`);
+    }
+    return harness;
   }
 
   private summarizeSession(session: Session): SessionSummary {
@@ -591,6 +622,8 @@ export class AppService {
       if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
     }
     const settings = this.store.getSettings();
+    // Sub-agents run in their parent's harness; other new sessions in the default one.
+    const harness = how.kind === "subagent" ? this.requireHarness(this.requireSession(how.parentSessionId)) : this.harnesses.default();
     const now = Date.now();
     const session: Session = {
       id: randomUUID(),
@@ -600,7 +633,7 @@ export class AppService {
       agentName: how.kind === "subagent" ? how.agentName : null,
       title: how.kind === "subagent" ? how.agentName : req.prompt ? quickTitle(req.prompt) : "New chat",
       titleSource: how.kind === "subagent" ? "user" : "auto",
-      harness: this.harness.id,
+      harness: harness.id,
       sessionRef: null,
       unread: false,
       createdAt: now,
@@ -644,8 +677,9 @@ export class AppService {
    * starting it again (I-054); typing in it starts it. `null` when it should be started as usual.
    */
   private async closedAgentDetail(session: Session): Promise<SessionDetail | null> {
-    if (!this.isDormantAgent(session.id) || !session.sessionRef || !this.harness.readTranscript) return null;
-    const transcript = await this.harness.readTranscript(session.sessionRef).catch(() => null);
+    const harness = this.harnesses.get(session.harness);
+    if (!this.isDormantAgent(session.id) || !session.sessionRef || !harness?.readTranscript) return null;
+    const transcript = await harness.readTranscript(session.sessionRef).catch(() => null);
     if (!transcript) return null;
     const state = { ...defaultSessionState(), model: session.model, ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}) };
     return { session: this.summarizeSession(session), transcript, state, pendingUiRequests: [] };
@@ -658,7 +692,8 @@ export class AppService {
   private async elsewhereDetail(session: Session): Promise<SessionDetail | null> {
     if (!this.leases || this.live.has(session.id) || this.opening.has(session.id)) return null;
     if (!this.leases.foreignLeaseNow(session.id)) return null;
-    const transcript = (session.sessionRef && (await this.harness.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
+    const harness = this.harnesses.get(session.harness);
+    const transcript = (session.sessionRef && (await harness?.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
     const summary = this.summarizeSession(session);
     const state = {
       ...defaultSessionState(),
@@ -741,7 +776,9 @@ export class AppService {
   /** Stop a session's agent and delete its file (the record is left to the caller). */
   private async disposeSession(session: Session): Promise<void> {
     await this.closeLive(session.id);
-    if (session.sessionRef) await this.harness.deleteSession(session.sessionRef).catch(() => {});
+    const harness = this.harnesses.get(session.harness);
+    if (session.sessionRef && harness) await harness.deleteSession(session.sessionRef).catch(() => {});
+    else if (session.sessionRef) this.options.log?.(`kept the session file of ${session.id}: its harness "${session.harness}" isn't installed`);
     this.viewers.delete(session.id);
     this.leases?.release(session.id);
   }
@@ -800,7 +837,7 @@ export class AppService {
   private async checkImageSizes(images: PromptImage[] | undefined, live: LiveSession): Promise<void> {
     if (!images?.length) return;
     const model = live.session.getState().model;
-    const models = model ? await this.harness.listModels().catch(() => [] as ModelInfo[]) : [];
+    const models = model ? await live.harness.listModels().catch(() => [] as ModelInfo[]) : [];
     const limits = models.find((m) => sameModel(m, model))?.imageLimits ?? DEFAULT_IMAGE_LIMITS;
     images.forEach((image, i) => {
       const bytes = decodedBase64Size(image.data);
@@ -813,14 +850,16 @@ export class AppService {
 
   private async generateTitle(id: string, firstMessage: string): Promise<void> {
     const settings = this.store.getSettings();
-    if (!settings.general.generateTitles || !this.harness.generateTitle) return;
     const session = this.store.getSession(id);
-    const workspace = session && this.store.getWorkspace(session.workspaceId);
-    if (!session || !workspace) return;
-    const title = await this.harness.generateTitle({
+    const harness = session && this.harnesses.get(session.harness);
+    if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
+    const workspace = this.store.getWorkspace(session.workspaceId);
+    if (!workspace) return;
+    // The chat's own harness writes its title (the title model is one of its models).
+    const title = await generateTitleWith(harness, {
       firstMessage,
       cwd: workspace.cwd,
-      model: settings.models.titleModel ?? (await this.defaultTitleModel()) ?? session.model,
+      model: settings.models.titleModel ?? (await this.defaultTitleModel(harness)) ?? session.model,
     });
     const current = this.store.getSession(id);
     if (!title || !current || current.titleSource !== "auto") return;
@@ -831,8 +870,8 @@ export class AppService {
   }
 
   /** Titles use a cheap, fast model by default (Haiku) when it's available. */
-  private async defaultTitleModel(): Promise<ModelRef | null> {
-    const models = await this.harness.listModels().catch(() => [] as ModelInfo[]);
+  private async defaultTitleModel(harness: AgentHarness): Promise<ModelRef | null> {
+    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
     return models.some((m) => sameModel(m, DEFAULT_TITLE_MODEL)) ? DEFAULT_TITLE_MODEL : null;
   }
 
@@ -863,10 +902,11 @@ export class AppService {
   /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
   async listCommands(id: string): Promise<SlashCommand[]> {
     const session = this.requireSession(id);
-    if ((this.isDormantAgent(id) || this.isElsewhere(id)) && this.harness.listFolderCommands) {
+    const harness = this.requireHarness(session);
+    if ((this.isDormantAgent(id) || this.isElsewhere(id)) && harness.listFolderCommands) {
       // Don't start a closed sub-agent just for its slash menu; its folder's commands are the same.
       const workspace = this.requireWorkspace(session.workspaceId);
-      return this.harness.listFolderCommands(workspace.cwd);
+      return harness.listFolderCommands(workspace.cwd);
     }
     const live = await this.ensureLive(id);
     return live.session.listCommands ? live.session.listCommands() : [];
@@ -968,7 +1008,7 @@ export class AppService {
     if (req.keepOpen && !keepOpenReason) {
       throw new HttpError(400, "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.");
     }
-    const model = req.model ? await this.resolveModel(req.model) : caller.model;
+    const model = req.model ? await this.resolveModel(this.requireHarness(caller), req.model) : caller.model;
     if (req.thinking !== undefined && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
       throw new HttpError(400, `thinking must be one of ${THINKING_LEVELS.join(", ")}`);
     }
@@ -1022,10 +1062,10 @@ export class AppService {
   }
 
   /** `provider/id`, or a bare id matched against the harness's models. */
-  private async resolveModel(value: string): Promise<ModelRef> {
+  private async resolveModel(harness: AgentHarness, value: string): Promise<ModelRef> {
     const slash = value.indexOf("/");
     if (slash > 0 && slash < value.length - 1) return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
-    const models = await this.harness.listModels().catch(() => [] as ModelInfo[]);
+    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
     const match = models.find((m) => m.id === value);
     if (!match) throw new HttpError(400, `Unknown model "${value}"`);
     return { provider: match.provider, id: match.id };
@@ -1349,21 +1389,22 @@ export class AppService {
   private async openLive(id: string): Promise<LiveSession> {
     const record = this.requireSession(id);
     const workspace = this.requireWorkspace(record.workspaceId);
+    const harness = this.requireHarness(record);
     await this.acquireLease(id);
     try {
-      return await this.startLive(id, record, workspace);
+      return await this.startLive(id, record, workspace, harness);
     } catch (err) {
       if (!this.live.has(id)) this.leases?.release(id);
       throw err;
     }
   }
 
-  private async startLive(id: string, record: Session, workspace: Workspace): Promise<LiveSession> {
+  private async startLive(id: string, record: Session, workspace: Workspace, harness: AgentHarness): Promise<LiveSession> {
     mkdirSync(workspace.cwd, { recursive: true });
     const agent = this.agents.get(id);
     let session: HarnessSession;
     try {
-      session = await this.harness.openSession({
+      session = await harness.openSession({
         cwd: workspace.cwd,
         sessionRef: record.sessionRef,
         model: record.model,
@@ -1377,6 +1418,7 @@ export class AppService {
     }
     const transcript = await session.loadTranscript();
     const live: LiveSession = {
+      harness,
       session,
       transcript,
       pendingUi: new Map(),
@@ -1591,7 +1633,7 @@ export class AppService {
     this.agentTimers.clear();
     this.agents.flush();
     await Promise.all([...this.live.keys()].map((id) => this.closeLive(id, { quiet: true })));
-    await this.harness.dispose();
+    await this.harnesses.dispose();
     this.store.dispose();
     this.leases?.releaseAll();
   }

@@ -1,8 +1,8 @@
 /**
  * Search across chats (I-045) and the natural-language chat finder (I-046).
  *
- * - Text comes from the harness's session files via a {@link SessionTextReader} (pi:
- *   `harness/pi/session-reader.ts`), never from running agents. Extracted text is cached in
+ * - Text comes from the harness's session files via a {@link SessionTextReader} (built from
+ *   `AgentHarness.statSession`/`readSessionText` in `create.ts`), never from running agents. Extracted text is cached in
  *   `<dataDir>/search-index.json` keyed by session id with the file's mtime/size, so a restart
  *   only re-reads files that changed.
  * - Freshness: files are re-`stat`ed (cheap) before each search when the last check is older
@@ -50,7 +50,7 @@ export interface SearchServiceOptions {
   app: SearchAppSource;
   /** Where the index cache and summaries are stored. */
   dataDir: string;
-  /** Session readers by harness id (e.g. `{ pi: piSessionReader }`). */
+  /** Session readers by harness id (`sessionReaders(harnesses)` in `create.ts`). */
   readers: Readonly<Record<string, SessionTextReader>>;
   /** One-shot fast model; without it summaries are off and `ask` uses keyword ranking. */
   fastModel?: FastModel;

@@ -123,7 +123,7 @@ describe("PiHarness child environment", () => {
   });
 
   it("strips them from one-shot title processes", async () => {
-    expect(await harness().generateTitle({ firstMessage: "hi", cwd: dir, model: null })).toBe("A title");
+    expect(await harness().complete({ prompt: "hi", cwd: dir, model: null })).toBe("A title");
     const keys = recorded("p");
     expect(keys).toContain("GLADE_TEST_KEEP");
     expect(keys.filter((k) => k.startsWith("CMUX_") || k.startsWith("PI_AGENT_TEAMS_"))).toEqual([]);

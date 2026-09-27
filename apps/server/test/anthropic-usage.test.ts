@@ -2,12 +2,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-  ANTHROPIC_USAGE_URL,
-  fetchAnthropicUsageLimits,
-  parseAnthropicUsage,
-  readPiAnthropicAuth,
-} from "../src/harness/pi/anthropic-usage.js";
+import { readPiAnthropicAuth } from "../src/harness/pi/anthropic-auth.js";
+import { ANTHROPIC_USAGE_URL, fetchAnthropicUsageLimits, parseAnthropicUsage } from "../src/services/providers/anthropic-usage.js";
+
+/** pi supplies the token (I-069). */
+const token = (authPath: string) => () => readPiAnthropicAuth(authPath);
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/anthropic-usage.json", import.meta.url), "utf8")) as Record<string, unknown>;
 const NOW = Date.parse("2026-09-26T18:00:00Z");
@@ -94,7 +93,7 @@ describe("parseAnthropicUsage", () => {
 describe("fetchAnthropicUsageLimits", () => {
   it("calls the endpoint with the OAuth token and beta header", async () => {
     const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => jsonResponse(fixture));
-    const result = await fetchAnthropicUsageLimits({ fetch: fetch as unknown as typeof globalThis.fetch, authPath: oauth(), now: () => NOW });
+    const result = await fetchAnthropicUsageLimits({ fetch: fetch as unknown as typeof globalThis.fetch, token: token(oauth()), now: () => NOW });
     expect(result?.limits.map((l) => l.percent)).toEqual([46, 6, 0]);
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0]!;
@@ -106,8 +105,8 @@ describe("fetchAnthropicUsageLimits", () => {
   it("does not call the endpoint when there is no OAuth login or the token expired", async () => {
     const fetch = vi.fn(async () => jsonResponse(fixture));
     const f = fetch as unknown as typeof globalThis.fetch;
-    expect(await fetchAnthropicUsageLimits({ fetch: f, authPath: "/nonexistent", now: () => NOW })).toBeNull();
-    expect(await fetchAnthropicUsageLimits({ fetch: f, authPath: oauth(NOW - 1), now: () => NOW })).toBeNull();
+    expect(await fetchAnthropicUsageLimits({ fetch: f, token: token("/nonexistent"), now: () => NOW })).toBeNull();
+    expect(await fetchAnthropicUsageLimits({ fetch: f, token: token(oauth(NOW - 1)), now: () => NOW })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -123,7 +122,7 @@ describe("fetchAnthropicUsageLimits", () => {
     ];
     for (const impl of cases) {
       const fetch = vi.fn(impl) as unknown as typeof globalThis.fetch;
-      await expect(fetchAnthropicUsageLimits({ fetch, authPath, now: () => NOW })).resolves.toBeNull();
+      await expect(fetchAnthropicUsageLimits({ fetch, token: token(authPath), now: () => NOW })).resolves.toBeNull();
     }
   });
 });

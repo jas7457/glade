@@ -228,6 +228,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   });
 
   // Models + settings -------------------------------------------------------------------------
+  // Installed harnesses, the default first (I-065).
+  api.get("/harnesses", (c) => c.json(service.listHarnesses()));
   api.get("/models", async (c) => {
     const refresh = c.req.query("refresh");
     return c.json(await service.listModels(refresh === "1" || refresh === "true"));

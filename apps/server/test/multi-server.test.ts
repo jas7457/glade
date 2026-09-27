@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ServerMessage } from "@glade/protocol";
 import { FakeHarness, type FakeSession } from "../src/harness/fake/fake-harness.js";
+import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService, HttpError } from "../src/services/app-service.js";
 import { LeaseManager } from "../src/services/leases.js";
 import { ServerRegistry } from "../src/services/server-registry.js";
@@ -40,7 +41,7 @@ function startServer(dir: string, harness: FakeHarness, id: string, kind: string
   const store = new Store(dataDir, debounceMs);
   const registry = new ServerRegistry(dataDir, { kind, host: "127.0.0.1", port: 0, id });
   registry.start();
-  const service = new AppService({ store, harness, scratchDir: join(dir, "scratch"), dataDir, registry, leaseScanMs: 40 });
+  const service = new AppService({ store, harnesses: new HarnessRegistry([harness]), scratchDir: join(dir, "scratch"), dataDir, registry, leaseScanMs: 40 });
   const messages: ServerMessage[] = [];
   service.subscribe((m) => messages.push(m));
   cleanups.push(async () => {

@@ -239,12 +239,38 @@ function replaceOrAppend<T extends { id: string }>(list: T[], item: T): T[] {
   return idx === -1 ? [...list, item] : list.map((x, i) => (i === idx ? item : x));
 }
 
+/** Stored-settings upgrades. Returns the same object when nothing changes. */
+export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+  return migratePiSettings(migrateNotifications(stored));
+}
+
 /** I-028: system notifications were removed; drop the old toggle from stored settings. */
-function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+function migrateNotifications(stored: DeepPartial<Settings>): DeepPartial<Settings> {
   const general = (stored as { general?: Record<string, unknown> }).general;
   if (!general || !("notifyOnComplete" in general)) return stored;
   const { notifyOnComplete: _removed, ...rest } = general;
   return { ...stored, general: rest } as DeepPartial<Settings>;
+}
+
+/** pi's settings kept in `agent` before I-066. */
+const LEGACY_PI_KEYS = ["piPath", "extraArgs", "autoCompaction", "autoRetry"] as const;
+
+/**
+ * I-066: pi's settings moved from `agent` to `harnesses.pi`. Values already under
+ * `harnesses.pi` win (e.g. written by a newer server while an older one still wrote `agent`).
+ */
+function migratePiSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+  const agent = (stored as { agent?: Record<string, unknown> }).agent;
+  if (!agent || !LEGACY_PI_KEYS.some((k) => k in agent)) return stored;
+  const rest: Record<string, unknown> = { ...agent };
+  const moved: Record<string, unknown> = {};
+  for (const key of LEGACY_PI_KEYS) {
+    if (key in rest) moved[key] = rest[key];
+    delete rest[key];
+  }
+  const harnesses = (stored as { harnesses?: Record<string, Record<string, unknown>> }).harnesses ?? {};
+  const pi = { ...moved, ...harnesses.pi };
+  return { ...stored, agent: rest, harnesses: { ...harnesses, pi } } as DeepPartial<Settings>;
 }
 
 /**

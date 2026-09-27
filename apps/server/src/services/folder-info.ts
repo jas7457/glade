@@ -3,6 +3,9 @@
  * for a project/scratch folder, file search for `@` mentions, and the harness's default model.
  * Results are cached per folder for a short time; concurrent requests share one fetch.
  *
+ * Everything here is for new chats, so it asks the default harness (I-064), read per call so a
+ * changed default applies at once.
+ *
  * Only folders Glade knows (a project's path or the scratch folder) are ever listed: callers pass
  * a project id, never a path.
  */
@@ -12,7 +15,8 @@ import { HttpError } from "./app-service.js";
 import { listFolderFiles, rankFiles, type FolderFiles } from "./file-index.js";
 
 export interface FolderInfoOptions {
-  harness: AgentHarness;
+  /** The harness new chats use (`HarnessRegistry.default`). */
+  harness: () => AgentHarness;
   /** Folder of standalone chats. */
   scratchDir: string;
   /** A project's folder, or `undefined` for an unknown project. */
@@ -50,9 +54,10 @@ export class FolderInfoService {
   /** Harness commands (extensions, skills, prompts) available in the folder. */
   async listCommands(projectId: string | null, force = false): Promise<SlashCommand[]> {
     const cwd = this.folderFor(projectId);
-    const harness = this.options.harness;
+    const harness = this.options.harness();
     if (!harness.listFolderCommands) return [];
-    return this.cached(this.commands, cwd, this.options.commandsTtlMs ?? 60_000, force, () => harness.listFolderCommands!(cwd));
+    const key = `${harness.id}\0${cwd}`;
+    return this.cached(this.commands, key, this.options.commandsTtlMs ?? 60_000, force, () => harness.listFolderCommands!(cwd));
   }
 
   /** Files/folders of the folder matching `query`, best first. */
@@ -66,7 +71,7 @@ export class FolderInfoService {
 
   /** The harness's own default model/thinking level (`null`s when it can't tell). */
   async getDefaults(force = false): Promise<HarnessDefaults> {
-    return (await this.options.harness.getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
+    return (await this.options.harness().getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
   }
 
   private cached<T>(map: Map<string, CacheEntry<T>>, key: string, ttl: number, force: boolean, load: () => Promise<T>): Promise<T> {

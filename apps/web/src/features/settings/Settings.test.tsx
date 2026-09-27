@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/preact";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { defaultSettings } from "@glade/protocol";
+import { defaultSettings, type HarnessCapabilities, type HarnessInfo } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({
   api: { updateSettings: vi.fn(), listModels: vi.fn(), updateChat: vi.fn() },
@@ -10,6 +10,7 @@ vi.mock("@/lib/api", () => ({
 import { api } from "@/lib/api";
 import { TooltipProvider } from "@/ui";
 import { models, settings, workspaces } from "@/state/store";
+import { harnesses } from "@/state/harnesses";
 import { makeWorkspace } from "@/test/fixtures";
 import { SettingsRoute } from "./SettingsView";
 import { parseArgs } from "./AgentSettings";
@@ -19,6 +20,15 @@ import { SETTINGS_GROUPS } from "./sections";
 import { SETTINGS_SECTIONS } from "@/app/routes";
 
 const mocked = vi.mocked(api);
+
+const ALL: HarnessCapabilities = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
+const harness = (id: string, label: string, extra: Partial<HarnessInfo> = {}): HarnessInfo => ({
+  id,
+  label,
+  isDefault: false,
+  capabilities: ALL,
+  ...extra,
+});
 
 /** Blur a field. preact/compat listens for `focusout`, which testing-library's fireEvent.blur doesn't send. */
 const leave = (el: HTMLElement) => act(() => void el.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
@@ -39,6 +49,7 @@ describe("settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settings.value = defaultSettings();
+    harnesses.value = [harness("pi", "pi", { isDefault: true })];
     mocked.updateSettings.mockImplementation(async () => settings.value);
   });
 
@@ -49,6 +60,13 @@ describe("settings", () => {
     expect(settings.value.general.generateTitles).toBe(false);
     fireEvent.click(screen.getByRole("radio", { name: "Follow-up" }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ general: { busyBehavior: "followUp" } });
+  });
+
+  it("General: no busy behaviour for a default harness without steering (I-065)", () => {
+    harnesses.value = [harness("x", "X", { isDefault: true, capabilities: { ...ALL, steering: false } })];
+    renderAt("/settings/general");
+    expect(screen.queryByRole("radio", { name: "Follow-up" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Generate chat titles" })).toBeTruthy();
   });
 
   it("Appearance: theme", () => {
@@ -63,7 +81,27 @@ describe("settings", () => {
     fireEvent.input(field, { target: { value: " --foo  bar " } });
     expect(mocked.updateSettings).not.toHaveBeenCalled();
     leave(field);
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ agent: { extraArgs: ["--foo", "bar"] } });
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ harnesses: { pi: { extraArgs: ["--foo", "bar"] } } });
+  });
+
+  it("Agent: titled after the harness; pi's settings only when pi is installed (I-066)", () => {
+    const { unmount } = renderAt("/settings/agent");
+    expect(screen.getByRole("heading", { name: "pi" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Agent for new chats" })).toBeNull();
+    unmount();
+    harnesses.value = [harness("fake", "Fake agent", { isDefault: true })];
+    renderAt("/settings/agent");
+    expect(screen.getByRole("heading", { name: "Fake agent" })).toBeTruthy();
+    expect(screen.queryByLabelText("pi executable")).toBeNull();
+    expect(screen.getByLabelText("Idle agents kept running")).toBeTruthy();
+  });
+
+  it("Agent: with several harnesses, pick the one for new chats and see each one's settings", () => {
+    harnesses.value = [harness("pi", "pi", { isDefault: true }), harness("other", "Other")];
+    renderAt("/settings/agent");
+    expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "pi" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agent for new chats" }).textContent).toContain("pi");
   });
 
   it("Agent: invalid idle count is not saved", () => {
@@ -82,6 +120,13 @@ describe("settings", () => {
     renderAt("/settings/models");
     fireEvent.click(screen.getByRole("switch", { name: "Show M2" }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { hiddenModels: ["a/m2"] } });
+  });
+
+  it("Models: the empty state names the harness", () => {
+    models.value = [];
+    harnesses.value = [harness("other", "Other", { isDefault: true })];
+    renderAt("/settings/models");
+    expect(screen.getByText(/Check that Other is configured/)).toBeTruthy();
   });
 
   it("unknown sections redirect to general", () => {
@@ -106,6 +151,10 @@ describe("helpers", () => {
 });
 
 describe("settings navigation", () => {
+  beforeEach(() => {
+    harnesses.value = [harness("pi", "pi", { isDefault: true })];
+  });
+
   it("puts every section in exactly one category", () => {
     const grouped = SETTINGS_GROUPS.flatMap((g) => g.sections);
     expect([...grouped].sort()).toEqual([...SETTINGS_SECTIONS].sort());
@@ -124,8 +173,8 @@ describe("settings navigation", () => {
     expect(app.textContent).toContain("General");
     expect(app.textContent).toContain("Appearance");
     expect(ai.textContent).toContain("Models");
-    expect(ai.textContent).toContain("Agent (pi)");
-    expect(screen.getByRole("button", { name: "Agent (pi)" }).getAttribute("aria-current")).toBe("page");
+    expect(ai.textContent).toContain("pi");
+    expect(screen.getByRole("button", { name: "pi" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("button", { name: "Back to App" })).toBeTruthy();
   });
 });

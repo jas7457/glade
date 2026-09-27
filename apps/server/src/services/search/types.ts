@@ -1,30 +1,12 @@
 /**
- * Harness-agnostic inputs of the search service (I-045/I-046). A harness adapter provides a
- * {@link SessionTextReader} (e.g. pi: `harness/pi/session-reader.ts`) and optionally a
- * {@link FastModel} for one-shot completions (pi: `harness/pi/one-shot.ts`).
+ * Harness-agnostic inputs of the search service (I-045/I-046). `create.ts` builds them from each
+ * registered harness: a {@link SessionTextReader} from `AgentHarness.statSession` +
+ * `readSessionText`, and a {@link FastModel} from `AgentHarness.complete` (I-067).
  */
 import type { ModelRef } from "@glade/protocol";
+import type { SessionFileStat, SessionText } from "../../harness/types.js";
 
-export interface SessionTextMessage {
-  role: "user" | "assistant";
-  /** Plain text (no tool output, no thinking). */
-  text: string;
-  /** ms epoch (0 if unknown). */
-  timestamp: number;
-}
-
-/** The searchable text of one persisted conversation. */
-export interface SessionText {
-  /** Name stored in the session file, if any. */
-  name: string | null;
-  messages: SessionTextMessage[];
-}
-
-/** Cheap change detection for a session's persisted file. */
-export interface SessionFileStat {
-  mtimeMs: number;
-  size: number;
-}
+export type { SessionFileStat, SessionText, SessionTextMessage } from "../../harness/types.js";
 
 export interface SessionTextReader {
   /** `null` when the session has no persisted data (yet). */

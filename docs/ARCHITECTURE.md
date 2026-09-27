@@ -22,11 +22,28 @@
 
 ## Harnesses
 
-`apps/server/src/harness/types.ts` defines `AgentHarness` (list models, open/delete sessions,
-generate titles) and `HarnessSession` (prompt, abort, model/thinking, dialogs, events). An adapter
-translates its agent's native protocol to `@glade/protocol` `AgentEvent`s. The UI and AppService
-never see harness-native data. To add a harness: implement the two interfaces under
-`harness/<name>/`, add a translator with fixture tests, and register it in `src/index.ts`.
+`apps/server/src/harness/types.ts` defines `AgentHarness` (`info` = label + capabilities, list
+models, open/delete sessions, and optional extras: `readTranscript`, `statSession`/`readSessionText`
+for search, `complete` for one-shot completions, `generateTitle`, `getUsageLimits`,
+`listFolderCommands`) and `HarnessSession` (prompt, abort, model/thinking, dialogs, events). An
+adapter translates its agent's native protocol to `@glade/protocol` `AgentEvent`s; the UI and
+AppService never see harness-native data.
+
+Harnesses are registered in a `HarnessRegistry` (`harness/registry.ts`) in `src/index.ts`. Each
+session runs in the harness that created it (`Session.harness`); a chat whose harness isn't
+installed returns a clear 409. New chats and app-level things (models, folder commands, defaults,
+usage limits, search's fast model) use the default harness: the `agent.defaultHarness` setting when
+installed, else the first registered. Sub-agents run in their parent's harness.
+`GET /api/harnesses` lists `HarnessInfo` (default first); the web (`state/harnesses.ts`) hides
+controls for missing capabilities and uses the harness label in copy. Shared helpers:
+`SessionEvents` (session listener sets), `title.ts` (titles built on `complete`), and
+`services/providers/anthropic-usage.ts` (subscription limits; the harness supplies the OAuth token).
+Per-harness settings live in `Settings.harnesses.<id>` (pi: `piPath`, `extraArgs`,
+`autoCompaction`, `autoRetry`); old `Settings.agent` keys are migrated by the store.
+
+To add a harness: implement the two interfaces under `harness/<name>/`, give it `info`, add a
+translator with fixture tests, register it in `src/index.ts`, and add its settings to
+`Settings.harnesses` plus a settings panel.
 
 ### pi adapter
 
@@ -37,7 +54,10 @@ never see harness-native data. To add a harness: implement the two interfaces un
   (agent-teams) drive that terminal, and minus the agent identity / server listening config
   (`GLADE_URL`, `GLADE_TOKEN`, `GLADE_PORT`, `GLADE_SERVER_KIND`, …) under both the `GLADE_` and
   the pre-rename `PI_UI_` prefix; the data folder variable is kept. Applies to RPC processes and
-  one-shot title runs.
+  one-shot `complete` runs.
+- `statSession`/`readSessionText` read session files directly (`session-reader.ts`); `complete` =
+  `pi -p --no-session --no-tools --no-skills --no-context-files`; `getUsageLimits` = the Anthropic
+  usage client with the token from `~/.pi/agent/auth.json` (`anthropic-auth.ts`).
 - Strict LF-delimited JSONL (not `readline`; it breaks on U+2028).
 - pi messages have no ids; `PiEventTranslator` assigns them (`m<n>` live, `h<n>` history).
 - Tool results are folded into `transcript.toolResults[toolCallId]` rather than shown as messages.
@@ -466,6 +486,12 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Several harnesses per server** (2026-09-26, I-064…I-069): interfaces + optional methods +
+  `info.capabilities`, no abstract base class; routing by `Session.harness` through a
+  `HarnessRegistry`; the default harness serves new chats and app-wide features (sub-agents inherit
+  their parent's); per-harness settings under `Settings.harnesses.<id>` with a store migration;
+  search/titles use `readSessionText`/`complete` instead of harness-specific imports; provider
+  clients (Anthropic usage) live in `services/providers/` and get credentials from the harness.
 - **Renamed pi-ui → Glade** (2026-09-26, I-059, user decision): new product name, bundle ids
   (`io.github.jas7457.glade`, `.glade.dev`), data folder, `GLADE_*` env vars and `@glade/*`
   packages. Old names keep working where users or other tools may still use them: `PI_UI_*`

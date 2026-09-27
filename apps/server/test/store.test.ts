@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Project, Session, Workspace } from "@glade/protocol";
 import type { LegacyChat } from "../src/store/migrate-workspaces.js";
 import { JsonFile } from "../src/store/json-file.js";
-import { Store } from "../src/store/store.js";
+import { migrateSettings, Store } from "../src/store/store.js";
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -129,6 +129,32 @@ describe("settings migration", () => {
     store.flush();
     expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")).general).toEqual({ sendKey: "mod-enter" });
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("moves pi's settings from agent to harnesses.pi (I-066)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ agent: { piPath: "/opt/pi", extraArgs: ["--x"], maxIdleProcesses: 2, autoRetry: false }, general: { sendKey: "mod-enter" } }),
+    );
+    const store = new Store(dir, 0);
+    const settings = store.getSettings();
+    expect(settings.agent).toEqual({ maxIdleProcesses: 2, defaultHarness: null });
+    expect(settings.harnesses.pi).toEqual({ piPath: "/opt/pi", extraArgs: ["--x"], autoCompaction: true, autoRetry: false });
+    store.flush();
+    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({
+      agent: { maxIdleProcesses: 2 },
+      harnesses: { pi: { piPath: "/opt/pi", extraArgs: ["--x"], autoRetry: false } },
+      general: { sendKey: "mod-enter" },
+    });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps values already under harnesses.pi and leaves migrated files alone", () => {
+    const migrated = migrateSettings({ agent: { piPath: "old" } as never, harnesses: { pi: { piPath: "new" } } });
+    expect(migrated).toEqual({ agent: {}, harnesses: { pi: { piPath: "new" } } });
+    const current = { agent: { maxIdleProcesses: 1 }, harnesses: { pi: { autoRetry: false } } };
+    expect(migrateSettings(current)).toBe(current);
   });
 });
 

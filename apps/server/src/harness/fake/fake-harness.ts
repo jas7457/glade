@@ -5,6 +5,7 @@ import {
   emptyTranscript,
   type AgentEvent,
   type CompactResult,
+  type HarnessCapabilities,
   type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
@@ -16,7 +17,8 @@ import {
   type UiResponse,
 } from "@glade/protocol";
 import { compactionNoticeText } from "../format.js";
-import type { AgentHarness, GenerateTitleOptions, HarnessSession, OpenSessionOptions } from "../types.js";
+import { SessionEvents } from "../session-events.js";
+import type { AgentHarness, GenerateTitleOptions, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 
 export const FAKE_MODELS: ModelInfo[] = [
   {
@@ -92,11 +94,31 @@ interface StoredSession {
   thinkingLevel: ThinkingLevel;
 }
 
+/** What the fake harness can do: everything pi can except usage limits and sub-agents. */
+export const FAKE_CAPABILITIES: HarnessCapabilities = {
+  compact: true,
+  exportHtml: true,
+  steering: true,
+  uiRequests: true,
+  usageLimits: false,
+  commands: true,
+  subagents: false,
+};
+
+export interface FakeHarnessOptions {
+  /** Harness id (default "fake"); tests register several fakes with different ids (I-064). */
+  id?: string;
+  label?: string;
+  /** Overrides of {@link FAKE_CAPABILITIES}. */
+  capabilities?: Partial<HarnessCapabilities>;
+}
+
 /**
  * In-memory harness used by tests and `GLADE_HARNESS=fake` for UI development without an LLM.
  */
 export class FakeHarness implements AgentHarness {
-  readonly id = "fake";
+  readonly id: string;
+  readonly info: HarnessDescription;
   readonly sessions = new Map<string, StoredSession>();
   readonly openSessions = new Set<FakeSession>();
   private counter = 0;
@@ -105,7 +127,11 @@ export class FakeHarness implements AgentHarness {
     public script: FakeScript = defaultFakeScript,
     /** Delay between emitted events (ms). 0 = synchronous after the prompt resolves. */
     public eventDelayMs = 0,
-  ) {}
+    options: FakeHarnessOptions = {},
+  ) {
+    this.id = options.id ?? "fake";
+    this.info = { label: options.label ?? "Fake agent", capabilities: { ...FAKE_CAPABILITIES, ...options.capabilities } };
+  }
 
   async listModels(): Promise<ModelInfo[]> {
     return FAKE_MODELS;
@@ -122,7 +148,7 @@ export class FakeHarness implements AgentHarness {
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
     let ref = options.sessionRef;
     if (!ref || !this.sessions.has(ref)) {
-      ref = ref ?? `fake-session-${++this.counter}`;
+      ref = ref ?? `${this.id}-session-${++this.counter}`;
       this.sessions.set(ref, {
         transcript: emptyTranscript(),
         contextTokens: 0,
@@ -154,8 +180,7 @@ export class FakeHarness implements AgentHarness {
 }
 
 export class FakeSession implements HarnessSession {
-  private readonly listeners = new Set<(event: AgentEvent) => void>();
-  private readonly exitListeners = new Set<(error: Error | null) => void>();
+  private readonly events = new SessionEvents();
   private state: SessionState;
   private idCounter = 0;
   readonly uiResponses: UiResponse[] = [];
@@ -239,7 +264,7 @@ export class FakeSession implements HarnessSession {
   emit(event: AgentEvent): void {
     if (event.type === "state") this.state = { ...this.state, ...event.state };
     this.stored.transcript = applyAgentEvent(this.stored.transcript, event);
-    for (const listener of this.listeners) listener(event);
+    this.events.emit(event);
   }
 
   async abort(): Promise<void> {
@@ -294,18 +319,16 @@ export class FakeSession implements HarnessSession {
   }
 
   onEvent(listener: (event: AgentEvent) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    return this.events.onEvent(listener);
   }
 
   onExit(listener: (error: Error | null) => void): () => void {
-    this.exitListeners.add(listener);
-    return () => this.exitListeners.delete(listener);
+    return this.events.onExit(listener);
   }
 
   /** Simulate a crash (tests). */
   crash(message = "boom"): void {
-    for (const listener of this.exitListeners) listener(new Error(message));
+    this.events.exit(new Error(message));
   }
 
   async dispose(): Promise<void> {

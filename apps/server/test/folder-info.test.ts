@@ -153,7 +153,7 @@ describe("FolderInfoService + routes", () => {
     mkdirSync(projectDir);
     const project = env.service.createProject({ path: projectDir });
     const folderInfo = new FolderInfoService({
-      harness: env.harness,
+      harness: () => env.harness,
       scratchDir: join(env.dir, "scratch"),
       projectPath: (id) => env.store.getProject(id)?.path,
       listFiles,

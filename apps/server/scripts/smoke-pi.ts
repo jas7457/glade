@@ -3,7 +3,7 @@
  *   pnpm --filter @glade/server exec tsx scripts/smoke-pi.ts
  *
  * Lists models, opens a session in a temp dir with claude-haiku-4-5 (thinking off), sends one
- * prompt, prints the translated events and asserts the reply, checks title generation, then
+ * prompt, prints the translated events and asserts the reply, checks title generation (via `complete`), then
  * deletes the session.
  */
 import assert from "node:assert/strict";
@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyAgentEvent, emptyTranscript, messageText, type AgentEvent } from "@glade/protocol";
 import { PiHarness } from "../src/harness/pi/pi-harness.js";
+import { generateTitleWith } from "../src/harness/title.js";
 
 const dir = mkdtempSync(join(tmpdir(), "glade-smoke-"));
 const harness = new PiHarness({
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
     "get_messages should match the live transcript",
   );
 
-  const title = await harness.generateTitle({
+  const title = await generateTitleWith(harness, {
     firstMessage: "How do I set up a pnpm monorepo with vitest?",
     cwd: dir,
     model: { provider: "anthropic", id: "claude-haiku-4-5" },

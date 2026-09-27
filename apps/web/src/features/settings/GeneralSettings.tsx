@@ -1,9 +1,12 @@
 import { FormGroup, FormRow, SegmentedControl, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
+import { harnessCapabilities } from "@/state/harnesses";
 
 export function GeneralSettings() {
   const g = settings.value.general;
+  // Steer/follow-up only exists for harnesses that accept messages mid-run (I-065).
+  const steering = harnessCapabilities().steering;
   return (
     <>
       <FormGroup title="Composer">
@@ -18,24 +21,26 @@ export function GeneralSettings() {
             ]}
           />
         </FormRow>
-        <FormRow
-          label="While the agent is working"
-          description={
-            g.busyBehavior === "steer"
-              ? "Steer: your message is delivered as soon as the current tool call finishes, redirecting the agent mid-run."
-              : "Follow-up: your message waits until the agent has completely finished, then starts a new turn."
-          }
-        >
-          <SegmentedControl
-            aria-label="Busy behavior"
-            value={g.busyBehavior}
-            onChange={(busyBehavior) => void updateSettings({ general: { busyBehavior } })}
-            options={[
-              { value: "steer", label: "Steer" },
-              { value: "followUp", label: "Follow-up" },
-            ]}
-          />
-        </FormRow>
+        {steering && (
+          <FormRow
+            label="While the agent is working"
+            description={
+              g.busyBehavior === "steer"
+                ? "Steer: your message is delivered as soon as the current tool call finishes, redirecting the agent mid-run."
+                : "Follow-up: your message waits until the agent has completely finished, then starts a new turn."
+            }
+          >
+            <SegmentedControl
+              aria-label="Busy behavior"
+              value={g.busyBehavior}
+              onChange={(busyBehavior) => void updateSettings({ general: { busyBehavior } })}
+              options={[
+                { value: "steer", label: "Steer" },
+                { value: "followUp", label: "Follow-up" },
+              ]}
+            />
+          </FormRow>
+        )}
       </FormGroup>
 
       <FormGroup title="Chats">
