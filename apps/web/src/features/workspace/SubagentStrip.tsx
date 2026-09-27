@@ -108,7 +108,8 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
       data-attention={chip.attention ?? undefined}
       onClick={() => onOpen(chip.id)}
       class={cn(
-        "flex h-[22px] max-w-full min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
+        // Fixed width (the user asked): chips don't jump as their latest message changes.
+        "flex h-[22px] w-56 max-w-full min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-separator bg-agent-tint pr-2 pl-1.5 outline-none hover:bg-hover",
         chip.attention === "warning" && "border-warning/60 bg-warning-tint",
         chip.attention === "danger" && "border-danger/50 bg-danger-tint",
         selected && "border-agent ring-1 ring-agent",
@@ -119,7 +120,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
       <span class="shrink-0 font-medium text-agent">{chip.identity.displayName}</span>
       <AgentStatusMarker kind={chip.kind} size={10} />
       {chip.shortActivity && (
-        <span class={cn("min-w-0 truncate", chip.attention === "danger" ? "text-danger" : chip.attention === "warning" ? "text-fg" : "text-fg-muted")}>
+        <span class={cn("min-w-0 flex-1 truncate", chip.attention === "danger" ? "text-danger" : chip.attention === "warning" ? "text-fg" : "text-fg-muted")}>
           {chip.shortActivity}
         </span>
       )}

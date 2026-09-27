@@ -106,6 +106,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agent chips above the composer have a fixed width, so they no longer jump around as their
+  latest message changes.
 - Sub-agents get a fun name and their own colour ("Maya · reviewer"). They show as small chips
   above the composer and as a live card where they were started, which turns into their report when
   they finish.
