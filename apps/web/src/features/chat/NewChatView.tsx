@@ -1,6 +1,7 @@
 /**
  * New chat screen: centered empty state with the composer; the chat is created on first send.
  */
+import { harnessLabel } from "@/state/harnesses";
 import { projectsById } from "@/state/store";
 import { TITLEBAR_HEIGHT } from "@/ui";
 import { Composer } from "./Composer";
@@ -32,7 +33,7 @@ export function NewChatView({ projectId }: { projectId: string | null }) {
               <p class="mt-1 text-fg-muted">Ask anything. Standalone chats run in a scratch folder.</p>
             )}
           </div>
-          <Composer projectId={projectId} placeholder={project ? `Ask pi to work on ${project.name}…` : "Ask anything…"} />
+          <Composer projectId={projectId} placeholder={project ? `Ask ${harnessLabel()} to work on ${project.name}…` : "Ask anything…"} />
         </div>
       </div>
     </div>

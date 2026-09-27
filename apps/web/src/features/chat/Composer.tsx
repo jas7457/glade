@@ -37,6 +37,7 @@ import { api } from "@/lib/api";
 import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { createWorkspace } from "@/state/actions";
+import { harnessCapabilities } from "@/state/harnesses";
 import { harnessDefaults, models as allModels, sessionsById, settings, visibleModels, workspacesById } from "@/state/store";
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
@@ -520,7 +521,13 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   const state = store.state.value;
   const ready = store.status.value === "ready";
   const harnessCommands = store.commands.value;
-  const slashCommands = useMemo(() => mergeCommands(builtinCommands(true), harnessCommands), [harnessCommands]);
+  const summary = sessionsById.value.get(chatId);
+  // I-065: hide what this chat's harness can't do (all allowed until the harness list loads).
+  const capabilities = harnessCapabilities(summary?.harness);
+  const slashCommands = useMemo(
+    () => mergeCommands(builtinCommands(true, capabilities), harnessCommands),
+    [harnessCommands, capabilities],
+  );
 
   // The agent is running once the chat is loaded; fetch its slash commands then (cached).
   useEffect(() => {
@@ -540,7 +547,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
         api.prompt(chatId, {
           text,
           images: images.length ? images : undefined,
-          behavior: store.state.value.isRunning ? settings.value.general.busyBehavior : undefined,
+          // Steer vs follow-up only exists for harnesses with message queues (I-065).
+          behavior: store.state.value.isRunning && capabilities.steering ? settings.value.general.busyBehavior : undefined,
         }),
       "Could not send message",
     );
@@ -566,7 +574,6 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     });
   };
 
-  const summary = sessionsById.value.get(chatId);
   const interrupted = summary?.interrupted === true;
   // I-062: another Glade server (e.g. the dev server next to the installed app) runs it right now.
   const lockedReason = summary?.activeElsewhere ? activeElsewhereMessage(summary.activeElsewhere) : undefined;

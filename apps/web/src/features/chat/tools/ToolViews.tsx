@@ -2,13 +2,17 @@
  * Collapsed tool call rows and tool-call groups.
  *
  *   <ToolCallRow part>   "Ran `ls -la`" — click to expand the tool's body renderer
- *   <ToolGroup part>     "Ran 4 tool calls" — click to expand into individual rows
+ *   <ToolGroup part>     "Ran 4 tool calls · 12s" — click to expand into individual rows
+ *
+ * Durations (I-070) come from the server's timing stamps and tick live while running; old
+ * history has none and shows none.
  */
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
 import { ChevronRight, CircleX, Layers } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/ui";
+import { formatDuration, groupDuration, toolDuration, useNow } from "../duration";
 import { isActiveStatus, type GroupItem, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { Markdown } from "../Markdown";
 import { ThinkingView } from "../Thinking";
@@ -48,6 +52,11 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const Icon = renderer.icon;
   const Badge = renderer.Badge;
   const expandable = status !== "streaming";
+  const running = result?.status === "running" && result.startedAt !== undefined;
+  const now = useNow(running, result?.startedAt);
+  const duration = toolDuration(result, now);
+  // Finished calls under a second show nothing (a column of "0s" is noise); running ones tick.
+  const showDuration = duration !== null && (running || duration >= 1000);
 
   return (
     <div class="tool-call" data-status={status}>
@@ -63,6 +72,7 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
           )}
         </span>
         {Badge && <Badge call={call} result={result} status={status} />}
+        {showDuration && <span class="shrink-0 text-[0.85rem] text-fg-subtle tabular-nums">{formatDuration(duration)}</span>}
         {active && <Spinner size={12} />}
         {status === "error" && <CircleX size={13} class="shrink-0 text-danger" aria-label="Failed" />}
         {status === "cancelled" && <span class="text-[0.85rem] text-fg-subtle">Cancelled</span>}
@@ -91,12 +101,17 @@ function GroupItemView({ item }: { item: GroupItem }) {
 export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: { part: ToolGroupPart; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   const count = part.calls.length;
+  const results = part.calls.map((c) => c.result);
+  const firstStart = results.reduce<number | null>((min, r) => (r?.startedAt !== undefined && (min === null || r.startedAt < min) ? r.startedAt : min), null);
+  const now = useNow(part.active && firstStart !== null, firstStart);
+  const duration = groupDuration(results, now, part.active);
   return (
     <div class="tool-group">
       <button type="button" class={rowClass} aria-expanded={open} onClick={() => setOpen(!open)}>
         <Layers size={14} class={cn("shrink-0", part.errorCount ? "text-danger" : "text-fg-subtle")} />
         <span class="min-w-0 flex-1 truncate text-fg-muted">
           {groupLabel(count, part.active)}
+          {duration !== null && (part.active || duration >= 1000) && <span class="tabular-nums"> · {formatDuration(duration)}</span>}
           {part.errorCount > 0 && <span class="text-danger"> · {part.errorCount} failed</span>}
         </span>
         {part.active && <Spinner size={12} />}

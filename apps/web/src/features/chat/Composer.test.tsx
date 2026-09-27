@@ -8,6 +8,9 @@ import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { isSendKey } from "./composer-utils";
 import { Composer } from "./Composer";
+import { harnesses } from "@/state/harnesses";
+
+const ALL_CAPS = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -122,6 +125,17 @@ describe("Composer (existing chat)", () => {
     renderAt(<Composer chatId="c1" />);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
     expect(api.prompt).not.toHaveBeenCalled();
+  });
+
+  it("sends no steer/follow-up choice for harnesses without message queues (I-065)", async () => {
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...ALL_CAPS, steering: false } }];
+    readyChat("c1", true);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "also do this" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "also do this", images: undefined, behavior: undefined }));
+    harnesses.value = null;
   });
 
   it("queues with the busy behaviour while running, shows Stop, Escape aborts", async () => {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { defaultSessionState, defaultSettings, type Transcript } from "@glade/protocol";
+import { defaultSessionState, defaultSettings, type AssistantMessage, type Transcript } from "@glade/protocol";
 import { TooltipProvider } from "@/ui";
 import { models, projects, sessions, settings, workspaces } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
@@ -106,6 +106,80 @@ describe("ChatView", () => {
   it("shows a working indicator while running with nothing streaming", () => {
     setup(undefined, true);
     expect(screen.getAllByText("Working…").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the working row for the whole run with a ticking elapsed time (I-063, I-070)", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      vi.setSystemTime(100_000);
+      const store = setup(undefined, true);
+      store.state.value = { ...store.state.value, runStartedAt: 100_000 - 71_500 };
+      await act(async () => {});
+      const row = screen.getByTestId("working-indicator");
+      expect(row.textContent).toContain("Working…");
+      expect(row.textContent).toContain("1m 11s");
+      await act(async () => void vi.advanceTimersByTime(1_000));
+      expect(row.textContent).toContain("1m 12s");
+
+      // Hidden thinking streams: same row, labelled Thinking….
+      const user = { id: "u1", role: "user" as const, content: [{ type: "text" as const, text: "go" }], timestamp: 0 };
+      const reply = (content: AssistantMessage["content"]): Transcript => ({
+        messages: [user, { id: "a1", role: "assistant", timestamp: 0, streaming: true, content }],
+        toolResults: {},
+      });
+      await act(async () => void (store.transcript.value = reply([{ type: "thinking", text: "", redacted: true }])));
+      expect(screen.getByTestId("working-indicator")).toBe(row);
+      expect(row.textContent).toContain("Thinking…");
+
+      // Reply text streams: hidden after a short delay, slot kept.
+      await act(async () => void (store.transcript.value = reply([{ type: "thinking", text: "", redacted: true }, { type: "text", text: "Here" }])));
+      expect(row.getAttribute("aria-hidden")).toBe("false");
+      await act(async () => void vi.advanceTimersByTime(400));
+      expect(screen.getByTestId("working-indicator")).toBe(row);
+      expect(row.getAttribute("aria-hidden")).toBe("true");
+
+      await act(async () => void (store.state.value = { ...store.state.value, isRunning: false, runStartedAt: null }));
+      expect(screen.queryByTestId("working-indicator")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows tool group durations from the timing stamps, none for unstamped history (I-070)", () => {
+    const calls = {
+      id: "a1", role: "assistant" as const, timestamp: 0, stopReason: "toolUse" as const,
+      content: [
+        { type: "toolCall" as const, id: "t1", name: "bash", args: { command: "ls" } },
+        { type: "toolCall" as const, id: "t2", name: "bash", args: { command: "pwd" } },
+      ],
+    };
+    setup({
+      messages: [calls],
+      toolResults: {
+        t1: { toolCallId: "t1", toolName: "bash", status: "done", output: "", startedAt: 1_000, endedAt: 20_000 },
+        t2: { toolCallId: "t2", toolName: "bash", status: "done", output: "", startedAt: 30_000, endedAt: 49_000 },
+      },
+    });
+    expect(screen.getByRole("button", { name: /Ran 2 tool calls\s*· 48s/ })).toBeTruthy();
+  });
+
+  it("hides durations for history without stamps", () => {
+    setup({
+      messages: [
+        {
+          id: "a1", role: "assistant", timestamp: 0, stopReason: "toolUse",
+          content: [
+            { type: "toolCall", id: "t1", name: "bash", args: { command: "ls" } },
+            { type: "toolCall", id: "t2", name: "bash", args: { command: "pwd" } },
+          ],
+        },
+      ],
+      toolResults: {
+        t1: { toolCallId: "t1", toolName: "bash", status: "done", output: "" },
+        t2: { toolCallId: "t2", toolName: "bash", status: "done", output: "" },
+      },
+    });
+    expect(screen.getByRole("button", { name: "Ran 2 tool calls" })).toBeTruthy();
   });
 
   it("shows a readable provider error with the raw text behind Details", async () => {

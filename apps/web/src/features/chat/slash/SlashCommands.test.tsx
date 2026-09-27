@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@glade/protocol";
@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/ui";
 import { models, sessions, settings, workspaces } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
+import { harnesses } from "@/state/harnesses";
 import { toasts } from "@/state/toasts";
 import { Composer } from "../Composer";
 import { resetFolderCommands } from "./folder-commands";
@@ -288,6 +289,29 @@ describe("built-in commands", () => {
     key("Enter");
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
     expect(api.createWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("harness capabilities (I-065)", () => {
+  afterEach(() => {
+    harnesses.value = null;
+  });
+
+  it("hides /compact and /export when the chat's harness can't do them", async () => {
+    const all = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true };
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...all, compact: false, exportHtml: false } }];
+    await openChat();
+    type("/");
+    const names = options().map((o) => o.match(/^\/[a-z:-]+/)?.[0]);
+    expect(names).not.toContain("/compact");
+    expect(names).not.toContain("/export");
+    expect(names).toContain("/stats");
+    // Typed anyway: it goes to the agent as text instead of running the built-in.
+    type("/compact");
+    key("Escape");
+    key("Enter");
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", expect.objectContaining({ text: "/compact" })));
+    expect(api.compact).not.toHaveBeenCalled();
   });
 });
 

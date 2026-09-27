@@ -2,9 +2,10 @@
  * Glade's built-in slash commands: the single registry of their names, descriptions and
  * behaviour. They run in the web app (API calls / navigation), never reach the agent as text.
  * Harness commands (extensions, skills, prompt templates) come from the server and are sent
- * as ordinary prompts. To add a built-in, add an entry to BUILTIN_COMMANDS.
+ * as ordinary prompts. To add a built-in, add an entry to BUILTIN_COMMANDS. Built-ins that need
+ * a harness feature name it in `requires` and are hidden for harnesses without it (I-065).
  */
-import { type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@glade/protocol";
+import { type HarnessCapabilities, type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { routes } from "@/app/routes";
 import { renameFromSession } from "@/state/actions";
@@ -31,6 +32,8 @@ export interface BuiltinCommand extends SlashCommand {
   source: "builtin";
   /** Only offered once the chat exists (hidden in the new-chat composer). */
   needsChat: boolean;
+  /** Harness capability it needs; hidden when the chat's harness lacks it (I-065). */
+  requires?: keyof HarnessCapabilities;
   /** Resolve `true` when handled (the composer clears), `false` to keep the text for editing. */
   run: (args: string, ctx: SlashContext) => boolean | Promise<boolean>;
 }
@@ -58,6 +61,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     description: "Summarize the conversation to free up context",
     argsHint: "[instructions]",
     needsChat: true,
+    requires: "compact",
     run: (args, ctx) => {
       const chatId = requireChat(ctx);
       const store = getChatSession(chatId);
@@ -156,6 +160,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     source: "builtin",
     description: "Export this chat to an HTML file",
     needsChat: true,
+    requires: "exportHtml",
     run: async (_args, ctx) => {
       try {
         const { path } = await api.exportSession(requireChat(ctx));
@@ -198,9 +203,13 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   },
 ];
 
-/** Built-ins offered in a composer (the new-chat composer only gets those that work without a chat). */
-export function builtinCommands(hasChat: boolean): SlashCommand[] {
-  return BUILTIN_COMMANDS.filter((c) => hasChat || !c.needsChat).map(({ name, description, source, argsHint }) => ({
+/**
+ * Built-ins offered in a composer: the new-chat composer only gets those that work without a
+ * chat, and those needing a harness capability only show when `capabilities` has it (omitted =
+ * all).
+ */
+export function builtinCommands(hasChat: boolean, capabilities?: HarnessCapabilities): SlashCommand[] {
+  return BUILTIN_COMMANDS.filter((c) => (hasChat || !c.needsChat) && (!c.requires || !capabilities || capabilities[c.requires])).map(({ name, description, source, argsHint }) => ({
     name,
     source,
     ...(description ? { description } : {}),

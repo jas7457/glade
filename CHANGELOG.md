@@ -98,6 +98,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- While the agent works, the "Working…" row stays in place for the whole run instead of blinking
+  between tool calls, shows "Thinking…" while the model thinks, and counts the elapsed time
+  ("Working… 1m 12s"). Tool groups and tool rows show how long they took.
+- Replies stream in smoothly, even short ones that the provider sends in one piece, and there's no
+  more silent pause before the text appears.
 - **pi-ui is now Glade**: new name, new leaf icon, `/Applications/Glade.app` (the old app is removed
   on install). Your data is copied to `~/Library/Application Support/Glade` on first start; the old
   folder stays as a backup. `GLADE_*` environment variables replace `PI_UI_*` (old names still work).

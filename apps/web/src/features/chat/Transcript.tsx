@@ -4,19 +4,25 @@
  * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles, assistant turns
  * (markdown, thinking, tool rows/groups, errors) and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
+ *
+ * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
+ * elapsed time; streamed reply text is revealed smoothly (smooth-text.ts).
  */
 import { memo } from "preact/compat";
-import { useEffect, useMemo, useRef } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, OctagonX, Scissors, Terminal, TriangleAlert } from "lucide-preact";
 import type { ImageBlock, NoticeMessage, UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, useChatSession } from "@/state/chat-session";
 import { Button, Disclosure, Spinner } from "@/ui";
+import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
+import { useSmoothText } from "./smooth-text";
 import { useStickToBottom } from "./useStickToBottom";
+import { workingStatus, type WorkingLabel } from "./working";
 import "./chat.css";
 
 export interface TranscriptProps {
@@ -50,9 +56,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   }, [transcript.messages]);
   useEffect(() => scrollToBottom(), [lastUserId, chatId, status === "ready"]);
 
-  const streaming = transcript.messages.some((m) => m.role === "assistant" && m.streaming);
-  const toolRunning = Object.values(transcript.toolResults).some((r) => r.status === "running");
-  const showWorking = isRunning && !streaming && !toolRunning;
+  const working = workingStatus(transcript, state);
 
   let placeholder = null;
   if (items.length === 0 && (status === "loading" || status === "idle")) {
@@ -83,7 +87,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
           {items.map((item) => (
             <ItemView key={item.key} item={item} />
           ))}
-          {showWorking && <WorkingIndicator compacting={state.isCompacting} />}
+          {working.mounted && <WorkingIndicator key="working" visible={working.visible} label={working.label} startedAt={state.runStartedAt ?? null} />}
         </div>
       </div>
       {!atBottom && (
@@ -120,7 +124,7 @@ function ItemView({ item }: { item: RenderItem }) {
 function PartView({ part }: { part: TurnPart }) {
   switch (part.type) {
     case "text":
-      return <Markdown text={part.text} streaming={part.streaming} class="my-1.5" />;
+      return <ReplyText text={part.text} streaming={part.streaming} />;
     case "thinking":
       return <ThinkingView text={part.text} streaming={part.streaming} />;
     case "tool":
@@ -132,6 +136,12 @@ function PartView({ part }: { part: TurnPart }) {
     case "error":
       return <ErrorNotice kind={part.kind} message={part.message} details={part.details} />;
   }
+}
+
+/** Assistant reply text; revealed smoothly while it streams (I-072). */
+function ReplyText({ text, streaming }: { text: string; streaming: boolean }) {
+  const shown = useSmoothText(text, streaming);
+  return <Markdown text={shown} streaming={streaming} class="my-1.5" />;
 }
 
 export const UserBubble = memo(function UserBubble({ message }: { message: UserMessage }) {
@@ -228,11 +238,35 @@ export const NoticeRow = memo(function NoticeRow({ message }: { message: NoticeM
   );
 });
 
-function WorkingIndicator({ compacting }: { compacting: boolean }) {
+/** How long to keep showing the row after it's asked to hide (swallows brief flickers). */
+const HIDE_DELAY_MS = 300;
+
+/**
+ * The run's status row. Mounted for the whole run so it never remounts; its slot keeps its
+ * height while hidden (reply text streaming), so nothing below it jumps.
+ */
+export function WorkingIndicator({ visible, label, startedAt }: { visible: boolean; label: WorkingLabel; startedAt: number | null }) {
+  const [shown, setShown] = useState(visible);
+  useEffect(() => {
+    if (visible) {
+      setShown(true);
+      return;
+    }
+    const timer = setTimeout(() => setShown(false), HIDE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [visible]);
+  const now = useNow(startedAt !== null, startedAt);
   return (
-    <div class="mt-4 flex h-7 items-center gap-2" aria-live="polite">
+    <div
+      class={cn("mt-4 flex h-7 items-center gap-2 transition-opacity duration-150", !shown && "opacity-0")}
+      aria-hidden={!shown}
+      data-testid="working-indicator"
+    >
       <Spinner size={13} />
-      <span class="pi-shimmer">{compacting ? "Compacting context…" : "Working…"}</span>
+      <span class="pi-shimmer" aria-live="polite">
+        {label}
+      </span>
+      {startedAt !== null && <span class="text-fg-subtle tabular-nums">{formatDuration(now - startedAt)}</span>}
     </div>
   );
 }
