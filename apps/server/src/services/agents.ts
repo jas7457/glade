@@ -55,14 +55,38 @@ interface AgentsFile {
   agents: AgentRecord[];
 }
 
-/** Sub-agent records; persisted when given a data dir, memory only otherwise (tests). */
+/**
+ * Sub-agent records; persisted when given a data dir, memory only otherwise (tests). The file is
+ * shared with other servers on the same data folder (I-062): every change is an operation on the
+ * file's current content (JsonFile), and `onExternalChange` reports records another server changed.
+ */
 export class AgentRegistry {
-  private readonly file: JsonFile<AgentsFile> | null;
-  private records: AgentRecord[];
+  /** Exposed so the store's folder watcher can reload it. */
+  readonly file: JsonFile<AgentsFile> | null;
+  private memory: AgentRecord[] = [];
 
   constructor(dataDir?: string) {
-    this.file = dataDir ? new JsonFile(join(dataDir, "agents.json"), () => ({ version: 1, agents: [] })) : null;
-    this.records = this.file?.get().agents ?? [];
+    this.file = dataDir ? new JsonFile<AgentsFile>(join(dataDir, "agents.json"), () => ({ version: 1, agents: [] })) : null;
+  }
+
+  private get records(): AgentRecord[] {
+    return this.file ? this.file.get().agents : this.memory;
+  }
+
+  private apply(fn: (records: AgentRecord[]) => AgentRecord[]): void {
+    if (this.file) this.file.update((f) => ({ ...f, version: 1, agents: fn(f.agents) }));
+    else this.memory = fn(this.memory);
+  }
+
+  /** Session ids whose record another server added, changed or removed. */
+  onExternalChange(listener: (sessionIds: string[]) => void): () => void {
+    if (!this.file) return () => {};
+    return this.file.onExternalChange((before, after) => {
+      const old = new Map(before.agents.map((r) => [r.sessionId, JSON.stringify(r)]));
+      const changed = after.agents.filter((r) => old.get(r.sessionId) !== JSON.stringify(r)).map((r) => r.sessionId);
+      const kept = new Set(after.agents.map((r) => r.sessionId));
+      listener([...changed, ...[...old.keys()].filter((id) => !kept.has(id))]);
+    });
   }
 
   get(sessionId: string): AgentRecord | undefined {
@@ -94,36 +118,30 @@ export class AgentRegistry {
   }
 
   upsert(record: AgentRecord): AgentRecord {
-    this.records = [...this.records.filter((r) => r.sessionId !== record.sessionId), record];
-    this.save();
+    this.apply((records) => [...records.filter((r) => r.sessionId !== record.sessionId), record]);
     return record;
   }
 
+  /** Patch a record (applied to the file's current copy of it, so other fields another server changed survive). */
   update(sessionId: string, patch: Partial<AgentRecord>): AgentRecord | undefined {
-    const current = this.get(sessionId);
-    return current ? this.upsert({ ...current, ...patch }) : undefined;
+    if (!this.get(sessionId)) return undefined;
+    this.apply((records) => records.map((r) => (r.sessionId === sessionId ? { ...r, ...patch } : r)));
+    return this.get(sessionId);
   }
 
   remove(sessionId: string): void {
     if (!this.get(sessionId)) return;
-    this.records = this.records.filter((r) => r.sessionId !== sessionId);
-    this.save();
+    this.apply((records) => records.filter((r) => r.sessionId !== sessionId));
   }
 
   /** Drop every record matching `predicate` (e.g. the sub-agents of a deleted session). */
   removeWhere(predicate: (record: AgentRecord) => boolean): void {
-    const kept = this.records.filter((r) => !predicate(r));
-    if (kept.length === this.records.length) return;
-    this.records = kept;
-    this.save();
+    if (!this.records.some(predicate)) return;
+    this.apply((records) => records.filter((r) => !predicate(r)));
   }
 
   flush(): void {
     this.file?.flush();
-  }
-
-  private save(): void {
-    this.file?.set({ version: 1, agents: this.records });
   }
 }
 

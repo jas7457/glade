@@ -48,12 +48,13 @@ describe("parseAnthropicUsage", () => {
   it("maps the real response shape", () => {
     expect(parseAnthropicUsage(fixture, NOW)).toEqual({
       source: "Claude subscription",
+      provider: "anthropic",
       fetchedAt: NOW,
       stale: false,
       limits: [
         { id: "session", label: "Current session", percent: 46, resetsAt: "2026-09-26T22:39:59.874Z", severity: "normal", active: true },
         { id: "weekly_all", label: "This week", percent: 6, resetsAt: "2026-10-03T15:59:59.874Z", severity: "normal", active: false },
-        { id: "weekly_scoped:Fable", label: "Fable this week", percent: 0, resetsAt: "2026-10-03T16:00:00.000Z", severity: "normal", active: false },
+        { id: "weekly_scoped:Fable", label: "Fable this week", percent: 0, resetsAt: "2026-10-03T16:00:00.000Z", severity: "normal", active: false, model: "Fable" },
       ],
     });
   });

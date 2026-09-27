@@ -30,6 +30,19 @@ describe("piChildEnv", () => {
     });
   });
 
+  it("drops the server's own listening config but keeps the data folder (I-058)", () => {
+    const env = piChildEnv({
+      PI_UI_PORT: "54253",
+      PI_UI_HOST: "127.0.0.1",
+      PI_UI_STATIC_DIR: "/Applications/pi-ui.app/Contents/Resources/app/web",
+      PI_UI_EXIT_ON_STDIN_CLOSE: "1",
+      PI_UI_SERVER_KIND: "desktop",
+      PI_UI_DATA_DIR: "/tmp/sandbox",
+      PATH: "/usr/bin",
+    });
+    expect(env).toEqual({ PI_UI_DATA_DIR: "/tmp/sandbox", PATH: "/usr/bin" });
+  });
+
   it("does not modify the input", () => {
     const input = { CMUX_X: "1", A: "2" };
     piChildEnv(input);

@@ -111,6 +111,30 @@ export interface SessionSummary extends Session {
   status: ChatStatus;
   /** Sub-agent state (`subagent` sessions spawned via the agent API; absent otherwise). */
   agent?: SessionAgentState;
+  /**
+   * I-062: another pi-ui server sharing this data folder is running this session's agent right
+   * now (working or waiting for input). This server shows it read-only: prompts answer 409 until
+   * it's idle there (then this server takes it over on the next prompt).
+   */
+  activeElsewhere?: ActiveElsewhere;
+}
+
+/** Where a session is active when it isn't this server (see `SessionSummary.activeElsewhere`). */
+export interface ActiveElsewhere {
+  /** The other server's kind: `"dev"` (pnpm dev) or `"desktop"` (the installed app), or another label. */
+  serverKind: string;
+  /** When that server took the session (ms since epoch). */
+  since: number;
+}
+
+/** Human label for a server kind ("pi-ui (dev)", "pi-ui"). */
+export function serverKindLabel(kind: string): string {
+  return kind === "desktop" ? "pi-ui" : `pi-ui (${kind})`;
+}
+
+/** The 409 message for a session that is active in another server. */
+export function activeElsewhereMessage(elsewhere: Pick<ActiveElsewhere, "serverKind">): string {
+  return `Running in ${serverKindLabel(elsewhere.serverKind)} — open it there or wait until it's idle`;
 }
 
 /** Workspace plus state rolled up from all of its sessions (see `rollupWorkspace`). */
@@ -384,11 +408,21 @@ export interface UsageLimit {
   severity: "normal" | "warning" | "critical";
   /** This is the limit currently constraining usage. */
   active: boolean;
+  /**
+   * Set when the limit only applies to one model family (a per-model scope), e.g. "Fable": the
+   * model's display name/id fragment. The UI highlights it when the chat's model matches.
+   */
+  model?: string;
 }
 
 export interface UsageLimits {
   /** Which account/provider these limits belong to, e.g. "Claude subscription". */
   source: string;
+  /**
+   * Model provider these limits apply to (matches `ModelRef.provider`, e.g. "anthropic"). The
+   * chat shows them only when its model belongs to this provider.
+   */
+  provider: string;
   limits: UsageLimit[];
   /** When the numbers were fetched (ms epoch). */
   fetchedAt: number;

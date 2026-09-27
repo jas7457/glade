@@ -7,9 +7,8 @@
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
-//! - If another server (e.g. `pnpm dev`) already owns the data folder, the window uses it
-//!   instead, shows a one-time hint, and leaves it running on quit. If it goes away while the
-//!   app is open, the app offers to start its own.
+//! - The app always runs its own server, also while `pnpm dev` uses the same data folder: the
+//!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
 mod dev;
 mod menu;
@@ -18,20 +17,13 @@ mod server;
 mod writing_tools;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::Duration;
 
-use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, WebviewWindow, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use server::{Bundle, Connection, ExternalServer, ServerState};
+use server::{Bundle, ServerState};
 
 pub const MAIN_WINDOW: &str = "main";
-
-/// A hint to show once the page at `origin` has loaded: (origin, text).
-#[derive(Default)]
-struct PendingHint(Mutex<Option<(String, String)>>);
 
 /// Show, unminimize and focus the main window.
 pub fn focus_main(app: &AppHandle) {
@@ -71,100 +63,18 @@ fn start_server(app: AppHandle) {
             .unwrap_or_else(|_| std::env::temp_dir())
             .join("server.log");
         match server::start(&bundle, &log_path) {
-            Ok(conn) => {
-                let url = conn.url();
-                let external = match &conn {
-                    Connection::External(e) => Some(e.clone()),
-                    Connection::Owned(_) => None,
-                };
-                *app.state::<ServerState>().0.lock().unwrap() = Some(conn);
+            Ok(running) => {
+                let url = running.url();
+                *app.state::<ServerState>().0.lock().unwrap() = Some(running);
                 if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
-                    let title = if external.is_some() { "pi-ui — using the running dev server" } else { "pi-ui" };
-                    let _ = w.set_title(title);
-                    if let Some(e) = &external {
-                        let text = format!(
-                            "Using the {} server that's already running (port {}). Quitting pi-ui won't stop it.",
-                            if e.kind == "desktop" { "pi-ui" } else { "dev" },
-                            e.port
-                        );
-                        *app.state::<PendingHint>().0.lock().unwrap() = Some((url.clone(), text));
-                    }
                     if let Ok(url) = url.parse() {
                         let _ = w.navigate(url);
                     }
-                }
-                if let Some(e) = external {
-                    watch_external(app, e);
                 }
             }
             Err(message) => show_startup_error(&app, &message),
         }
     });
-}
-
-/// While we use someone else's server: if it goes away (for longer than a `tsx watch` restart),
-/// offer to start our own. Runs on the caller's thread until we stop using that server.
-fn watch_external(app: AppHandle, e: ExternalServer) {
-    let mut down = 0;
-    let mut asked = false;
-    loop {
-        std::thread::sleep(Duration::from_secs(3));
-        let still_using = matches!(
-            &*app.state::<ServerState>().0.lock().unwrap(),
-            Some(Connection::External(cur)) if cur.port == e.port && cur.host == e.host
-        );
-        if !still_using || quit::allowed() {
-            return;
-        }
-        if server::is_up(&e.host, e.port) {
-            down = 0;
-            asked = false;
-            continue;
-        }
-        down += 1;
-        if down < 3 || asked {
-            continue;
-        }
-        asked = true;
-        let start = app
-            .dialog()
-            .message("The pi-ui server this window was using has stopped. Start pi-ui's own server?")
-            .title("Server stopped")
-            .kind(MessageDialogKind::Info)
-            .buttons(MessageDialogButtons::OkCancelCustom("Start Server".into(), "Not Now".into()))
-            .blocking_show();
-        if start && !server::is_up(&e.host, e.port) {
-            app.state::<ServerState>().0.lock().unwrap().take();
-            start_server(app);
-            return;
-        }
-    }
-}
-
-/// Show the pending hint as a small, self-dismissing notice over the page.
-fn show_hint(webview: &tauri::Webview, url: &tauri::Url) {
-    let Some(state) = webview.try_state::<PendingHint>() else { return };
-    let mut pending = state.0.lock().unwrap();
-    let matches = matches!(&*pending, Some((origin, _)) if url.as_str().starts_with(origin.as_str()));
-    if !matches {
-        return;
-    }
-    let Some((_, text)) = pending.take() else { return };
-    let Ok(text) = serde_json::to_string(&text) else { return };
-    let _ = webview.eval(format!(
-        r#"(() => {{
-  const el = document.createElement("div");
-  el.textContent = {text};
-  el.setAttribute("role", "status");
-  el.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;" +
-    "max-width:80vw;padding:6px 12px;border-radius:8px;font:12px -apple-system,system-ui,sans-serif;" +
-    "background:Canvas;color:CanvasText;border:0.5px solid color-mix(in srgb, CanvasText 20%, transparent);" +
-    "box-shadow:0 4px 16px rgba(0,0,0,.18);pointer-events:none;user-select:none;opacity:0;transition:opacity .3s";
-  document.body.appendChild(el);
-  requestAnimationFrame(() => {{ el.style.opacity = "0.97"; }});
-  setTimeout(() => {{ el.style.opacity = "0"; setTimeout(() => el.remove(), 400); }}, 6000);
-}})()"#
-    ));
 }
 
 fn show_startup_error(app: &AppHandle, message: &str) {
@@ -181,10 +91,10 @@ fn show_startup_error(app: &AppHandle, message: &str) {
         .blocking_show();
 }
 
-/// Stop the server if we started it; someone else's keeps running.
+/// Stop our server (other servers on the same data folder keep running).
 fn stop_server(app: &AppHandle) {
     if let Some(state) = app.try_state::<ServerState>() {
-        if let Some(Connection::Owned(mut running)) = state.0.lock().unwrap().take() {
+        if let Some(mut running) = state.0.lock().unwrap().take() {
             running.stop();
         }
     }
@@ -200,12 +110,6 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(ServerState::default())
-        .manage(PendingHint::default())
-        .on_page_load(|webview, payload| {
-            if payload.event() == PageLoadEvent::Finished {
-                show_hint(webview, payload.url());
-            }
-        })
         .menu(menu::build)
         .on_menu_event(menu::handle)
         .setup(|app| {

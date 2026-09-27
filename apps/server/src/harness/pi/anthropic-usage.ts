@@ -15,6 +15,8 @@ import { join } from "node:path";
 import type { UsageLimit, UsageLimits } from "@pi-ui/protocol";
 
 export const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+/** pi's provider id for Anthropic models (`ModelRef.provider`); the limits apply to these. */
+export const ANTHROPIC_PROVIDER = "anthropic";
 const TIMEOUT_MS = 10_000;
 
 export interface PiAnthropicAuth {
@@ -83,14 +85,14 @@ export function parseAnthropicUsage(body: unknown, fetchedAt: number): UsageLimi
   const extra = parseExtraUsage(body.extra_usage);
   if (extra) limits.push(extra);
   if (limits.length === 0) return null;
-  return { source: "Claude subscription", limits, fetchedAt, stale: false };
+  return { source: "Claude subscription", provider: ANTHROPIC_PROVIDER, limits, fetchedAt, stale: false };
 }
 
 function parseLimit(raw: unknown): UsageLimit | null {
   if (!isRecord(raw) || typeof raw.kind !== "string" || raw.kind === "") return null;
   const percent = toPercent(raw.percent);
   if (percent === null) return null;
-  const { id, label } = identify(raw.kind, raw.scope);
+  const { id, label, model } = identify(raw.kind, raw.scope);
   return {
     id,
     label,
@@ -98,10 +100,11 @@ function parseLimit(raw: unknown): UsageLimit | null {
     resetsAt: toIso(raw.resets_at),
     severity: toSeverity(raw.severity),
     active: raw.is_active === true,
+    ...(model ? { model } : {}),
   };
 }
 
-function identify(kind: string, scope: unknown): { id: string; label: string } {
+function identify(kind: string, scope: unknown): { id: string; label: string; model?: string } {
   switch (kind) {
     case "session":
       return { id: "session", label: "Current session" };
@@ -110,7 +113,7 @@ function identify(kind: string, scope: unknown): { id: string; label: string } {
     case "weekly_scoped": {
       const model = isRecord(scope) && isRecord(scope.model) ? scope.model : null;
       const name = model && typeof model.display_name === "string" ? model.display_name.trim() : "";
-      if (name) return { id: `weekly_scoped:${name}`, label: `${name} this week` };
+      if (name) return { id: `weekly_scoped:${name}`, label: `${name} this week`, model: name };
       const surface = isRecord(scope) && typeof scope.surface === "string" ? scope.surface.trim() : "";
       if (surface) return { id: `weekly_scoped:${surface}`, label: `${humanize(surface)} this week` };
       return { id: "weekly_scoped", label: "Scoped limit this week" };

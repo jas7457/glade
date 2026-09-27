@@ -144,7 +144,7 @@ export class UsageLimitsPoller {
 }
 
 function sameValue(a: UsageLimits, b: UsageLimits): boolean {
-  return a.source === b.source && a.stale === b.stale && JSON.stringify(a.limits) === JSON.stringify(b.limits);
+  return a.source === b.source && a.provider === b.provider && a.stale === b.stale && JSON.stringify(a.limits) === JSON.stringify(b.limits);
 }
 
 function unref<T>(timer: T): T {

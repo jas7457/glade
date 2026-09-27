@@ -5,6 +5,7 @@ import { UsageLimitsPoller } from "../src/services/usage-limits.js";
 function limits(percent: number): UsageLimits {
   return {
     source: "Claude subscription",
+    provider: "anthropic",
     fetchedAt: Date.now(),
     stale: false,
     limits: [{ id: "session", label: "Current session", percent, resetsAt: null, severity: "normal", active: true }],

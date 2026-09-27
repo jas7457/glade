@@ -1,10 +1,11 @@
 /**
- * Subscription usage limits (I-015): the `usageLimits` signal fed by the server's
- * `usage_limits` push, a toast when a limit escalates, and pure formatting helpers shared by the
- * sidebar gauge and its popover. `null` means unavailable → the UI hides the feature.
+ * Subscription usage limits (I-015, I-057): the `usageLimits` signal fed by the server's
+ * `usage_limits` push, a toast when a limit escalates, which limits apply to a chat's model, and
+ * pure formatting helpers for the chat's usage popover. `null` means unavailable → the UI hides
+ * the feature.
  */
 import { signal } from "@preact/signals";
-import type { UsageLimit, UsageLimits } from "@pi-ui/protocol";
+import type { ModelRef, UsageLimit, UsageLimits } from "@pi-ui/protocol";
 import { showToast } from "./toasts";
 
 export const usageLimits = signal<UsageLimits | null>(null);
@@ -43,7 +44,29 @@ export function limitAlerts(prev: UsageLimits | null, next: UsageLimits): UsageL
   });
 }
 
-/** The limit to show in the compact gauge: worst severity, then the active one, then the fullest. */
+/**
+ * The limits that apply to a chat using `model`: only when the model belongs to the limits'
+ * provider (e.g. Anthropic's subscription limits for an `anthropic` model); `null` otherwise
+ * (other providers have no limits source yet, and a chat without a known model shows none).
+ */
+export function limitsForModel(usage: UsageLimits | null, model: ModelRef | null | undefined): UsageLimits | null {
+  if (!usage || !model || usage.limits.length === 0) return null;
+  return model.provider === usage.provider ? usage : null;
+}
+
+/**
+ * Whether a per-model limit (`limit.model`, e.g. "Fable") is about `model`: its id contains the
+ * scope's name, compared case-insensitively with spaces as dashes ("Fable" ~ "claude-fable-5").
+ * `false` for limits that aren't model-scoped.
+ */
+export function limitMatchesModel(limit: UsageLimit, model: ModelRef | null | undefined): boolean {
+  if (!limit.model || !model) return false;
+  const key = (s: string) => s.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const scope = key(limit.model);
+  return scope !== "" && key(model.id).includes(scope);
+}
+
+/** The most constraining limit: worst severity, then the active one, then the fullest. */
 export function primaryLimit(limits: readonly UsageLimit[]): UsageLimit | null {
   let best: UsageLimit | null = null;
   const score = (l: UsageLimit) => [SEVERITY_RANK[l.severity], l.active ? 1 : 0, l.percent];

@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
-use crate::server::{self, Connection, ServerState};
+use crate::server::{self, ServerState};
 use crate::{focus_main, MAIN_WINDOW};
 
 /// Set once the user confirmed (or nothing needed confirming): the next quit goes through.
@@ -35,12 +35,11 @@ pub fn allowed() -> bool {
     QUIT_ALLOWED.load(Ordering::SeqCst)
 }
 
-/// Busy chats on the server we own; 0 if we don't own it or it can't be asked.
+/// Busy chats on our server; 0 if it isn't running or can't be asked.
 fn busy_chats(app: &AppHandle) -> usize {
-    let target = app.try_state::<ServerState>().and_then(|state| match &*state.0.lock().unwrap() {
-        Some(conn @ Connection::Owned(_)) => Some((conn.host().to_string(), conn.port())),
-        _ => None,
-    });
+    let target = app
+        .try_state::<ServerState>()
+        .and_then(|state| state.0.lock().unwrap().as_ref().map(|s| (s.host().to_string(), s.port)));
     target.and_then(|(host, port)| server::busy_chats(&host, port)).unwrap_or(0)
 }
 

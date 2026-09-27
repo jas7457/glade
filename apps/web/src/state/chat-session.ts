@@ -15,6 +15,7 @@ import {
   emptyTranscript,
   type AgentEvent,
   type SessionDetail,
+  type SessionSummary,
   type SessionState,
   type SlashCommand,
   type Transcript,
@@ -104,6 +105,20 @@ export function loadChatCommands(sessionId: string): Promise<void> {
 
 export async function reloadOpenChatSessions(): Promise<void> {
   await Promise.all([...sessions.values()].filter((s) => s.status.value === "ready").map((s) => loadChatSession(s.sessionId)));
+}
+
+/**
+ * I-062: a session another pi-ui server runs isn't streamed here; reload its transcript (read from
+ * the session file) when it starts or stops running there, or when it ran there meanwhile.
+ */
+export function reloadIfChangedElsewhere(previous: SessionSummary | undefined, next: SessionSummary): void {
+  if (!previous) return;
+  const was = previous.activeElsewhere;
+  const now = next.activeElsewhere;
+  const changed = !!was !== !!now || (!!now && (previous.lastActivityAt !== next.lastActivityAt || previous.status !== next.status));
+  if (!changed) return;
+  const store = sessions.get(next.id);
+  if (store?.status.value === "ready") void loadChatSession(next.id);
 }
 
 export function handleSessionEvent(sessionId: string, event: AgentEvent): void {

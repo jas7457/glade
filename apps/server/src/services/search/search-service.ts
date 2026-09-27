@@ -325,9 +325,12 @@ export class SearchService {
     const summaries = this.summaries.get();
     const stale = Object.keys(summaries.summaries).filter((id) => !live.has(id));
     if (stale.length) {
-      const next = { ...summaries.summaries };
-      for (const id of stale) delete next[id];
-      this.summaries.set({ ...summaries, summaries: next });
+      // An operation on the file's current content: another server shares it (I-062).
+      this.summaries.update((file) => {
+        const next = { ...file.summaries };
+        for (const id of stale) delete next[id];
+        return { ...file, summaries: next };
+      });
     }
     if (changed) this.cache.set({ version: 1, sessions: cached });
     this.queueSummaries(ctx.sessions);
@@ -392,8 +395,8 @@ export class SearchService {
       this.summaryFailedAt.set(sessionId, this.now());
       return;
     }
-    const file = this.summaries.get();
-    this.summaries.set({ ...file, summaries: { ...file.summaries, [sessionId]: { text: summary, messageCount: count, at: this.now() } } });
+    const entry = { text: summary, messageCount: count, at: this.now() };
+    this.summaries.update((file) => ({ ...file, summaries: { ...file.summaries, [sessionId]: entry } }));
     // Re-index with the new summary.
     const workspace = this.options.app.listWorkspaces().find((w) => w.id === session.workspaceId);
     this.indexSession(session, workspace, text);

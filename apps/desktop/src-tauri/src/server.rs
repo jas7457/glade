@@ -5,10 +5,10 @@
 //! resolved through the user's login shell, and that shell's PATH is handed to the server so
 //! `pi` (a `#!/usr/bin/env node` script) and the tools it runs behave like in a terminal.
 //!
-//! Only one server may use a data folder: a running server holds `<dataDir>/server.lock`
-//! (`{ pid, port, host, kind, startedAt }`). If a live server (e.g. `pnpm dev`) owns it, the app
-//! connects to that one instead of starting its own, and leaves it running on quit. A server we
-//! spawn that loses the race for the lock exits with code 3; we then connect to the winner.
+//! The app always runs its own server (`PI_UI_SERVER_KIND=desktop`), even when another one
+//! (e.g. `pnpm dev`) uses the same data folder: servers share the folder safely (I-062: locked,
+//! watched store; session leases; `<dataDir>/servers/<pid>.json` registry), so there's nothing
+//! to borrow and quitting the app never stops someone else's server.
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -22,8 +22,6 @@ use std::time::{Duration, Instant};
 /// Oldest Node major the bundled server supports (esbuild target `node22`).
 const MIN_NODE_MAJOR: u32 = 22;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-/// Exit code of a server that found the data folder locked by another live server.
-const EXIT_LOCKED: i32 = 3;
 
 /// What we learned from the login shell.
 #[derive(Debug, Default)]
@@ -47,44 +45,18 @@ pub struct RunningServer {
     stdin: Option<ChildStdin>,
 }
 
-/// A server started by someone else (e.g. `pnpm dev`) that owns the data folder.
-#[derive(Debug, Clone)]
-pub struct ExternalServer {
-    pub host: String,
-    pub port: u16,
-    /// The lock's `kind` (`dev`, `desktop`, …).
-    pub kind: String,
-}
-
-/// The server the window talks to.
-pub enum Connection {
-    /// Spawned by us; stopped when the app quits.
-    Owned(RunningServer),
-    /// Someone else's; left running when the app quits.
-    External(ExternalServer),
-}
-
-impl Connection {
+impl RunningServer {
     pub fn host(&self) -> &str {
-        match self {
-            Connection::Owned(_) => "127.0.0.1",
-            Connection::External(e) => &e.host,
-        }
-    }
-    pub fn port(&self) -> u16 {
-        match self {
-            Connection::Owned(s) => s.port,
-            Connection::External(e) => e.port,
-        }
+        "127.0.0.1"
     }
     pub fn url(&self) -> String {
-        format!("http://{}:{}/", self.host(), self.port())
+        format!("http://{}:{}/", self.host(), self.port)
     }
 }
 
-/// Managed state: the server we're connected to, if any.
+/// Managed state: the server we started, if any.
 #[derive(Default)]
-pub struct ServerState(pub Mutex<Option<Connection>>);
+pub struct ServerState(pub Mutex<Option<RunningServer>>);
 
 const MARK: &str = "__PI_UI_ENV__";
 
@@ -256,71 +228,24 @@ fn answers(host: &str, port: u16) -> bool {
     http_get(host, port, "/api/settings", Duration::from_secs(2)).is_some()
 }
 
-/// Is the server at `host:port` still up?
-pub fn is_up(host: &str, port: u16) -> bool {
-    answers(host, port)
-}
-
-/// Number of chats that are `working` or `blocked` on the server, or None if it can't be asked.
+/// Number of chats (workspaces) with a session that is `working` or `blocked` **on this server**,
+/// or None if it can't be asked. Sessions another server runs (`activeElsewhere`, I-062) don't
+/// count: quitting the app doesn't stop them.
 pub fn busy_chats(host: &str, port: u16) -> Option<usize> {
-    let body = http_get(host, port, "/api/chats", Duration::from_millis(1500))?;
+    let body = http_get(host, port, "/api/sessions", Duration::from_millis(1500))?;
     count_busy(&body)
 }
 
 fn count_busy(body: &str) -> Option<usize> {
     let json: serde_json::Value = serde_json::from_str(body).ok()?;
-    let chats = json.as_array()?;
-    Some(
-        chats
-            .iter()
-            .filter(|c| matches!(c.get("status").and_then(|s| s.as_str()), Some("working" | "blocked")))
-            .count(),
-    )
-}
-
-/// The parsed `server.lock`.
-#[derive(Debug, PartialEq)]
-struct Lock {
-    pid: i32,
-    port: u16,
-    host: String,
-    kind: String,
-}
-
-fn parse_lock(text: &str) -> Option<Lock> {
-    let json: serde_json::Value = serde_json::from_str(text).ok()?;
-    let pid = i32::try_from(json.get("pid")?.as_i64()?).ok()?;
-    let port = u16::try_from(json.get("port")?.as_u64()?).ok()?;
-    let host = json.get("host").and_then(|h| h.as_str()).unwrap_or("127.0.0.1");
-    let kind = json.get("kind").and_then(|k| k.as_str()).unwrap_or("dev");
-    Some(Lock { pid, port, host: loopback_host(host).into(), kind: kind.into() })
-}
-
-/// The host to reach a server bound to `host` (the webview may only load 127.0.0.1/localhost).
-fn loopback_host(host: &str) -> &'static str {
-    if host == "localhost" {
-        "localhost"
-    } else {
-        "127.0.0.1"
-    }
-}
-
-fn pid_alive(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    // Signal 0 only checks existence; EPERM still means the process exists.
-    let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-/// A live server that owns the data folder and answers requests, if any.
-pub fn find_running() -> Option<ExternalServer> {
-    let lock = parse_lock(&fs::read_to_string(data_dir().join("server.lock")).ok()?)?;
-    if lock.pid == std::process::id() as i32 || !pid_alive(lock.pid) || !answers(&lock.host, lock.port) {
-        return None;
-    }
-    Some(ExternalServer { host: lock.host, port: lock.port, kind: lock.kind })
+    let sessions = json.as_array()?;
+    let busy: std::collections::HashSet<&str> = sessions
+        .iter()
+        .filter(|s| matches!(s.get("status").and_then(|v| v.as_str()), Some("working" | "blocked")))
+        .filter(|s| s.get("activeElsewhere").is_none_or(|v| v.is_null()))
+        .filter_map(|s| s.get("workspaceId").and_then(|v| v.as_str()))
+        .collect();
+    Some(busy.len())
 }
 
 fn log_tail(log: &Path) -> String {
@@ -329,16 +254,9 @@ fn log_tail(log: &Path) -> String {
     lines[lines.len().saturating_sub(15)..].join("\n")
 }
 
-/// Connect to the server that owns the data folder, or start ours and wait until it serves
-/// requests. Errors are user-facing messages.
-pub fn start(bundle: &Bundle, log_path: &Path) -> Result<Connection, String> {
-    if let Some(external) = find_running() {
-        return Ok(Connection::External(external));
-    }
-    spawn(bundle, log_path)
-}
-
-fn spawn(bundle: &Bundle, log_path: &Path) -> Result<Connection, String> {
+/// Start our server on a free port and wait until it serves requests. Errors are user-facing
+/// messages.
+pub fn start(bundle: &Bundle, log_path: &Path) -> Result<RunningServer, String> {
     if !bundle.server_js.exists() {
         return Err(format!("The bundled server is missing:\n{}", bundle.server_js.display()));
     }
@@ -392,12 +310,6 @@ fn spawn(bundle: &Bundle, log_path: &Path) -> Result<Connection, String> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     loop {
         if let Ok(Some(status)) = server.child.try_wait() {
-            if status.code() == Some(EXIT_LOCKED) {
-                // Another server grabbed the data folder first; use it once it answers.
-                if let Some(external) = wait_for_owner(deadline) {
-                    return Ok(Connection::External(external));
-                }
-            }
             return Err(format!(
                 "The pi-ui server exited during startup ({status}).\n\n{}\n\nLog: {}",
                 log_tail(log_path),
@@ -405,7 +317,7 @@ fn spawn(bundle: &Bundle, log_path: &Path) -> Result<Connection, String> {
             ));
         }
         if answers("127.0.0.1", port) {
-            return Ok(Connection::Owned(server));
+            return Ok(server);
         }
         if Instant::now() > deadline {
             server.stop();
@@ -417,19 +329,6 @@ fn spawn(bundle: &Bundle, log_path: &Path) -> Result<Connection, String> {
             ));
         }
         thread::sleep(Duration::from_millis(100));
-    }
-}
-
-/// Poll the lock until its owner answers (it may still be starting up).
-fn wait_for_owner(deadline: Instant) -> Option<ExternalServer> {
-    loop {
-        if let Some(external) = find_running() {
-            return Some(external);
-        }
-        if Instant::now() > deadline {
-            return None;
-        }
-        thread::sleep(Duration::from_millis(200));
     }
 }
 
@@ -461,26 +360,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_lock() {
-        let lock = parse_lock(r#"{"pid":42,"port":4317,"host":"127.0.0.1","kind":"dev","startedAt":1}"#);
-        assert_eq!(lock, Some(Lock { pid: 42, port: 4317, host: "127.0.0.1".into(), kind: "dev".into() }));
-        let any = parse_lock(r#"{"pid":42,"port":4317,"host":"0.0.0.0"}"#).unwrap();
-        assert_eq!((any.host.as_str(), any.kind.as_str()), ("127.0.0.1", "dev"));
-        assert_eq!(parse_lock(r#"{"pid":42}"#), None);
-        assert_eq!(parse_lock("garbage"), None);
-    }
-
-    #[test]
     fn counts_busy_chats() {
-        let body = r#"[{"status":"working"},{"status":"idle"},{"status":"blocked"},{"status":"unread"}]"#;
+        let body = r#"[
+            {"workspaceId":"a","status":"working"},
+            {"workspaceId":"a","status":"blocked"},
+            {"workspaceId":"b","status":"idle"},
+            {"workspaceId":"c","status":"blocked"},
+            {"workspaceId":"d","status":"unread"},
+            {"workspaceId":"e","status":"working","activeElsewhere":{"serverKind":"dev","since":1}}
+        ]"#;
+        // One per workspace; sessions running in another server don't count.
         assert_eq!(count_busy(body), Some(2));
         assert_eq!(count_busy("[]"), Some(0));
         assert_eq!(count_busy("{}"), None);
-    }
-
-    #[test]
-    fn own_pid_is_alive() {
-        assert!(pid_alive(std::process::id() as i32));
-        assert!(!pid_alive(0));
     }
 }

@@ -1,19 +1,26 @@
 /**
- * Context meter (I-014): a small ring in the composer toolbar showing how full the model's
- * context window is, with details in a tooltip. Amber above 80%, red above 95%; a dashed ring
- * when the size is unknown (right after compaction, until the next reply). The tooltip also
- * lists the subscription limits (I-032) when `usageLimits` is available.
+ * Context meter (I-014, I-057): a small ring in the composer toolbar showing how full the model's
+ * context window is. Amber above 80%, red above 95%; a dashed ring when the size is unknown (right
+ * after compaction, until the next reply). Hovering (or clicking, which pins it) opens a popover
+ * with a context bar, the session cost and, when the chat's model belongs to the limits'
+ * provider, the subscription limits (`usageLimits`). The ring stays context-only.
  */
-import type { SessionState, UsageLimit, UsageLimits } from "@pi-ui/protocol";
+import { useEffect, useRef, useState } from "preact/hooks";
+import * as Popover from "@radix-ui/react-popover";
+import type { ModelRef, SessionState } from "@pi-ui/protocol";
 import { cn } from "@/lib/cn";
-import { formatPercent, formatResetsAt, usageLimits } from "@/state/usage";
-import { Tooltip } from "@/ui";
-import { describeUsage, formatCost, meterLevel, usagePercent } from "./context-meter";
+import { limitsForModel, usageLimits } from "@/state/usage";
+import { floatingSurfaceClass } from "@/ui";
+import { describeUsage, meterLevel, usagePercent } from "./context-meter";
+import { UsageDetails } from "./usage/UsageDetails";
 
 const SIZE = 16;
 const STROKE = 2;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+/** Hover delays (ms): open after resting on the ring, close after leaving ring + popover. */
+const OPEN_DELAY = 250;
+const CLOSE_DELAY = 200;
 
 const levelClass = { normal: "text-fg-muted", warning: "text-warning", critical: "text-danger" } as const;
 
@@ -21,9 +28,17 @@ export interface ContextMeterProps {
   usage: SessionState["contextUsage"];
   cost?: number;
   compacting?: boolean;
+  /** The chat's current model; subscription limits show only for their provider's models. */
+  model?: ModelRef | null;
 }
 
-export function ContextMeter({ usage, cost, compacting }: ContextMeterProps) {
+export function ContextMeter({ usage, cost, compacting, model }: ContextMeterProps) {
+  const [open, setOpen] = useState(false);
+  const pinned = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const clear = () => clearTimeout(timer.current);
+  useEffect(() => clear, []);
+
   if (!usage) return null;
   const percent = usagePercent(usage);
   const known = percent !== null && usage.tokens !== null;
@@ -31,29 +46,45 @@ export function ContextMeter({ usage, cost, compacting }: ContextMeterProps) {
   const filled = known ? Math.min(100, percent) / 100 : 0;
   const summary = describeUsage(usage);
 
+  const hoverOpen = (e: PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
+    clear();
+    if (!open) timer.current = setTimeout(() => setOpen(true), OPEN_DELAY);
+  };
+  const hoverClose = (e: PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
+    clear();
+    if (!pinned.current) timer.current = setTimeout(() => setOpen(false), CLOSE_DELAY);
+  };
+  const onOpenChange = (next: boolean) => {
+    clear();
+    pinned.current = next; // opened by click/keyboard → stays until dismissed
+    setOpen(next);
+  };
+
   return (
-    <Tooltip
-      side="top"
-      content={<ContextMeterDetails usage={usage} cost={cost} compacting={compacting} limits={usageLimits.value} />}
-    >
-      <button
-        type="button"
-        aria-label={`Context usage: ${summary}`}
-        data-level={known ? level : "unknown"}
-        class={cn("inline-flex size-6 items-center justify-center rounded-control hover:bg-hover", levelClass[level])}
-      >
-        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true" class={cn(compacting && "animate-pulse")}>
-          <circle
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            fill="none"
-            stroke="currentColor"
-            stroke-width={STROKE}
-            opacity={known ? 0.25 : 0.6}
-            stroke-dasharray={known ? undefined : "2 2.4"}
-          />
-          {known && filled > 0 && (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          aria-label={`Context usage: ${summary}`}
+          data-level={known ? level : "unknown"}
+          class={cn(
+            "inline-flex size-6 items-center justify-center rounded-control outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent/50 data-[state=open]:bg-hover",
+            levelClass[level],
+          )}
+          onPointerEnter={hoverOpen}
+          onPointerLeave={hoverClose}
+          onClick={(e) => {
+            // Opened by hover: a click pins it instead of toggling it closed.
+            if (open && !pinned.current) {
+              e.preventDefault();
+              clear();
+              pinned.current = true;
+            }
+          }}
+        >
+          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true" class={cn(compacting && "animate-pulse")}>
             <circle
               cx={SIZE / 2}
               cy={SIZE / 2}
@@ -61,64 +92,47 @@ export function ContextMeter({ usage, cost, compacting }: ContextMeterProps) {
               fill="none"
               stroke="currentColor"
               stroke-width={STROKE}
-              stroke-linecap="round"
-              stroke-dasharray={`${Math.max(filled * CIRCUMFERENCE, 1.5)} ${CIRCUMFERENCE}`}
-              transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+              opacity={known ? 0.25 : 0.6}
+              stroke-dasharray={known ? undefined : "2 2.4"}
             />
-          )}
-        </svg>
-      </button>
-    </Tooltip>
-  );
-}
-
-/** The tooltip body; exported for tests (Radix tooltips don't open in jsdom). */
-export function ContextMeterDetails({
-  usage,
-  cost,
-  compacting,
-  limits,
-}: ContextMeterProps & { usage: NonNullable<ContextMeterProps["usage"]>; limits: UsageLimits | null }) {
-  const percent = usagePercent(usage);
-  const known = percent !== null && usage.tokens !== null;
-  const costText = formatCost(cost);
-  return (
-    <div class="flex max-w-[260px] flex-col gap-0.5 py-0.5" data-testid="context-meter-details">
-      <div class="font-medium">Context: {describeUsage(usage)}</div>
-      {compacting ? (
-        <div class="text-fg-muted">Compacting…</div>
-      ) : !known ? (
-        <div class="text-fg-muted">Updates after the next reply</div>
-      ) : null}
-      {costText && <div class="text-fg-muted">Session cost: {costText}</div>}
-      {limits && limits.limits.length > 0 && <LimitLines usage={limits} />}
-    </div>
-  );
-}
-
-const limitTone: Record<UsageLimit["severity"], string> = {
-  normal: "text-fg-muted",
-  warning: "text-warning",
-  critical: "text-danger",
-};
-
-/** "Current session 52% · resets at 6:40 PM", one line per limit, coloured by severity. */
-export function LimitLines({ usage, now = Date.now() }: { usage: UsageLimits; now?: number }) {
-  return (
-    <div class="mt-1 flex flex-col gap-0.5 border-t border-separator pt-1" data-testid="context-meter-limits">
-      <div class="font-medium">
-        {usage.source}
-        {usage.stale && <span class="font-normal text-fg-muted"> · may be out of date</span>}
-      </div>
-      {usage.limits.map((limit) => {
-        const resets = formatResetsAt(limit.resetsAt, now);
-        return (
-          <div key={limit.id} data-limit-id={limit.id} class={cn("tabular-nums", limitTone[limit.severity])}>
-            {limit.label} {formatPercent(limit.percent)}
-            {resets && ` · ${resets.charAt(0).toLowerCase()}${resets.slice(1)}`}
-          </div>
-        );
-      })}
-    </div>
+            {known && filled > 0 && (
+              <circle
+                cx={SIZE / 2}
+                cy={SIZE / 2}
+                r={RADIUS}
+                fill="none"
+                stroke="currentColor"
+                stroke-width={STROKE}
+                stroke-linecap="round"
+                stroke-dasharray={`${Math.max(filled * CIRCUMFERENCE, 1.5)} ${CIRCUMFERENCE}`}
+                transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+              />
+            )}
+          </svg>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="end"
+          sideOffset={8}
+          collisionPadding={8}
+          aria-label="Usage"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onPointerEnter={clear}
+          onPointerLeave={hoverClose}
+          class={cn("z-50 w-[280px] rounded-[10px] p-3.5 text-[1rem] leading-snug outline-none select-none", floatingSurfaceClass)}
+        >
+          <UsageDetails
+            usage={usage}
+            cost={cost}
+            compacting={compacting}
+            limits={limitsForModel(usageLimits.value, model)}
+            model={model}
+          />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

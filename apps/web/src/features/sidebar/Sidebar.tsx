@@ -1,5 +1,5 @@
 /**
- * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings (+ usage gauge). In the
+ * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings. In the
  * settings screen it shows the settings section list instead.
  */
 import type { WorkspaceSummary, Project } from "@pi-ui/protocol";
@@ -15,7 +15,6 @@ import { reorderProjects } from "@/state/actions";
 import { SettingsNav } from "@/features/settings";
 import { ChatList } from "./ChatList";
 import { ProjectGroup } from "./ProjectGroup";
-import { UsageGauge } from "./UsageGauge";
 import { useSortable } from "./useSortable";
 
 export const STANDALONE_CHAT_LIMIT = 10;
@@ -111,7 +110,6 @@ export function Sidebar() {
               onSelect={() => navigate(routes.settings())}
               trailing={<Kbd keys="⌘," class="border-0 bg-transparent" />}
             />
-            <UsageGauge />
           </div>
         </>
       )}

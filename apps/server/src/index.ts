@@ -2,8 +2,9 @@
  * Server entry point: wires config, store, harness, AppService and the HTTP/WebSocket app.
  * Harnesses are registered here (`PI_UI_HARNESS=fake` selects the fake one for UI work).
  * The desktop app runs a bundled copy of this file (see apps/desktop/scripts/bundle-server.mjs).
- * Before anything touches the data folder we take its lock (services/data-lock.ts); if another
- * server owns it we exit with code 3.
+ * Several servers may share one data folder (I-062: `pnpm dev` next to the installed app): each
+ * announces itself in `<dataDir>/servers/<pid>.json` (services/server-registry.ts), and session
+ * leases + a locked, watched store (AppService, store/) keep them from stepping on each other.
  */
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -15,27 +16,17 @@ import { createApp } from "./http/app.js";
 import { AppService } from "./services/app-service.js";
 import { FolderInfoService } from "./services/folder-info.js";
 import { createSearchService } from "./services/search/create.js";
-import { acquireDataLock, DataDirInUseError, EXIT_DATA_DIR_IN_USE, type DataLock } from "./services/data-lock.js";
+import { ServerRegistry } from "./services/server-registry.js";
 import { Store } from "./store/store.js";
 
 const config = loadConfig();
 const log = (msg: string) => console.log(`[pi-ui] ${msg}`);
 
-let lock: DataLock | null = null;
-if (process.env.PI_UI_NO_LOCK !== "1") {
-  try {
-    lock = await acquireDataLock(config.dataDir, {
-      kind: process.env.PI_UI_SERVER_KIND ?? "dev",
-      host: config.host,
-      port: config.port,
-    });
-  } catch (err) {
-    if (!(err instanceof DataDirInUseError)) throw err;
-    console.error(`[pi-ui] ${err.message}`);
-    process.exit(EXIT_DATA_DIR_IN_USE);
-  }
-  // Sync, so it also runs on process.exit() and uncaught errors.
-  process.on("exit", () => lock?.release());
+const serverKind = process.env.PI_UI_SERVER_KIND ?? "dev";
+const registry = new ServerRegistry(config.dataDir, { kind: serverKind, host: config.host, port: config.port });
+registry.start();
+for (const other of registry.others()) {
+  log(`sharing the data folder with the ${other.kind} server on http://${other.host}:${other.port} (pid ${other.pid})`);
 }
 const store = new Store(config.dataDir);
 
@@ -60,6 +51,12 @@ const service = new AppService({
   dataDir: config.dataDir,
   log,
   onRunEnd: (sessionId) => search?.onRunEnd(sessionId),
+  registry,
+});
+// Sync, so it also runs on process.exit() and uncaught errors: other servers see us gone at once.
+process.on("exit", () => {
+  service.releaseLeases();
+  registry.release();
 });
 search = createSearchService({
   app: service,
@@ -83,7 +80,7 @@ const { app, injectWebSocket } = createApp({
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   const host = info.family === "IPv6" ? `[${info.address}]` : info.address;
-  lock?.update({ host: info.address, port: info.port });
+  registry.update({ host: info.address, port: info.port });
   // Agents reach the agent API here (PI_UI_URL, I-037).
   service.setServerUrl(`http://${host}:${info.port}`);
   // I-051: make it obvious which data folder this server uses (and warn if it's temporary).
@@ -91,7 +88,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
     url: `http://${host}:${info.port}`,
     dataDir: config.dataDir,
     harness: harness.id,
-    kind: process.env.PI_UI_SERVER_KIND ?? "dev",
+    kind: serverKind,
     sandbox: process.env.PI_UI_SANDBOX || undefined,
     temporary: isTemporaryDir(config.dataDir),
   });
@@ -110,7 +107,7 @@ async function shutdown(signal: string): Promise<void> {
     server.close();
     search?.dispose();
     await service.dispose();
-    lock?.release();
+    registry.release();
   } catch (err) {
     console.error("[pi-ui] shutdown failed:", err);
   }

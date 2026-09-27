@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@pi-ui/protocol";
 import { TooltipProvider } from "@/ui";
-import { harnessDefaults, models, settings, workspacesById } from "@/state/store";
+import { harnessDefaults, models, sessions, settings, workspacesById } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { isSendKey } from "./composer-utils";
@@ -156,6 +156,22 @@ describe("Composer (existing chat)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(api.respondToUi).toHaveBeenCalledWith("c1", { id: "r1", confirmed: true }));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("is read-only while another pi-ui server runs the session (I-062)", () => {
+    readyChat("c1", true);
+    sessions.value = [makeSession({ id: "c1", status: "working", running: true, activeElsewhere: { serverKind: "dev", since: 1 } })];
+    try {
+      renderAt(<Composer chatId="c1" />);
+      const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+      expect(box.disabled).toBe(true);
+      expect(box.placeholder).toBe("Running in pi-ui (dev) — open it there or wait until it's idle");
+      expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+      fireEvent.keyDown(box, { key: "Enter" });
+      expect(api.prompt).not.toHaveBeenCalled();
+    } finally {
+      sessions.value = [];
+    }
   });
 
   it("shows agent errors as a dismissible banner", () => {

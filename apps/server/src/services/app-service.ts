@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import {
   AGENT_ENV,
+  activeElsewhereMessage,
   DEFAULT_IMAGE_LIMITS,
   MAX_ACTIVE_AGENTS,
   THINKING_LEVELS,
@@ -11,6 +12,7 @@ import {
   compareSessions,
   defaultSessionState,
   deriveChatStatus,
+  emptyTranscript,
   firstMainSession,
   quickTitle,
   rollupWorkspace,
@@ -54,7 +56,7 @@ import {
   type WorkspaceSummary,
 } from "@pi-ui/protocol";
 import type { AgentHarness, HarnessSession } from "../harness/types.js";
-import type { Store } from "../store/store.js";
+import type { Store, StoreChange } from "../store/store.js";
 import {
   AgentRegistry,
   AgentTokens,
@@ -70,8 +72,10 @@ import {
   sessionAgentState,
   type AgentRecord,
 } from "./agents.js";
+import { LeaseManager, type LeaseInfo } from "./leases.js";
 import { createOpenIn, isOpenTarget, OpenInError, type OpenIn } from "./open-in.js";
 import { createRevealPath, type RevealPath } from "./reveal.js";
+import type { ServerRegistry } from "./server-registry.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
 
 /** Byte size of base64 data once decoded (ignores whitespace and padding). */
@@ -103,6 +107,18 @@ export class HttpError extends Error {
   }
 }
 
+/** 409: another server sharing the data folder runs this session right now (I-062). */
+export class ActiveElsewhereError extends HttpError {
+  constructor(readonly lease: LeaseInfo) {
+    super(409, activeElsewhereMessage({ serverKind: lease.serverKind }));
+  }
+}
+
+/** A run whose server went away is marked interrupted after it looked orphaned this long. */
+const ORPHAN_GRACE_MS = 1500;
+/** Deliveries to a session busy in another server are retried this long. */
+const ELSEWHERE_RETRY_MS = 30 * 60_000;
+
 interface LiveSession {
   session: HarnessSession;
   transcript: Transcript;
@@ -112,6 +128,10 @@ interface LiveSession {
   /** Between run_start and run_end. Tracked here so it's correct while those events are handled. */
   running: boolean;
   lastUsedAt: number;
+  /** When a prompt was last sent. */
+  lastPromptAt: number;
+  /** A prompt was sent and its run hasn't started (or ended) yet: refuse take-overs meanwhile. */
+  awaitingRun: boolean;
   unsubscribe: () => void;
 }
 
@@ -130,6 +150,14 @@ export interface AppServiceOptions {
   serverUrl?: string;
   /** Called after a session's run settles (e.g. to refresh the search index). */
   onRunEnd?: (sessionId: string) => void;
+  /**
+   * I-062: this server's entry in the data folder's server registry. When given, the service
+   * shares the folder with other servers: session leases (only one server runs a session's
+   * agent), and the store's files are watched so other servers' changes reach our clients.
+   */
+  registry?: ServerRegistry;
+  /** Lease scan interval (ms; tests lower it). */
+  leaseScanMs?: number;
 }
 
 /**
@@ -166,6 +194,12 @@ export class AppService {
   private readonly agentTimers = new Map<string, NodeJS.Timeout>();
   private readonly deliveries = new Map<string, Promise<void>>();
   private serverUrl: string | null;
+  /** Session leases shared with other servers on the data folder (null = single server, tests). */
+  private readonly leases: LeaseManager | null;
+  /** sessionId -> when its run first looked orphaned (flagged running, no server runs it). */
+  private readonly orphanSince = new Map<string, number>();
+  private readonly unwatch: Array<() => void> = [];
+  private disposed = false;
 
   constructor(private readonly options: AppServiceOptions) {
     this.store = options.store;
@@ -178,6 +212,21 @@ export class AppService {
       ? new UsageLimitsPoller({ fetchLimits: getUsage, broadcast: (m) => this.broadcast(m), log: options.log })
       : null;
     this.usage?.start();
+    this.leases = options.registry
+      ? new LeaseManager(options.dataDir ?? options.store.dataDir, options.registry, {
+          scanMs: options.leaseScanMs,
+          onForeignChange: (ids) => this.pushSessions(ids),
+          onTakeoverRequest: (id) => this.handleTakeoverRequest(id),
+          onScan: () => this.checkOrphanedRuns(),
+        })
+      : null;
+    if (this.leases) {
+      this.unwatch.push(this.store.onExternalChange((change) => this.applyExternalChange(change)));
+      this.unwatch.push(this.agents.onExternalChange((ids) => this.pushSessions(ids)));
+      if (this.agents.file) this.store.watchFile(this.agents.file);
+      this.store.watch();
+      this.leases.start();
+    }
     this.recoverInterruptedRuns();
   }
 
@@ -188,6 +237,8 @@ export class AppService {
   private recoverInterruptedRuns(): void {
     for (const session of this.store.listSessions()) {
       if (!session.runInProgress) continue;
+      // Still running in another server on this data folder (I-062).
+      if (this.leases?.isLeased(session.id)) continue;
       this.saveSession({ ...session, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
     }
   }
@@ -362,9 +413,14 @@ export class AppService {
 
   private summarizeSession(session: Session): SessionSummary {
     const live = this.live.get(session.id);
-    const running = live?.running ?? false;
-    const pendingInputs = live?.pendingUi.size ?? 0;
+    // Run by another server (I-062): its lease says whether it's working / waiting for input.
+    const elsewhere = live ? null : (this.leases?.foreignLease(session.id) ?? null);
+    const running = live?.running ?? elsewhere?.running ?? false;
+    const pendingInputs = live?.pendingUi.size ?? elsewhere?.pendingInputs ?? 0;
     const summary: SessionSummary = { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
+    if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) {
+      summary.activeElsewhere = { serverKind: elsewhere.serverKind, since: elsewhere.since };
+    }
     const agent = session.kind === "subagent" ? this.agents.get(session.id) : undefined;
     if (agent) summary.agent = sessionAgentState(agent, running);
     return summary;
@@ -398,6 +454,7 @@ export class AppService {
   /** Persist + push a session, then its workspace (status roll-up). */
   private saveSession(session: Session, { touch = false } = {}): SessionSummary {
     this.store.upsertSession(session);
+    this.syncLease(session.id);
     const summary = this.summarizeSession(session);
     this.broadcast({ type: "session_upsert", session: summary });
     this.refreshWorkspace(session.workspaceId, touch);
@@ -505,6 +562,7 @@ export class AppService {
   /** Delete a workspace, stopping its agents and permanently deleting all of its session files. */
   async deleteWorkspace(id: string): Promise<void> {
     this.requireWorkspace(id);
+    await this.takeLeases(this.store.listSessions(id));
     for (const session of this.store.listSessions(id)) {
       await this.disposeSession(session);
       this.forgetAgent(session.id);
@@ -567,7 +625,7 @@ export class AppService {
 
   async getSessionDetail(id: string): Promise<SessionDetail> {
     const session = this.requireSession(id);
-    const offline = await this.closedAgentDetail(session);
+    const offline = (await this.closedAgentDetail(session)) ?? (await this.elsewhereDetail(session));
     if (offline) return offline;
     const live = await this.ensureLive(id);
     return {
@@ -588,6 +646,29 @@ export class AppService {
     if (!transcript) return null;
     const state = { ...defaultSessionState(), model: session.model, ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}) };
     return { session: this.summarizeSession(session), transcript, state, pendingUiRequests: [] };
+  }
+
+  /**
+   * A session another server runs (I-062) is shown from its session file; viewing it doesn't
+   * take it over (typing in it does, once it's idle there). `null` when it isn't leased elsewhere.
+   */
+  private async elsewhereDetail(session: Session): Promise<SessionDetail | null> {
+    if (!this.leases || this.live.has(session.id) || this.opening.has(session.id)) return null;
+    if (!this.leases.foreignLeaseNow(session.id)) return null;
+    const transcript = (session.sessionRef && (await this.harness.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
+    const summary = this.summarizeSession(session);
+    const state = {
+      ...defaultSessionState(),
+      model: session.model,
+      ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+      isRunning: summary.running,
+    };
+    return { session: summary, transcript, state, pendingUiRequests: [] };
+  }
+
+  /** Not running here but leased by another live server (I-062). */
+  private isElsewhere(id: string): boolean {
+    return !!this.leases && !this.live.has(id) && !this.opening.has(id) && !!this.leases.foreignLeaseNow(id);
   }
 
   /** A closed sub-agent without a running process (viewing it shouldn't start one). */
@@ -626,6 +707,7 @@ export class AppService {
     }
     const doomed = [session, ...this.descendantsOf(session.id, siblings)];
     const doomedIds = new Set(doomed.map((s) => s.id));
+    await this.takeLeases(doomed);
     for (const s of doomed) {
       await this.disposeSession(s);
       const agent = this.agents.get(s.id);
@@ -658,11 +740,13 @@ export class AppService {
     await this.closeLive(session.id);
     if (session.sessionRef) await this.harness.deleteSession(session.sessionRef).catch(() => {});
     this.viewers.delete(session.id);
+    this.leases?.release(session.id);
   }
 
   /** A prompt from the user (the HTTP API). */
   async prompt(id: string, req: PromptRequest): Promise<void> {
     this.requireSession(id);
+    this.assertNotBusyElsewhere(id);
     // Typing in a sub-agent's tab means the user is using it: never close it automatically.
     const agent = this.agents.get(id);
     if (agent && (!agent.userEngaged || agent.closed || agent.closing)) {
@@ -678,6 +762,8 @@ export class AppService {
     await this.checkImageSizes(req.images, live);
     const isFirst = !live.transcript.messages.some((m) => m.role === "user");
     live.lastUsedAt = Date.now();
+    live.lastPromptAt = Date.now();
+    live.awaitingRun = true;
     const behavior = req.behavior ?? this.store.getSettings().general.busyBehavior;
     await live.session.prompt({ ...req, behavior });
     const session = this.requireSession(id);
@@ -750,7 +836,9 @@ export class AppService {
   async abort(id: string): Promise<void> {
     this.requireSession(id);
     const live = this.live.get(id);
-    if (live) await live.session.abort();
+    if (live) return live.session.abort();
+    const elsewhere = this.leases?.foreignLeaseNow(id);
+    if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) throw new ActiveElsewhereError(elsewhere);
   }
 
   async setModel(id: string, model: ModelRef): Promise<void> {
@@ -772,7 +860,7 @@ export class AppService {
   /** The harness's slash commands (extensions, skills, prompt templates) for a session. */
   async listCommands(id: string): Promise<SlashCommand[]> {
     const session = this.requireSession(id);
-    if (this.isDormantAgent(id) && this.harness.listFolderCommands) {
+    if ((this.isDormantAgent(id) || this.isElsewhere(id)) && this.harness.listFolderCommands) {
       // Don't start a closed sub-agent just for its slash menu; its folder's commands are the same.
       const workspace = this.requireWorkspace(session.workspaceId);
       return this.harness.listFolderCommands(workspace.cwd);
@@ -1040,9 +1128,19 @@ export class AppService {
     const previous = this.deliveries.get(targetId) ?? Promise.resolve();
     const next = previous
       .then(async () => {
-        if (!this.store.getSession(targetId)) return;
-        const live = await this.ensureLive(targetId);
-        await this.sendPrompt(targetId, { text, behavior }, live);
+        const giveUpAt = Date.now() + ELSEWHERE_RETRY_MS;
+        for (;;) {
+          if (!this.store.getSession(targetId) || this.disposed) return;
+          try {
+            const live = await this.ensureLive(targetId);
+            await this.sendPrompt(targetId, { text, behavior }, live);
+            return;
+          } catch (err) {
+            // The target runs in another server on this data folder (I-062): wait until it's free.
+            if (!(err instanceof ActiveElsewhereError) || Date.now() > giveUpAt) throw err;
+            await new Promise((r) => setTimeout(r, 2000).unref());
+          }
+        }
       })
       .catch((err: Error) => this.options.log?.(`agent-teams: delivery to ${targetId} failed: ${err.message}`));
     this.deliveries.set(targetId, next);
@@ -1090,21 +1188,166 @@ export class AppService {
 
   private ensureLive(id: string): Promise<LiveSession> {
     const existing = this.live.get(id);
-    if (existing) {
+    // Our lease can only be lost if another server judged us gone (e.g. we hung); then restart.
+    const lost = !!existing && !!this.leases && !this.leases.holds(id);
+    if (existing && !lost) {
       existing.lastUsedAt = Date.now();
       return Promise.resolve(existing);
     }
     let pending = this.opening.get(id);
     if (!pending) {
-      pending = this.openLive(id).finally(() => this.opening.delete(id));
+      pending = (async () => {
+        if (lost) await this.closeLive(id);
+        return this.openLive(id);
+      })().finally(() => this.opening.delete(id));
       this.opening.set(id, pending);
     }
     return pending;
   }
 
+  /**
+   * Claim the session's lease before starting its process (I-062). Waits briefly for another
+   * server to hand over an idle session; a session it's busy with fails with 409.
+   */
+  private async acquireLease(id: string): Promise<void> {
+    if (!this.leases) return;
+    const blocking = await this.leases.acquire(id);
+    if (blocking) throw new ActiveElsewhereError(blocking);
+  }
+
+  /** Take the leases of sessions about to be deleted (all or nothing), so no server still runs them. */
+  private async takeLeases(sessions: Session[]): Promise<void> {
+    if (!this.leases) return;
+    const taken: string[] = [];
+    try {
+      for (const session of sessions) {
+        if (this.live.has(session.id) || !this.leases.foreignLeaseNow(session.id)) continue;
+        await this.acquireLease(session.id);
+        taken.push(session.id);
+      }
+    } catch (err) {
+      for (const id of taken) this.leases.release(id);
+      throw err;
+    }
+  }
+
+  /** 409 when another server is working on (or waiting for input in) this session right now. */
+  private assertNotBusyElsewhere(id: string): void {
+    if (!this.leases || this.live.has(id)) return;
+    const lease = this.leases.foreignLeaseNow(id);
+    if (lease && (lease.running || lease.pendingInputs > 0)) throw new ActiveElsewhereError(lease);
+  }
+
+  /** Tell other servers whether this session is working / waiting for input (its lease). */
+  private syncLease(id: string): void {
+    const live = this.live.get(id);
+    if (live && this.leases) this.leases.setState(id, { running: live.running, pendingInputs: live.pendingUi.size });
+  }
+
+  /**
+   * Another server wants a session we hold (I-062). Hand it over when our process is idle (stop
+   * it; closeLive releases the lease); refuse while it's busy or about to be.
+   */
+  private handleTakeoverRequest(id: string): void {
+    if (!this.leases || this.disposed) return;
+    const live = this.live.get(id);
+    if (this.opening.has(id)) return this.leases.refuseTakeover(id);
+    if (!live) return this.leases.release(id);
+    const busy =
+      live.running ||
+      live.pendingUi.size > 0 ||
+      this.deliveries.has(id) ||
+      live.session.getState().isCompacting ||
+      (live.awaitingRun && Date.now() - live.lastPromptAt < 5000);
+    if (busy) return this.leases.refuseTakeover(id);
+    void this.closeLive(id);
+  }
+
+  /** Push sessions again (and their workspaces) because something outside our records changed. */
+  private pushSessions(ids: string[]): void {
+    if (this.disposed) return;
+    const workspaces = new Set<string>();
+    for (const id of ids) {
+      const session = this.store.getSession(id);
+      if (!session) continue;
+      this.broadcast({ type: "session_upsert", session: this.summarizeSession(session) });
+      workspaces.add(session.workspaceId);
+    }
+    for (const wid of workspaces) {
+      const workspace = this.store.getWorkspace(wid);
+      if (workspace) this.broadcast({ type: "workspace_upsert", workspace: this.summarizeWorkspace(workspace) });
+    }
+  }
+
+  /**
+   * Another server changed the shared files (I-062): push the changes to our clients. Sessions
+   * removed there stop here too; a run that ends unread while our clients view it is read.
+   */
+  private applyExternalChange(change: StoreChange): void {
+    if (this.disposed) return;
+    for (const project of change.projects.upserted) this.broadcast({ type: "project_upsert", project });
+    for (const projectId of change.projects.removed) this.broadcast({ type: "project_removed", projectId });
+    const removedWorkspaces = new Set(change.workspaces.removed);
+    const touched = new Set<string>(change.workspaces.upserted.map((w) => w.id));
+    for (const session of change.sessions.removed) {
+      if (this.live.has(session.id)) void this.closeLive(session.id);
+      this.viewers.delete(session.id);
+      this.clearAgentTimer(session.id);
+      this.tokens.revoke(session.id);
+      if (removedWorkspaces.has(session.workspaceId)) continue;
+      this.broadcast({ type: "session_removed", sessionId: session.id, workspaceId: session.workspaceId });
+      touched.add(session.workspaceId);
+    }
+    for (const workspaceId of removedWorkspaces) this.broadcast({ type: "workspace_removed", workspaceId });
+    for (const session of change.sessions.upserted) {
+      if (session.unread && this.viewers.has(session.id)) {
+        this.saveSession({ ...session, unread: false });
+        continue;
+      }
+      this.broadcast({ type: "session_upsert", session: this.summarizeSession(session) });
+      touched.add(session.workspaceId);
+    }
+    for (const workspaceId of touched) {
+      const workspace = removedWorkspaces.has(workspaceId) ? undefined : this.store.getWorkspace(workspaceId);
+      if (workspace) this.broadcast({ type: "workspace_upsert", workspace: this.summarizeWorkspace(workspace) });
+    }
+    if (change.settings) this.broadcast({ type: "settings", settings: this.store.getSettings() });
+  }
+
+  /**
+   * Runs flagged in progress that no server runs any more (their server quit or crashed while
+   * we kept going) are interrupted, like at startup. Waits a moment to rule out a handover.
+   */
+  private checkOrphanedRuns(): void {
+    if (!this.leases || this.disposed) return;
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const session of this.store.listSessions()) {
+      if (!session.runInProgress || this.live.has(session.id) || this.opening.has(session.id)) continue;
+      if (this.leases.foreignLease(session.id)) continue;
+      seen.add(session.id);
+      const since = this.orphanSince.get(session.id) ?? now;
+      this.orphanSince.set(session.id, since);
+      if (now - since < ORPHAN_GRACE_MS || this.leases.isLeased(session.id)) continue;
+      this.orphanSince.delete(session.id);
+      this.saveSession({ ...session, runInProgress: false, interrupted: true, unread: true, lastRunFailed: true });
+    }
+    for (const id of [...this.orphanSince.keys()]) if (!seen.has(id)) this.orphanSince.delete(id);
+  }
+
   private async openLive(id: string): Promise<LiveSession> {
     const record = this.requireSession(id);
     const workspace = this.requireWorkspace(record.workspaceId);
+    await this.acquireLease(id);
+    try {
+      return await this.startLive(id, record, workspace);
+    } catch (err) {
+      if (!this.live.has(id)) this.leases?.release(id);
+      throw err;
+    }
+  }
+
+  private async startLive(id: string, record: Session, workspace: Workspace): Promise<LiveSession> {
     mkdirSync(workspace.cwd, { recursive: true });
     const agent = this.agents.get(id);
     let session: HarnessSession;
@@ -1129,6 +1372,8 @@ export class AppService {
       uiTimers: new Map(),
       running: session.getState().isRunning,
       lastUsedAt: Date.now(),
+      lastPromptAt: 0,
+      awaitingRun: false,
       unsubscribe: () => {},
     };
     const offEvent = session.onEvent((event) => this.handleEvent(id, live, event));
@@ -1162,6 +1407,7 @@ export class AppService {
     live.transcript = applyAgentEvent(live.transcript, event);
     if (event.type === "run_start") live.running = true;
     if (event.type === "run_end") live.running = false;
+    if (event.type === "run_start" || event.type === "run_end") live.awaitingRun = false;
     if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
@@ -1239,7 +1485,10 @@ export class AppService {
     this.tokens.revoke(id);
     const wasRunning = live.running;
     const session = this.store.getSession(id);
-    if (!session) return;
+    if (!session) {
+      this.leases?.release(id);
+      return;
+    }
     const agent = this.agents.get(id);
     if (agent && !agent.closed) {
       this.clearAgentTimer(id);
@@ -1264,6 +1513,14 @@ export class AppService {
     } else {
       this.saveSession(session);
     }
+    this.releaseLease(id);
+  }
+
+  /** Give a session's lease back once its process is gone; its record is written first. */
+  private releaseLease(id: string): void {
+    if (!this.leases) return;
+    this.store.flush();
+    this.leases.release(id);
   }
 
   /**
@@ -1287,6 +1544,8 @@ export class AppService {
       if (live.running || dialogs.length || session.runInProgress) this.saveSession({ ...session, runInProgress: false });
     }
     await live.session.dispose();
+    // Only if no new process started meanwhile (e.g. reopened right away).
+    if (!this.live.has(id) && !this.opening.has(id)) this.releaseLease(id);
   }
 
   /** Keep at most `maxIdleProcesses` idle sessions alive (least recently used go first). */
@@ -1299,13 +1558,22 @@ export class AppService {
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);
   }
 
+  /** Drop every session lease we hold (synchronous; the exit hook, when dispose() didn't run). */
+  releaseLeases(): void {
+    this.leases?.releaseAll();
+  }
+
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.leases?.stop();
+    for (const off of this.unwatch.splice(0)) off();
     this.usage?.stop();
     for (const timer of this.agentTimers.values()) clearTimeout(timer);
     this.agentTimers.clear();
     this.agents.flush();
     await Promise.all([...this.live.keys()].map((id) => this.closeLive(id, { quiet: true })));
     await this.harness.dispose();
-    this.store.flush();
+    this.store.dispose();
+    this.leases?.releaseAll();
   }
 }

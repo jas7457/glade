@@ -98,6 +98,13 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The Mac app always runs its own server and can run alongside `pnpm dev` on the same data: chats
+  created in one appear in the other, and a chat running in one is read-only in the other until it's
+  idle.
+- Usage moved from the sidebar into the chat: hover the context ring next to the model picker for
+  context, cost and (for Claude models) your subscription limits.
+- `pnpm tauri:install --when-idle` waits until no chat is working before updating the app.
+
 - Every tab can be closed; closing a chat's last tab asks, then deletes the chat.
 
 - Sub-agent tabs show when they're done (✓) or stopped, with the task and result on hover and in a

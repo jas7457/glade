@@ -179,7 +179,11 @@ cut-off runs still show as interrupted on the next start.
 | Pre-I-035 chat index (no longer read; kept as a backup) | `<dataDir>/chats.json`               |
 | Settings (overrides only)       | `<dataDir>/settings.json`                                    |
 | Scratch cwd for non-project chats | `<dataDir>/scratch/`                                       |
-| Data-dir lock (running server)  | `<dataDir>/server.lock` (see below)                          |
+| Sub-agent records               | `<dataDir>/agents.json`                                      |
+| Chat summaries (search, I-048)  | `<dataDir>/session-summaries.json` (+ per-server cache `search-index.json`) |
+| Running servers (registry)      | `<dataDir>/servers/<pid>.json` (see below)                   |
+| Session leases                  | `<dataDir>/leases/<sessionId>.json` (see below)              |
+| Short write locks               | `<file>.lock/` directories next to the shared JSON files (milliseconds) |
 
 `dataDir` = `~/Library/Application Support/pi-ui` on macOS (override with `PI_UI_DATA_DIR`).
 Only sessions created by pi-ui are listed; sessions started in the terminal are not imported.
@@ -195,25 +199,59 @@ model, thinkingLevel. `workspaces.json` is written immediately; since the migrat
 while it's missing, it runs once. An unreadable `chats.json` is left alone (retried next start).
 New workspaces get fresh ids for the workspace and its first session (they differ).
 
-### Data-dir lock
+### Several servers on one data folder (I-062)
 
-Only one server may use a data folder (`apps/server/src/services/data-lock.ts`). Before touching
-any data, the server creates `<dataDir>/server.lock` exclusively:
+`pnpm dev` and the installed app each run **their own server on the same data folder** (and so
+can any number of servers). Nothing is borrowed; each server owns only the agent processes it
+started. Four mechanisms keep them from stepping on each other:
 
-```json
-{ "pid": 12345, "port": 4317, "host": "127.0.0.1", "kind": "dev", "startedAt": 1790461600277 }
-```
+1. **Locked read-modify-write** (`store/json-file.ts`, `store/file-lock.ts`). The shared files
+   (`workspaces.json`, `projects.json`, `settings.json`, `agents.json`,
+   `session-summaries.json`) are changed through *operations* ("replace the record with id X",
+   "patch agent Y", "merge this settings patch"), applied to the in-memory copy at once and written
+   in coalesced bursts (50ms): take `<file>.lock` (an atomic `mkdir`; waits a few ms if held;
+   broken after 5s as a crashed holder's), **re-read the file**, replay the pending operations on
+   it, write tmp + rename, unlock. So a record another server changed in the meantime survives;
+   two servers editing the *same* record is last-writer-wins per record (sub-agent records are
+   patched per field). Migrations are pure functions of the file, so they're safe to replay.
+2. **Watching** (`store/dir-watcher.ts`). An `fs.watch` on the data folder (plus a 2s poll as a
+   safety net; unchanged files cost one `stat`) reloads a file another server wrote. The store
+   diffs before/after (`StoreChange`: projects/workspaces/sessions upserted or removed, settings)
+   and the AppService pushes `project_*` / `workspace_*` / `session_*` / `settings` to its own
+   clients; sub-agent record changes re-push their sessions. A chat created in one server shows up
+   in the other in ~0.1s. A run that ends unread there while our clients view it is marked read.
+3. **Session leases** (`services/leases.ts`). Only one server may run a session's pi process
+   (two processes on one session file would interleave writes). Before starting it, a server
+   claims `<dataDir>/leases/<sessionId>.json` `{ sessionId, serverId, serverKind, pid, since,
+   running, pendingInputs, updatedAt, takeover? }` (under that file's lock) and releases it when
+   the process stops (store flushed first). The owner keeps `running` / `pendingInputs` current,
+   so the other servers show the session's status without streaming it: while the owner is
+   working or waiting for input, their `SessionSummary` gets `activeElsewhere: { serverKind,
+   since }` and status `working`/`blocked`; `GET /sessions/:id` reads the transcript from the
+   session file without starting anything (`readTranscript`; the web reloads it when the session
+   starts or stops running there); prompts, abort and delete answer **409** "Running in pi-ui
+   (dev) — open it there or wait until it's idle" (`activeElsewhereMessage`), and the composer is
+   read-only with that hint. **Take-over**: a server that needs a session whose owner is idle
+   (prompt, model change, delete…) writes a `takeover` request into the lease; the owner (watching
+   the leases folder) stops its idle process, which releases the lease, and the requester claims it
+   (~0.1s). An owner that is busy (or just sent a prompt) clears the request instead → 409. A
+   lease whose server is gone is **stale**: replaced on claim, removed by the scan (every 1s and on
+   folder events), and a run still flagged `runInProgress` that no server runs any more is marked
+   interrupted after 1.5s. At startup, runs leased by a live server aren't marked interrupted.
+   Queued agent-teams deliveries to a session busy elsewhere retry every 2s (up to 30 min).
+4. **Server registry** (`services/server-registry.ts`, replaces the I-022 `server.lock`). Each
+   server writes `<dataDir>/servers/<pid>.json` `{ id, pid, kind, host, port, startedAt,
+   heartbeatAt }` (`kind` = `PI_UI_SERVER_KIND`: `dev` by default, `desktop` for the app),
+   rewrites it every 2s and deletes it (and its leases) on shutdown and in an `exit` hook. A server
+   is gone when its file is missing, its pid is dead, or its heartbeat is older than 60s (hangs, pid
+   reuse); right after the machine wakes up (our own heartbeat is old too) nobody is judged stale.
+   Dead servers' files are pruned. Leases name servers by id; `pnpm tauri:install --when-idle`
+   finds the app's server here. There is no exit code 3 any more.
 
-`kind` = `PI_UI_SERVER_KIND` (default `"dev"`; the desktop app sets `"desktop"`). `port`/`host`
-are rewritten with the actual address once listening (so `PI_UI_PORT=0` works). If the file
-already exists, it is **stale** and replaced when its `pid` is dead (`kill(pid, 0)` → ESRCH), the
-file is unreadable, or `GET http://host:port/api/settings` doesn't answer 2xx within ~1s.
-Otherwise the server prints one line ("The pi-ui data folder is in use by the <kind> server on
-http://host:port (pid N). Quit it first — or open that URL.") and **exits with code 3**. The lock
-is removed on shutdown and in a `process.on("exit")` hook, but only while it still holds our pid
-and `startedAt`. `PI_UI_NO_LOCK=1` skips it (tests). Desktop app: read the lock first; if it's
-live (same checks), connect to its `host:port` instead of starting a server, and treat exit
-code 3 from its own server the same way.
+Per server (not shared): the live process pool, viewers/unread marking of runs it owns, agent
+tokens (`PI_UI_TOKEN`), title generation, the usage poller, the search index
+(`search-index.json` is a cache each server rewrites), exported-file allowlist. Sub-agents run
+in the server that runs their parent (their `PI_UI_URL` points there).
 
 ### Ordering
 
@@ -227,7 +265,9 @@ get one per list (most recent activity first).
 
 ## Server API
 
-REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
+REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx. Anything that needs a
+session's agent (prompt, abort, model, thinking, compact, export, delete) answers 409 while
+another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-062).
 
 | Method | Path                          | Body / notes                                   |
 | ------ | ----------------------------- | ---------------------------------------------- |
@@ -245,7 +285,7 @@ REST under `/api` (JSON). Errors: `{ "error": string }` with 4xx/5xx.
 | DELETE | `/workspaces/:id`             | → 204 (all its session files permanently deleted) |
 | GET    | `/workspaces/:id/sessions`    | → `SessionSummary[]`                           |
 | POST   | `/workspaces/:id/sessions`    | `CreateSessionRequest` `{ prompt?, images?, model?, thinkingLevel? }` (body optional) → `SessionDetail`: a new **main** session (tab), started |
-| GET    | `/chats`                      | legacy alias of `GET /workspaces` (the desktop app's quit check counts `working`/`blocked`) |
+| GET    | `/chats`                      | legacy alias of `GET /workspaces` |
 | GET    | `/sessions`                   | → `SessionSummary[]` (all workspaces)          |
 | GET    | `/sessions/:id`               | → `SessionDetail` `{ session, transcript, state, pendingUiRequests }` (starts the agent if needed) |
 | PATCH  | `/sessions/:id`               | `UpdateSessionRequest` `{ title?, unread?, interrupted?: false }` → `SessionSummary`; `interrupted: false` (only value accepted) dismisses the interrupted state |
@@ -356,18 +396,19 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   then navigates the window there (same origin, so the loopback Host/Origin checks pass). Quit
   sends SIGTERM; if the app dies, the closed stdin pipe stops the server. Log:
   `~/Library/Logs/io.github.jas7457.pi-ui/server.log`. Missing node/pi → native error dialog.
-- One server per data folder (`<dataDir>/server.lock`, see `services/data-lock.ts`): before
-  spawning, the app reads the lock; if its pid is alive and `GET /api/settings` answers, it points
-  the window at that server (e.g. `pnpm dev` on :4317) instead, shows a one-time notice ("Using
-  the dev server that's already running…") and leaves it running on quit. The bundled server is
-  started with `PI_UI_SERVER_KIND=desktop`; if it loses a startup race it exits with code 3 and
-  the app connects to the lock's owner. If a borrowed server goes away for ~9s the app offers
-  "Start Server" (its own).
+- The app **always runs its own server** (`PI_UI_SERVER_KIND=desktop`), also while `pnpm dev`
+  uses the same data folder (I-062: they share it safely, see "Several servers on one data
+  folder"). There is no borrowing; quitting the app stops only its server. `PI_UI_APP_IDENTIFIER`
+  gives any build another bundle identifier at launch (single-instance socket, window state and
+  log dir are keyed on it), so an agent can run a release build next to the installed app with
+  `PI_UI_DATA_DIR` pointing at a temp folder.
 - Quit confirmation (`src-tauri/src/quit.rs`): ⌘Q / Dock Quit / AppleScript `quit` go through
   `-[NSApplication terminate:]`, which tao can't veto, so the app adds
-  `applicationShouldTerminate:` to tao's app delegate. It asks our own server `GET /api/chats`
-  (legacy alias of `/api/workspaces`); if any workspace is `working`/`blocked` it cancels and shows "N chats are still working. Quitting
-  stops them." [Quit] [Cancel]. No prompt when the server isn't ours or can't be reached.
+  `applicationShouldTerminate:` to tao's app delegate. It asks its server `GET /api/sessions`
+  and counts workspaces with a session `working`/`blocked` **on that server** (sessions with
+  `activeElsewhere` run in another server and survive the quit); if any, it cancels and shows "N
+  chats are still working. Quitting stops them." [Quit] [Cancel]. No prompt when the server
+  can't be reached.
 - `pnpm tauri:dev` loads the Vite dev server instead and starts no bundled server
   (`scripts/dev-servers.mjs` reuses or starts `:4317`/`:5317`).
 - Dev identity (I-031): `src-tauri/.cargo/config.toml` sets `scripts/dev-app-runner.sh` as the
@@ -424,9 +465,17 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   project name; status lives on the right and swaps to hover actions (the left status column from
   I-006/I-030 was tried and reverted).
 
-- **One server per data folder** (2026-09-26): `pnpm dev` and the desktop app share the data
-  folder, so a lock file (`server.lock`) guarantees a single owner. A second server refuses with
-  exit code 3; the desktop app reuses a live server's port instead of starting its own.
+- **Several servers per data folder** (2026-09-26, I-062, user decision): the installed app always
+  runs its own server next to `pnpm dev` on the same data. Shared JSON files are changed by
+  locked read-modify-write operations and watched; session leases keep each session's pi process
+  in one server (take-over when idle, stale leases replaced); a per-server registry
+  (`servers/<pid>.json`) replaces `server.lock`. Chosen over a single shared server because
+  `tsx watch` restarts of the dev server must not kill chats running in the app (dogfooding,
+  I-058). Plain file locks + `fs.watch` instead of a database or IPC between servers: the data is
+  small, the servers stay independent, and a crashed server only leaves files that go stale.
+- ~~**One server per data folder**~~ (2026-09-26, superseded by the entry above): a lock file
+  (`server.lock`) guaranteed a single owner; a second server exited with code 3 and the desktop
+  app borrowed a live server instead of starting its own.
 
 - **Manual project order, no project pinning** (2026-09-26, I-019): rows never jump on activity.
 

@@ -79,6 +79,20 @@ describe("server pushes", () => {
     expect(sessions.value.map((s) => s.id)).toEqual(["v"]);
   });
 
+  it("reloads an open session when it starts or stops running in another server (I-062)", async () => {
+    mocked.getSession.mockResolvedValue(detail("s1", "w"));
+    getChatSession("s1").status.value = "ready";
+    handleServerMessage({ type: "session_upsert", session: makeSession({ id: "s1", workspaceId: "w", createdAt: 1 }) });
+    expect(mocked.getSession).not.toHaveBeenCalled(); // nothing changed elsewhere
+    const elsewhere = { serverKind: "desktop", since: 5 };
+    handleServerMessage({ type: "session_upsert", session: makeSession({ id: "s1", workspaceId: "w", createdAt: 1, activeElsewhere: elsewhere }) });
+    expect(mocked.getSession).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    handleServerMessage({ type: "session_upsert", session: makeSession({ id: "s1", workspaceId: "w", createdAt: 1 }) });
+    expect(mocked.getSession).toHaveBeenCalledTimes(2);
+  });
+
   it("routes session events to that session's store only", () => {
     const a = getChatSession("s1");
     const b = getChatSession("s2");

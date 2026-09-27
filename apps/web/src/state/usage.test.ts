@@ -6,6 +6,8 @@ import {
   formatUpdatedAgo,
   handleUsageMessage,
   limitAlerts,
+  limitMatchesModel,
+  limitsForModel,
   primaryLimit,
   usageLimits,
 } from "./usage";
@@ -21,6 +23,7 @@ const limit = (over: Partial<UsageLimit> = {}): UsageLimit => ({
 });
 const usage = (limits: UsageLimit[], over: Partial<UsageLimits> = {}): UsageLimits => ({
   source: "Claude subscription",
+  provider: "anthropic",
   limits,
   fetchedAt: 0,
   stale: false,
@@ -100,5 +103,26 @@ describe("limitAlerts / handleUsageMessage", () => {
     expect(notify.mock.calls[0]![0].message).toMatch(/96% of your Claude subscription limit used\. Resets at 6:40\sPM\./);
     handleUsageMessage(null, notify, NOW);
     expect(usageLimits.value).toBeNull();
+  });
+});
+
+describe("limitsForModel / limitMatchesModel", () => {
+  const all = usage([limit(), limit({ id: "weekly_scoped:Fable", label: "Fable this week", model: "Fable" })]);
+
+  it("returns the limits only for models of the limits' provider", () => {
+    expect(limitsForModel(all, { provider: "anthropic", id: "claude-sonnet-4-5" })).toBe(all);
+    expect(limitsForModel(all, { provider: "openai", id: "gpt-5" })).toBeNull();
+    expect(limitsForModel(all, null)).toBeNull();
+    expect(limitsForModel(null, { provider: "anthropic", id: "x" })).toBeNull();
+    expect(limitsForModel(usage([]), { provider: "anthropic", id: "x" })).toBeNull();
+  });
+
+  it("matches per-model limits against the model id", () => {
+    const fable = all.limits[1]!;
+    expect(limitMatchesModel(fable, { provider: "anthropic", id: "claude-fable-1" })).toBe(true);
+    expect(limitMatchesModel(fable, { provider: "anthropic", id: "claude-sonnet-4-5" })).toBe(false);
+    expect(limitMatchesModel(limit({ model: "Opus 4" }), { provider: "anthropic", id: "claude-opus-4-1" })).toBe(true);
+    expect(limitMatchesModel(all.limits[0]!, { provider: "anthropic", id: "claude-fable-1" })).toBe(false);
+    expect(limitMatchesModel(fable, null)).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ import {
 import { api } from "@/lib/api";
 import { getHarnessDefaults } from "@/lib/api-folder";
 import { socket } from "@/lib/socket";
-import { handleSessionEvent, reloadOpenChatSessions } from "./chat-session";
+import { handleSessionEvent, reloadIfChangedElsewhere, reloadOpenChatSessions } from "./chat-session";
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
 
@@ -144,9 +144,12 @@ export function handleServerMessage(message: ServerMessage): void {
       workspaces.value = workspaces.value.filter((w) => w.id !== message.workspaceId);
       sessions.value = sessions.value.filter((s) => s.workspaceId !== message.workspaceId);
       break;
-    case "session_upsert":
+    case "session_upsert": {
+      const previous = sessions.value.find((s) => s.id === message.session.id);
       sessions.value = upsert(sessions.value, message.session);
+      reloadIfChangedElsewhere(previous, message.session);
       break;
+    }
     case "session_removed":
       sessions.value = sessions.value.filter((s) => s.id !== message.sessionId);
       break;

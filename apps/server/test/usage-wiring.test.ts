@@ -9,6 +9,7 @@ import { Store } from "../src/store/store.js";
 
 const LIMITS: UsageLimits = {
   source: "Claude subscription",
+  provider: "anthropic",
   fetchedAt: 1,
   stale: false,
   limits: [{ id: "session", label: "Current session", percent: 44, resetsAt: null, severity: "normal", active: true }],

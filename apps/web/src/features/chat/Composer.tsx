@@ -22,6 +22,7 @@ import { useNavigate } from "react-router";
 import { ArrowUp, Paperclip, Square, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
+  activeElsewhereMessage,
   clampThinkingLevel,
   sameModel,
   type FileEntry,
@@ -80,6 +81,11 @@ export interface ComposerBoxProps {
   isRunning?: boolean;
   /** Disable input (e.g. while creating a chat). */
   busy?: boolean;
+  /**
+   * Read-only with this explanation as the placeholder (I-062: the session runs in another
+   * pi-ui server right now). Unlike `busy`, no spinner.
+   */
+  lockedReason?: string;
   supportsImages: boolean;
   model: ModelRef | null;
   models: ModelInfo[];
@@ -101,7 +107,9 @@ export interface ComposerBoxProps {
 }
 
 export function ComposerBox(props: ComposerBoxProps) {
-  const { draftKey, isRunning = false, busy = false, supportsImages } = props;
+  const { draftKey, isRunning = false, busy: loading = false, supportsImages, lockedReason } = props;
+  /** No typing or sending: loading, or locked (read-only). */
+  const busy = loading || !!lockedReason;
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [images, setImages] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -392,7 +400,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           rows={1}
           value={text}
           disabled={busy}
-          placeholder={props.placeholder ?? (isRunning ? "Queue a message…" : "Ask anything…")}
+          placeholder={lockedReason ?? props.placeholder ?? (isRunning ? "Queue a message…" : "Ask anything…")}
           aria-label="Message"
           aria-autocomplete={slash || props.mentions ? "list" : undefined}
           aria-expanded={slash || props.mentions ? menuOpen || mentionOpen : undefined}
@@ -456,7 +464,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           />
           {props.toolbarExtra}
           <div class="flex-1" />
-          {busy && <Spinner size={14} class="mr-1" />}
+          {loading && <Spinner size={14} class="mr-1" />}
           {isRunning && props.onStop && (
             <Tooltip content="Stop (Esc)">
               <button
@@ -560,11 +568,13 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
 
   const summary = sessionsById.value.get(chatId);
   const interrupted = summary?.interrupted === true;
+  // I-062: another pi-ui server (e.g. the dev server next to the installed app) runs it right now.
+  const lockedReason = summary?.activeElsewhere ? activeElsewhereMessage(summary.activeElsewhere) : undefined;
   const projectId = (summary && workspacesById.value.get(summary.workspaceId)?.projectId) ?? null;
 
   const above = (
     <>
-      {interrupted && !state.isRunning && <InterruptedBanner chatId={chatId} />}
+      {interrupted && !state.isRunning && !lockedReason && <InterruptedBanner chatId={chatId} />}
       {agentError && (
         <div role="alert" class="mb-2 flex items-start gap-2 rounded-[10px] border-[0.5px] border-danger/30 bg-danger/10 px-3 py-2 text-danger">
           <TriangleAlert size={14} class="mt-[2px] shrink-0" />
@@ -608,7 +618,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       draftKey={`chat:${chatId}`}
       placeholder={placeholder}
       autoFocus={autoFocus && !uiRequests[0]}
-      isRunning={state.isRunning}
+      isRunning={state.isRunning && !lockedReason}
+      lockedReason={lockedReason}
       supportsImages={supportsImageInput(modelInfo(models, state.model))}
       model={state.model}
       models={models}
@@ -619,7 +630,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       onSend={onSend}
       onStop={() => void runAction(() => api.abort(chatId), "Could not stop")}
       above={above}
-      toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} />}
+      toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} model={state.model} />}
       slash={{ commands: slashCommands, chatId, projectId: null, navigate }}
       mentions={{ projectId }}
       class={className}
