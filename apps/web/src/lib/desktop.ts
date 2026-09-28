@@ -74,3 +74,49 @@ export async function openExternal(url: string): Promise<void> {
   const { openUrl } = await import("@tauri-apps/plugin-opener");
   await openUrl(url);
 }
+
+/**
+ * System notifications in the Mac app (I-135), through the app's own UNUserNotificationCenter
+ * commands (`src-tauri/src/notifications.rs`; the notification plugin can't route clicks or
+ * report "denied" on macOS). `unavailable`: no notification center (e.g. a build without a real
+ * app bundle).
+ */
+export type NativeNotificationPermission = "granted" | "denied" | "default" | "unavailable";
+
+export async function nativeNotificationPermission(request = false): Promise<NativeNotificationPermission> {
+  if (!isDesktop()) return "unavailable";
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<NativeNotificationPermission>(request ? "notify_request" : "notify_permission");
+}
+
+/** Post a banner; `id` replaces an earlier one with the same id; `data` comes back on click. */
+export async function showNativeNotification(n: { id: string; title: string; subtitle?: string; body: string; data: string }): Promise<void> {
+  if (!isDesktop()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("notify_show", { id: n.id, title: n.title, subtitle: n.subtitle ?? null, body: n.body, data: n.data });
+}
+
+const NOTIFICATION_CLICK_EVENT = "glade:notification-click";
+
+/**
+ * Clicks on the app's banners (the app is already focused by then). Also delivers a click that
+ * launched the app before the page was ready (`notify_ready` hands it over once).
+ */
+export function onNativeNotificationClick(handler: (data: string) => void): () => void {
+  if (!isDesktop()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  void (async () => {
+    const { listen } = await import("@tauri-apps/api/event");
+    const off = await listen<string>(NOTIFICATION_CLICK_EVENT, (e) => handler(e.payload));
+    if (disposed) return off();
+    unlisten = off;
+    const { invoke } = await import("@tauri-apps/api/core");
+    const pending = await invoke<string | null>("notify_ready").catch(() => null);
+    if (pending && !disposed) handler(pending);
+  })();
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}

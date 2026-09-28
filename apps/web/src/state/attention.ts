@@ -1,8 +1,8 @@
 /**
  * Attention (per workspace = sidebar row, with its sessions' status rolled up): the counts behind the window title and the desktop Dock badge.
  *
- * Glade deliberately has no system notifications or "chat finished" toasts (I-028): status is
- * shown in the sidebar, the `(n) Glade` window title, and the Dock badge in the desktop app.
+ * Status is shown in the sidebar, the `(n) Glade` window title, and the Dock badge in the desktop
+ * app. System notifications (I-135, with a setting) live in `state/notifications.ts`.
  */
 import { computed, effect, signal } from "@preact/signals";
 import { needsAttention } from "@glade/protocol";

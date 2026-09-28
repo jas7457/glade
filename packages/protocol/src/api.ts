@@ -171,6 +171,12 @@ export interface SessionSummary extends Session {
    * it's idle there (then this server takes it over on the next prompt).
    */
   activeElsewhere?: ActiveElsewhere;
+  /**
+   * A short line for system notifications (I-135): the open question while it waits for input,
+   * the error of a failed run, or the last sentence of the last reply. Only while this server has
+   * the session's agent loaded; absent otherwise (and on older servers).
+   */
+  attentionLine?: string;
 }
 
 /** Where a session is active when it isn't this server (see `SessionSummary.activeElsewhere`). */

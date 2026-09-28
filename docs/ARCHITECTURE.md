@@ -698,3 +698,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   - **Touching only its own handler:** Glade replaces or removes only a `/` handler pointing at a Glade port. It finds the CLI via `GLADE_TAILSCALE_CLI`, /usr/local/bin, /opt/homebrew or the app binary (`TAILSCALE_BE_CLI=1`).
   - **Ownership:** only the desktop app manages serve (`GLADE_TAILSCALE_OWNER` overrides; `GLADE_TAILSCALE=off` disables it). The owner reconciles at startup, within 2 s of a switch change and every 30 s.
   - **Addresses and discovery:** `https://<dns>` becomes the address, a Host allow-list entry and the pairing URL. Discovery probes online peers' `/api/environment`.
+- **Notifications are back (2026-09-27, I-135, reverses I-028).** They're on by default for needs input, finished and failed, only while Glade is in the background, for top-level chats, from live sync only.
+  - The Mac app uses its own UNUserNotificationCenter module (`src-tauri/src/notifications.rs`), because the Tauri plugin can't route clicks or detect a denied permission on macOS.
+  - Browsers use the Notification API.
+  - Paired-device tokens live in the Keychain (`src-tauri/src/secrets.rs`, I-134) behind `lib/secret-store.ts`.

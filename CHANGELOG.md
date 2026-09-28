@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Notifications: when a chat needs your input, finishes or fails while Glade is in the background,
+  macOS shows a banner ("On Mac Studio" for remote chats); clicking it opens the chat. Choose which
+  in Settings → General → Notifications.
 - Tailscale: with "Allow other devices to connect" on, Glade shares itself on your tailnet over
   HTTPS (`https://<your-mac>.<tailnet>.ts.net`, only your devices, never public) and turns the
   share off again with the switch. Settings shows Tailscale's status and how to fix it (install,

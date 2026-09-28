@@ -19,6 +19,7 @@ import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_GROUPS } from "./sections";
 import { SETTINGS_SECTIONS, routes } from "@/app/routes";
 import { settingsEnvironmentId } from "@/state/env-registry";
+import { notificationPermission, notificationPrefs, updateNotificationPrefs } from "@/state/notifications";
 
 const mocked = vi.mocked(api);
 
@@ -61,6 +62,18 @@ describe("settings", () => {
     expect(settings.value.general.generateTitles).toBe(false);
     fireEvent.click(screen.getByRole("radio", { name: "Follow-up" }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ general: { busyBehavior: "followUp" } });
+  });
+
+  it("General: notification switches are stored on this device, not on the server (I-135)", () => {
+    notificationPermission.value = "denied";
+    renderAt("/settings/general");
+    fireEvent.click(screen.getByRole("switch", { name: "When a chat finishes" }));
+    expect(notificationPrefs.value.finished).toBe(false);
+    expect(JSON.parse(localStorage.getItem("glade.notifications")!).finished).toBe(false);
+    expect(mocked.updateSettings).not.toHaveBeenCalled();
+    expect(screen.getByText(/Notifications are blocked/)).toBeTruthy();
+    updateNotificationPrefs({ finished: true });
+    notificationPermission.value = "default";
   });
 
   it("General: no busy behaviour for a default harness without steering (I-065)", () => {

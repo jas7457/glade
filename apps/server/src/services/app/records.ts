@@ -18,6 +18,7 @@ import type { AgentHarness } from "../../harness/types.js";
 import { sessionAgentState, spawnedAgentRef, type AgentRecord } from "../agents.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
+import { attentionLine } from "./attention-line.js";
 
 export class Records {
   constructor(private readonly ctx: AppContext) {}
@@ -58,6 +59,11 @@ export class Records {
     const summary: SessionSummary = { ...session, running, pendingInputs, status: deriveChatStatus({ running, pendingInputs, unread: session.unread }) };
     if (elsewhere && (elsewhere.running || elsewhere.pendingInputs > 0)) {
       summary.activeElsewhere = { serverKind: elsewhere.serverKind, since: elsewhere.since };
+    }
+    // For notifications (I-135): the question, the error or the reply's last sentence.
+    if (live && (pendingInputs > 0 || !running)) {
+      const line = attentionLine(live.transcript, live.pendingUi.values(), !!session.lastRunFailed);
+      if (line) summary.attentionLine = line;
     }
     const agent = session.kind === "subagent" ? this.ctx.agents.get(session.id) : undefined;
     if (agent) summary.agent = sessionAgentState(agent, running);

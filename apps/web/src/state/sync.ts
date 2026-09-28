@@ -29,6 +29,7 @@ import { socket } from "@/lib/socket";
 import * as chat from "./chat-session";
 import * as store from "./store";
 import { isLocalEnvironment } from "./env-registry";
+import { observeSessionUpsert } from "./notifications";
 
 /** "live" = connected and caught up; "catching-up" = connected, replay/snapshot on its way. */
 export type SyncStatus = "connecting" | "catching-up" | "live" | "offline";
@@ -39,8 +40,12 @@ export const syncStatus = signal<SyncStatus>("connecting");
 /** Where synced changes go (the app's stores; a recorder in tests). */
 export interface SyncTarget {
   send(message: ClientMessage): void;
-  /** A shell push (`*_upsert`, `settings`, …) or an untagged one (`open_chat`, `usage_limits`, …). */
-  applyShell(message: ServerMessage): void;
+  /**
+   * A shell push (`*_upsert`, `settings`, …) or an untagged one (`open_chat`, `usage_limits`, …).
+   * `live`: it arrived after the shell's `live` marker (a change happening now, not a replay), so
+   * it may raise a system notification (I-135).
+   */
+  applyShell(message: ServerMessage, live: boolean): void;
   applyShellSnapshot(shell: ShellSnapshot): void;
   /** Returns true when the server has ids we don't (the client then asks for a snapshot). */
   applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[] }): boolean;
@@ -164,6 +169,11 @@ export class SyncController {
     this.subscribeSession(sessionId, true);
   }
 
+  /** Shell pushes are live changes now (after `live`; old servers without replay: while open). */
+  shellLive(): boolean {
+    return this.open && (this.sequenced ? this.shell.phase === "live" : this.everConnected);
+  }
+
   /** Last seq of a scope (tests, diagnostics). */
   lastSeq(scope: "shell" | string): number | null {
     return scope === "shell" ? this.shell.last : (this.sessions.get(scope)?.last ?? null);
@@ -243,7 +253,7 @@ export class SyncController {
 
   private receiveShell(message: ServerMessage): void {
     if (!this.accept(this.shell, message, () => this.subscribeShell())) return;
-    this.target.applyShell(message);
+    this.target.applyShell(message, this.shellLive());
   }
 
   /** The duplicate/gap rule; advances `last` for committed pushes. */
@@ -313,7 +323,12 @@ export function attachSync(socket: SyncSocket, envId: string | undefined, onStat
   const key = envId ?? "";
   const sync = new SyncController({
     send: (m) => socket.send(m),
-    applyShell: (m) => store.handleServerMessage(m, envId),
+    applyShell: (m, live) => {
+      // System notifications (I-135) compare the session before and after a live push.
+      const prev = live && m.type === "session_upsert" ? store.sessionsById.value.get(m.session.id) : undefined;
+      store.handleServerMessage(m, envId);
+      if (live && m.type === "session_upsert") observeSessionUpsert(prev, m.session, envId);
+    },
     applyShellSnapshot: (shell) => store.applyShellSnapshot(shell, envId),
     applyShellCheck: (check) => store.applyShellCheck(check, envId),
     applySessionEvent: chat.handleSessionEvent,

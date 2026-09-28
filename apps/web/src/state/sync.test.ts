@@ -123,6 +123,22 @@ describe("SyncController", () => {
     expect(sync.lastSeq("shell")).toBe(15);
   });
 
+  it("marks replayed shell pushes as not live, pushes after `live` as live (I-135)", () => {
+    const r = recorder();
+    const flags: boolean[] = [];
+    const sync = new SyncController({ ...r.target, applyShell: (_m: ServerMessage, isLive: boolean) => flags.push(isLive) });
+    sync.onOpen();
+    sync.receive(hello);
+    sync.receive({ type: "batch", messages: [shellSnap(10), upsert(11, 10), shellLive(11), upsert(12, 11)] });
+    expect(flags).toEqual([false, true]);
+    // Reconnect: the replay is not live again until the next `live`.
+    sync.onClose();
+    sync.onOpen();
+    sync.receive(hello);
+    sync.receive({ type: "batch", messages: [upsert(13, 12), shellLive(13), upsert(14, 13)] });
+    expect(flags).toEqual([false, true, false, true]);
+  });
+
   it("on a gap, subscribes again from the last seq and ignores the rest until the replay", () => {
     const r = recorder();
     const sync = new SyncController(r.target);

@@ -10,12 +10,14 @@
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
 //! - Device tokens for paired environments live in the Keychain (`secrets.rs`, I-134).
+//! - System notifications with click-to-open (`notifications.rs`, I-135).
 //! - The app always runs its own server, also while `pnpm dev` uses the same data folder: the
 //!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
 mod dev;
 mod links;
 mod menu;
+mod notifications;
 mod quit;
 mod secrets;
 mod server;
@@ -147,7 +149,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             secrets::secret_get,
             secrets::secret_set,
-            secrets::secret_delete
+            secrets::secret_delete,
+            notifications::notify_permission,
+            notifications::notify_request,
+            notifications::notify_show,
+            notifications::notify_ready
         ])
         .menu(menu::build)
         .on_menu_event(menu::handle)
@@ -156,6 +162,7 @@ pub fn run() {
             apply_vibrancy(&window);
             writing_tools::disable_affordance(&window);
             quit::install(app.handle());
+            notifications::install(app.handle());
             if !tauri::is_dev() {
                 start_server(app.handle().clone());
             }
