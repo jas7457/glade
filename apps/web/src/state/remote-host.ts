@@ -16,7 +16,7 @@ export const hostRemoteError = signal<string | null>(null);
 export const hostRemoteSwitchError = signal<string | null>(null);
 /** Pairings waiting for this Mac's answer, oldest first. */
 export const pendingPairings = signal<PendingPairing[]>([]);
-/** This window's answers to pairings (the Add Device dialog shows the outcome of its invite). */
+/** This window's answers to pairings (the Share This Device dialog shows the outcome of its invite). */
 export const pairingAnswers = signal<ReadonlyMap<string, boolean>>(new Map());
 /** Paired devices; `null` until loaded. */
 export const pairedDevices = signal<PairedDevice[] | null>(null);

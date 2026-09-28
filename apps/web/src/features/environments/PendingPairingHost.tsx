@@ -1,6 +1,6 @@
 /**
  * App-wide confirm for pairing requests (I-126, host side): when another device asks to pair
- * (`pairing_pending` on the local socket), "Allow “Jason's MacBook Air” to use this Mac?" shows
+ * (`pairing_pending` on the local socket), "Allow “Jason's MacBook Air” to use this device?" shows
  * wherever the user is, with where the request came from. Allow / Deny answer it; the next
  * waiting request (if any) follows. Mounted once by the app shell; only for a local environment.
  */
@@ -24,8 +24,8 @@ export function PendingPairingHost() {
       // A choice is required: Escape and clicks outside don't dismiss it.
       onOpenChange={() => {}}
       icon={<Laptop />}
-      title={`Allow “${pending.deviceName}” to use this Mac?`}
-      description="It will see and use all projects and chats on this Mac, and run agents here, until you revoke it in Settings → Remote Access."
+      title={`Allow “${pending.deviceName}” to use this device?`}
+      description="It will see and use all projects and chats on this device, and run agents here, until you revoke it in Settings → Remote Access."
       width={400}
       onOpenAutoFocus={(e) => {
         // Deny is the safe default (Return denies).

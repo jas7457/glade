@@ -39,7 +39,7 @@
  *   POST   /api/auth/ws-ticket                 → { ticket: string; expiresAt: number }
  */
 
-/** Host-side remote access state (Settings → Remote Access, "Let other devices use this Mac"). */
+/** Host-side remote access state (Settings → Remote Access, "Let other devices use this device"). */
 export interface RemoteAccessState {
   /** Remote clients are accepted at all (the host switch, and the master switch is on). Off by default. */
   enabled: boolean;
@@ -176,6 +176,8 @@ export interface PairedDevice {
   lastSeenAt: number | null;
   lastAddress: string | null;
   tailscaleLogin: string | null;
+  /** The device's own environment id, sent when it paired (I-136: matches it to an environment this device uses); null if it has none. */
+  clientEnvironmentId?: string | null;
   /** v1 is always ["full"]; kept for read-only devices later. */
   scopes: string[];
   /** Live sockets right now. */

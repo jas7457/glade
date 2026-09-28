@@ -38,10 +38,10 @@ import { ConfirmHost, TooltipProvider } from "@/ui";
 import { hostRemote, receiveHostMessage, resetRemoteHost } from "@/state/remote-host";
 import { localEnvironmentId } from "@/state/env-registry";
 import { remoteMaster, resetRemoteMaster } from "@/state/remote-master";
+import { saveEnvironments } from "@/state/saved-environments";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { PendingPairingHost } from "./PendingPairingHost";
-import { HostRemoteAccess } from "./HostRemoteAccess";
 import { ConnectEnvironmentDialog } from "./ConnectEnvironmentDialog";
 
 const mocked = hostAuth as unknown as Record<keyof typeof hostAuth, ReturnType<typeof vi.fn>>;
@@ -138,12 +138,12 @@ describe("pending pairing confirm", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     receiveHostMessage({ type: "batch", messages: [{ type: "pairing_pending", pending: [pending("p2", "iPad", 2), pending("p1", "Jason's MacBook Air", 1)] }] });
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Allow “Jason's MacBook Air” to use this Mac?")).toBeTruthy();
+    expect(within(dialog).getByText("Allow “Jason's MacBook Air” to use this device?")).toBeTruthy();
     expect(within(dialog).getByText("jason@example.com")).toBeTruthy();
     expect(within(dialog).getByText("192.168.1.30")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
     expect(mocked.answerPending).toHaveBeenCalledWith("p1", true);
-    const next = await screen.findByText("Allow “iPad” to use this Mac?");
+    const next = await screen.findByText("Allow “iPad” to use this device?");
     fireEvent.click(within(next.closest("[role=dialog]") as HTMLElement).getByRole("button", { name: "Deny" }));
     expect(mocked.answerPending).toHaveBeenCalledWith("p2", false);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -174,17 +174,18 @@ describe("devices list", () => {
 
   it("shows last seen and revokes after a destructive confirm", async () => {
     mocked.listDevices.mockResolvedValue([device("d1", "MacBook Air", { connected: true }), device("d2", "Old Mac")]);
-    hostRemote.value = { enabled: true, master: true, addresses: ["http://192.168.1.20:4327"] };
+    mocked.getRemote.mockResolvedValue({ enabled: true, master: true, addresses: ["http://192.168.1.20:4327"] });
+    remoteMaster.value = true;
     render(
       <TooltipProvider>
-        <HostRemoteAccess />
+        <RemoteAccessSettings />
         <ConfirmHost />
       </TooltipProvider>,
     );
     await screen.findByText("MacBook Air");
     expect(screen.getByText(/Last seen now · 192\.168\.1\.30/)).toBeTruthy();
     expect(screen.getByText(/Last seen 5 min ago/)).toBeTruthy();
-    expect((screen.getByRole("switch", { name: "Let other devices use this Mac" }) as HTMLElement).getAttribute("aria-checked")).toBe("true");
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Let other devices use this device" }) as HTMLElement).getAttribute("aria-checked")).toBe("true"));
 
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke…" })[1]!);
     const alert = await screen.findByRole("alertdialog");
@@ -192,7 +193,7 @@ describe("devices list", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(mocked.revokeDevice).toHaveBeenCalledWith("d2"));
     await waitFor(() => expect(screen.queryByText("Old Mac")).toBeNull());
-    expect(screen.getByRole("button", { name: /Add Device/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Share This Device/ })).toBeTruthy();
   });
 });
 
@@ -217,11 +218,12 @@ describe("transport status (I-127)", () => {
     );
     return (await screen.findByTestId("transport-status")).closest("div")!.parentElement!;
   };
-  const hostSwitch = () => screen.getByRole("switch", { name: "Let other devices use this Mac" }) as HTMLElement;
+  const hostSwitch = () => screen.getByRole("switch", { name: "Let other devices use this device" }) as HTMLElement;
 
   it("serving: Tailscale ✓ with the https address", async () => {
     const row = await renderHost({ enabled: true, addresses: ["https://studio.tail1234.ts.net"], transport: transport({ serving: true }) });
-    expect(row.textContent).toMatch(/Reachable on your tailnet at https:\/\/studio\.tail1234\.ts\.net/);
+    expect(row.textContent).toMatch(/Reachable on your private tailnet/);
+    expect(screen.getByText("https://studio.tail1234.ts.net")).toBeTruthy(); // under the sharing switch
     expect(within(row).getByLabelText("Available")).toBeTruthy();
     expect(hostSwitch().hasAttribute("disabled")).toBe(false);
   });
@@ -324,5 +326,141 @@ describe("/pair deep link", () => {
     await screen.findByText("settings page");
     expect(pairDialogRequest.value).toEqual({ link: LINK });
     pairDialogRequest.value = null;
+  });
+});
+
+describe("connections (I-136)", () => {
+  const device = (id: string, name: string, extra: Partial<PairedDevice> = {}): PairedDevice => ({
+    id,
+    name,
+    kind: "mac",
+    createdAt: 1,
+    lastSeenAt: Date.now() - 60 * 60_000,
+    lastAddress: null,
+    tailscaleLogin: null,
+    scopes: ["full"],
+    connected: false,
+    ...extra,
+  });
+  const renderSettings = async (remote: Partial<RemoteAccessState> = {}) => {
+    mocked.getRemote.mockResolvedValue({ enabled: true, master: true, addresses: ["http://192.168.1.20:4327"], ...remote });
+    remoteMaster.value = true;
+    render(
+      <TooltipProvider>
+        <RemoteAccessSettings />
+        <ConfirmHost />
+      </TooltipProvider>,
+    );
+    await screen.findByText("Connections");
+  };
+  /** The row of a connection (its FormRow). */
+  const row = (key: string) => document.querySelector(`[data-connection="${key}"]`)!.closest("label")!.parentElement!.parentElement as HTMLElement;
+  const labels = (el: HTMLElement) => ["You use it", "Uses this device"].filter((l) => within(el).queryByText(l));
+  const buttons = (el: HTMLElement) => within(el).queryAllByRole("button").map((b) => b.textContent);
+
+  beforeEach(() => {
+    saveEnvironments([]);
+    mocked.listDevices.mockResolvedValue([]);
+  });
+  afterEach(() => {
+    cleanup();
+    saveEnvironments([]);
+  });
+
+  it("merges both directions by the pairing's environment id; actions follow each direction", async () => {
+    saveEnvironments([
+      { id: "ENV-S", name: "Studio", urls: ["https://studio.tail.ts.net"], token: "t" },
+      { id: "ENV-P", name: "Pro", urls: ["https://pro.tail.ts.net"] },
+    ]);
+    mocked.listDevices.mockResolvedValue([device("d1", "Studio", { clientEnvironmentId: "ENV-S", connected: true }), device("d2", "iPad", { kind: "phone", clientEnvironmentId: null })]);
+    await renderSettings();
+    await waitFor(() => expect(document.querySelector('[data-connection="device:d2"]')).not.toBeNull());
+    // One row per device: Studio (both), Pro (you use it), iPad (uses this device).
+    expect([...document.querySelectorAll("[data-connection]")].map((e) => e.getAttribute("data-connection"))).toEqual(["ENV-S", "ENV-P", "device:d2"]);
+    expect(labels(row("ENV-S"))).toEqual(["You use it", "Uses this device"]);
+    expect(labels(row("ENV-P"))).toEqual(["You use it"]);
+    expect(labels(row("device:d2"))).toEqual(["Uses this device"]);
+    expect(buttons(row("ENV-S"))).toEqual(["Disconnect…", "Rename", "Revoke…"]);
+    expect(buttons(row("ENV-P"))).toEqual(["Pair Again…", "Disconnect…"]);
+    expect(buttons(row("device:d2"))).toEqual(["Rename", "Revoke…"]);
+    // Each direction's actions sit on that direction's own line.
+    const line = (key: string, which: string) => [...row(key).querySelectorAll(`[data-actions="${which}"] button`)].map((b) => b.textContent);
+    expect(line("ENV-S", "uses")).toEqual(["Disconnect…"]);
+    expect(line("ENV-S", "used-by")).toEqual(["Rename", "Revoke…"]);
+    expect(within(row("ENV-S")).getByText("You use it").closest("[data-line]")!.querySelector('[data-actions="uses"]')).not.toBeNull();
+    expect(within(row("ENV-S")).getByText("Uses this device").closest("[data-line]")!.querySelector('[data-actions="used-by"]')).not.toBeNull();
+    expect(within(row("ENV-S")).getByLabelText("Connected")).toBeTruthy();
+    expect(within(row("ENV-P")).getByTestId("environment-status").textContent).toBe("pro.tail.ts.net · Needs pairing");
+    expect(within(row("device:d2")).getByTestId("device-status").textContent).toBe("Last seen 1 h ago");
+  });
+
+  it("revoking or disconnecting one direction keeps the other", async () => {
+    saveEnvironments([{ id: "ENV-S", name: "Studio", urls: ["https://studio.tail.ts.net"], token: "t" }]);
+    mocked.listDevices.mockResolvedValue([device("d1", "Studio", { clientEnvironmentId: "ENV-S" })]);
+    await renderSettings();
+    await waitFor(() => expect(labels(row("ENV-S"))).toEqual(["You use it", "Uses this device"]));
+
+    fireEvent.click(within(row("ENV-S")).getByRole("button", { name: "Revoke…" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(mocked.revokeDevice).toHaveBeenCalledWith("d1"));
+    mocked.listDevices.mockResolvedValue([]);
+    await waitFor(() => expect(labels(row("ENV-S"))).toEqual(["You use it"]));
+
+    // The other way round: disconnect, the device that uses this one stays.
+    cleanup();
+    mocked.listDevices.mockResolvedValue([device("d1", "Studio", { clientEnvironmentId: "ENV-S" })]);
+    await renderSettings();
+    await waitFor(() => expect(labels(row("ENV-S"))).toEqual(["You use it", "Uses this device"]));
+    fireEvent.click(within(row("ENV-S")).getByRole("button", { name: "Disconnect…" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(document.querySelector('[data-connection="ENV-S"]')).toBeNull());
+    expect(labels(row("device:d1"))).toEqual(["Uses this device"]);
+  });
+
+  it("sections in order: master, sharing, Tailscale, the two buttons, Connections, Recent activity", async () => {
+    await renderSettings({ transport: { id: "tailscale", available: true, https: true, serving: true, dnsName: "air.tail.ts.net", ips: [], managed: true } });
+    const order = [
+      screen.getByRole("switch", { name: /Remote access/ }),
+      await screen.findByRole("switch", { name: "Let other devices use this device" }),
+      await screen.findByTestId("transport-status"),
+      screen.getByRole("button", { name: /Connect to a Device/ }),
+      screen.getByRole("button", { name: /Share This Device/ }),
+      screen.getByText("No connections yet."),
+      screen.getByText("Recent activity"),
+    ];
+    for (let i = 1; i < order.length; i++) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The address sits under the sharing switch while it's on.
+    expect(screen.getByText("https://air.tail.ts.net")).toBeTruthy();
+  });
+
+  it("Share This Device… with sharing off offers to turn it on first", async () => {
+    mocked.createInvite.mockResolvedValue({ link: LINK, code: "ABCD-EFGH", expiresAt: Date.now() + 60_000 });
+    await renderSettings({ enabled: false });
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Let other devices use this device" }).hasAttribute("disabled")).toBe(false));
+
+    // Cancel: nothing changes.
+    fireEvent.click(screen.getByRole("button", { name: /Share This Device/ }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(mocked.setRemote).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Turn On: sharing goes on, then the invite opens.
+    fireEvent.click(screen.getByRole("button", { name: /Share This Device/ }));
+    const alert = await screen.findByRole("alertdialog");
+    expect(within(alert).getByText("Turn on sharing?")).toBeTruthy();
+    fireEvent.click(within(alert).getByRole("button", { name: "Turn On" }));
+    await waitFor(() => expect(mocked.setRemote).toHaveBeenCalledWith(true));
+    const dialog = await screen.findByRole("dialog", { name: "Share This Device" });
+    await within(dialog).findByText("ABCD-EFGH");
+  });
+
+  it("Share This Device… with sharing on opens the invite at once", async () => {
+    mocked.createInvite.mockResolvedValue({ link: LINK, code: "ABCD-EFGH", expiresAt: Date.now() + 60_000 });
+    await renderSettings({ enabled: true });
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Let other devices use this device" }).getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(screen.getByRole("button", { name: /Share This Device/ }));
+    await screen.findByRole("dialog", { name: "Share This Device" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });

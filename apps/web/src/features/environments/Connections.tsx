@@ -1,0 +1,262 @@
+/**
+ * Settings → Remote Access → Connections (I-136): one list of every other device, both
+ * directions merged (`state/connections.ts`), under the two buttons "Connect to a Device…" and
+ * "Share This Device…" (`RemoteAccessSettings` owns the dialogs).
+ *
+ * Each row carries direction labels:
+ * - **You use it**: a saved environment, with its status (`state/remote-status.ts`) and Retry /
+ *   Pair Again… / Disconnect… (removes it from this device's list).
+ * - **Uses this device**: a paired device, last seen and a connected dot, Rename / Revoke….
+ *
+ * Glade hosts found on the tailnet that this device doesn't use yet follow as "Connect…" rows.
+ */
+import { useEffect, useState } from "preact/hooks";
+import { Monitor, Plus, Share } from "lucide-preact";
+import type { DiscoveredEnvironment, PairedDevice } from "@glade/protocol";
+import { hostAuth } from "@/lib/api-auth";
+import { mergeConnections, type Connection } from "@/state/connections";
+import { connectionFor, hasLocalEnvironment, localEnvironmentId } from "@/state/env-registry";
+import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@/state/environments";
+import { pairedDevices, renameDevice, revokeAllDevices, revokeDevice } from "@/state/remote-host";
+import { remoteStateOf, remoteStateText } from "@/state/remote-status";
+import { Badge, Button, FormGroup, FormRow, TextField, confirm } from "@/ui";
+import { formatLastSeen } from "./HostRemoteAccess";
+import { DeviceKindIcon } from "./device-kind";
+
+export interface ConnectionsProps {
+  /** Open "Connect to a Device…" (optionally Pair Again with an environment, or a found address). */
+  onConnect: (request: { envId?: string; address?: string }) => void;
+  /** "Share This Device…"; absent without a local server (nothing to share). */
+  onShare?: () => void;
+}
+
+export function Connections({ onConnect, onShare }: ConnectionsProps) {
+  const saved = savedEnvironments.value;
+  const devices = pairedDevices.value ?? [];
+  const list = mergeConnections(saved, devices);
+  const found = useDiscovered(saved);
+
+  const revokeAll = async () => {
+    const ok = await confirm({
+      title: "Revoke all devices?",
+      message: `All ${devices.length} devices that use this one lose access at once. They can pair again with a new code.`,
+      confirmLabel: "Revoke All",
+      destructive: true,
+    });
+    if (ok) await revokeAllDevices();
+  };
+
+  return (
+    <FormGroup
+      title="Connections"
+      actions={
+        <>
+          {devices.length > 1 && (
+            <Button size="sm" variant="ghost" onClick={() => void revokeAll()}>
+              Revoke All…
+            </Button>
+          )}
+          <Button size="sm" onClick={() => onConnect({})}>
+            <Plus size={12} />
+            Connect to a Device…
+          </Button>
+          {onShare && (
+            <Button size="sm" onClick={onShare}>
+              <Share size={12} />
+              Share This Device…
+            </Button>
+          )}
+        </>
+      }
+    >
+      {list.length === 0 && found.length === 0 && (
+        <FormRow
+          label={<span class="text-fg-muted">No connections yet.</span>}
+          description={
+            onShare
+              ? "Connect to a Device… uses another computer's projects and chats here. Share This Device… lets another device use this one."
+              : "Connect to a Device… uses another computer's projects and chats here."
+          }
+        />
+      )}
+      {list.map((c) => (
+        <ConnectionRow key={c.key} connection={c} onPair={() => c.environment && onConnect({ envId: c.environment.id })} />
+      ))}
+      {found.map((d) => (
+        <FormRow key={d.address} label={d.name} description={`${hostOf(d.address)} · Found on your tailnet`}>
+          <Button size="sm" onClick={() => onConnect({ address: d.address })}>
+            Connect…
+          </Button>
+        </FormRow>
+      ))}
+    </FormGroup>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function ConnectionRow({ connection, onPair }: { connection: Connection; onPair: () => void }) {
+  const { environment: env, device } = connection;
+  const conn = env ? connectionFor(env.id) : undefined;
+  const name = env ? (conn?.name.value ?? env.name) : device!.name;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(device?.name ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  const disconnect = async () => {
+    if (!env) return;
+    const ok = await confirm({
+      title: "Disconnect?",
+      subject: name,
+      message: "is removed from this device's list. Nothing on it is deleted; you can connect again later.",
+      confirmLabel: "Disconnect",
+      destructive: true,
+    });
+    if (ok) removeSavedEnvironment(env.id);
+  };
+
+  const revoke = async () => {
+    if (!device) return;
+    const ok = await confirm({
+      title: "Revoke device?",
+      subject: device.name,
+      message: "can't use this device anymore (open connections are closed). It can pair again with a new code.",
+      confirmLabel: "Revoke",
+      destructive: true,
+    });
+    if (ok) await revokeDevice(device.id).catch((err: Error) => setError(err.message));
+  };
+
+  const commit = async () => {
+    setEditing(false);
+    if (!device) return;
+    const next = draft.trim();
+    if (!next || next === device.name) {
+      setDraft(device.name);
+      return;
+    }
+    try {
+      await renameDevice(device.id, next);
+      setError(null);
+    } catch (err) {
+      setDraft(device.name);
+      setError((err as Error).message);
+    }
+  };
+
+  const startRename = () => {
+    if (!device) return;
+    setDraft(device.name);
+    setEditing(true);
+  };
+
+  const state = env ? remoteStateOf(env.id) : null;
+
+  return (
+    <FormRow
+      label={
+        <span class="flex min-w-0 items-center gap-2" data-connection={connection.key}>
+          {device ? <DeviceKindIcon kind={device.kind} /> : <Monitor size={14} strokeWidth={1.75} class="shrink-0 text-fg-muted" />}
+          {editing && device ? (
+            <TextField
+              size="sm"
+              aria-label="Device name"
+              value={draft}
+              autoFocus
+              onInput={(e) => setDraft(e.currentTarget.value)}
+              onBlur={() => void commit()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void commit();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setDraft(device.name);
+                  setEditing(false);
+                }
+              }}
+            />
+          ) : (
+            <span class="min-w-0 truncate" title={device ? "Double-click to rename" : undefined} onDblClick={startRename}>
+              {name}
+            </span>
+          )}
+          {device?.connected && <span aria-label="Connected" class="size-1.5 shrink-0 rounded-full bg-success" />}
+        </span>
+      }
+      description={
+        <span class="mt-1 flex flex-col gap-1">
+          {env && state && (
+            <span class="flex min-w-0 items-center gap-1.5" data-line="uses">
+              <Badge>You use it</Badge>
+              <span class="min-w-0 flex-1 truncate" data-testid="environment-status">{`${hostOf(env.urls[0] ?? "")} · ${remoteStateText(state, name)}`}</span>
+              <span class="flex shrink-0 items-center gap-1.5" data-actions="uses">
+                {state === "needs-pairing" && (
+                  <Button size="sm" onClick={onPair}>
+                    Pair Again…
+                  </Button>
+                )}
+                {(state === "unreachable" || state === "host-offline") && conn?.retry && (
+                  <Button size="sm" onClick={() => conn.retry?.()}>
+                    Retry
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => void disconnect()}>
+                  Disconnect…
+                </Button>
+              </span>
+            </span>
+          )}
+          {device && (
+            <span class="flex min-w-0 items-center gap-1.5" data-line="used-by">
+              <Badge>Uses this device</Badge>
+              <span class="min-w-0 flex-1 truncate" data-testid="device-status">
+                {error ? <span class="text-danger">{error}</span> : deviceDetails(device, name)}
+              </span>
+              <span class="flex shrink-0 items-center gap-1.5" data-actions="used-by">
+                <Button size="sm" onClick={startRename}>
+                  Rename
+                </Button>
+                <Button size="sm" onClick={() => void revoke()}>
+                  Revoke…
+                </Button>
+              </span>
+            </span>
+          )}
+        </span>
+      }
+    />
+  );
+}
+
+function deviceDetails(device: PairedDevice, shownName: string): string {
+  const seen = device.connected ? "now" : formatLastSeen(device.lastSeenAt);
+  // In a merged row the name shown is the environment's; say what the device calls itself if different.
+  const alias = device.name !== shownName ? `as “${device.name}”` : null;
+  return [alias, `Last seen ${seen}`, device.lastAddress, device.tailscaleLogin].filter(Boolean).join(" · ");
+}
+
+/** Glade hosts on this device's tailnet it doesn't use yet (local server only). */
+function useDiscovered(saved: SavedEnvironment[]): DiscoveredEnvironment[] {
+  const [found, setFound] = useState<DiscoveredEnvironment[]>([]);
+  const local = hasLocalEnvironment.value;
+  useEffect(() => {
+    if (!local) return;
+    let live = true;
+    Promise.resolve()
+      .then(() => hostAuth.discover())
+      .then(
+        (list) => live && Array.isArray(list) && setFound(list.filter((d) => d.reachable)),
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [local]);
+  const own = localEnvironmentId.value;
+  return found.filter((d) => d.environmentId !== own && !saved.some((s) => s.id === d.environmentId || s.urls.includes(d.address)));
+}

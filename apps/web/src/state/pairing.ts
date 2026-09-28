@@ -51,7 +51,7 @@ export interface PairOptions {
 const PROBE_TIMEOUT_MS = 6_000;
 
 function describeHost(target: PairTarget, info?: EnvironmentInfo | null): string {
-  return info?.name || target.name || hostOf(target.urls[0] ?? "") || "the other Mac";
+  return info?.name || target.name || hostOf(target.urls[0] ?? "") || "the other device";
 }
 
 function hostOf(url: string): string {
@@ -121,7 +121,7 @@ export async function runPairing(target: PairTarget, options: PairOptions): Prom
   if (found.info && target.environmentId && found.info.id !== target.environmentId) {
     return fail("wrong-environment", `A different Glade answered at ${hostOf(found.url)} (“${found.info.name}”), not ${hostName}. Nothing was paired.`);
   }
-  if (found.info && found.info.id === localEnvironmentId.value) return fail("this-environment", "That's this Mac. Pair from another device.");
+  if (found.info && found.info.id === localEnvironmentId.value) return fail("this-environment", "That's this device. Pair from another one.");
 
   report({ step: "waiting", hostName });
   let answer: PairResponse;
@@ -138,11 +138,11 @@ export async function runPairing(target: PairTarget, options: PairOptions): Prom
     );
   } catch (err) {
     if (signal?.aborted) return cancelled();
-    if (isRemoteDisabled(err)) return fail("remote-disabled", `Remote access is off on ${hostName}. Turn on “Let other devices use this Mac” there first.`);
+    if (isRemoteDisabled(err)) return fail("remote-disabled", `Remote access is off on ${hostName}. Turn on “Let other devices use this device” there first.`);
     if (err instanceof ApiRequestError) {
       if (err.status === 429) return fail("rate-limited", `Too many attempts. Wait a minute, then create a new code on ${hostName}.`);
       if (err.status === 400 || err.status === 401 || err.status === 404 || err.status === 410)
-        return fail("invalid", `That code or link isn't valid anymore. Create a new one on ${hostName} (Settings → Remote Access → Add Device…).`);
+        return fail("invalid", `That code or link isn't valid anymore. Create a new one on ${hostName} (Settings → Remote Access → Share This Device…).`);
       return fail("failed", `Pairing failed: ${err.message}`);
     }
     return fail("unreachable", `Lost the connection to ${hostName} while waiting.`);

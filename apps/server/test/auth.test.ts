@@ -80,8 +80,13 @@ function start(opts: { addresses?: string[]; pairTimeoutMs?: number } = {}) {
   const invite = async () => (await (await local("POST", "/api/auth/invites")).json()) as PairingInvite;
   const grantOf = (inv: PairingInvite) => new URL(inv.link.replace("glade://", "http://x/")).searchParams.get("g")!;
   /** Pair from a remote client; the host answers `answer` once the request is pending. */
-  const pair = async (grant: string, answer: boolean | null = true, from?: string): Promise<{ status: number; body: PairResponse & { code?: string } }> => {
-    const res = remote("POST", "/api/auth/pair", { body: { grant, deviceName: "Laptop", deviceKind: "mac" }, from });
+  const pair = async (
+    grant: string,
+    answer: boolean | null = true,
+    from?: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<{ status: number; body: PairResponse & { code?: string } }> => {
+    const res = remote("POST", "/api/auth/pair", { body: { grant, deviceName: "Laptop", deviceKind: "mac", ...extra }, from });
     if (answer !== null) {
       const answered = (async () => {
         for (let i = 0; i < 400; i++) {
@@ -239,6 +244,18 @@ describe("device tokens", () => {
     expect(await (await t.local("GET", "/api/auth/devices")).json()).toEqual([]);
     const actions = await t.audit();
     expect(actions).toEqual(expect.arrayContaining(["remote_enabled", "invite_created", "pair_requested", "pair_allowed", "device_renamed", "device_revoked", "auth_failed"]));
+  });
+
+  it("stores the client's environment id and lists it with the device (I-136)", async () => {
+    const t = start();
+    await t.enable();
+    const a = (await t.pair(t.grantOf(await t.invite()), true, undefined, { clientEnvironmentId: "ENV-CLIENT" })).body;
+    const b = (await t.pair(t.grantOf(await t.invite()))).body;
+    if (a.status !== "paired" || b.status !== "paired") throw new Error("not paired");
+    const list = (await (await t.local("GET", "/api/auth/devices")).json()) as { id: string; clientEnvironmentId: string | null }[];
+    expect(list.find((d) => d.id === a.device.id)?.clientEnvironmentId).toBe("ENV-CLIENT");
+    expect(list.find((d) => d.id === b.device.id)?.clientEnvironmentId).toBeNull();
+    expect(a.device.clientEnvironmentId).toBe("ENV-CLIENT");
   });
 
   it("remote clients can't use host-only routes, even with a token", async () => {

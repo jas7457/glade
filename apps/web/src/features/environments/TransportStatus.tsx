@@ -1,8 +1,9 @@
 /**
  * Settings → Remote Access: the transport (I-127). One row under the "Remote access" master
- * switch (I-132: it carries both directions) with the transport's state: Tailscale ✓ and the `https://<machine>.<tailnet>.ts.net`
- * address, or what's wrong with fix-it text and a link (HTTPS off → the admin console's DNS page,
- * not installed → the download page). HTTPS is required: there's no plain-HTTP fallback.
+ * switch (I-132: it carries both directions; I-136: below the sharing switch, which shows the
+ * `https://<machine>.<tailnet>.ts.net` address) with the transport's state: Tailscale ✓, or
+ * what's wrong with fix-it text and a link (HTTPS off → the admin console's DNS page, not
+ * installed → the download page). HTTPS is required: there's no plain-HTTP fallback.
  */
 import type { ComponentChildren } from "preact";
 import { AlertTriangle, CheckCircle2 } from "lucide-preact";
@@ -26,7 +27,7 @@ function fixIt(problem: TransportProblem | undefined, reason: string | undefined
     case "not_installed":
       return (
         <>
-          Tailscale isn't installed. Install it on this Mac and on each device that should connect, and sign in with the same account.{" "}
+          Tailscale isn't installed. Install it on this computer and on each device that should connect, and sign in with the same account.{" "}
           <Link href={TAILSCALE_DOWNLOAD_URL}>Download Tailscale</Link>
         </>
       );
@@ -46,7 +47,7 @@ function fixIt(problem: TransportProblem | undefined, reason: string | undefined
         </>
       );
     case "funnel_on":
-      return <>{reason} Glade won't share this Mac while Funnel is on for that port; turn Funnel off first.</>;
+      return <>{reason} Glade won't share this device while Funnel is on for that port; turn Funnel off first.</>;
     case "port_in_use":
       return <>{reason} Remove that Serve entry to let Glade use the port.</>;
     default:
@@ -56,25 +57,20 @@ function fixIt(problem: TransportProblem | undefined, reason: string | undefined
 
 export interface TransportStatusRowProps {
   status: TransportStatus;
-  /** The host switch ("Let other devices use this Mac") is on. */
+  /** The host switch ("Let other devices use this device") is on. */
   enabled: boolean;
 }
 
 export function TransportStatusRow({ status, enabled }: TransportStatusRowProps) {
   const ok = status.available && status.problem === undefined;
-  const address = status.dnsName ? `https://${status.dnsName}` : null;
   let text: ComponentChildren;
   if (!ok) text = fixIt(status.problem, status.reason);
-  else if (enabled && status.serving)
-    text = (
-      <>
-        Reachable on your tailnet at <span class="selectable font-mono text-fg">{address}</span>
-      </>
-    );
+  // The address itself is shown under the sharing switch (I-136).
+  else if (enabled && status.serving) text = "Reachable on your private tailnet.";
   else if (enabled)
     text = status.managed
       ? "Starting Tailscale Serve…"
-      : "The Glade app runs Tailscale Serve for this data folder; this Mac becomes reachable while it's open.";
+      : "The Glade app runs Tailscale Serve for this data folder; this device becomes reachable while it's open.";
   else
     text = (
       <>

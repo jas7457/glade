@@ -142,12 +142,12 @@ export function parsePairInput(linkOrCode: string, address = ""): PairInputResul
   const text = linkOrCode.trim();
   if (/glade:|\/pair\b/i.test(text)) {
     const link = parsePairingLink(text);
-    if (!link) return { ok: false, error: "That pairing link isn't complete. Copy it again from the other Mac." };
+    if (!link) return { ok: false, error: "That pairing link isn't complete. Copy it again from the other device." };
     return { ok: true, target: { environmentId: link.environmentId, name: link.name || null, urls: link.urls, grant: link.grant } };
   }
   const code = normalizeShortCode(text);
   if (!code) return { ok: false, error: "Paste a pairing link, or enter the 8-character code (like ABCD-EFGH)." };
   const url = normalizeAddress(address);
-  if (!url) return { ok: false, error: "Enter the other Mac's address (shown under the code)." };
+  if (!url) return { ok: false, error: "Enter the other device's address (shown under the code)." };
   return { ok: true, target: { environmentId: null, name: null, urls: [url], grant: code } };
 }

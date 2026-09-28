@@ -1,7 +1,7 @@
 /**
- * "Add Device…" (I-126, host side): creates a one-time invite (5 minutes, one at a time) and
- * shows it three ways: a QR code of the link, the link to copy (another Mac pastes it into
- * "Connect to Environment…"), and the short code with this Mac's address for typing. A live
+ * "Share This Device…" (I-126, host side; I-136 name): creates a one-time invite (5 minutes, one at a time) and
+ * shows it three ways: a QR code of the link, the link to copy (another device pastes it into
+ * "Connect to a Device…"), and the short code with this device's address for typing. A live
  * countdown; "Create New Code" once it expired. Cancel withdraws the invite.
  *
  * An invite is used up by the first pair request (server rule). When that request arrives, the
@@ -117,8 +117,8 @@ export function AddDeviceDialog({ open, onOpenChange }: { open: boolean; onOpenC
     <Dialog
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close(true))}
-      title="Add Device"
-      description="On the other device, open Glade → Settings → Remote Access → Connect to Environment…, then paste the link or type the code. You'll be asked to allow it here."
+      title="Share This Device"
+      description="On the other device, open Glade → Settings → Remote Access → Connect to a Device…, then paste the link or type the code. You'll be asked to allow it here."
       width={460}
       footer={
         use.step === "paired" ? (
@@ -145,7 +145,7 @@ export function AddDeviceDialog({ open, onOpenChange }: { open: boolean; onOpenC
         <div role="status" class="flex items-center gap-2 py-2 text-fg">
           <Check size={16} class="shrink-0 text-success" aria-hidden="true" />
           <span>
-            Paired with <span class="font-medium text-fg-strong">{use.deviceName}</span>. It can use this Mac now.
+            Paired with <span class="font-medium text-fg-strong">{use.deviceName}</span>. It can use this device now.
           </span>
         </div>
       ) : !invite ? (

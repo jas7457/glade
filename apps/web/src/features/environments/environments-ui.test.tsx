@@ -257,29 +257,28 @@ describe("settings", () => {
     );
   };
 
-  it("Remote access (I-132): off shows only the master switch; on reveals your environments, then hosting", async () => {
+  it("Remote access (I-132/I-136): off shows only the master switch; on reveals sharing, then Connections", async () => {
     useEnvironments();
     const { remoteMaster, resetRemoteMaster } = await import("@/state/remote-master");
     resetRemoteMaster(false);
     await renderRemote();
     const master = screen.getByRole("switch", { name: /Remote access/ });
     expect(master.getAttribute("aria-checked")).toBe("false");
-    expect(screen.queryByText("Your environments")).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Let other devices use this Mac" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Connect to Environment/ })).toBeNull();
+    expect(screen.queryByText("Connections")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Let other devices use this device" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Connect to a Device/ })).toBeNull();
     // The old client switch is gone.
     expect(screen.queryByRole("switch", { name: "Connect to other Glade environments" })).toBeNull();
 
     fireEvent.click(master);
     expect(remoteMaster.value).toBe(true);
-    await screen.findByText("Your environments");
-    expect(screen.getByRole("button", { name: /Connect to Environment/ })).toBeTruthy();
-    const host = screen.getByRole("switch", { name: "Let other devices use this Mac" });
-    // Your environments comes before hosting.
-    expect(screen.getByText("Your environments").compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Hosting is off: no devices or activity yet.
-    expect(screen.queryByText("Devices")).toBeNull();
-    expect(screen.queryByText("Recent activity")).toBeNull();
+    const connections = await screen.findByText("Connections");
+    expect(screen.getByRole("button", { name: /Connect to a Device/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Share This Device/ })).toBeTruthy();
+    const host = screen.getByRole("switch", { name: "Let other devices use this device" });
+    // Sharing comes before Connections.
+    expect(host.compareDocumentPosition(connections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("No connections yet.")).toBeTruthy();
     resetRemoteMaster(false);
   });
 

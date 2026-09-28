@@ -1,9 +1,9 @@
 /**
- * "Connect to Environment…" (I-126, client side): paste a `glade://pair?…` link (or the whole QR
+ * "Connect to a Device…" (I-126; I-136 name, client side): paste a `glade://pair?…` link (or the whole QR
  * text), or type the host's code and address; name this device; then wait for the host to
  * press Allow. The flow itself is `state/pairing.ts` (portable); this is its desktop dialog.
  *
- * I-127: Glade hosts found on this Mac's tailnet (`GET /api/auth/discover`, local environment
+ * I-127: Glade hosts found on this device's tailnet (`GET /api/auth/discover`, local environment
  * only) are listed as "Found on your tailnet"; picking one fills in the address. The code from
  * the host is still required: finding a host establishes no trust.
  *
@@ -25,7 +25,7 @@ export interface ConnectEnvironmentDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Prefilled link (a `/pair?link=…` deep link). */
   initialLink?: string;
-  /** Prefilled address (a Mac found on the tailnet, I-132). */
+  /** Prefilled address (a computer found on the tailnet, I-132). */
   initialAddress?: string;
   /** Pair again with this saved environment. */
   envId?: string;
@@ -46,7 +46,7 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
     if (!open) return;
     let live = true;
     setFound([]);
-    // Only this Mac's own server can look around its tailnet; elsewhere (no local server) it's empty.
+    // Only this device's own server can look around its tailnet; elsewhere (no local server) it's empty.
     Promise.resolve()
       .then(() => hostAuth.discover())
       .then(
@@ -104,7 +104,7 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
     else onOpenChange(false);
   };
 
-  const title = again ? `Pair Again with ${again.name}` : "Connect to Environment";
+  const title = again ? `Pair Again with ${again.name}` : "Connect to a Device";
   return (
     <Dialog
       open={open}
@@ -118,8 +118,8 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
       title={title}
       description={
         again
-          ? `${again.name} no longer accepts this device. On ${again.name}, open Settings → Remote Access → Add Device…, then paste the link or type the code here.`
-          : "On the other Mac, open Settings → Remote Access → Add Device…, then paste the link here or type its code and address."
+          ? `${again.name} no longer accepts this device. On ${again.name}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
+          : "On the other computer, open Settings → Remote Access → Share This Device…, then paste the link here or type its code and address."
       }
       width={460}
       footer={

@@ -1,6 +1,6 @@
 /**
  * Sidebar rows for remote environments that are down (I-132): their projects and chats are
- * hidden meanwhile, so the Mac itself stays listed, greyed, with its status as the tooltip and
+ * hidden meanwhile, so the computer itself stays listed, greyed, with its status as the tooltip and
  * the globe popover (Retry / Pair Again…). Clicking opens Settings → Remote Access.
  */
 import { useNavigate } from "react-router";

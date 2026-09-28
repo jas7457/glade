@@ -1,28 +1,27 @@
 /**
- * Settings → Remote Access (I-123, I-125/I-126, I-127; layout I-132):
+ * Settings → Remote Access (I-123, I-125/I-126, I-127, I-132; layout I-136), top to bottom:
  *
  * 1. **Remote access** master switch (off by default; `state/remote-master.ts`). Off: nothing
- *    below is shown, remote environments are hidden and disconnected, and this Mac doesn't
- *    accept devices (nothing is deleted). With a local server, the Tailscale row follows (the
- *    transport serves both directions).
- * 2. **Your environments**: "Connect to Environment…" (pairing by link or code,
- *    `ConnectEnvironmentDialog`), the environments this device paired with and their status
- *    (`state/remote-status.ts`: Retry, Pair Again…, Remove), and Glade Macs found on the tailnet.
- * 3. **Let other devices use this Mac** (local server only, `HostRemoteAccess`).
+ *    else is shown, remote environments are hidden and disconnected, and this device doesn't
+ *    accept others (nothing is deleted).
+ * 2. **Let other devices use this device** (local server only, `SharingRows`), with this
+ *    device's address under it while it's on.
+ * 3. **Tailscale** status (local server only; the transport serves both directions).
+ * 4. **Connections** (`Connections`): "Connect to a Device…" (`ConnectEnvironmentDialog`) and
+ *    "Share This Device…" (`AddDeviceDialog`; offers to turn sharing on first) above one list of
+ *    every other device, both directions merged.
+ * 5. **Recent activity** (local server only).
  */
 import { useEffect, useState } from "preact/hooks";
-import { Plus, Trash2 } from "lucide-preact";
-import type { DiscoveredEnvironment } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
-import { connectionFor, hasLocalEnvironment, localEnvironmentId } from "@/state/env-registry";
-import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@/state/environments";
+import { hasLocalEnvironment } from "@/state/env-registry";
 import { pairDialogRequest } from "@/state/pairing";
-import { hostRemote, loadHostRemote } from "@/state/remote-host";
+import { hostRemote, loadDevices, loadHostRemote, setHostRemote } from "@/state/remote-host";
 import { remoteMaster, remoteMasterError, setRemoteMaster } from "@/state/remote-master";
-import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { Button, FormGroup, FormRow, IconButton, Switch, confirm } from "@/ui";
+import { FormGroup, FormRow, Switch, confirm } from "@/ui";
+import { AddDeviceDialog } from "./AddDeviceDialog";
 import { ConnectEnvironmentDialog } from "./ConnectEnvironmentDialog";
-import { HostRemoteAccess } from "./HostRemoteAccess";
+import { Connections } from "./Connections";
+import { AuditLog, SharingRows } from "./HostRemoteAccess";
 import { TransportStatusRow } from "./TransportStatus";
 
 const HOST_POLL_MS = 10_000;
@@ -33,11 +32,28 @@ interface DialogRequest {
   address?: string;
 }
 
+/**
+ * "Share This Device…": with sharing off, ask to turn it on first. Resolves true when sharing is
+ * on (the invite dialog may open).
+ */
+export async function ensureSharing(): Promise<boolean> {
+  if (hostRemote.value?.enabled) return true;
+  const ok = await confirm({
+    title: "Turn on sharing?",
+    message: "Other devices can then ask to use this device's projects and chats. Each one needs your OK here.",
+    confirmLabel: "Turn On",
+  });
+  if (!ok) return false;
+  await setHostRemote(true);
+  return hostRemote.value?.enabled === true;
+}
+
 export function RemoteAccessSettings() {
   const master = remoteMaster.value;
   const local = hasLocalEnvironment.value;
   const host = hostRemote.value;
   const [dialog, setDialog] = useState<DialogRequest | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   // A `/pair?link=…` deep link or "Pair Again…" elsewhere asked for the dialog.
   const request = pairDialogRequest.value;
@@ -47,13 +63,21 @@ export function RemoteAccessSettings() {
     pairDialogRequest.value = null;
   }, [request]);
 
-  // The master switch, the host switch and Tailscale's state change without pushes: refresh while shown.
+  // The switches, Tailscale's state and the devices' last seen change without pushes: refresh while shown.
   useEffect(() => {
     if (!local) return;
-    void loadHostRemote();
-    const timer = setInterval(() => void loadHostRemote(), HOST_POLL_MS);
+    const refresh = () => {
+      void loadHostRemote();
+      if (remoteMaster.value) void loadDevices();
+    };
+    refresh();
+    const timer = setInterval(refresh, HOST_POLL_MS);
     return () => clearInterval(timer);
-  }, [local]);
+  }, [local, master]);
+
+  const share = async () => {
+    if (await ensureSharing()) setSharing(true);
+  };
 
   return (
     <>
@@ -61,22 +85,21 @@ export function RemoteAccessSettings() {
         footer={
           master
             ? undefined
-            : "Open projects and chats of your other Macs here, and let them use this one, over your private Tailscale network. Nothing is deleted when it's off."
+            : "Use projects and chats of your other computers here, and let them use this one, over your private Tailscale network. Nothing is deleted when it's off."
         }
       >
         <FormRow label="Remote access" description="Use Glade across your devices" htmlFor="remote-master">
           <Switch id="remote-master" checked={master} onCheckedChange={(on) => void setRemoteMaster(on)} />
         </FormRow>
+        {remoteMasterError.value && <FormRow label={<span role="alert" class="text-danger">{remoteMasterError.value}</span>} />}
+        {master && local && <SharingRows />}
         {master && local && host?.transport && <TransportStatusRow status={host.transport} enabled={host.enabled} />}
-        {remoteMasterError.value && (
-          <FormRow label={<span role="alert" class="text-danger">{remoteMasterError.value}</span>} />
-        )}
       </FormGroup>
 
       {master && (
         <>
-          <YourEnvironments onDialog={setDialog} />
-          {local && <HostRemoteAccess />}
+          <Connections onConnect={setDialog} onShare={local ? () => void share() : undefined} />
+          {local && <AuditLog />}
         </>
       )}
       <ConnectEnvironmentDialog
@@ -86,96 +109,7 @@ export function RemoteAccessSettings() {
         initialAddress={dialog?.address}
         envId={dialog?.envId}
       />
+      {local && <AddDeviceDialog open={sharing} onOpenChange={setSharing} />}
     </>
   );
-}
-
-function YourEnvironments({ onDialog }: { onDialog: (request: DialogRequest) => void }) {
-  const saved = savedEnvironments.value;
-  const found = useDiscovered(saved);
-
-  const remove = async (id: string, name: string) => {
-    const ok = await confirm({
-      title: "Remove environment?",
-      subject: name,
-      message: "will be removed from this device's list. Nothing on it is deleted; you can pair again later.",
-      confirmLabel: "Remove",
-      destructive: true,
-    });
-    if (ok) removeSavedEnvironment(id);
-  };
-
-  return (
-    <FormGroup
-      title="Your environments"
-      actions={
-        <Button size="sm" onClick={() => onDialog({})}>
-          <Plus size={12} />
-          Connect to Environment…
-        </Button>
-      }
-    >
-      {saved.length === 0 && found.length === 0 && <FormRow label={<span class="text-fg-muted">No other environments yet.</span>} />}
-      {saved.map((e) => (
-        <SavedRow key={e.id} entry={e} onPair={() => onDialog({ envId: e.id })} onRemove={() => void remove(e.id, e.name)} />
-      ))}
-      {found.map((d) => (
-        <FormRow key={d.address} label={d.name} description={`${new URL(d.address).host} · Found on your tailnet`}>
-          <Button size="sm" onClick={() => onDialog({ address: d.address })}>
-            Connect…
-          </Button>
-        </FormRow>
-      ))}
-    </FormGroup>
-  );
-}
-
-function SavedRow({ entry, onPair, onRemove }: { entry: SavedEnvironment; onPair: () => void; onRemove: () => void }) {
-  const conn = connectionFor(entry.id);
-  const name = conn?.name.value ?? entry.name;
-  const state = remoteStateOf(entry.id);
-  let host = entry.urls[0] ?? "";
-  try {
-    host = new URL(host).host;
-  } catch {
-    /* keep as typed */
-  }
-  return (
-    <FormRow label={name} description={<span data-testid="environment-status">{`${host} · ${remoteStateText(state, name)}`}</span>}>
-      {state === "needs-pairing" && (
-        <Button size="sm" onClick={onPair}>
-          Pair Again…
-        </Button>
-      )}
-      {(state === "unreachable" || state === "host-offline") && conn?.retry && (
-        <Button size="sm" onClick={() => conn.retry?.()}>
-          Retry
-        </Button>
-      )}
-      <IconButton size="sm" label={`Remove ${name}`} onClick={onRemove}>
-        <Trash2 />
-      </IconButton>
-    </FormRow>
-  );
-}
-
-/** Glade Macs on this Mac's tailnet that this device hasn't paired with (local server only). */
-function useDiscovered(saved: SavedEnvironment[]): DiscoveredEnvironment[] {
-  const [found, setFound] = useState<DiscoveredEnvironment[]>([]);
-  const local = hasLocalEnvironment.value;
-  useEffect(() => {
-    if (!local) return;
-    let live = true;
-    Promise.resolve()
-      .then(() => hostAuth.discover())
-      .then(
-        (list) => live && Array.isArray(list) && setFound(list.filter((d) => d.reachable)),
-        () => {},
-      );
-    return () => {
-      live = false;
-    };
-  }, [local]);
-  const own = localEnvironmentId.value;
-  return found.filter((d) => d.environmentId !== own && !saved.some((s) => s.id === d.environmentId || s.urls.includes(d.address)));
 }

@@ -526,6 +526,7 @@ export class AuthService {
       lastSeenAt: r.last_seen_at,
       lastAddress: r.last_address,
       tailscaleLogin: r.tailscale_login,
+      clientEnvironmentId: r.client_environment_id,
       scopes,
       connected: (this.remoteSockets.get(r.id)?.size ?? 0) > 0,
     };

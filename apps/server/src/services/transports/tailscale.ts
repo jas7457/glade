@@ -187,9 +187,9 @@ export function evaluateTailscale({ state, serve, gladePorts, managed }: Evaluat
   const serving = servingPort !== null;
   if (!https) return { ...fail("https_off"), servingPort };
   if (serve?.funnel) return { status: { ...fail("funnel_on", undefined, true).status, serving }, servingPort };
-  if (serve?.tcpForward) return fail("port_in_use", "Port 443 on this Mac is already used by Tailscale Serve (TCP forwarding).", true);
+  if (serve?.tcpForward) return fail("port_in_use", "Port 443 on this computer is already used by Tailscale Serve (TCP forwarding).", true);
   if (serve?.root && !serving) {
-    return fail("port_in_use", `Port 443 on this Mac is already used by Tailscale Serve${serve.root.proxy ? ` (→ ${serve.root.proxy})` : ""}.`, true);
+    return fail("port_in_use", `Port 443 on this computer is already used by Tailscale Serve${serve.root.proxy ? ` (→ ${serve.root.proxy})` : ""}.`, true);
   }
   return { status: { ...base, available: true, https: true, serving }, servingPort };
 }

@@ -1,16 +1,16 @@
 /**
  * What a remote environment's status means for the user (I-132), the same everywhere: the globe
- * popover, the sidebar and Settings → Your environments.
+ * popover, the sidebar and Settings → Connections.
  *
  * - **connected**
  * - **connecting**: first attempt, or reconnecting right after a drop
- * - **remote-disabled** "Remote access turned off on <Mac>": the last refusal was 4403 / 403
+ * - **remote-disabled** "Remote access turned off on <name>": the last refusal was 4403 / 403
  *   `remote_disabled`, remembered in the saved list even once the host is unreachable (turning
  *   remote access off there also removes its Tailscale Serve)
- * - **host-offline** "<Mac> is offline": unreachable, and this Mac's Tailscale reports that
+ * - **host-offline** "<name> is offline": unreachable, and this device's Tailscale reports that
  *   machine offline (`GET /api/auth/peers` on the local server; best effort, no local server
  *   = no peers, as on the phone)
- * - **unreachable** "Can't reach <Mac>": unreachable for another reason (Retry)
+ * - **unreachable** "Can't reach <name>": unreachable for another reason (Retry)
  * - **needs-pairing**: 401 / revoked, or saved without a token
  *
  * Connections reconnect on their own with backoff (`lib/socket.ts`); these update live.
@@ -30,7 +30,7 @@ export interface RemoteStateInput {
   hasToken: boolean;
   /** The saved entry remembers a "remote access is off" refusal. */
   rememberedDisabled: boolean;
-  /** This Mac's Tailscale says the host is online (true), offline (false), or doesn't know. */
+  /** This device's Tailscale says the host is online (true), offline (false), or doesn't know. */
   peerOnline: boolean | undefined;
 }
 
@@ -86,7 +86,7 @@ export function isDown(state: RemoteState): boolean {
 
 // Tailnet peers ------------------------------------------------------------------------------------
 
-/** This Mac's tailnet peers by DNS name → online; `null` = unknown (no local server, Tailscale off…). */
+/** This device's tailnet peers by DNS name → online; `null` = unknown (no local server, Tailscale off…). */
 export const tailnetPeers = signal<ReadonlyMap<string, boolean> | null>(null);
 
 export async function refreshPeers(): Promise<void> {

@@ -150,6 +150,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Remote Access is simpler: the sharing switch sits right under the main switch, and one
+  Connections list shows every device with "You use it" and/or "Uses this device", next to
+  Connect to a Device… and Share This Device….
 - The Mac app keeps the keys for Macs you've paired with in the macOS Keychain instead of its web
   storage (moved over automatically).
 - Settings → Remote Access has one Remote access switch: off turns everything remote off (and cuts

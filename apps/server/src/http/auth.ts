@@ -86,7 +86,7 @@ export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
     await remote.setEnabled(enabled, () => void auth.setRemoteEnabled(enabled, meta));
     return c.json(remote.withStatus(auth.remoteState()));
   });
-  // Glade hosts on the tailnet, for "Connect to Environment" (I-127).
+  // Glade hosts on the tailnet, for "Connect to a Device" (I-127).
   api.get("/discover", async (c) => c.json(remote ? await remote.discover() : []));
   // Tailnet peers online or not, so clients can say "<Mac> is offline" (I-132; best effort).
   api.get("/peers", async (c) => c.json(remote ? await remote.peers().catch(() => []) : []));
