@@ -241,7 +241,7 @@ function PartView({ part, onOpenImage }: { part: TurnPart; onOpenImage?: () => v
       return <ToolGroup part={part} />;
     case "image":
       return (
-        <div class="my-1.5 flex">
+        <div class="my-1.5 flex min-w-0">
           <ImageThumb image={part.image} class="max-h-80" onOpen={onOpenImage} />
         </div>
       );

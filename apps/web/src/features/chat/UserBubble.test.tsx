@@ -81,4 +81,17 @@ describe("UserBubble", () => {
     fireEvent.keyDown(box, { key: "Escape" });
     expect(screen.queryByTestId("lightbox")).toBeNull();
   });
+
+  it("keeps wide images inside the column (I-131)", () => {
+    const message: UserMessage = { id: "u1", role: "user", content: [{ type: "image", mimeType: "image/png", data: "AAA" }], timestamp: 0 };
+    render(<UserBubble message={message} />);
+    const button = screen.getByRole("button", { name: "Open image" });
+    // The row is capped like the bubble, and neither the button nor the image may overflow it.
+    expect(button.parentElement!.className).toContain("max-w-[85%]");
+    expect(button.className).toMatch(/\bmin-w-0\b/);
+    expect(button.className).toMatch(/\bmax-w-full\b/);
+    expect(button.className).not.toContain("shrink-0");
+    const img = button.querySelector("img")!;
+    for (const c of ["max-w-full", "h-auto", "max-h-40", "object-contain"]) expect(img.className.split(/\s+/)).toContain(c);
+  });
 });

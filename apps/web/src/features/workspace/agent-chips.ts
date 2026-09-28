@@ -80,22 +80,37 @@ export function firstLine(text: string | null | undefined): string {
   return (text ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
 }
 
-function lastAssistant(transcript: Transcript): AssistantMessage | null {
+/** Assistant messages, newest first. */
+function assistantsNewestFirst(transcript: Transcript): AssistantMessage[] {
+  const out: AssistantMessage[] = [];
   for (let i = transcript.messages.length - 1; i >= 0; i--) {
     const m = transcript.messages[i]!;
-    if (m.role === "assistant") return m;
+    if (m.role === "assistant") out.push(m);
   }
-  return null;
+  return out;
 }
+
+/** Shown while the newest assistant message is streaming but has only thinking (or nothing) yet. */
+export const THINKING_ACTIVITY = "Thinking…";
 
 /**
  * The latest thing a sub-agent did, as one line: a running tool call ("Running `ls`"), else the
- * last line of its latest reply text, else its last tool call (past tense). "" when unknown.
+ * last line of its latest reply text, else its last tool call (past tense). While the newest
+ * assistant message streams with only thinking or nothing yet (pi starts one after every tool
+ * result), "Thinking…" (I-130). A finished message without text or calls is skipped. "" when the
+ * agent hasn't produced anything (callers show "Starting…" then).
  */
 export function latestActivity(transcript: Transcript | null): string {
   if (!transcript) return "";
-  const message = lastAssistant(transcript);
-  if (!message) return "";
+  for (const message of assistantsNewestFirst(transcript)) {
+    const line = messageActivity(transcript, message);
+    if (line) return line;
+    if (message.streaming) return THINKING_ACTIVITY;
+  }
+  return "";
+}
+
+function messageActivity(transcript: Transcript, message: AssistantMessage): string {
   const blocks = message.content;
   const calls = blocks.filter((b): b is ToolCallBlock => b.type === "toolCall");
   const running = [...calls].reverse().find((c) => {

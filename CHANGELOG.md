@@ -272,6 +272,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Sub-agent cards and chips say "Thinking…" between steps instead of flashing "Starting…".
+- Very wide images in chats shrink to fit instead of being cut off.
 - Links in the Mac app open in your default browser again (chats, tool output, settings, dialogs),
   and the app never navigates away from Glade.
 - "Open in VS Code" in a worktree chat opens the worktree, not the main project folder.

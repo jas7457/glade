@@ -113,4 +113,18 @@ describe("spawnCardState", () => {
     expect(s).toMatchObject({ kind: "blocked", attention: "warning", latest: "Waiting for your input" });
   });
 
+  it("shows Thinking… between steps, Starting… only before anything happened (I-130)", () => {
+    const session = makeSession({ id: "s1", kind: "subagent", agentName: "reviewer", status: "working", createdAt: 1_000, agent: agent() });
+    const call = { type: "toolCall" as const, id: "t1", name: "bash", kind: "shell" as const, input: { command: "ls" }, args: { command: "ls" } };
+    const toolTurn: AssistantMessage = { id: "a1", role: "assistant", content: [call], timestamp: 1 };
+    const results = { t1: { toolCallId: "t1", toolName: "bash", status: "done" as const, output: "" } };
+    const card = (transcript: Transcript | null) => spawnCardState({ link: linkOf(), session, transcript, description: undefined, callActive: false, now: 2_000 }).latest;
+    expect(card(null)).toBe("Starting…");
+    expect(card(t([user("u0", "Task")]))).toBe("Starting…");
+    expect(card(t([{ id: "a0", role: "assistant", content: [], timestamp: 1, streaming: true }]))).toBe("Thinking…");
+    expect(card(t([toolTurn, { id: "a2", role: "assistant", content: [], timestamp: 2, streaming: true }], results))).toBe("Thinking…");
+    expect(card(t([toolTurn, { id: "a2", role: "assistant", content: [{ type: "thinking", text: "…" }], timestamp: 2, streaming: true }], results))).toBe("Thinking…");
+    expect(card(t([toolTurn], results))).toBe("Ran ls");
+  });
+
 });

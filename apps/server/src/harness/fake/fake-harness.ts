@@ -274,7 +274,13 @@ export class FakeSession implements HarnessSession {
       { type: "state", state: { isRunning: true } },
       {
         type: "message_start",
-        message: { id: nextId(), role: "user", content: [{ type: "text", text: request.text }], timestamp: Date.now() },
+        message: {
+          id: nextId(),
+          role: "user",
+          // Attached images show in the transcript like with pi (UI checks, I-131).
+          content: [...(request.images ?? []).map((i) => ({ type: "image" as const, mimeType: i.mimeType, data: i.data })), { type: "text", text: request.text }],
+          timestamp: Date.now(),
+        },
       },
       ...this.harness.script(request, nextId),
       { type: "state", state: { isRunning: false, ...this.statsState() } },

@@ -55,6 +55,21 @@ describe("latestActivity", () => {
     // A call still streaming its args (no result yet) counts as running.
     expect(latestActivity(transcript([bash], {}, true))).toBe("Running pnpm test");
   });
+
+  it("between steps shows Thinking… instead of nothing (I-130)", () => {
+    const toolTurn = { id: "a1", role: "assistant" as const, content: [bash], timestamp: 1 };
+    const next = (content: ContentBlock[], streaming: boolean) => ({ id: "a2", role: "assistant" as const, content, timestamp: 2, streaming });
+    const results = { t1: result("done") };
+    // pi starts a new, empty assistant message after the tool result.
+    expect(latestActivity({ messages: [toolTurn, next([], true)], toolResults: results })).toBe("Thinking…");
+    // …which first holds only a thinking block.
+    expect(latestActivity({ messages: [toolTurn, next([{ type: "thinking", text: "Hmm" }], true)], toolResults: results })).toBe("Thinking…");
+    // A finished message without text or calls falls back to the previous step.
+    expect(latestActivity({ messages: [toolTurn, next([{ type: "thinking", text: "Hmm" }], false)], toolResults: results })).toBe("Ran pnpm test");
+    // First start: nothing yet (callers show "Starting…"); thinking already reads "Thinking…".
+    expect(latestActivity({ messages: [{ id: "u", role: "user", content: [{ type: "text", text: "Go" }], timestamp: 0 }], toolResults: {} })).toBe("");
+    expect(latestActivity(transcript([], {}, true))).toBe("Thinking…");
+  });
 });
 
 describe("agentChip", () => {

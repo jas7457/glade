@@ -105,7 +105,7 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
   return (
     <div class="group/msg relative mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
       {images.length > 0 && (
-        <div class="relative flex flex-wrap justify-end gap-1.5">
+        <div class="relative flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((img, i) => (
             <ImageThumb key={i} image={img} class="max-h-40" onOpen={() => open(i)} />
           ))}
@@ -135,16 +135,17 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
 /** User bubbles longer than this collapse with "Show more" (I-109). */
 export const LONG_BUBBLE_LINES = 15;
 
-/** A transcript image; with `onOpen` it's a button that opens it large (I-110). */
+/** A transcript image; with `onOpen` it's a button that opens it large (I-110). Never wider than its container (I-131). */
 export function ImageThumb({ image, class: className, onOpen }: { image: ImageBlock; class?: string; onOpen?: () => void }) {
-  const img = <img src={imageSrc(image)} alt="" class={cn("rounded-[10px] border-[0.5px] border-separator object-contain", className)} />;
+  // Wide images scale down to the column instead of spilling out of it (I-131).
+  const img = <img src={imageSrc(image)} alt="" class={cn("h-auto min-w-0 max-w-full rounded-[10px] border-[0.5px] border-separator object-contain", className)} />;
   if (!onOpen) return img;
   return (
     <button
       type="button"
       aria-label="Open image"
       onClick={onOpen}
-      class="flex shrink-0 cursor-zoom-in rounded-[10px] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent"
+      class="flex min-w-0 max-w-full cursor-zoom-in rounded-[10px] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent"
     >
       {img}
     </button>
