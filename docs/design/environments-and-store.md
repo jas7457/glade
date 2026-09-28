@@ -183,13 +183,21 @@ v1: the phone uses the host's web UI at `https://<host>.ts.net` (installable to 
 
 Phases 1–2 are worth doing on their own: stable ids, one format for pi and ACP, faster search, and no more lost updates on reconnect. Nothing reaches the network until phase 5, and remote access stays off by default.
 
-## 5. Open questions for the user
+## 5. Decisions (user, 2026-09-27)
 
-1. **Client model:** one window showing projects from all connected environments, grouped (proposed), or switching between environments one at a time?
-2. **Phone v1:** the host's web UI over Tailscale (proposed), or wait for a native app?
-3. **Settings:** agent, model and API-key settings live on the host and are edited remotely (proposed). OK?
-4. **Storage scope:** move *all* app data into `glade.db` (proposed), or only conversations at first?
-5. **Import:** import all existing pi chats in the background at first start (proposed)?
-6. **Device access:** full access only in v1 (proposed), or read-only devices from the start?
-7. **Where the environment shows:** chat header badge, plus sidebar group labels only when more than one environment exists (proposed)?
-8. **Minimum Node 22.13** for built-in SQLite: fine?
+These replace the proposals above where they differ.
+
+1. **One window, not grouped.** Projects and chats from every environment sit in one list, in whatever order the user drags them (ordering stays free across environments; the order is kept on the client). Anything remote carries a small **remote icon**, in the sidebar and in the chat header. Hovering or clicking it shows which environment it is (name, address, status). There are no environment groups.
+2. **Phone:** build the pairing QR code and link now. Phone use will be designed later as its own bigger project (F-022), so the QR code may not be testable end to end yet.
+3. **Settings and pickers follow the host.** Agent, model and harness settings live on the environment that runs the agents. Every picker only offers what *that* environment has:
+   - **Chats in a project** use the project's environment (chosen when the project was created). The agent, model and thinking pickers list that environment's agents and models.
+   - **New chats without a project** get an environment picker first (Local / each remote), then the agent, then model and thinking, all filtered to the chosen environment.
+   - **Remote options only appear when remote access is turned on** (Settings → Remote access). Turning it off *hides* everything that isn't on this machine: remote projects, chats and environment choices, and their connections close. Nothing is deleted, and turning it back on brings it all back.
+4. **All app data goes into `glade.db`.** No lasting `*.json.bak`. Migration must be safe while the user's current app is running:
+   - Import the JSON files on the new version's first start, then leave them untouched (not deleted) until the migration is confirmed. Delete them automatically after the new version has started successfully a few times and no older Glade server is registered on the data folder.
+   - A new-version server that sees an **old-version server** on the same data folder (`servers/<pid>.json` carries the version) doesn't import on top of it. It shows "Quit the older Glade first", because the old server would keep writing JSON that the database no longer reads.
+   - **Existing conversations, including the one that planned this work,** are imported from pi's session files. pi keeps its file for resume, so a chat that was running before the update continues after it.
+5. **Import all existing chats in the background at first start.** A chat that hasn't been imported yet is imported when it's opened.
+6. **Full access only in v1**, with a `scopes` column kept for read-only devices later.
+7. **Remote indicator:** an icon in the sidebar row and the chat header. Clicking it shows the environment's full name. Local items show nothing.
+8. The Node 22.13 minimum wasn't objected to.
