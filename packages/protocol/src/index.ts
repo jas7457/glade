@@ -19,3 +19,4 @@ export * from "./worktrees.js";
 export * from "./acp.js";
 export * from "./sync.js";
 export * from "./environments.js";
+export * from "./auth.js";
