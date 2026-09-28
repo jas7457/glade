@@ -139,6 +139,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Destructive buttons in confirm dialogs (Close Tab, Delete Chat, Delete Project, …) are now a
+  filled red button, so they stand out clearly from Cancel.
 - Live updates are numbered: after a dropped connection or a server restart, every open window
   catches up on exactly what it missed, without reloading, and a retried send can't post a message
   twice. Long chats open with the most recent turns and a "Load earlier messages" button.

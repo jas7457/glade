@@ -56,14 +56,14 @@ describe("AlertDialog", () => {
     expect(await result).toBe(false);
   });
 
-  it("puts Cancel first and the confirm button last; destructive is red text on a plain bezel", async () => {
+  it("puts Cancel first and the confirm button last; destructive is a filled red button", async () => {
     render(<ConfirmHost />);
     const { result, dialog } = await open({ title: "Close tab?", confirmLabel: "Close Tab", destructive: true });
     const buttons = [...dialog.querySelectorAll("button")].map((b) => b.textContent);
     expect(buttons).toEqual(["Cancel", "Close Tab"]);
     const confirmButton = screen.getByRole("button", { name: "Close Tab" });
-    expect(confirmButton.className).toContain("text-danger");
-    expect(confirmButton.className).not.toContain("bg-danger");
+    expect(confirmButton.className).toContain("bg-danger-fill");
+    expect(confirmButton.className).toContain("text-white");
     // The whole alert is one column: the buttons sit in the shared footer.
     expect(confirmButton.parentElement!.className).toBe(dialogClass.footer);
     // Return on the focused default (Cancel) cancels.

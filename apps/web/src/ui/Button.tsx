@@ -16,14 +16,14 @@ export interface ButtonProps extends Omit<JSX.HTMLAttributes<HTMLButtonElement>,
 /*
  * macOS push buttons (I-114): a plain bezel (hairline + soft shadow) or an accent fill with a
  * faint top highlight, regular label weight, no hover effect beyond a slight tone change.
- * `danger` is macOS's destructive style: red text on the plain bezel, not a red fill.
+ * `danger` is the filled accent button in red (I-128): same highlight and shadow as `primary`, so
+ * a destructive action stands out from Cancel (red text on a grey bezel read as washed out).
  */
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-accent text-accent-fg shadow-bezel-filled hover:brightness-105 active:brightness-90",
   secondary: "bg-bezel text-fg shadow-bezel hover:brightness-[0.98] active:brightness-[0.94] dark:hover:brightness-110 dark:active:brightness-125",
   ghost: "text-fg hover:bg-hover active:bg-selected",
-  danger:
-    "bg-bezel text-danger shadow-bezel hover:brightness-[0.98] active:brightness-[0.94] dark:hover:brightness-110 dark:active:brightness-125",
+  danger: "bg-danger-fill text-white shadow-bezel-filled hover:brightness-105 active:brightness-90",
 };
 
 /** md is the regular macOS push button (22px at the 13px base); sm the small one. */

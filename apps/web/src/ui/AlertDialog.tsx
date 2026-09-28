@@ -3,7 +3,7 @@
  * ui/Dialog.tsx (shared {@link dialogClass}), laid out like a macOS alert (I-114): a short
  * heading and the message (with the item's name) in one column, no decorative icon, and
  * regular-size buttons on the column's right edge. A destructive confirm keeps Cancel as the
- * default (focused, so Return cancels) and shows its action as red text on a plain bezel.
+ * default (focused, so Return cancels) and shows its action as a filled red button (I-128).
  *
  *   if (await confirm({ title: "Delete chat?", subject: chat.title,
  *                        message: "will be permanently deleted. This can't be undone.",
