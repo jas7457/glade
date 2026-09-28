@@ -7,6 +7,7 @@ import { defaultSettings, type EnvironmentInfo, type PairResponse } from "@glade
 import { localBaseUrl } from "@/lib/api";
 import { resetEnvironmentsForTest } from "@/test/env-fixtures";
 import { connectionFor, localEnvironmentId } from "./env-registry";
+import { resetRemoteMaster } from "./remote-master";
 import { remoteAccessEnabled, resetEnvironments, setRemoteAccessEnabled, startEnvironments } from "./environments";
 import { runPairing, type PairState } from "./pairing";
 import { savedEnvironments, saveEnvironments } from "./saved-environments";
@@ -65,6 +66,7 @@ const paired = (id = "ENV-B"): PairResponse => ({
 
 beforeEach(() => {
   localStorage.clear();
+  resetRemoteMaster();
   saveEnvironments([]);
   remoteAccessEnabled.value = false;
   resetEnvironmentsForTest();

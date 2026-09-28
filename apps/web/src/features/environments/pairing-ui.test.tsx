@@ -13,6 +13,8 @@ vi.mock("@/lib/api-auth", async (importOriginal) => {
     hostAuth: {
       getRemote: vi.fn(async () => ({ enabled: true, addresses: ["http://192.168.1.20:4327"] })),
       setRemote: vi.fn(async (enabled: boolean) => ({ enabled, addresses: ["http://192.168.1.20:4327"] })),
+      setMaster: vi.fn(async (master: boolean) => ({ enabled: false, master, addresses: [] })),
+      listPeers: vi.fn(async () => []),
       createInvite: vi.fn(),
       cancelInvite: vi.fn(async () => undefined),
       listPending: vi.fn(async () => []),
@@ -35,6 +37,8 @@ import { hostAuth } from "@/lib/api-auth";
 import { ConfirmHost, TooltipProvider } from "@/ui";
 import { hostRemote, receiveHostMessage, resetRemoteHost } from "@/state/remote-host";
 import { localEnvironmentId } from "@/state/env-registry";
+import { remoteMaster, resetRemoteMaster } from "@/state/remote-master";
+import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { PendingPairingHost } from "./PendingPairingHost";
 import { HostRemoteAccess } from "./HostRemoteAccess";
@@ -45,6 +49,7 @@ const LINK = "glade://pair?v=1&e=ENV-B&n=Studio&u=http%3A%2F%2F192.168.1.20%3A43
 
 beforeEach(() => {
   resetRemoteHost();
+  resetRemoteMaster();
   Object.values(mocked).forEach((fn) => fn.mockClear());
 });
 afterEach(() => {
@@ -169,6 +174,7 @@ describe("devices list", () => {
 
   it("shows last seen and revokes after a destructive confirm", async () => {
     mocked.listDevices.mockResolvedValue([device("d1", "MacBook Air", { connected: true }), device("d2", "Old Mac")]);
+    hostRemote.value = { enabled: true, master: true, addresses: ["http://192.168.1.20:4327"] };
     render(
       <TooltipProvider>
         <HostRemoteAccess />
@@ -178,7 +184,7 @@ describe("devices list", () => {
     await screen.findByText("MacBook Air");
     expect(screen.getByText(/Last seen now · 192\.168\.1\.30/)).toBeTruthy();
     expect(screen.getByText(/Last seen 5 min ago/)).toBeTruthy();
-    expect((screen.getByRole("switch", { name: "Allow other devices to connect" }) as HTMLElement).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("switch", { name: "Let other devices use this Mac" }) as HTMLElement).getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke…" })[1]!);
     const alert = await screen.findByRole("alertdialog");
@@ -202,15 +208,16 @@ describe("transport status (I-127)", () => {
     ...extra,
   });
   const renderHost = async (state: RemoteAccessState) => {
-    mocked.getRemote.mockResolvedValue(state);
+    mocked.getRemote.mockResolvedValue({ master: true, ...state });
+    remoteMaster.value = true;
     render(
       <TooltipProvider>
-        <HostRemoteAccess />
+        <RemoteAccessSettings />
       </TooltipProvider>,
     );
     return (await screen.findByTestId("transport-status")).closest("div")!.parentElement!;
   };
-  const hostSwitch = () => screen.getByRole("switch", { name: "Allow other devices to connect" }) as HTMLElement;
+  const hostSwitch = () => screen.getByRole("switch", { name: "Let other devices use this Mac" }) as HTMLElement;
 
   it("serving: Tailscale ✓ with the https address", async () => {
     const row = await renderHost({ enabled: true, addresses: ["https://studio.tail1234.ts.net"], transport: transport({ serving: true }) });

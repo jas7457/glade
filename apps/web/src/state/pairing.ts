@@ -138,7 +138,7 @@ export async function runPairing(target: PairTarget, options: PairOptions): Prom
     );
   } catch (err) {
     if (signal?.aborted) return cancelled();
-    if (isRemoteDisabled(err)) return fail("remote-disabled", `Remote access is off on ${hostName}. Turn on “Allow other devices to connect” there first.`);
+    if (isRemoteDisabled(err)) return fail("remote-disabled", `Remote access is off on ${hostName}. Turn on “Let other devices use this Mac” there first.`);
     if (err instanceof ApiRequestError) {
       if (err.status === 429) return fail("rate-limited", `Too many attempts. Wait a minute, then create a new code on ${hostName}.`);
       if (err.status === 400 || err.status === 401 || err.status === 404 || err.status === 410)

@@ -6,6 +6,7 @@
 import { connections, primaryEnvironmentId, settingsEnvironmentId, THIS_MACHINE_LABEL } from "@/state/env-registry";
 import { hostEnvId } from "@/state/host-settings";
 import { FormGroup, FormRow, Select } from "@/ui";
+import { remoteStateOf, remoteStateShort } from "@/state/remote-status";
 
 export function SettingsEnvironmentSwitcher() {
   const list = connections.value;
@@ -20,7 +21,7 @@ export function SettingsEnvironmentSwitcher() {
           onChange={(id) => {
             settingsEnvironmentId.value = id === primaryEnvironmentId() ? null : id;
           }}
-          options={list.map((c) => ({ value: c.id, label: c.isLocal ? THIS_MACHINE_LABEL : c.name.value, detail: c.isLocal ? undefined : c.status.value === "live" ? "remote" : c.status.value }))}
+          options={list.map((c) => ({ value: c.id, label: c.isLocal ? THIS_MACHINE_LABEL : c.name.value, detail: c.isLocal ? undefined : remoteStateShort(remoteStateOf(c.id)) }))}
         />
       </FormRow>
     </FormGroup>

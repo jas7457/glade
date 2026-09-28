@@ -10,6 +10,7 @@ import { routes } from "@/app/routes";
 import { connections, environmentLabel, isLocalEnvironment, primaryEnvironmentId, THIS_MACHINE_LABEL } from "@/state/env-registry";
 import { Menu, MenuCheckItem } from "@/ui";
 import { barButtonClass } from "@/features/chat/context-bar/shared";
+import { remoteStateOf, remoteStateShort } from "@/state/remote-status";
 
 export function EnvironmentPicker({ envId }: { envId: string | null }) {
   const navigate = useNavigate();
@@ -34,7 +35,7 @@ export function EnvironmentPicker({ envId }: { envId: string | null }) {
           key={c.id}
           checked={c.id === current}
           onSelect={() => navigate(routes.home(c.isLocal ? null : c.id))}
-          detail={c.isLocal ? undefined : c.status.value === "live" ? "remote" : c.status.value}
+          detail={c.isLocal ? undefined : remoteStateShort(remoteStateOf(c.id))}
         >
           {c.isLocal ? THIS_MACHINE_LABEL : c.name.value}
         </MenuCheckItem>

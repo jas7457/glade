@@ -8,7 +8,7 @@
  * External commands go through a {@link CommandRunner} so tests never run the real CLI.
  */
 import { execFile } from "node:child_process";
-import type { DiscoveredEnvironment, TransportStatus } from "@glade/protocol";
+import type { DiscoveredEnvironment, TailnetPeer, TransportStatus } from "@glade/protocol";
 
 export interface Transport {
   readonly id: TransportStatus["id"];
@@ -26,6 +26,8 @@ export interface Transport {
   identify?(headers: Headers): { login?: string; name?: string } | null;
   /** Other machines on the network that run Glade. */
   discover?(): Promise<DiscoveredEnvironment[]>;
+  /** Other machines on the network and whether they're online (read-only). */
+  peers?(): Promise<TailnetPeer[]>;
 }
 
 export interface CommandResult {

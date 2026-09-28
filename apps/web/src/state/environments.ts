@@ -8,13 +8,19 @@
  * - The *local* environment is the server that served this page; it's simply the first
  *   connection, and doesn't exist at all for a pure client (the iPhone app, F-022:
  *   `startEnvironments({ localBaseUrl: null })`).
- * - Remote environments come from this device's saved list and are only connected while
- *   "Connect to other Glade environments" (Settings → Remote access) is on. Turning it off closes
- *   their sockets and hides their items; nothing is deleted, and turning it on restores them.
+ * - Remote environments come from this device's saved list and are only connected while the
+ *   "Remote access" master switch (Settings → Remote Access, I-132, `state/remote-master.ts`) is
+ *   on. Turning it off closes their sockets and hides their items; nothing is deleted, and
+ *   turning it on restores them.
+ * - I-132: while a remote environment is down (remote access off there, offline, unreachable,
+ *   needs pairing: `state/remote-status.ts`) its projects and chats are hidden; the sidebar and
+ *   Settings show its status instead. They come back with the next sync once it reconnects. A
+ *   single dropped connection counts as "connecting" until a reconnect attempt fails too.
  * - Environments are added by pairing (I-126, `state/pairing.ts`); each saved entry carries its
  *   device token (`state/saved-environments.ts`). Requests send it as a bearer token, the socket
  *   gets a fresh ticket per connect (I-125). A 401 turns the environment to "needs-pairing"
- *   (no more retries), a 403 `remote_disabled` to "remote-disabled" (slow retries).
+ *   (no more retries), a 403 `remote_disabled` to "remote-disabled" (slow retries, remembered in
+ *   the saved list until the host answers again).
  *
  * Portable client core (F-022): no layout or desktop assumptions.
  */
@@ -46,15 +52,15 @@ import {
   type EnvShell,
   type EnvStatus,
 } from "./env-registry";
-import { savedEnvironments, saveEnvironments, type SavedEnvironment } from "./saved-environments";
+import { loadRemoteMaster, remoteMaster, setRemoteMaster, useServerMaster } from "./remote-master";
+import { downEnvironments, watchPeers } from "./remote-status";
+import { savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
 import { envIdOfSession, initialized, loadAll, localShell, removeEnvironmentItems } from "./store";
 import { attachSync, type SyncStatus } from "./sync";
 
 // ---------------------------------------------------------------------------------------------
 // Device-local storage (per device, never synced)
 // ---------------------------------------------------------------------------------------------
-
-const KEY_REMOTE_ACCESS = "glade.remoteAccess";
 
 /** Key for per-environment client state in localStorage (`glade.env.<envId>.<name>`). */
 export function envStorageKey(envId: string, name: string): string {
@@ -63,28 +69,13 @@ export function envStorageKey(envId: string, name: string): string {
 
 export { savedEnvironments, removeSavedEnvironment, upsertSavedEnvironment, type SavedEnvironment } from "./saved-environments";
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function writeStored(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-/** "Connect to other Glade environments" (Settings → Remote access). Off by default. */
-export const remoteAccessEnabled = signal(readJson<boolean>(KEY_REMOTE_ACCESS, false) === true);
-
+/**
+ * The "Remote access" master switch (I-132; stored on the local server, `state/remote-master.ts`).
+ * Kept under the old names too: it replaced the per-device "Connect to other Glade environments".
+ */
+export { remoteMaster, remoteMaster as remoteAccessEnabled, setRemoteMaster } from "./remote-master";
 export function setRemoteAccessEnabled(on: boolean): void {
-  remoteAccessEnabled.value = on;
-  writeStored(KEY_REMOTE_ACCESS, JSON.stringify(on));
+  void setRemoteMaster(on);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -113,6 +104,9 @@ export class EnvironmentConnection implements EnvHandle {
   readonly socket: Socket;
   readonly shell: EnvShell;
   private detach: (() => void) | null = null;
+  /** Connection attempts that failed in a row (a single drop still counts as "connecting"). */
+  private failures = 0;
+  private offSocket: Array<() => void> = [];
 
   constructor(
     readonly id: string,
@@ -128,7 +122,13 @@ export class EnvironmentConnection implements EnvHandle {
     this.request = pageServer ? request : this.api.request;
     this.socket = pageServer ? localSocket : new Socket(this.token ? () => this.socketUrl() : wsUrlFromApiBase(baseUrl));
     this.shell = isLocal ? localShell : newShell();
-    if (!pageServer) this.socket.onAuthError((e) => this.authFailed(e));
+    if (!pageServer) {
+      this.socket.onAuthError((e) => this.authFailed(e));
+      this.offSocket.push(
+        this.socket.onOpen(() => (this.failures = 0)),
+        this.socket.onClose(() => this.failures++),
+      );
+    }
   }
 
   /** A fresh single-use ticket for every socket connect (I-125); long-lived tokens stay out of URLs. */
@@ -147,6 +147,7 @@ export class EnvironmentConnection implements EnvHandle {
       this.socket.disconnect();
     } else {
       this.status.value = "remote-disabled";
+      if (!this.isLocal) setRemoteDisabled(this.id, true);
     }
   }
 
@@ -159,7 +160,9 @@ export class EnvironmentConnection implements EnvHandle {
     this.detach = attachSync(this.socket, this.id, (s) => {
       // Auth states stick until the host answers again (a live sync clears them).
       if (s !== "live" && (this.status.value === "needs-pairing" || this.status.value === "remote-disabled")) return;
-      this.status.value = STATUS[s];
+      // One drop is a blip: say "connecting" until a reconnect attempt fails too.
+      this.status.value = s === "offline" && this.failures < 2 ? "connecting" : STATUS[s];
+      if (s === "live" && !this.isLocal) setRemoteDisabled(this.id, false);
     });
     this.socket.connect();
     void loadAll(this.id).then(() => {
@@ -183,6 +186,15 @@ export class EnvironmentConnection implements EnvHandle {
         },
       );
     }
+  }
+
+  /** Try again now (Retry): a fresh connection, without waiting for the backoff. */
+  retry(): void {
+    if (this.isLocal || this.status.value === "needs-pairing") return;
+    this.stop();
+    this.failures = 0;
+    this.status.value = "connecting";
+    this.start();
   }
 
   /** Close the socket and hide this environment's items (nothing is deleted). */
@@ -253,13 +265,30 @@ export async function startEnvironments(options: StartOptions = { localBaseUrl: 
     localEnvironmentId.value = local.id;
     connections.value = [local];
     local.start();
+    // I-132: the master switch lives on this server; re-read it when this window comes back.
+    useServerMaster();
+    void loadRemoteMaster();
+    stopPeers = watchPeers();
+    if (typeof window !== "undefined") window.addEventListener("focus", onFocus);
   } else {
     // Zero local environments (F-022): nothing to wait for; remote ones fill in as they connect.
     hasLocalEnvironment.value = false;
     localEnvironmentId.value = null;
     initialized.value = true;
   }
-  stopReconcile = effect(() => reconcileRemotes(remoteAccessEnabled.value, savedEnvironments.value));
+  stopReconcile = effect(() => reconcileRemotes(remoteMaster.value, savedEnvironments.value));
+  stopHiding = effect(() => hideDown(downEnvironments.value));
+}
+
+const onFocus = () => void loadRemoteMaster();
+let stopPeers: (() => void) | null = null;
+let stopHiding: (() => void) | null = null;
+let hidden = new Set<string>();
+
+/** Environments that just went down lose their items (they come back with the next sync). */
+function hideDown(down: ReadonlySet<string>): void {
+  for (const id of down) if (!hidden.has(id)) removeEnvironmentItems(id);
+  hidden = new Set(down);
 }
 
 /** Remote connections = the saved list while remote access is on; nothing otherwise. */
@@ -286,6 +315,12 @@ function reconcileRemotes(enabled: boolean, saved: SavedEnvironment[]): void {
 export function resetEnvironments(): void {
   stopReconcile?.();
   stopReconcile = null;
+  stopHiding?.();
+  stopHiding = null;
+  hidden = new Set();
+  stopPeers?.();
+  stopPeers = null;
+  if (typeof window !== "undefined") window.removeEventListener("focus", onFocus);
   for (const c of connections.value) if (c instanceof EnvironmentConnection && !c.isLocal) c.stop();
   connections.value = [];
   localEnvironmentId.value = null;

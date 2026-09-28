@@ -16,7 +16,7 @@ import type { DiscoveredEnvironment } from "@glade/protocol";
 import { hostAuth } from "@/lib/api-auth";
 import { cn } from "@/lib/cn";
 import { parsePairInput, parsePairingLink } from "@/lib/pairing-link";
-import { remoteAccessEnabled, setRemoteAccessEnabled } from "@/state/environments";
+import { remoteMaster, setRemoteMaster } from "@/state/remote-master";
 import { defaultDeviceName, runPairing, savedEnvironment, type PairState } from "@/state/pairing";
 import { Button, Dialog, Spinner, TextField } from "@/ui";
 
@@ -25,11 +25,13 @@ export interface ConnectEnvironmentDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Prefilled link (a `/pair?link=…` deep link). */
   initialLink?: string;
+  /** Prefilled address (a Mac found on the tailnet, I-132). */
+  initialAddress?: string;
   /** Pair again with this saved environment. */
   envId?: string;
 }
 
-export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envId }: ConnectEnvironmentDialogProps) {
+export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, initialAddress, envId }: ConnectEnvironmentDialogProps) {
   const again = envId ? savedEnvironment(envId) : undefined;
   const [input, setInput] = useState("");
   const [address, setAddress] = useState("");
@@ -59,11 +61,11 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envI
   useEffect(() => {
     if (!open) return;
     setInput(initialLink ?? "");
-    setAddress(again?.urls[0] ?? "");
+    setAddress(again?.urls[0] ?? initialAddress ?? "");
     setDeviceName(defaultDeviceName());
     setState(null);
     setFormError(null);
-  }, [open, initialLink, envId]);
+  }, [open, initialLink, initialAddress, envId]);
   useEffect(() => () => abort.current?.abort(), []);
 
   const isLink = /glade:|\/pair\b/i.test(input);
@@ -89,7 +91,8 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envI
     const result = await runPairing(target, { deviceName, deviceKind: "mac", signal: controller.signal, onState: setState });
     if (abort.current !== controller) return;
     if (result.step === "paired") {
-      if (!remoteAccessEnabled.value) setRemoteAccessEnabled(true);
+      // Pairing means using remote access (I-132: the master switch).
+      if (!remoteMaster.value) void setRemoteMaster(true);
       onOpenChange(false);
     }
   };

@@ -12,6 +12,7 @@ import { connections, connectionFor, primaryEnvironmentId } from "./env-registry
 import { apiForProject, apiForSession, isThisMachine } from "./env-api";
 import { interleave, keyEnv, orderKey, resetClientOrders, clientOrders } from "./env-order";
 import * as store from "./store";
+import { resetRemoteMaster } from "./remote-master";
 import { reorderProjects } from "./actions";
 import {
   envStorageKey,
@@ -75,7 +76,7 @@ function stubNetwork(): { calls: string[] } {
 
 beforeEach(() => {
   localStorage.clear();
-  remoteAccessEnabled.value = false;
+  resetRemoteMaster();
   savedEnvironments.value = [];
   resetClientOrders();
   resetEnvironmentsForTest();
@@ -86,6 +87,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   resetEnvironments();
+  resetRemoteMaster();
   vi.unstubAllGlobals();
 });
 
@@ -193,7 +195,7 @@ describe("remote access switch", () => {
     expect(store.projects.value.map((p) => p.id)).toEqual(["pa"]);
     expect(store.workspaces.value.map((w) => w.id)).toEqual(["wa"]);
     expect(savedEnvironments.value).toHaveLength(1); // still saved
-    expect(JSON.parse(localStorage.getItem("glade.remoteAccess")!)).toBe(false);
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem("glade.remoteMaster")!)).toBe(false)); // older server: cached on the device
 
     setRemoteAccessEnabled(true);
     await vi.waitFor(() => expect(store.projects.value.map((p) => p.id).sort()).toEqual(["pa", "pb"]));

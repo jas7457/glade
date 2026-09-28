@@ -29,9 +29,11 @@ export interface EnvShell {
 }
 
 /**
- * - connecting: first connection attempt
+ * The connection's raw status; what it means for the user (incl. remembered refusals and
+ * offline peers) is `state/remote-status.ts` (I-132).
+ * - connecting: first connection attempt (or reconnecting right after one drop)
  * - live: connected and caught up (sync)
- * - offline: the connection dropped; reconnecting
+ * - offline: can't reach it; reconnecting with backoff
  * - error: couldn't reach it / refused
  * - needs-pairing: the host doesn't accept this device's token (revoked, expired; I-125): no
  *   more retries until it's paired again
@@ -55,6 +57,8 @@ export interface EnvHandle {
   readonly request: RequestFn;
   readonly socket: Socket;
   readonly shell: EnvShell;
+  /** Reconnect now instead of waiting for the backoff (remote ones). */
+  retry?(): void;
 }
 
 /** Connected environments, local first. Only these are shown (remote ones when remote access is on). */

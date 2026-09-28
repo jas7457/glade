@@ -49,6 +49,7 @@ export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
   api.use("/devices/*", localOnly);
   api.use("/audit", localOnly);
   api.use("/discover", localOnly);
+  api.use("/peers", localOnly);
 
   api.get("/remote", async (c) => {
     if (!remote) return c.json(auth.remoteState());
@@ -56,15 +57,39 @@ export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
     return c.json(remote.withStatus(auth.remoteState()));
   });
   api.patch("/remote", async (c) => {
-    const body = await readBody<{ enabled?: unknown }>(c);
+    const body = await readBody<{ enabled?: unknown; master?: unknown }>(c);
+    const meta = requestMeta(c);
+    // I-132: the master switch. Off stops hosting too; on restores the remembered host switch.
+    if (body.master !== undefined) {
+      if (typeof body.master !== "boolean") return c.json({ code: "invalid_request", error: "master must be a boolean" }, 400);
+      if (!body.master) {
+        if (!remote) return c.json(auth.setMaster(false, meta));
+        await remote.setEnabled(false, () => void auth.setMaster(false, meta));
+        return c.json(remote.withStatus(auth.remoteState()));
+      }
+      auth.setMaster(true, meta);
+      if (!auth.hostPreference() || auth.isRemoteEnabled()) return c.json(remote ? remote.withStatus(auth.remoteState()) : auth.remoteState());
+      if (!remote) return c.json(auth.setRemoteEnabled(true, meta));
+      try {
+        await remote.setEnabled(true, () => void auth.setRemoteEnabled(true, meta));
+      } catch (err) {
+        // Remote access is on; hosting couldn't come back (e.g. Tailscale is off). Say why.
+        if (!(err instanceof AuthError)) throw err;
+        const state = remote.withStatus(auth.remoteState());
+        return c.json({ ...state, transport: state.transport ? { ...state.transport, error: err.message } : undefined });
+      }
+      return c.json(remote.withStatus(auth.remoteState()));
+    }
     if (typeof body.enabled !== "boolean") return c.json({ code: "invalid_request", error: "enabled must be a boolean" }, 400);
     const enabled = body.enabled;
-    if (!remote) return c.json(auth.setRemoteEnabled(enabled, requestMeta(c)));
-    await remote.setEnabled(enabled, () => void auth.setRemoteEnabled(enabled, requestMeta(c)));
+    if (!remote) return c.json(auth.setRemoteEnabled(enabled, meta));
+    await remote.setEnabled(enabled, () => void auth.setRemoteEnabled(enabled, meta));
     return c.json(remote.withStatus(auth.remoteState()));
   });
   // Glade hosts on the tailnet, for "Connect to Environment" (I-127).
   api.get("/discover", async (c) => c.json(remote ? await remote.discover() : []));
+  // Tailnet peers online or not, so clients can say "<Mac> is offline" (I-132; best effort).
+  api.get("/peers", async (c) => c.json(remote ? await remote.peers().catch(() => []) : []));
 
   api.post("/invites", (c) => c.json(auth.createInvite()));
   api.delete("/invites/current", (c) => {

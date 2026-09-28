@@ -18,7 +18,7 @@
  * - **Reconcile** at startup, when the switch changes, and every 30 s while it's on (Tailscale may
  *   come up later, or the app may have moved to another port).
  */
-import type { DiscoveredEnvironment, RemoteAccessState, TransportStatus } from "@glade/protocol";
+import type { DiscoveredEnvironment, RemoteAccessState, TailnetPeer, TransportStatus } from "@glade/protocol";
 import { getMeta, setMeta, type Db } from "../../store/db/database.js";
 import { AuthError } from "../auth/auth-service.js";
 import type { Transport } from "./transport.js";
@@ -174,6 +174,11 @@ export class RemoteTransport {
   /** Glade hosts on the network (local owner only). */
   async discover(): Promise<DiscoveredEnvironment[]> {
     return (await this.options.transport.discover?.()) ?? [];
+  }
+
+  /** Machines on the network, online or not (local owner only, I-132). */
+  async peers(): Promise<TailnetPeer[]> {
+    return (await this.options.transport.peers?.()) ?? [];
   }
 
   /** `state` with the current addresses and transport status. */

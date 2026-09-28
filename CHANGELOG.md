@@ -147,6 +147,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Settings → Remote Access has one Remote access switch: off turns everything remote off (and cuts
+  off devices using this Mac); on shows your environments and, separately, "Let other devices use
+  this Mac". Other Macs you use stay listed with their status (turned off there, offline, can't
+  reach, needs pairing) and reconnect on their own.
 - Settings reopens on the page you had open last (and the machine you had picked there).
 - Destructive buttons in confirm dialogs (Close Tab, Delete Chat, Delete Project, …) are now a
   filled red button, so they stand out clearly from Cancel.

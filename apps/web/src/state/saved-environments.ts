@@ -20,6 +20,12 @@ export interface SavedEnvironment {
   token?: string;
   /** Id of this device on the host (from the pair answer). */
   deviceId?: string;
+  /**
+   * The host last refused with "remote access is off" (socket closed 4403 or 403
+   * `remote_disabled`, I-132). Kept until it answers again, so the status stays "Remote access
+   * turned off on <Mac>" even when it becomes unreachable (its Tailscale Serve was removed).
+   */
+  remoteDisabled?: boolean;
 }
 
 const KEY_SAVED = "glade.environments";
@@ -51,7 +57,7 @@ const localStorageBackend: CredentialStorage = {
 
 const storage: CredentialStorage = localStorageBackend;
 
-/** Remote environments this device connects to while "Connect to other environments" is on. */
+/** Remote environments this device connects to while remote access (the I-132 master switch) is on. */
 export const savedEnvironments = signal<SavedEnvironment[]>(storage.read());
 
 export function saveEnvironments(list: SavedEnvironment[]): void {
@@ -68,6 +74,14 @@ export function upsertSavedEnvironment(entry: SavedEnvironment): void {
 
 export function removeSavedEnvironment(id: string): void {
   saveEnvironments(savedEnvironments.value.filter((e) => e.id !== id));
+}
+
+/** Remember (or forget) that the host refused with "remote access is off" (I-132). */
+export function setRemoteDisabled(id: string, on: boolean): void {
+  const entry = savedEnvironments.value.find((e) => e.id === id);
+  if (!entry || !!entry.remoteDisabled === on) return;
+  const { remoteDisabled: _, ...rest } = entry;
+  upsertSavedEnvironment(on ? { ...rest, remoteDisabled: true } : rest);
 }
 
 /** The device token for an environment (null: not paired). */

@@ -1,9 +1,10 @@
 /**
- * Settings → Remote Access, part 1: "This Mac" as a host (I-125/I-126). The "Allow other devices
- * to connect" switch (off by default, `PATCH /api/auth/remote`) with the transport's status
- * (I-127: Tailscale; the switch can't turn on while it isn't usable) and this Mac's addresses,
- * "Add Device…" (invite dialog), the paired devices (rename inline, last seen, Revoke / Revoke
- * All) and the audit log behind "Recent activity". Local environment only.
+ * Settings → Remote Access, "Let other devices use this Mac" (I-125/I-126; I-132 layout): the host
+ * switch (off by default, `PATCH /api/auth/remote`; can't turn on while the transport isn't usable,
+ * I-127). While it's on: this Mac's address, "Add Device…" (invite dialog), the paired devices
+ * (rename inline, last seen, Revoke / Revoke All) and the audit log behind "Recent activity".
+ * Local environment only, shown under the master switch (`RemoteAccessSettings`, which also
+ * loads `hostRemote` and shows the Tailscale row).
  */
 import { useEffect, useState } from "preact/hooks";
 import { Plus } from "lucide-preact";
@@ -14,7 +15,6 @@ import {
   hostRemoteError,
   hostRemoteSwitchError,
   loadDevices,
-  loadHostRemote,
   pairedDevices,
   renameDevice,
   revokeAllDevices,
@@ -24,7 +24,6 @@ import {
 import { Button, Disclosure, FormGroup, FormRow, Switch, TextField, confirm } from "@/ui";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { DeviceKindIcon } from "./device-kind";
-import { TransportStatusRow } from "./TransportStatus";
 
 /** "now", "5 min ago", "3 h ago", then a date. */
 export function formatLastSeen(at: number | null, now = Date.now()): string {
@@ -44,13 +43,9 @@ export function HostRemoteAccess() {
   const state = hostRemote.value;
   const [adding, setAdding] = useState(false);
   useEffect(() => {
-    void loadHostRemote();
     void loadDevices();
-    // Last seen, "connected" and the transport's state change without pushes: refresh while this is on screen.
-    const timer = setInterval(() => {
-      void loadDevices();
-      void loadHostRemote();
-    }, DEVICES_POLL_MS);
+    // Last seen and "connected" change without pushes: refresh while this is on screen.
+    const timer = setInterval(() => void loadDevices(), DEVICES_POLL_MS);
     return () => clearInterval(timer);
   }, []);
 
@@ -60,6 +55,8 @@ export function HostRemoteAccess() {
   const transport = state?.transport;
   // Turning on needs a usable transport; turning off always works.
   const blocked = !enabled && !!transport && !transport.available;
+  // The address remote devices use: the tailnet one while serving (else the listening one, without a transport).
+  const address = transport ? (transport.serving && transport.dnsName ? `https://${transport.dnsName}` : null) : (addresses[0] ?? null);
 
   const revokeAll = async () => {
     const ok = await confirm({
@@ -74,55 +71,58 @@ export function HostRemoteAccess() {
   return (
     <>
       <FormGroup
+        title="This Mac"
         footer={
           hostRemoteError.value && !state ? (
             <span class="text-danger">Couldn't load remote access: {hostRemoteError.value}</span>
           ) : (
-            <>
-              Lets devices you pair (another Mac, later your phone) use this Mac's projects and chats. Each device needs your OK here; nothing is
-              reachable while this is off.
-              {enabled && addresses.length > 0 && !transport && (
-                <span class="mt-1 block">
-                  Reachable at <span class="selectable font-mono">{addresses.join(", ")}</span>
-                </span>
-              )}
-            </>
+            "Devices you pair can use this Mac's projects and chats. Each new device needs your OK here."
           )
         }
       >
-        <FormRow label="Allow other devices to connect" htmlFor="host-remote">
+        <FormRow label="Let other devices use this Mac" htmlFor="host-remote">
           <Switch id="host-remote" checked={enabled} disabled={!state || blocked} onCheckedChange={(on) => void setHostRemote(on)} />
         </FormRow>
-        {transport && <TransportStatusRow status={transport} enabled={enabled} />}
+        {enabled && (
+          <FormRow
+            label="Address"
+            description={
+              address ? <span class="selectable font-mono">{address}</span> : "Not reachable yet: waiting for Tailscale."
+            }
+          />
+        )}
         {hostRemoteSwitchError.value && (
           <FormRow label={<span role="alert" class="text-danger">{hostRemoteSwitchError.value}</span>} />
         )}
       </FormGroup>
 
-      <FormGroup
-        title="Devices"
-        actions={
-          <>
-            {devices.length > 1 && (
-              <Button size="sm" onClick={() => void revokeAll()}>
-                Revoke All…
-              </Button>
+      {enabled && (
+        <>
+          <FormGroup
+            title="Devices"
+            actions={
+              <>
+                {devices.length > 1 && (
+                  <Button size="sm" onClick={() => void revokeAll()}>
+                    Revoke All…
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => setAdding(true)}>
+                  <Plus size={12} />
+                  Add Device…
+                </Button>
+              </>
+            }
+          >
+            {devices.length === 0 ? (
+              <FormRow label={<span class="text-fg-muted">No paired devices.</span>} />
+            ) : (
+              devices.map((d) => <DeviceRow key={d.id} device={d} />)
             )}
-            <Button size="sm" disabled={!enabled} onClick={() => setAdding(true)}>
-              <Plus size={12} />
-              Add Device…
-            </Button>
-          </>
-        }
-      >
-        {devices.length === 0 ? (
-          <FormRow label={<span class="text-fg-muted">No paired devices.</span>} />
-        ) : (
-          devices.map((d) => <DeviceRow key={d.id} device={d} />)
-        )}
-      </FormGroup>
-
-      <AuditLog />
+          </FormGroup>
+          <AuditLog />
+        </>
+      )}
       <AddDeviceDialog open={adding} onOpenChange={setAdding} />
     </>
   );

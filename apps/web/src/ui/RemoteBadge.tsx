@@ -3,7 +3,7 @@
  * (I-123 §5.1/§5.7: sidebar rows and the chat header; local items show nothing). Hovering or
  * clicking it shows a small popover with the environment's name, address and connection status.
  *
- *   <RemoteBadge name="Studio" address="http://127.0.0.1:5418" status="live" />
+ *   <RemoteBadge name="Studio" address="http://127.0.0.1:5418" status="connected" />
  *
  * It's a `span` (it may sit inside a row's button); its click doesn't reach the row (so it
  * doesn't open the chat).
@@ -15,24 +15,25 @@ import { cn } from "@/lib/cn";
 import { Button } from "./Button";
 import { floatingSurfaceClass } from "./floating";
 
-export type RemoteStatus = "connecting" | "live" | "offline" | "error" | "needs-pairing" | "remote-disabled";
+/** The environment's state as the user sees it (I-132: `state/remote-status.ts`). */
+export type RemoteStatus = "connecting" | "connected" | "remote-disabled" | "host-offline" | "unreachable" | "needs-pairing";
 
 const STATUS_LABEL: Record<RemoteStatus, string> = {
   connecting: "Connecting…",
-  live: "Connected",
-  offline: "Offline, reconnecting…",
-  error: "Can't connect",
+  connected: "Connected",
+  "remote-disabled": "Remote access is turned off there",
+  "host-offline": "Offline",
+  unreachable: "Can't reach it",
   "needs-pairing": "Needs pairing",
-  "remote-disabled": "Remote access is off there",
 };
 
 const STATUS_DOT: Record<RemoteStatus, string> = {
   connecting: "bg-fg-subtle",
-  live: "bg-success",
-  offline: "bg-warning",
-  error: "bg-danger",
-  "needs-pairing": "bg-danger",
+  connected: "bg-success",
   "remote-disabled": "bg-warning",
+  "host-offline": "bg-fg-subtle",
+  unreachable: "bg-danger",
+  "needs-pairing": "bg-danger",
 };
 
 export interface RemoteBadgeProps {
@@ -41,7 +42,7 @@ export interface RemoteBadgeProps {
   /** How it's reached (its origin). */
   address: string;
   status: RemoteStatus;
-  /** Overrides the status line (e.g. "Remote access is off on Studio"). */
+  /** Overrides the status line (e.g. "Remote access turned off on Studio"). */
   statusText?: string;
   /** A button under the status (e.g. "Pair again…"). */
   action?: { label: string; onSelect: () => void };
@@ -88,7 +89,7 @@ export function RemoteBadge({ name, address, status, statusText, action, size = 
           data-remote-badge
           class={cn(
             "inline-flex shrink-0 items-center justify-center rounded-[4px] text-fg-subtle outline-none hover:text-fg-muted focus-visible:ring-2 focus-visible:ring-accent/50",
-            status !== "live" && "opacity-60",
+            status !== "connected" && "opacity-60",
             className,
           )}
           onPointerEnter={hoverOpen}

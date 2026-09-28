@@ -8,13 +8,25 @@
  *
  * Portable client core (F-022).
  */
-import type { AuditEntry, DiscoveredEnvironment, PairRequest, PairResponse, PairedDevice, PairingInvite, PendingPairing, RemoteAccessState } from "@glade/protocol";
+import type {
+  AuditEntry,
+  DiscoveredEnvironment,
+  PairRequest,
+  PairResponse,
+  PairedDevice,
+  PairingInvite,
+  PendingPairing,
+  RemoteAccessState,
+  TailnetPeer,
+} from "@glade/protocol";
 import { request as localRequest, requestAt, type RequestFn } from "./api";
 
 export function hostAuthApi(request: RequestFn = (method, path, body, headers) => localRequest(method, path, body, headers)) {
   return {
     getRemote: () => request<RemoteAccessState>("GET", "/auth/remote"),
     setRemote: (enabled: boolean) => request<RemoteAccessState>("PATCH", "/auth/remote", { enabled }),
+    /** The "Remote access" master switch (I-132). */
+    setMaster: (master: boolean) => request<RemoteAccessState>("PATCH", "/auth/remote", { master }),
     createInvite: () => request<PairingInvite>("POST", "/auth/invites"),
     cancelInvite: () => request<void>("DELETE", "/auth/invites/current"),
     listPending: () => request<PendingPairing[]>("GET", "/auth/pending"),
@@ -26,6 +38,8 @@ export function hostAuthApi(request: RequestFn = (method, path, body, headers) =
     listAudit: (limit = 50) => request<AuditEntry[]>("GET", `/auth/audit?limit=${limit}`),
     /** Glade hosts on this Mac's tailnet (I-127). */
     discover: () => request<DiscoveredEnvironment[]>("GET", "/auth/discover"),
+    /** This Mac's tailnet peers, online or not (I-132). */
+    listPeers: () => request<TailnetPeer[]>("GET", "/auth/peers"),
   };
 }
 

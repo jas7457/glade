@@ -13,6 +13,7 @@ import { envIdOf, workspacesById, workspacesForProject, sortedProjects } from "@
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { reorderProjects } from "@/state/actions";
 import { SettingsNav } from "@/features/settings";
+import { DownEnvironmentRows } from "@/features/environments/DownEnvironmentRows";
 import { ChatList } from "./ChatList";
 import { ProjectGroup } from "./ProjectGroup";
 import { useSortable } from "./useSortable";
@@ -70,7 +71,10 @@ export function Sidebar() {
               }
             >
               {projects.length === 0 ? (
-                <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
+                <>
+                  <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
+                  <DownEnvironmentRows />
+                </>
               ) : (
                 <SidebarList>
                   {projects.map((p, i) => (
@@ -86,6 +90,8 @@ export function Sidebar() {
                       onProjectRemoved={onProjectRemoved}
                     />
                   ))}
+                  {/* I-132: remote environments that are down stay listed, greyed, with their status. */}
+                  <DownEnvironmentRows />
                 </SidebarList>
               )}
             </SidebarGroup>

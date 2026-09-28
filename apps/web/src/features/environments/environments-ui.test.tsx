@@ -246,26 +246,99 @@ describe("settings", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Environment" }).textContent).toContain("This Mac"));
   });
 
-  it("Remote access: the switch is off by default and saved per device", async () => {
-    useEnvironments();
+  const renderRemote = async () => {
     const { RemoteAccessSettings } = await import("./RemoteAccessSettings");
-    const { remoteAccessEnabled } = await import("@/state/environments");
-    remoteAccessEnabled.value = false;
-    render(
+    return render(
       <TooltipProvider>
-        <RemoteAccessSettings />
+        <MemoryRouter>
+          <RemoteAccessSettings />
+        </MemoryRouter>
       </TooltipProvider>,
     );
-    const toggle = screen.getByRole("switch", { name: "Connect to other Glade environments" });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    // Pairing works with the switch off too (a successful pairing turns it on, I-126).
-    expect((screen.getByRole("button", { name: /Connect to Environment/ }) as HTMLButtonElement).disabled).toBe(false);
-    // Two parts: this Mac as a host, then the other environments.
-    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent).slice(0, 1)).toEqual(["This Mac"]);
-    expect(screen.getByRole("heading", { name: "Other Environments" })).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(remoteAccessEnabled.value).toBe(true);
-    expect(localStorage.getItem("glade.remoteAccess")).toBe("true");
-    remoteAccessEnabled.value = false;
+  };
+
+  it("Remote access (I-132): off shows only the master switch; on reveals your environments, then hosting", async () => {
+    useEnvironments();
+    const { remoteMaster, resetRemoteMaster } = await import("@/state/remote-master");
+    resetRemoteMaster(false);
+    await renderRemote();
+    const master = screen.getByRole("switch", { name: /Remote access/ });
+    expect(master.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByText("Your environments")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Let other devices use this Mac" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Connect to Environment/ })).toBeNull();
+    // The old client switch is gone.
+    expect(screen.queryByRole("switch", { name: "Connect to other Glade environments" })).toBeNull();
+
+    fireEvent.click(master);
+    expect(remoteMaster.value).toBe(true);
+    await screen.findByText("Your environments");
+    expect(screen.getByRole("button", { name: /Connect to Environment/ })).toBeTruthy();
+    const host = screen.getByRole("switch", { name: "Let other devices use this Mac" });
+    // Your environments comes before hosting.
+    expect(screen.getByText("Your environments").compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Hosting is off: no devices or activity yet.
+    expect(screen.queryByText("Devices")).toBeNull();
+    expect(screen.queryByText("Recent activity")).toBeNull();
+    resetRemoteMaster(false);
+  });
+
+  it("lists saved environments with their status, Retry and Pair Again", async () => {
+    const { saveEnvironments } = await import("@/state/saved-environments");
+    const { tailnetPeers } = await import("@/state/remote-status");
+    const { resetRemoteMaster } = await import("@/state/remote-master");
+    resetRemoteMaster(true);
+    const retry = vi.fn();
+    const off = fakeEnv({ id: "OFF", name: "Studio", baseUrl: "https://studio.tail.ts.net/api", status: "offline" });
+    const asleep = fakeEnv({ id: "SLEEP", name: "Air", baseUrl: "https://air.tail.ts.net/api", status: "offline" });
+    const lost = fakeEnv({ id: "LOST", name: "Mini", baseUrl: "https://mini.tail.ts.net/api", status: "error" });
+    const gone = fakeEnv({ id: "GONE", name: "Pro", baseUrl: "https://pro.tail.ts.net/api", status: "needs-pairing" });
+    const ok = fakeEnv({ id: "OK", name: "Book", baseUrl: "https://book.tail.ts.net/api", status: "live" });
+    (lost as { retry?: () => void }).retry = retry;
+    useEnvironments(off, asleep, lost, gone, ok);
+    saveEnvironments([
+      { id: "OFF", name: "Studio", urls: ["https://studio.tail.ts.net"], token: "t", remoteDisabled: true },
+      { id: "SLEEP", name: "Air", urls: ["https://air.tail.ts.net"], token: "t" },
+      { id: "LOST", name: "Mini", urls: ["https://mini.tail.ts.net"], token: "t" },
+      { id: "GONE", name: "Pro", urls: ["https://pro.tail.ts.net"], token: "t" },
+      { id: "OK", name: "Book", urls: ["https://book.tail.ts.net"], token: "t" },
+    ]);
+    tailnetPeers.value = new Map([
+      ["air.tail.ts.net", false],
+      ["mini.tail.ts.net", true],
+    ]);
+    await renderRemote();
+    const texts = screen.getAllByTestId("environment-status").map((e) => e.textContent);
+    expect(texts).toEqual([
+      "studio.tail.ts.net · Remote access turned off on Studio",
+      "air.tail.ts.net · Air is offline",
+      "mini.tail.ts.net · Can't reach Mini",
+      "pro.tail.ts.net · Needs pairing",
+      "book.tail.ts.net · Connected",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Pair Again…" })).toHaveLength(1);
+    tailnetPeers.value = null;
+    saveEnvironments([]);
+    resetRemoteMaster(false);
+  });
+
+  it("the sidebar keeps a down environment listed, greyed, with its status (its projects hidden)", () => {
+    const b = fakeEnv({ id: "B", name: "Studio", status: "remote-disabled" });
+    useEnvironments(b);
+    render(
+      <TooltipProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <Sidebar />
+        </MemoryRouter>
+      </TooltipProvider>,
+    );
+    const row = document.querySelector('[data-down-environment="B"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain("Studio");
+    expect(row.querySelector("[title]")?.getAttribute("title")).toBe("Remote access turned off on Studio");
+    b.status.value = "live";
+    return waitFor(() => expect(document.querySelector('[data-down-environment="B"]')).toBeNull());
   });
 });

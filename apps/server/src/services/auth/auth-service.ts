@@ -4,6 +4,10 @@
  *
  * - **Remote switch:** `meta.remote_access` ("1" = on, off by default). Off refuses every remote
  *   request, closes remote sockets (4403) and drops pairings in flight.
+ * - **Master switch (I-132):** `meta.remote_master` ("Remote access" at the top of Settings).
+ *   Hosting needs it on too. Off turns hosting off (`remote_access` = "0", so older servers on
+ *   the data folder comply) and remembers the host switch in `meta.remote_host`; on restores it
+ *   (the route does, through the transport). Migration: master = on when hosting was on.
  * - **Devices:** 256-bit bearer tokens, stored as SHA-256 hashes, sliding expiry (unused for
  *   90 days = expired). Last seen/address are refreshed at most once a minute per device.
  *   Revoking closes the device's sockets at once (4401).
@@ -34,6 +38,10 @@ import { ulid } from "../../store/db/ids.js";
 import { newPairingCode, normalizePairingCode, randomSecret, sha256 } from "./secrets.js";
 
 export const REMOTE_ACCESS_KEY = "remote_access";
+/** The "Remote access" master switch (I-132). */
+export const REMOTE_MASTER_KEY = "remote_master";
+/** The host switch the user chose, remembered while the master switch is off (I-132). */
+export const REMOTE_HOST_KEY = "remote_host";
 export const TOKEN_IDLE_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000;
 export const INVITE_TTL_MS = 5 * 60 * 1000;
 export const TICKET_TTL_MS = 60 * 1000;
@@ -153,6 +161,7 @@ export class AuthService {
     this.now = options.now ?? Date.now;
     this.pairTimeoutMs = options.pairTimeoutMs ?? PAIR_TIMEOUT_MS;
     this.pairPollMs = options.pairPollMs ?? 250;
+    this.migrateMaster();
     const watchMs = options.watchMs ?? 1000;
     if (watchMs > 0) {
       this.timer = setInterval(() => this.watch(), watchMs);
@@ -167,12 +176,34 @@ export class AuthService {
 
   // Remote switch ------------------------------------------------------------------------------
 
+  /** I-132: data folders from before the master switch get master = on when hosting was on. */
+  private migrateMaster(): void {
+    if (getMeta(this.db, REMOTE_MASTER_KEY) !== null) return;
+    const hosting = getMeta(this.db, REMOTE_ACCESS_KEY) === "1";
+    transaction(this.db, () => {
+      if (getMeta(this.db, REMOTE_MASTER_KEY) !== null) return;
+      setMeta(this.db, REMOTE_MASTER_KEY, hosting ? "1" : "0");
+      if (getMeta(this.db, REMOTE_HOST_KEY) === null) setMeta(this.db, REMOTE_HOST_KEY, hosting ? "1" : "0");
+    });
+  }
+
+  /** Hosting is on: the host switch and the master switch. */
   isRemoteEnabled(): boolean {
-    return getMeta(this.db, REMOTE_ACCESS_KEY) === "1";
+    return getMeta(this.db, REMOTE_ACCESS_KEY) === "1" && this.isMasterOn();
+  }
+
+  /** The "Remote access" master switch (I-132). */
+  isMasterOn(): boolean {
+    return getMeta(this.db, REMOTE_MASTER_KEY) === "1";
+  }
+
+  /** The host switch as the user last set it (restored when the master switch goes back on). */
+  hostPreference(): boolean {
+    return getMeta(this.db, REMOTE_HOST_KEY) === "1";
   }
 
   remoteState(): RemoteAccessState {
-    return { enabled: this.isRemoteEnabled(), addresses: this.options.addresses() };
+    return { enabled: this.isRemoteEnabled(), master: this.isMasterOn(), addresses: this.options.addresses() };
   }
 
   /** Hostnames a `Host` header may name besides loopback (from the addresses). */
@@ -189,11 +220,32 @@ export class AuthService {
     return out;
   }
 
+  /** The host switch. Turning it on turns the master switch on too. */
   setRemoteEnabled(enabled: boolean, meta: RequestMeta = { address: null, tailscaleLogin: null }): RemoteAccessState {
     const was = this.isRemoteEnabled();
-    if (was !== enabled) {
+    setMeta(this.db, REMOTE_HOST_KEY, enabled ? "1" : "0");
+    if (enabled && !this.isMasterOn()) setMeta(this.db, REMOTE_MASTER_KEY, "1");
+    this.applyHosting(was, enabled, meta);
+    return this.remoteState();
+  }
+
+  /**
+   * The master switch (I-132). Off stops hosting at once (sockets closed with 4403) and keeps
+   * the host switch's value in `remote_host`. On only flips the flag: the caller restores
+   * hosting (`hostPreference()`) through the transport, which may refuse.
+   */
+  setMaster(on: boolean, meta: RequestMeta = { address: null, tailscaleLogin: null }): RemoteAccessState {
+    const was = this.isRemoteEnabled();
+    setMeta(this.db, REMOTE_MASTER_KEY, on ? "1" : "0");
+    if (!on) this.applyHosting(was, false, meta);
+    return this.remoteState();
+  }
+
+  private applyHosting(was: boolean, enabled: boolean, meta: RequestMeta): void {
+    if (was !== enabled || getMeta(this.db, REMOTE_ACCESS_KEY) !== (enabled ? "1" : "0")) {
       transaction(this.db, () => {
         setMeta(this.db, REMOTE_ACCESS_KEY, enabled ? "1" : "0");
+        if (was === enabled) return;
         if (!enabled) {
           // Nothing remote survives: pairings in flight fail, invites die.
           this.db.prepare("UPDATE pairing_pending SET status = 'expired' WHERE status IN ('pending', 'allowed')").run();
@@ -201,10 +253,11 @@ export class AuthService {
         }
         this.audit(enabled ? "remote_enabled" : "remote_disabled", { remoteAddress: meta.address });
       });
-      if (!enabled) this.cutOffRemote();
-      this.pushPending();
+      if (was !== enabled) {
+        if (!enabled) this.cutOffRemote();
+        this.pushPending();
+      }
     }
-    return this.remoteState();
   }
 
   // Invites ------------------------------------------------------------------------------------

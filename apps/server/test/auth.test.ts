@@ -15,7 +15,8 @@ import { HarnessRegistry } from "../src/harness/registry.js";
 import { createApp } from "../src/http/app.js";
 import { hasProxyHeaders, isLoopbackAddress, isOwnOrigin } from "../src/http/security.js";
 import { AppService } from "../src/services/app-service.js";
-import { AuthService, CLOSE_REMOTE_DISABLED, CLOSE_REVOKED, MAX_CODE_ATTEMPTS } from "../src/services/auth/auth-service.js";
+import { AuthService, CLOSE_REMOTE_DISABLED, CLOSE_REVOKED, MAX_CODE_ATTEMPTS, REMOTE_ACCESS_KEY, REMOTE_HOST_KEY, REMOTE_MASTER_KEY } from "../src/services/auth/auth-service.js";
+import { getMeta, setMeta } from "../src/store/db/database.js";
 import { normalizePairingCode } from "../src/services/auth/secrets.js";
 import { Store } from "../src/store/store.js";
 import { until } from "./helpers.js";
@@ -451,5 +452,56 @@ describe("WebSocket tickets", () => {
     other.revokeAll();
     t.auth.watch();
     expect(await b.closed).toBe(CLOSE_REVOKED);
+  });
+
+  it("master switch off (I-132): hosting off at once, sockets closed with 4403, host switch remembered", async () => {
+    const t = start();
+    const port = await listen(t);
+    const { token } = await t.paired();
+    const base = `ws://127.0.0.1:${port}/ws`;
+    const a = await open(`${base}?ticket=${await ticket(t, token)}`);
+    const off = await (await t.local("PATCH", "/api/auth/remote", { master: false })).json();
+    expect(off).toMatchObject({ enabled: false, master: false });
+    expect(await a.closed).toBe(CLOSE_REMOTE_DISABLED);
+    expect(await (await t.remote("GET", "/api/projects", { token })).json()).toMatchObject({ code: "remote_disabled" });
+    expect(t.auth.hostPreference()).toBe(true);
+    expect(await t.audit()).toContain("remote_disabled");
+
+    // On again: the remembered host switch comes back, and the device works again.
+    expect(await (await t.local("PATCH", "/api/auth/remote", { master: true })).json()).toMatchObject({ enabled: true, master: true });
+    expect((await t.remote("GET", "/api/projects", { token })).status).toBe(200);
+
+    // Another server turns the master off: our watch closes remote sockets.
+    const b = await open(`${base}?ticket=${await ticket(t, token)}`);
+    const other = new AuthService({ db: t.store.db, environmentId: "x", environmentName: () => "x", addresses: () => [], watchMs: 0 });
+    other.setMaster(false);
+    t.auth.watch();
+    expect(await b.closed).toBe(CLOSE_REMOTE_DISABLED);
+  });
+});
+
+describe("master switch migration (I-132)", () => {
+  it("master = on when hosting was on; host switch remembered; older servers' remote_access alone doesn't host", () => {
+    const t = start();
+    // A fresh data folder: both off.
+    expect(t.auth.isMasterOn()).toBe(false);
+    expect(t.auth.remoteState()).toMatchObject({ enabled: false, master: false });
+
+    // A data folder from before I-132 with hosting on.
+    for (const key of [REMOTE_MASTER_KEY, REMOTE_HOST_KEY]) t.store.db.prepare("DELETE FROM meta WHERE key = ?").run(key);
+    setMeta(t.store.db, REMOTE_ACCESS_KEY, "1");
+    const migrated = new AuthService({ db: t.store.db, environmentId: "x", environmentName: () => "x", addresses: () => [], watchMs: 0 });
+    expect(migrated.isMasterOn()).toBe(true);
+    expect(migrated.hostPreference()).toBe(true);
+    expect(migrated.isRemoteEnabled()).toBe(true);
+
+    // Master off: an older server flipping remote_access back on doesn't make us host.
+    migrated.setMaster(false);
+    expect(getMeta(t.store.db, REMOTE_ACCESS_KEY)).toBe("0");
+    setMeta(t.store.db, REMOTE_ACCESS_KEY, "1");
+    expect(migrated.isRemoteEnabled()).toBe(false);
+    // Turning the host switch on turns the master on too.
+    migrated.setRemoteEnabled(true);
+    expect(migrated.isMasterOn()).toBe(true);
   });
 });

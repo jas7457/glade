@@ -1,6 +1,6 @@
 /**
- * Settings → Remote Access: how other devices reach this Mac (I-127). One row under the host
- * switch with the transport's state: Tailscale ✓ and the `https://<machine>.<tailnet>.ts.net`
+ * Settings → Remote Access: the transport (I-127). One row under the "Remote access" master
+ * switch (I-132: it carries both directions) with the transport's state: Tailscale ✓ and the `https://<machine>.<tailnet>.ts.net`
  * address, or what's wrong with fix-it text and a link (HTTPS off → the admin console's DNS page,
  * not installed → the download page). HTTPS is required: there's no plain-HTTP fallback.
  */
@@ -56,7 +56,7 @@ function fixIt(problem: TransportProblem | undefined, reason: string | undefined
 
 export interface TransportStatusRowProps {
   status: TransportStatus;
-  /** The host switch is on. */
+  /** The host switch ("Let other devices use this Mac") is on. */
   enabled: boolean;
 }
 
@@ -78,8 +78,7 @@ export function TransportStatusRow({ status, enabled }: TransportStatusRowProps)
   else
     text = (
       <>
-        Ready (HTTPS on{status.dnsName ? <>, <span class="selectable font-mono">{status.dnsName}</span></> : null}). Only devices on your tailnet can reach this Mac;
-        Glade never uses Funnel.
+        Ready{status.dnsName ? <> as <span class="selectable font-mono">{status.dnsName}</span></> : null}. Glade only uses your private tailnet, never Funnel.
       </>
     );
   return (

@@ -16,7 +16,7 @@
  *   never touched, and a `/` handler that doesn't point at a Glade port is someone else's.
  */
 import { existsSync } from "node:fs";
-import type { DiscoveredEnvironment, TransportProblem, TransportStatus } from "@glade/protocol";
+import type { DiscoveredEnvironment, TailnetPeer, TransportProblem, TransportStatus } from "@glade/protocol";
 import { execRunner, type CommandRunner, type Transport } from "./transport.js";
 
 export const TAILSCALE_ADMIN_DNS_URL = "https://login.tailscale.com/admin/dns";
@@ -277,6 +277,20 @@ export class TailscaleTransport implements Transport {
     const selfName = snap.state.self?.dnsName;
     const peers = snap.state.peers.filter((p) => p.online && p.dnsName && p.dnsName !== selfName);
     return Promise.all(peers.map((p) => this.probe(p)));
+  }
+
+  /** Peers from `tailscale status --json` only (read-only; empty when Tailscale isn't running here). */
+  async peers(): Promise<TailnetPeer[]> {
+    const lookup = findTailscaleCli(this.options.env ?? process.env, this.options.exists);
+    if (!lookup.cli) return [];
+    const out = await this.exec(lookup.cli, ["status", "--json"], STATUS_TIMEOUT_MS).catch(() => null);
+    const json = out ? parseJson(out.stdout) : null;
+    if (!json) return [];
+    const state = parseTailscaleStatus(json);
+    if (state.backendState !== "Running") return [];
+    return state.peers
+      .filter((p): p is TailscaleNode & { dnsName: string } => !!p.dnsName)
+      .map((p) => ({ dnsName: p.dnsName, name: p.hostName ?? p.dnsName.split(".")[0]!, online: p.online, ...(p.os ? { os: p.os } : {}) }));
   }
 
   private async probe(peer: TailscaleNode): Promise<DiscoveredEnvironment> {

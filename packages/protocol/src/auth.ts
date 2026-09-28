@@ -16,7 +16,11 @@
  *
  * Endpoints (host side, local owner only unless noted):
  *   GET    /api/auth/remote                    → RemoteAccessState
- *   PATCH  /api/auth/remote {enabled}          → RemoteAccessState  (the host switch; off = refuse all remote)
+ *   PATCH  /api/auth/remote {enabled}          → RemoteAccessState  (the host switch; off = refuse all remote;
+ *                                                                    on also turns the master switch on)
+ *   PATCH  /api/auth/remote {master}           → RemoteAccessState  (I-132 "Remote access" master switch: off also
+ *                                                                    stops hosting, remembering the host switch;
+ *                                                                    on restores it)
  *   POST   /api/auth/invites                   → PairingInvite      (replaces any active invite)
  *   DELETE /api/auth/invites/current           → 204
  *   GET    /api/auth/pending                   → PendingPairing[]   (also pushed as `pairing_pending`)
@@ -27,6 +31,7 @@
  *   DELETE /api/auth/devices                   → 204  (revoke all)
  *   GET    /api/auth/audit?limit=              → AuditEntry[]
  *   GET    /api/auth/discover                  → DiscoveredEnvironment[] (Glade hosts on your tailnet, I-127)
+ *   GET    /api/auth/peers                     → TailnetPeer[] (this Mac's tailnet peers, online or not, I-132)
  * Client side (no token yet, remote access must be on, rate-limited):
  *   POST   /api/auth/pair PairRequest          → PairResponse  (long-polls up to ~2 min for the host's answer)
  * Any paired device (bearer):
@@ -34,10 +39,15 @@
  *   POST   /api/auth/ws-ticket                 → { ticket: string; expiresAt: number }
  */
 
-/** Host-side remote access state (Settings → Remote Access, "Allow other devices"). */
+/** Host-side remote access state (Settings → Remote Access, "Let other devices use this Mac"). */
 export interface RemoteAccessState {
-  /** Remote clients are accepted at all. Off by default. */
+  /** Remote clients are accepted at all (the host switch, and the master switch is on). Off by default. */
   enabled: boolean;
+  /**
+   * The "Remote access" master switch (I-132), stored on the local server so every window on
+   * this Mac agrees. Off = no remote environments and no hosting. Absent on older servers.
+   */
+  master?: boolean;
   /** Addresses a client can reach this host at, best first (`https://<machine>.<tailnet>.ts.net` while Tailscale serves). */
   addresses: string[];
   /** How remote devices reach this host (I-127); absent on servers without a transport. */
@@ -91,6 +101,16 @@ export interface DiscoveredEnvironment {
   /** It answered `GET /api/environment` (Glade runs there with remote access on). */
   reachable: boolean;
   /** The peer's OS as Tailscale reports it ("macOS", "iOS"…). */
+  os?: string;
+}
+
+/** A machine on this Mac's tailnet (`GET /api/auth/peers`, I-132): tells "offline" from "can't reach". */
+export interface TailnetPeer {
+  /** `<machine>.<tailnet>.ts.net`, lowercase, no trailing dot. */
+  dnsName: string;
+  name: string;
+  /** Tailscale reports it online. */
+  online: boolean;
   os?: string;
 }
 

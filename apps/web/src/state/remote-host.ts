@@ -1,6 +1,6 @@
 /**
- * Host side of remote access (I-125/I-126) for the *local* environment: the "Allow other devices
- * to connect" state, pairings waiting for Allow/Deny (pushed as `pairing_pending` on the local
+ * Host side of remote access (I-125/I-126) for the *local* environment: the "Let other devices use
+ * this Mac" switch, pairings waiting for Allow/Deny (pushed as `pairing_pending` on the local
  * socket), and the paired devices list. The UI is `features/environments` (Settings → Remote
  * Access, the app-wide confirm modal).
  */
@@ -9,7 +9,7 @@ import type { PairedDevice, PendingPairing, RemoteAccessState, ServerMessage } f
 import { hostAuth } from "@/lib/api-auth";
 import { socket as localSocket, type Socket } from "@/lib/socket";
 
-/** `GET /api/auth/remote`; `null` until loaded (or on servers without auth). */
+/** `GET /api/auth/remote`; `null` until loaded (or on servers without auth). Its `master` is the I-132 master switch (`state/remote-master.ts`). */
 export const hostRemote = signal<RemoteAccessState | null>(null);
 export const hostRemoteError = signal<string | null>(null);
 /** Why the last switch change failed (e.g. Tailscale refused), until the next change. */
@@ -27,6 +27,7 @@ export async function loadHostRemote(): Promise<void> {
     if (!state || typeof state.enabled !== "boolean") throw new Error("This server doesn't support remote access yet.");
     hostRemote.value = {
       enabled: state.enabled,
+      ...(typeof state.master === "boolean" ? { master: state.master } : {}),
       addresses: Array.isArray(state.addresses) ? state.addresses : [],
       ...(state.transport && typeof state.transport === "object" ? { transport: state.transport } : {}),
     };

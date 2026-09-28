@@ -323,6 +323,51 @@ describe("remote access over the transport (HTTP)", () => {
     expect(t.cli.changes()).toEqual(["serve --bg --https=443 http://127.0.0.1:4327", "serve --https=443 --set-path=/ off"]);
   });
 
+  it("master switch (I-132): off stops hosting and removes serve; on restores the remembered host switch", async () => {
+    const t = start({ managed: true });
+    await t.call("PATCH", "/api/auth/remote", { enabled: true });
+    expect(t.auth.isMasterOn()).toBe(true);
+    const off = (await (await t.call("PATCH", "/api/auth/remote", { master: false })).json()) as RemoteAccessState;
+    expect(off).toMatchObject({ enabled: false, master: false, transport: { serving: false } });
+    expect(t.cli.changes()).toEqual(["serve --bg --https=443 http://127.0.0.1:4327", "serve --https=443 --set-path=/ off"]);
+    expect(t.auth.hostPreference()).toBe(true);
+
+    const on = (await (await t.call("PATCH", "/api/auth/remote", { master: true })).json()) as RemoteAccessState;
+    expect(on).toMatchObject({ enabled: true, master: true, transport: { serving: true } });
+    expect(t.cli.changes()).toHaveLength(3);
+
+    // Host switch off, then master off and on: hosting stays off.
+    await t.call("PATCH", "/api/auth/remote", { enabled: false });
+    await t.call("PATCH", "/api/auth/remote", { master: false });
+    expect(await (await t.call("PATCH", "/api/auth/remote", { master: true })).json()).toMatchObject({ enabled: false, master: true });
+    expect((await t.call("PATCH", "/api/auth/remote", { master: "yes" })).status).toBe(400);
+  });
+
+  it("master on while Tailscale can't serve: remote access is on, hosting stays off with the reason", async () => {
+    const cli = fakeCli();
+    const t = start({ managed: true, cli });
+    await t.call("PATCH", "/api/auth/remote", { enabled: true });
+    await t.call("PATCH", "/api/auth/remote", { master: false });
+    cli.state.status = fixture("status-https-off.json");
+    const res = await t.call("PATCH", "/api/auth/remote", { master: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ enabled: false, master: true, transport: { error: "HTTPS is off in your tailnet." } });
+    expect(t.auth.hostPreference()).toBe(true);
+  });
+
+  it("peers lists tailnet machines with their online state (local only, read-only)", async () => {
+    const t = start({ managed: false });
+    const res = await t.call("GET", "/api/auth/peers");
+    expect(await res.json()).toEqual([
+      { dnsName: "macbook-air.tail1234.ts.net", name: "MacBook Air", online: true, os: "macOS" },
+      { dnsName: "iphone.tail1234.ts.net", name: "iPhone", online: true, os: "iOS" },
+      { dnsName: "old-pc.tail1234.ts.net", name: "old-pc", online: false, os: "windows" },
+    ]);
+    expect(t.cli.calls.map((a) => a.join(" "))).toContain("status --json");
+    expect(t.cli.changes()).toEqual([]);
+    expect((await t.call("GET", "/api/auth/peers", undefined, { origin: "http://127.0.0.1:9999" })).status).toBe(403);
+  });
+
   it("discover lists tailnet peers (local only)", async () => {
     const t = start({ managed: false });
     const res = await t.call("GET", "/api/auth/discover");
