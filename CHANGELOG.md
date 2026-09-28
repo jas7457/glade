@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Tailscale: with "Allow other devices to connect" on, Glade shares itself on your tailnet over
+  HTTPS (`https://<your-mac>.<tailnet>.ts.net`, only your devices, never public) and turns the
+  share off again with the switch. Settings shows Tailscale's status and how to fix it (install,
+  sign in, enable HTTPS), and Connect to Environment lists Glade Macs found on your tailnet.
 - Pair devices: Settings → Remote Access → Add Device shows a QR code, a link and a short code.
   The other Mac enters it under Connect to Environment, you click Allow, and it sees this Mac's
   projects and chats. Paired devices are listed with Rename and Revoke; revoking cuts them off at

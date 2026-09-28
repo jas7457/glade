@@ -1,0 +1,1 @@
+{ "Version": "1.102.4", "BackendState": "NeedsLogin", "AuthURL": "", "TailscaleIPs": null, "Self": { "HostName": "Studio", "DNSName": "", "OS": "macOS", "TailscaleIPs": null, "Online": false }, "Health": ["You are logged out."], "CertDomains": null, "Peer": null, "User": null }

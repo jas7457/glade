@@ -8,9 +8,11 @@
 import { Hono, type Context } from "hono";
 import type { PairRequest } from "@glade/protocol";
 import { AuthError, type AuthService } from "../services/auth/auth-service.js";
+import type { RemoteTransport } from "../services/transports/manager.js";
 import { localOnly, requestMeta } from "./security.js";
 
-export function authRoutes(auth: AuthService): Hono {
+/** `remote`: the transport (I-127); without one the switch is just the database flag (tests). */
+export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
   const api = new Hono();
 
   // Paired devices (bearer) --------------------------------------------------------------------
@@ -46,13 +48,23 @@ export function authRoutes(auth: AuthService): Hono {
   api.use("/devices", localOnly);
   api.use("/devices/*", localOnly);
   api.use("/audit", localOnly);
+  api.use("/discover", localOnly);
 
-  api.get("/remote", (c) => c.json(auth.remoteState()));
+  api.get("/remote", async (c) => {
+    if (!remote) return c.json(auth.remoteState());
+    await remote.refresh().catch(() => {});
+    return c.json(remote.withStatus(auth.remoteState()));
+  });
   api.patch("/remote", async (c) => {
     const body = await readBody<{ enabled?: unknown }>(c);
     if (typeof body.enabled !== "boolean") return c.json({ code: "invalid_request", error: "enabled must be a boolean" }, 400);
-    return c.json(auth.setRemoteEnabled(body.enabled, requestMeta(c)));
+    const enabled = body.enabled;
+    if (!remote) return c.json(auth.setRemoteEnabled(enabled, requestMeta(c)));
+    await remote.setEnabled(enabled, () => void auth.setRemoteEnabled(enabled, requestMeta(c)));
+    return c.json(remote.withStatus(auth.remoteState()));
   });
+  // Glade hosts on the tailnet, for "Connect to Environment" (I-127).
+  api.get("/discover", async (c) => c.json(remote ? await remote.discover() : []));
 
   api.post("/invites", (c) => c.json(auth.createInvite()));
   api.delete("/invites/current", (c) => {

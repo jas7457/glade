@@ -3,10 +3,18 @@
  * text), or type the host's code and address; name this device; then wait for the host to
  * press Allow. The flow itself is `state/pairing.ts` (portable); this is its desktop dialog.
  *
+ * I-127: Glade hosts found on this Mac's tailnet (`GET /api/auth/discover`, local environment
+ * only) are listed as "Found on your tailnet"; picking one fills in the address. The code from
+ * the host is still required: finding a host establishes no trust.
+ *
  * `envId` = "Pair again" for an environment whose token stopped working: the address is filled
  * in and the answering host must be that same environment.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
+import { Check, Monitor } from "lucide-preact";
+import type { DiscoveredEnvironment } from "@glade/protocol";
+import { hostAuth } from "@/lib/api-auth";
+import { cn } from "@/lib/cn";
 import { parsePairInput, parsePairingLink } from "@/lib/pairing-link";
 import { remoteAccessEnabled, setRemoteAccessEnabled } from "@/state/environments";
 import { defaultDeviceName, runPairing, savedEnvironment, type PairState } from "@/state/pairing";
@@ -29,6 +37,24 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envI
   const [state, setState] = useState<PairState | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const codeField = useRef<HTMLInputElement>(null);
+  const [found, setFound] = useState<DiscoveredEnvironment[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setFound([]);
+    // Only this Mac's own server can look around its tailnet; elsewhere (no local server) it's empty.
+    Promise.resolve()
+      .then(() => hostAuth.discover())
+      .then(
+      (list) => live && Array.isArray(list) && setFound(list.filter((d) => d.reachable)),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -124,9 +150,41 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envI
           }}
           class="flex flex-col gap-3"
         >
+          {found.length > 0 && (
+            <div class="flex flex-col gap-1">
+              <span class="text-[0.92rem] text-fg-muted">Found on your tailnet</span>
+              <ul aria-label="Found on your tailnet" class="divide-y divide-separator overflow-hidden rounded-[7px] shadow-[0_0_0_0.5px_var(--pi-separator)]">
+                {found.map((d) => {
+                  const selected = !isLink && address === d.address;
+                  return (
+                    <li key={d.address}>
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        class={cn("flex w-full items-center gap-2 px-2.5 py-1.5 text-left", selected ? "bg-selected" : "hover:bg-hover")}
+                        onClick={() => {
+                          if (isLink) setInput("");
+                          setAddress(d.address);
+                          setFormError(null);
+                          codeField.current?.focus();
+                        }}
+                      >
+                        <Monitor size={14} class="shrink-0 text-fg-muted" />
+                        <span class="min-w-0 flex-1 truncate text-fg">{d.name}</span>
+                        <span class="min-w-0 truncate font-mono text-[0.85rem] text-fg-muted">{new URL(d.address).host}</span>
+                        {d.environmentId && savedEnvironment(d.environmentId) && <span class="shrink-0 text-[0.85rem] text-fg-muted">Paired</span>}
+                        <Check size={13} class={cn("shrink-0 text-accent", !selected && "invisible")} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <label class="flex flex-col gap-1">
             <span class="text-[0.92rem] text-fg-muted">Pairing link or code</span>
             <TextField
+              ref={codeField}
               aria-label="Pairing link or code"
               placeholder="glade://pair?… or ABCD-EFGH"
               mono
@@ -141,7 +199,7 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, envI
           {!isLink && (
             <label class="flex flex-col gap-1">
               <span class="text-[0.92rem] text-fg-muted">Address</span>
-              <TextField aria-label="Address" placeholder="192.168.1.20:4327" mono value={address} onInput={(e) => setAddress(e.currentTarget.value)} />
+              <TextField aria-label="Address" placeholder="https://mac-studio.tail1234.ts.net" mono value={address} onInput={(e) => setAddress(e.currentTarget.value)} />
             </label>
           )}
           <label class="flex flex-col gap-1">

@@ -57,6 +57,8 @@ export interface AuthServiceOptions {
   environmentName: () => string;
   /** Base URLs clients can reach this host at, best first (RemoteAccessState.addresses). */
   addresses: () => string[];
+  /** More hostnames the Host allow-list accepts (the transport's DNS name, I-127). */
+  hostnames?: () => string[];
   now?: () => number;
   /** Cross-server watch interval (ms); 0 = off (tests call `watch()`). Default 1000. */
   watchMs?: number;
@@ -183,6 +185,7 @@ export class AuthService {
         /* not a URL */
       }
     }
+    for (const name of this.options.hostnames?.() ?? []) out.add(name.toLowerCase());
     return out;
   }
 

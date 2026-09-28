@@ -1,6 +1,7 @@
 /**
  * Settings → Remote Access, part 1: "This Mac" as a host (I-125/I-126). The "Allow other devices
- * to connect" switch (off by default, `PATCH /api/auth/remote`) with this Mac's addresses,
+ * to connect" switch (off by default, `PATCH /api/auth/remote`) with the transport's status
+ * (I-127: Tailscale; the switch can't turn on while it isn't usable) and this Mac's addresses,
  * "Add Device…" (invite dialog), the paired devices (rename inline, last seen, Revoke / Revoke
  * All) and the audit log behind "Recent activity". Local environment only.
  */
@@ -11,6 +12,7 @@ import { hostAuth } from "@/lib/api-auth";
 import {
   hostRemote,
   hostRemoteError,
+  hostRemoteSwitchError,
   loadDevices,
   loadHostRemote,
   pairedDevices,
@@ -22,6 +24,7 @@ import {
 import { Button, Disclosure, FormGroup, FormRow, Switch, TextField, confirm } from "@/ui";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { DeviceKindIcon } from "./device-kind";
+import { TransportStatusRow } from "./TransportStatus";
 
 /** "now", "5 min ago", "3 h ago", then a date. */
 export function formatLastSeen(at: number | null, now = Date.now()): string {
@@ -43,14 +46,20 @@ export function HostRemoteAccess() {
   useEffect(() => {
     void loadHostRemote();
     void loadDevices();
-    // Last seen and "connected" change without pushes: refresh while this is on screen.
-    const timer = setInterval(() => void loadDevices(), DEVICES_POLL_MS);
+    // Last seen, "connected" and the transport's state change without pushes: refresh while this is on screen.
+    const timer = setInterval(() => {
+      void loadDevices();
+      void loadHostRemote();
+    }, DEVICES_POLL_MS);
     return () => clearInterval(timer);
   }, []);
 
   const enabled = state?.enabled ?? false;
   const addresses = state?.addresses ?? [];
   const devices = pairedDevices.value ?? [];
+  const transport = state?.transport;
+  // Turning on needs a usable transport; turning off always works.
+  const blocked = !enabled && !!transport && !transport.available;
 
   const revokeAll = async () => {
     const ok = await confirm({
@@ -72,7 +81,7 @@ export function HostRemoteAccess() {
             <>
               Lets devices you pair (another Mac, later your phone) use this Mac's projects and chats. Each device needs your OK here; nothing is
               reachable while this is off.
-              {enabled && addresses.length > 0 && (
+              {enabled && addresses.length > 0 && !transport && (
                 <span class="mt-1 block">
                   Reachable at <span class="selectable font-mono">{addresses.join(", ")}</span>
                 </span>
@@ -82,8 +91,12 @@ export function HostRemoteAccess() {
         }
       >
         <FormRow label="Allow other devices to connect" htmlFor="host-remote">
-          <Switch id="host-remote" checked={enabled} disabled={!state} onCheckedChange={(on) => void setHostRemote(on)} />
+          <Switch id="host-remote" checked={enabled} disabled={!state || blocked} onCheckedChange={(on) => void setHostRemote(on)} />
         </FormRow>
+        {transport && <TransportStatusRow status={transport} enabled={enabled} />}
+        {hostRemoteSwitchError.value && (
+          <FormRow label={<span role="alert" class="text-danger">{hostRemoteSwitchError.value}</span>} />
+        )}
       </FormGroup>
 
       <FormGroup

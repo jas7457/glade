@@ -26,6 +26,7 @@
  *   DELETE /api/auth/devices/:id               → 204  (revoke: token dead, its sockets closed at once)
  *   DELETE /api/auth/devices                   → 204  (revoke all)
  *   GET    /api/auth/audit?limit=              → AuditEntry[]
+ *   GET    /api/auth/discover                  → DiscoveredEnvironment[] (Glade hosts on your tailnet, I-127)
  * Client side (no token yet, remote access must be on, rate-limited):
  *   POST   /api/auth/pair PairRequest          → PairResponse  (long-polls up to ~2 min for the host's answer)
  * Any paired device (bearer):
@@ -37,8 +38,60 @@
 export interface RemoteAccessState {
   /** Remote clients are accepted at all. Off by default. */
   enabled: boolean;
-  /** Addresses a client can reach this host at, best first (phase 5 adds Tailscale ones). */
+  /** Addresses a client can reach this host at, best first (`https://<machine>.<tailnet>.ts.net` while Tailscale serves). */
   addresses: string[];
+  /** How remote devices reach this host (I-127); absent on servers without a transport. */
+  transport?: TransportStatus;
+}
+
+/** Why a transport can't be used right now (the UI shows fix-it text for each). */
+export type TransportProblem =
+  | "not_installed"
+  | "cli_not_found"
+  | "not_running"
+  | "stopped"
+  | "signed_out"
+  | "https_off"
+  | "funnel_on"
+  | "port_in_use"
+  | "error";
+
+/**
+ * A transport's state (I-127). Tailscale: Glade runs `tailscale serve --bg --https=443
+ * http://127.0.0.1:<port>` (tailnet only, never Funnel) and HTTPS in the tailnet is required.
+ */
+export interface TransportStatus {
+  id: "tailscale";
+  /** Remote access can be turned on (installed, running, signed in, HTTPS on, port 443 free). */
+  available: boolean;
+  problem?: TransportProblem;
+  /** Human text for `problem`, e.g. "HTTPS is off in your tailnet". */
+  reason?: string;
+  /** The tailnet has HTTPS certificates enabled for this machine. */
+  https: boolean;
+  /** Glade's serve handler is in place (tailnet → this Glade). */
+  serving: boolean;
+  /** `<machine>.<tailnet>.ts.net` (no trailing dot). */
+  dnsName?: string;
+  /** Tailscale IPs of this machine. */
+  ips?: string[];
+  /** This server turns serve on and off (the desktop app; dev servers only with GLADE_TAILSCALE_OWNER=1). */
+  managed: boolean;
+  /** The last serve change that failed, if any. */
+  error?: string;
+}
+
+/** A Glade host found on the tailnet (`GET /api/auth/discover`). Pairing still needs its code. */
+export interface DiscoveredEnvironment {
+  /** The environment's name when it answered, else the machine's name. */
+  name: string;
+  /** `https://<machine>.<tailnet>.ts.net` */
+  address: string;
+  environmentId?: string;
+  /** It answered `GET /api/environment` (Glade runs there with remote access on). */
+  reachable: boolean;
+  /** The peer's OS as Tailscale reports it ("macOS", "iOS"…). */
+  os?: string;
 }
 
 /**

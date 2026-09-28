@@ -2,12 +2,13 @@
  * Device auth + pairing endpoints (I-125/I-126, contract: @glade/protocol auth.ts).
  *
  * - {@link hostAuthApi}: the host side (Settings → Remote Access on the local environment):
- *   remote switch, invites, pending confirmations, devices, audit log.
+ *   remote switch (with the transport's status), invites, pending confirmations, devices, audit
+ *   log, tailnet discovery.
  * - {@link pairRequest}: the client side (no token yet): `POST /api/auth/pair`, long-polling.
  *
  * Portable client core (F-022).
  */
-import type { AuditEntry, PairRequest, PairResponse, PairedDevice, PairingInvite, PendingPairing, RemoteAccessState } from "@glade/protocol";
+import type { AuditEntry, DiscoveredEnvironment, PairRequest, PairResponse, PairedDevice, PairingInvite, PendingPairing, RemoteAccessState } from "@glade/protocol";
 import { request as localRequest, requestAt, type RequestFn } from "./api";
 
 export function hostAuthApi(request: RequestFn = (method, path, body, headers) => localRequest(method, path, body, headers)) {
@@ -23,6 +24,8 @@ export function hostAuthApi(request: RequestFn = (method, path, body, headers) =
     revokeDevice: (id: string) => request<void>("DELETE", `/auth/devices/${encodeURIComponent(id)}`),
     revokeAllDevices: () => request<void>("DELETE", "/auth/devices"),
     listAudit: (limit = 50) => request<AuditEntry[]>("GET", `/auth/audit?limit=${limit}`),
+    /** Glade hosts on this Mac's tailnet (I-127). */
+    discover: () => request<DiscoveredEnvironment[]>("GET", "/auth/discover"),
   };
 }
 

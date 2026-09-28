@@ -12,6 +12,8 @@ import { socket as localSocket, type Socket } from "@/lib/socket";
 /** `GET /api/auth/remote`; `null` until loaded (or on servers without auth). */
 export const hostRemote = signal<RemoteAccessState | null>(null);
 export const hostRemoteError = signal<string | null>(null);
+/** Why the last switch change failed (e.g. Tailscale refused), until the next change. */
+export const hostRemoteSwitchError = signal<string | null>(null);
 /** Pairings waiting for this Mac's answer, oldest first. */
 export const pendingPairings = signal<PendingPairing[]>([]);
 /** This window's answers to pairings (the Add Device dialog shows the outcome of its invite). */
@@ -23,7 +25,11 @@ export async function loadHostRemote(): Promise<void> {
   try {
     const state = await hostAuth.getRemote();
     if (!state || typeof state.enabled !== "boolean") throw new Error("This server doesn't support remote access yet.");
-    hostRemote.value = { enabled: state.enabled, addresses: Array.isArray(state.addresses) ? state.addresses : [] };
+    hostRemote.value = {
+      enabled: state.enabled,
+      addresses: Array.isArray(state.addresses) ? state.addresses : [],
+      ...(state.transport && typeof state.transport === "object" ? { transport: state.transport } : {}),
+    };
     hostRemoteError.value = null;
   } catch (err) {
     hostRemoteError.value = (err as Error).message;
@@ -36,9 +42,12 @@ export async function setHostRemote(enabled: boolean): Promise<void> {
   try {
     hostRemote.value = await hostAuth.setRemote(enabled);
     hostRemoteError.value = null;
+    hostRemoteSwitchError.value = null;
   } catch (err) {
     hostRemote.value = previous;
-    hostRemoteError.value = (err as Error).message;
+    hostRemoteSwitchError.value = (err as Error).message;
+    // The transport's status may have changed (e.g. Tailscale was signed out meanwhile).
+    void loadHostRemote();
   }
 }
 
@@ -130,6 +139,7 @@ export function resetRemoteHost(): void {
   stopWatch?.();
   hostRemote.value = null;
   hostRemoteError.value = null;
+  hostRemoteSwitchError.value = null;
   pendingPairings.value = [];
   pairedDevices.value = null;
   pairingAnswers.value = new Map();

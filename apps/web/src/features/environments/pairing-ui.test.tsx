@@ -3,8 +3,8 @@
  * the devices list (revoke), and the client's connect dialog waiting for the host.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
-import type { PairedDevice, PendingPairing } from "@glade/protocol";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
+import type { PairedDevice, PendingPairing, RemoteAccessState, TransportStatus } from "@glade/protocol";
 
 vi.mock("@/lib/api-auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api-auth")>();
@@ -22,6 +22,7 @@ vi.mock("@/lib/api-auth", async (importOriginal) => {
       revokeDevice: vi.fn(async () => undefined),
       revokeAllDevices: vi.fn(async () => undefined),
       listAudit: vi.fn(async () => []),
+      discover: vi.fn(async () => []),
     },
   };
 });
@@ -189,7 +190,79 @@ describe("devices list", () => {
   });
 });
 
+describe("transport status (I-127)", () => {
+  const transport = (extra: Partial<TransportStatus> = {}): TransportStatus => ({
+    id: "tailscale",
+    available: true,
+    https: true,
+    serving: false,
+    dnsName: "studio.tail1234.ts.net",
+    ips: ["100.100.1.1"],
+    managed: true,
+    ...extra,
+  });
+  const renderHost = async (state: RemoteAccessState) => {
+    mocked.getRemote.mockResolvedValue(state);
+    render(
+      <TooltipProvider>
+        <HostRemoteAccess />
+      </TooltipProvider>,
+    );
+    return (await screen.findByTestId("transport-status")).closest("div")!.parentElement!;
+  };
+  const hostSwitch = () => screen.getByRole("switch", { name: "Allow other devices to connect" }) as HTMLElement;
+
+  it("serving: Tailscale ✓ with the https address", async () => {
+    const row = await renderHost({ enabled: true, addresses: ["https://studio.tail1234.ts.net"], transport: transport({ serving: true }) });
+    expect(row.textContent).toMatch(/Reachable on your tailnet at https:\/\/studio\.tail1234\.ts\.net/);
+    expect(within(row).getByLabelText("Available")).toBeTruthy();
+    expect(hostSwitch().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("HTTPS off: explains, links to the admin console, and the switch can't turn on", async () => {
+    const row = await renderHost({ enabled: false, addresses: [], transport: transport({ available: false, https: false, problem: "https_off", reason: "HTTPS is off in your tailnet." }) });
+    expect(row.textContent).toMatch(/HTTPS is off in your tailnet/);
+    expect(within(row).getByRole("link", { name: "Open the admin console" }).getAttribute("href")).toBe("https://login.tailscale.com/admin/dns");
+    await waitFor(() => expect(hostSwitch().hasAttribute("disabled")).toBe(true));
+  });
+
+  it("not installed: download link; signed out: fix-it text", async () => {
+    const row = await renderHost({ enabled: false, addresses: [], transport: transport({ available: false, https: false, problem: "not_installed", dnsName: undefined }) });
+    expect(within(row).getByRole("link", { name: "Download Tailscale" }).getAttribute("href")).toBe("https://tailscale.com/download");
+    cleanup();
+    const row2 = await renderHost({ enabled: false, addresses: [], transport: transport({ available: false, problem: "signed_out" }) });
+    expect(row2.textContent).toMatch(/signed out\. Sign in from the Tailscale menu/);
+  });
+
+  it("an enabled switch can still be turned off when Tailscale broke meanwhile; a refused change is shown", async () => {
+    await renderHost({ enabled: true, addresses: [], transport: transport({ available: false, problem: "stopped" }) });
+    await waitFor(() => expect(hostSwitch().hasAttribute("disabled")).toBe(false));
+    cleanup();
+    mocked.setRemote.mockRejectedValueOnce(new Error("Couldn't start Tailscale Serve: boom"));
+    await renderHost({ enabled: false, addresses: [], transport: transport() });
+    fireEvent.click(hostSwitch());
+    expect((await screen.findByRole("alert")).textContent).toBe("Couldn't start Tailscale Serve: boom");
+    expect(hostSwitch().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
 describe("connect dialog", () => {
+  it("lists Glade hosts found on the tailnet; picking one fills in the address", async () => {
+    mocked.discover.mockResolvedValueOnce([
+      { name: "Studio", address: "https://studio.tail1234.ts.net", environmentId: "ENV-B", reachable: true, os: "macOS" },
+      { name: "iPhone", address: "https://iphone.tail1234.ts.net", reachable: false, os: "iOS" },
+    ]);
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole("dialog");
+    const list = await within(dialog).findByRole("list", { name: "Found on your tailnet" });
+    expect(within(list).queryByText("iPhone")).toBeNull();
+    fireEvent.click(within(list).getByRole("button", { name: /Studio/ }));
+    expect((within(dialog).getByLabelText("Address") as HTMLInputElement).value).toBe("https://studio.tail1234.ts.net");
+    expect(within(list).getByRole("button", { name: /Studio/ }).getAttribute("aria-pressed")).toBe("true");
+    // The code is still required.
+    expect(within(dialog).getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(true);
+  });
+
   it("pastes a link, waits for the host, and can cancel", async () => {
     localEnvironmentId.value = "ENV-A";
     vi.stubGlobal(

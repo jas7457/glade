@@ -50,6 +50,7 @@ import type { SearchService } from "../services/search/search-service.js";
 import { isLocal, localOnly, securityMiddleware } from "./security.js";
 import { authRoutes } from "./auth.js";
 import { AuthError, AuthService } from "../services/auth/auth-service.js";
+import type { RemoteTransport } from "../services/transports/manager.js";
 import { createWsHandler } from "./ws.js";
 import { commandIds } from "./commands.js";
 import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
@@ -62,6 +63,8 @@ export interface CreateAppOptions {
    * addresses (tests).
    */
   auth?: AuthService;
+  /** Remote access transport (I-127: Tailscale). None in tests: the switch is just the flag. */
+  remote?: RemoteTransport;
   /** Ports whose loopback origins are this server's own (see http/security.ts). */
   ownPorts?: () => number[];
   /** Built web app (`apps/web/dist`). Served with SPA fallback when it exists. */
@@ -79,7 +82,7 @@ export interface CreateAppOptions {
   search?: SearchService;
 }
 
-export function createApp({ service, auth: givenAuth, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -106,7 +109,7 @@ export function createApp({ service, auth: givenAuth, ownPorts, staticDir, snaps
   app.route("/api", changesRoutes(service, new GitChangesService({ complete: (prompt, cwd) => service.completeQuick(prompt, cwd) })));
   if (search) app.route("/api", searchRoutes(search));
   // Device auth and pairing (I-125/I-126).
-  app.route("/api/auth", authRoutes(auth));
+  app.route("/api/auth", authRoutes(auth, remote));
   // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
   // Agents run on the host: remote devices can't use it (I-125).
   app.use("/api/agents/*", localOnly);

@@ -23,6 +23,8 @@ import { createApp } from "./http/app.js";
 import { startBlockedServer } from "./http/blocked.js";
 import { AppService } from "./services/app-service.js";
 import { AuthService } from "./services/auth/auth-service.js";
+import { lastServedPort, managesTransport, RemoteTransport } from "./services/transports/manager.js";
+import { TailscaleTransport } from "./services/transports/tailscale.js";
 import { FolderInfoService } from "./services/folder-info.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
@@ -150,22 +152,52 @@ const folderInfo = new FolderInfoService({
   scratchDir: config.scratchDir,
   projectPath: (id) => store.getProject(id)?.path,
 });
-// I-125: where clients reach us (phase 5 adds Tailscale) and which loopback origins are our own:
-// this server's port and its web dev server's (Vite: GLADE_WEB_PORT, 5317 for `pnpm dev`).
+// I-125: where clients reach us and which loopback origins are our own: this server's port and
+// its web dev server's (Vite: GLADE_WEB_PORT, 5317 for `pnpm dev`).
 let listeningUrl: string | null = null;
 let listeningPort: number | null = null;
 const webPort = Number(env("WEB_PORT") ?? (serverKind === "desktop" ? NaN : 5317));
+// I-127: remote devices come in over Tailscale Serve (https://<machine>.<tailnet>.ts.net). Only the
+// desktop app runs `tailscale serve` unless GLADE_TAILSCALE_OWNER=1 (services/transports/manager.ts);
+// GLADE_TAILSCALE=off leaves Tailscale out entirely (loopback addresses only, as before).
+const transportManaged = managesTransport();
+const remote: RemoteTransport | undefined =
+  env("TAILSCALE") === "off"
+    ? undefined
+    : new RemoteTransport({
+        transport: new TailscaleTransport({
+          managed: transportManaged,
+          gladePorts: () => {
+            const ports = new Set(registry.list().map((s) => s.port));
+            if (listeningPort !== null) ports.add(listeningPort);
+            const last = lastServedPort(store.db);
+            if (last !== null) ports.add(last);
+            return [...ports];
+          },
+          log,
+        }),
+        db: store.db,
+        managed: transportManaged,
+        port: () => listeningPort,
+        isEnabled: (): boolean => auth.isRemoteEnabled(),
+        log,
+      });
 const auth = new AuthService({
   db: store.db,
   environmentId: service.environment.id,
   environmentName: () => service.getEnvironment().name,
-  addresses: () => (listeningUrl ? [listeningUrl] : []),
+  addresses: () => {
+    const viaTransport = remote?.addresses() ?? [];
+    return viaTransport.length ? viaTransport : listeningUrl ? [listeningUrl] : [];
+  },
+  hostnames: () => remote?.hostnames() ?? [],
 });
 const { app, injectWebSocket } = createApp({
   service,
   folderInfo,
   search,
   auth,
+  remote,
   ownPorts: () => [...(listeningPort === null ? [] : [listeningPort]), ...(Number.isInteger(webPort) ? [webPort] : [])],
   staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
   // The installed app's bundle can be replaced while it runs (I-082): keep serving our own copy.
@@ -196,6 +228,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: listenPort
   } catch (err) {
     console.warn(`[glade] could not record the start: ${(err as Error).message}`);
   }
+  remote?.start();
   void service.startTranscriptImport().catch((err: Error) => console.warn(`[glade] importing conversations failed: ${err.message}`));
 });
 injectWebSocket(server);
@@ -211,6 +244,7 @@ async function shutdown(signal: string): Promise<void> {
     server.close();
     search?.dispose();
     auth.dispose();
+    remote?.dispose();
     await service.dispose();
     registry.release();
   } catch (err) {
