@@ -76,7 +76,8 @@ export class Environment {
         reveal: darwin,
         nativeFolderPicker: darwin,
         browse: true,
-        remoteAccess: false,
+        // Device auth and pairing (I-125/I-126).
+        remoteAccess: true,
       },
     };
   }

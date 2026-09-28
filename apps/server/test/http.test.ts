@@ -219,15 +219,16 @@ describe("security", () => {
     }
   });
 
-  it("rejects mutating requests from non-loopback origins", async () => {
+  it("rejects requests from foreign origins", async () => {
     const path = join(env.dir, "p");
     mkdirSync(path);
     expect((await req("POST", "/api/projects", { path }, { origin: "https://evil.com" })).status).toBe(403);
     expect((await req("POST", "/api/projects", { path }, { origin: "null" })).status).toBe(403);
     expect((await req("POST", "/api/projects", { path }, { origin: "http://localhost:5317" })).status).toBe(200);
-    // No Origin (e.g. curl) is fine; GETs don't check Origin.
+    // No Origin (e.g. curl) is fine. A foreign Origin makes any request remote (I-125): refused
+    // while remote access is off.
     expect((await req("POST", "/api/projects", { path })).status).toBe(200);
-    expect((await req("GET", "/api/projects", undefined, { origin: "https://evil.com" })).status).toBe(200);
+    expect((await req("GET", "/api/projects", undefined, { origin: "https://evil.com" })).status).toBe(403);
   });
 
   it("parses hosts and origins", () => {

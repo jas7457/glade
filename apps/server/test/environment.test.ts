@@ -1,8 +1,8 @@
 /**
  * I-123: this server as an environment. A permanent id kept across restarts, a name (the machine
  * name until renamed) with a sequenced push on rename, `environmentId` on every project (backfilled
- * by migration 3, set at creation, never changed), `hello.environmentId`, and cross-origin access
- * for loopback origins only (CORS + WebSocket; until I-125's device auth).
+ * by migration 3, set at creation, never changed) and `hello.environmentId`. Cross-origin access
+ * (device auth, I-125) is tested in auth.test.ts.
  */
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +15,6 @@ import { COMMAND_ID_HEADER, type EnvironmentInfo, type Project, type ServerMessa
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { createApp } from "../src/http/app.js";
-import { isCorsOrigin } from "../src/http/security.js";
 import { AppService } from "../src/services/app-service.js";
 import type { EnvironmentOptions } from "../src/services/environment.js";
 import type { SyncSocket } from "../src/services/sync/hub.js";
@@ -113,7 +112,7 @@ describe("environment identity", () => {
       platform: "darwin",
       hostname: "studio.local",
       home: "/Users/test",
-      capabilities: { openIn: true, reveal: true, nativeFolderPicker: true, browse: true, remoteAccess: false },
+      capabilities: { openIn: true, reveal: true, nativeFolderPicker: true, browse: true, remoteAccess: true },
     });
   });
 
@@ -121,7 +120,7 @@ describe("environment identity", () => {
     const { service } = start(tempDir(), { platform: "linux", hostname: "box.local", home: "/home/t", machineName: () => null });
     const info = service.getEnvironment();
     expect(info.name).toBe("box");
-    expect(info.capabilities).toEqual({ openIn: false, reveal: false, nativeFolderPicker: false, browse: true, remoteAccess: false });
+    expect(info.capabilities).toEqual({ openIn: false, reveal: false, nativeFolderPicker: false, browse: true, remoteAccess: true });
   });
 
   it("renames (kept across restarts), resets with an empty name and validates", async () => {
@@ -219,94 +218,6 @@ describe("projects belong to an environment", () => {
     store.db.prepare("INSERT INTO events (at, server_id, scope, type, entity_id) VALUES (?, 'old', 'shell', 'project', ?)").run(Date.now(), p.id);
     store.reload();
     expect(store.getProject("legacy")!.environmentId).toBe(store.environmentId);
-  });
-});
-
-describe("cross-origin access between Glade servers (loopback only, until I-125)", () => {
-  const LOOPBACK = ["http://127.0.0.1:5317", "http://localhost:4400", "http://[::1]:9", "https://localhost:1234", "http://127.0.0.1"];
-  const FOREIGN = ["https://evil.com", "http://localhost.evil.com", "http://192.168.1.2:4317", "null", "tauri://localhost", "file://"];
-
-  it("classifies origins", () => {
-    for (const o of LOOPBACK) expect(isCorsOrigin(o), o).toBe(true);
-    for (const o of FOREIGN) expect(isCorsOrigin(o), o).toBe(false);
-    expect(isCorsOrigin("http://127.0.0.1:5317/path")).toBe(false);
-  });
-
-  it("answers preflights for loopback origins on any port and refuses others", async () => {
-    const { app } = start();
-    for (const origin of LOOPBACK) {
-      const res = await request(app, "OPTIONS", "/api/projects", undefined, {
-        origin,
-        "access-control-request-method": "POST",
-        "access-control-request-headers": "content-type, x-glade-command-id",
-      });
-      expect(res.status, origin).toBe(204);
-      expect(res.headers.get("access-control-allow-origin")).toBe(origin);
-      expect(res.headers.get("access-control-allow-methods")).toContain("PATCH");
-      expect(res.headers.get("access-control-allow-headers")).toContain(COMMAND_ID_HEADER);
-    }
-    for (const origin of FOREIGN) {
-      const res = await request(app, "OPTIONS", "/api/projects", undefined, { origin, "access-control-request-method": "POST" });
-      expect(res.status, origin).toBe(403);
-      expect(res.headers.get("access-control-allow-origin")).toBeNull();
-    }
-  });
-
-  it("adds CORS headers to loopback responses (errors and replays included), never to others", async () => {
-    const { app, dir } = start();
-    const origin = "http://127.0.0.1:5999";
-    const ok = await request(app, "GET", "/api/environment", undefined, { origin });
-    expect(ok.headers.get("access-control-allow-origin")).toBe(origin);
-    expect(ok.headers.get("vary")).toContain("Origin");
-    const missing = await request(app, "GET", "/api/sessions/nope", undefined, { origin });
-    expect(missing.status).toBe(404);
-    expect(missing.headers.get("access-control-allow-origin")).toBe(origin);
-    const bad = await request(app, "PATCH", "/api/environment", { name: 1 }, { origin });
-    expect(bad.status).toBe(400);
-    expect(bad.headers.get("access-control-allow-origin")).toBe(origin);
-
-    const path = folder(dir, "cors");
-    const first = await request(app, "POST", "/api/projects", { path }, { origin, [COMMAND_ID_HEADER]: "cmd-1" });
-    expect(first.headers.get("access-control-allow-origin")).toBe(origin);
-    const replay = await request(app, "POST", "/api/projects", { path }, { origin, [COMMAND_ID_HEADER]: "cmd-1" });
-    expect(replay.status).toBe(200);
-    expect(replay.headers.get("access-control-allow-origin")).toBe(origin);
-
-    // Other origins: GETs still answer (as before) but browsers can't read them; writes are refused.
-    const foreign = await request(app, "GET", "/api/environment", undefined, { origin: "https://evil.com" });
-    expect(foreign.status).toBe(200);
-    expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
-    expect((await request(app, "PATCH", "/api/environment", { name: "x" }, { origin: "https://evil.com" })).status).toBe(403);
-    // No Origin (same-origin fetches, curl): no CORS headers.
-    expect((await request(app, "GET", "/api/environment")).headers.get("access-control-allow-origin")).toBeNull();
-  });
-
-  it("the WebSocket accepts loopback origins on other ports, says hello with the environment id, refuses others", async () => {
-    const { app, injectWebSocket, service } = start();
-    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
-    injectWebSocket(server);
-    await new Promise<void>((r) => server.once("listening", () => r()));
-    cleanups.push(() => server.close());
-    const { port } = server.address() as AddressInfo;
-
-    for (const origin of ["http://127.0.0.1:5317", "http://localhost:4400"]) {
-      const received: ServerMessage[] = [];
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin });
-      ws.on("message", (data) => received.push(JSON.parse(String(data)) as ServerMessage));
-      await new Promise((r, j) => ws.once("open", r).once("error", j));
-      await until(() => received.length > 0);
-      expect(received[0]).toEqual({ type: "hello", version: expect.any(String), protocol: 2, environmentId: service.environment.id });
-      ws.close();
-    }
-
-    for (const origin of ["https://evil.com", "http://192.168.1.2:5317"]) {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin });
-      const status = await new Promise<number>((resolve) => {
-        ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
-        ws.once("error", () => resolve(-1));
-      });
-      expect(status, origin).toBe(403);
-    }
   });
 });
 

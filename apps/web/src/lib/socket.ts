@@ -1,11 +1,31 @@
 import { signal } from "@preact/signals";
 import type { ClientMessage, ServerMessage } from "@glade/protocol";
+import { isRemoteDisabled, isUnauthorized } from "./api";
 
 export type { ClientMessage };
 
 export type SocketStatus = "connecting" | "open" | "closed";
 
 type Handler = (message: ServerMessage) => void;
+
+/**
+ * Where to connect: a fixed URL, or a function that makes one for every attempt (a paired
+ * environment gets a fresh single-use ticket first, I-125: `/ws?ticket=…`).
+ */
+export type SocketUrl = string | (() => Promise<string>);
+
+/**
+ * Why a socket stopped or slowed down (I-125): `unauthorized` = the token is gone (revoked,
+ * expired): it stops retrying until the app pairs again; `remote_disabled` = the host turned
+ * remote access off: it retries slowly.
+ */
+export type SocketAuthError = "unauthorized" | "remote_disabled";
+
+/** Close codes the server uses for open remote sockets (revoked / remote access turned off). */
+export const CLOSE_UNAUTHORIZED = 4401;
+export const CLOSE_REMOTE_DISABLED = 4403;
+/** Retry delay while the host has remote access off. */
+export const REMOTE_DISABLED_RETRY_MS = 30_000;
 
 /** Nothing received for this long (the server pings every 20 s): the connection is dead (I-122). */
 const DEAD_AFTER_MS = 45_000;
@@ -22,6 +42,9 @@ export class Socket {
   private readonly reconnectHandlers = new Set<() => void>();
   private readonly openHandlers = new Set<() => void>();
   private readonly closeHandlers = new Set<() => void>();
+  private readonly authErrorHandlers = new Set<(error: SocketAuthError) => void>();
+  /** Counts connect attempts, so a late ticket answer of an older attempt is ignored. */
+  private attempt = 0;
   private lastMessageAt = 0;
   private deadTimer: ReturnType<typeof setInterval> | null = null;
   private retry = 0;
@@ -33,7 +56,7 @@ export class Socket {
   /** This connection's state. */
   readonly status = signal<SocketStatus>("connecting");
 
-  constructor(private readonly url = defaultUrl()) {
+  constructor(private readonly url: SocketUrl = defaultUrl()) {
     // A session only counts as "being read" while the window is visible; otherwise finished
     // runs must still become unread.
     if (typeof document !== "undefined") {
@@ -70,7 +93,26 @@ export class Socket {
   connect(): void {
     this.stopped = false;
     this.status.value = "connecting";
-    const ws = new WebSocket(this.url);
+    const attempt = ++this.attempt;
+    if (typeof this.url === "string") {
+      this.open(this.url);
+      return;
+    }
+    this.url().then(
+      (url) => {
+        if (!this.stopped && attempt === this.attempt) this.open(url);
+      },
+      (err: unknown) => {
+        if (this.stopped || attempt !== this.attempt) return;
+        this.status.value = "closed";
+        this.closeHandlers.forEach((h) => h());
+        this.afterClose(isUnauthorized(err) ? "unauthorized" : isRemoteDisabled(err) ? "remote_disabled" : null);
+      },
+    );
+  }
+
+  private open(url: string): void {
+    const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
       const wasReconnect = this.retry > 0;
@@ -95,19 +137,32 @@ export class Socket {
       }
       this.handlers.forEach((h) => h(message));
     };
-    ws.onclose = () => this.closed(ws);
+    ws.onclose = (e) => this.closed(ws, e?.code);
     this.deadTimer ??= setInterval(() => this.checkAlive(), 5_000);
   }
 
   /** The connection is gone (closed, or found dead): reconnect with backoff. */
-  private closed(ws: WebSocket): void {
+  private closed(ws: WebSocket, code?: number): void {
     if (this.ws !== ws) return;
     ws.onopen = ws.onmessage = ws.onclose = null;
     this.ws = null;
     this.status.value = "closed";
     this.closeHandlers.forEach((h) => h());
+    this.afterClose(code === CLOSE_UNAUTHORIZED ? "unauthorized" : code === CLOSE_REMOTE_DISABLED ? "remote_disabled" : null);
+  }
+
+  /** Retry with backoff; stop for a dead token; retry slowly while remote access is off. */
+  private afterClose(authError: SocketAuthError | null): void {
     if (this.stopped) return;
-    const delay = Math.min(10_000, 250 * 2 ** this.retry++);
+    if (authError) this.authErrorHandlers.forEach((h) => h(authError));
+    if (authError === "unauthorized") {
+      this.stopped = true;
+      return;
+    }
+    if (this.stopped) return;
+    const delay = authError === "remote_disabled" ? REMOTE_DISABLED_RETRY_MS : Math.min(10_000, 250 * 2 ** this.retry);
+    this.retry++;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       if (!this.stopped) this.connect();
@@ -135,6 +190,7 @@ export class Socket {
 
   disconnect(): void {
     this.stopped = true;
+    this.attempt++;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     if (this.deadTimer) clearInterval(this.deadTimer);
@@ -166,6 +222,12 @@ export class Socket {
   onClose(handler: () => void): () => void {
     this.closeHandlers.add(handler);
     return () => this.closeHandlers.delete(handler);
+  }
+
+  /** Called when the server refused this device (see {@link SocketAuthError}). */
+  onAuthError(handler: (error: SocketAuthError) => void): () => void {
+    this.authErrorHandlers.add(handler);
+    return () => this.authErrorHandlers.delete(handler);
   }
 
   /** Called after a dropped connection is re-established. */

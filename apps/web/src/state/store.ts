@@ -228,6 +228,9 @@ export async function loadModels(refresh = false, envId?: string): Promise<void>
   try {
     shell.models.value = await (conn?.api ?? api).listModels(refresh);
   } catch (err) {
+    // A remote environment that refused this device shows "Needs pairing" instead (I-125).
+    const { status, code } = err as { status?: number; code?: string };
+    if (status === 401 || code === "remote_disabled") return;
     notify("error", `Could not load models: ${(err as Error).message}`);
   }
   await defaults;

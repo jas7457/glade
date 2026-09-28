@@ -47,6 +47,9 @@
   /* Attention tints (I-080): a sub-agent chip that needs input (warning) or failed (danger). */
   --color-warning-tint: var(--pi-warning-tint);
   --color-danger-tint: var(--pi-danger-tint);
+  /* QR codes (ui/QrCode.tsx, I-126): dark modules on a light plate in both themes, so cameras read them. */
+  --color-qr-fg: var(--pi-qr-fg);
+  --color-qr-bg: var(--pi-qr-bg);
 
   --radius-control: 6px;
   --radius-panel: 10px;
@@ -150,6 +153,8 @@
   --pi-agent-tint: 9%;
   /* Colours of the band that sweeps across live status labels ("Working…", I-081). */
   --pi-rainbow: #dc2626, #b45309, #15803d, #0e7490, #1d4ed8, #7c3aed, #be185d;
+  --pi-qr-fg: #1d1d1f;
+  --pi-qr-bg: #ffffff;
   --pi-font-size: 13px;
   color-scheme: light;
 }
@@ -212,6 +217,8 @@
   --pi-agent-violet: #cf9cff;
   --pi-agent-pink: #ff8cc8;
   --pi-agent-tint: 13%;
+  --pi-qr-fg: #1c1c1e;
+  --pi-qr-bg: #e8e8ed;
   --pi-rainbow: #ff7b72, #ffa657, #7ee787, #56d4dd, #79c0ff, #d2a8ff, #ff9bce;
   color-scheme: dark;
 }

@@ -4,6 +4,10 @@
  * sequenced sync (protocol 2, I-122; `services/sync/hub.ts`): scoped subscriptions with replay or
  * snapshot, `seq`-tagged pushes in batches, and pings. Either way it reports which sessions it's
  * showing, so finished runs there aren't marked unread.
+ *
+ * I-125: remote sockets (opened with a `?ticket=`, checked by the security middleware) are tagged
+ * with their device and closed at once when it's revoked (4401) or remote access is turned off
+ * (4403); local-owner sockets also get `pairing_pending` pushes.
  */
 import type { Context } from "hono";
 import type { WSContext, WSEvents } from "hono/ws";
@@ -11,6 +15,7 @@ import { SYNC_PROTOCOL, type ServerMessage } from "@glade/protocol";
 import { VERSION } from "../config.js";
 import type { AppService } from "../services/app-service.js";
 import type { SyncClient } from "../services/sync/hub.js";
+import type { AuthService } from "../services/auth/auth-service.js";
 
 const OPEN = 1;
 
@@ -20,8 +25,10 @@ interface RawSocket {
   terminate?: () => void;
 }
 
-export function createWsHandler(service: AppService): (c: Context) => WSEvents {
-  return () => {
+export function createWsHandler(service: AppService, auth?: AuthService): (c: Context) => WSEvents {
+  return (c) => {
+    const identity = c.get("identity") ?? { kind: "local" };
+    let detach: (() => void) | null = null;
     let unsubscribe: (() => void) | null = null;
     let viewing = new Set<string>();
     let sync: SyncClient | null = null;
@@ -59,6 +66,18 @@ export function createWsHandler(service: AppService): (c: Context) => WSEvents {
         unsubscribe = service.subscribe(send);
         const usage = service.getUsageLimits();
         if (usage) send({ type: "usage_limits", usage });
+        const raw = ws.raw as RawSocket | undefined;
+        detach =
+          auth?.attachSocket(identity, {
+            send,
+            close: (code, reason) => {
+              try {
+                ws.close(code, reason);
+              } catch {
+                raw?.terminate?.();
+              }
+            },
+          }) ?? null;
       },
       onMessage(event, ws) {
         let message: unknown;
@@ -91,6 +110,8 @@ export function createWsHandler(service: AppService): (c: Context) => WSEvents {
         }
       },
       onClose() {
+        detach?.();
+        detach = null;
         unsubscribe?.();
         unsubscribe = null;
         sync?.dispose();

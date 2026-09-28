@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Pair devices: Settings → Remote Access → Add Device shows a QR code, a link and a short code.
+  The other Mac enters it under Connect to Environment, you click Allow, and it sees this Mac's
+  projects and chats. Paired devices are listed with Rename and Revoke; revoking cuts them off at
+  once. Other devices can't connect at all unless you turn on "Allow other devices to connect".
 - Environments: every Glade is an environment, and projects belong to the machine whose files
   they are. Settings → Remote Access (off by default) lets this app show other Glade environments
   next to this Mac's projects in one list, marked with a globe. Pickers and agent settings follow

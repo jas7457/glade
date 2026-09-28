@@ -14,9 +14,7 @@ import { interleave, keyEnv, orderKey, resetClientOrders, clientOrders } from ".
 import * as store from "./store";
 import { reorderProjects } from "./actions";
 import {
-  connectEnvironmentByUrl,
   envStorageKey,
-  isLoopbackUrl,
   remoteAccessEnabled,
   resetEnvironments,
   savedEnvironments,
@@ -199,17 +197,6 @@ describe("remote access switch", () => {
 
     setRemoteAccessEnabled(true);
     await vi.waitFor(() => expect(store.projects.value.map((p) => p.id).sort()).toEqual(["pa", "pb"]));
-  });
-
-  it("connects by a loopback address only and saves it to this device's list (temporary until I-126)", async () => {
-    stubNetwork();
-    await startEnvironments({ localBaseUrl: localBaseUrl() });
-    expect(isLoopbackUrl("http://192.168.1.2:5418")).toBe(false);
-    await expect(connectEnvironmentByUrl("http://192.168.1.2:5418")).rejects.toThrow(/Only local addresses/);
-    await expect(connectEnvironmentByUrl(window.location.origin.replace("localhost", "127.0.0.1"))).rejects.toThrow();
-    const saved = await connectEnvironmentByUrl("http://127.0.0.1:5418/");
-    expect(saved).toEqual({ id: "ENV-B", name: "Mac B", urls: ["http://127.0.0.1:5418"] });
-    expect(JSON.parse(localStorage.getItem("glade.environments")!)).toEqual([saved]);
   });
 });
 

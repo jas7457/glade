@@ -33,8 +33,11 @@ export interface EnvShell {
  * - live: connected and caught up (sync)
  * - offline: the connection dropped; reconnecting
  * - error: couldn't reach it / refused
+ * - needs-pairing: the host doesn't accept this device's token (revoked, expired; I-125): no
+ *   more retries until it's paired again
+ * - remote-disabled: the host has remote access turned off; retrying slowly
  */
-export type EnvStatus = "connecting" | "live" | "offline" | "error";
+export type EnvStatus = "connecting" | "live" | "offline" | "error" | "needs-pairing" | "remote-disabled";
 
 /** A connection to one environment (implemented in `state/environments.ts`). */
 export interface EnvHandle {

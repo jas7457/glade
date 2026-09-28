@@ -180,7 +180,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
       if (!isThisMachine(envIdOfSession(chatId))) {
         // A remote environment (I-123): the file is on the host; download it through the browser.
         try {
-          const name = await downloadUrl(client.exportSessionDownloadUrl(chatId), "chat.html");
+          const name = await downloadUrl(client.exportSessionDownloadUrl(chatId), "chat.html", client.authHeaders());
           notify("success", `Chat exported: ${name}`);
           return true;
         } catch (err) {

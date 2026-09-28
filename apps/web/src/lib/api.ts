@@ -40,6 +40,7 @@ import type {
   WorktreeStatus,
   EnvironmentInfo,
   UpdateEnvironmentRequest,
+  AttachmentUploadResponse,
 } from "@glade/protocol";
 import { COMMAND_ID_HEADER } from "@glade/protocol";
 
@@ -47,9 +48,33 @@ export class ApiRequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The server's error code, e.g. `unauthorized` / `remote_disabled` (I-125). */
+    readonly code?: string,
   ) {
     super(message);
   }
+}
+
+/** 401: no, invalid or revoked device token (I-125) — the client must pair again. */
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.status === 401;
+}
+
+/** 403 `remote_disabled`: the host has turned remote access off (I-125). */
+export function isRemoteDisabled(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.status === 403 && err.code === "remote_disabled";
+}
+
+/** Per-request options of {@link requestAt}. */
+export interface RequestOptions {
+  /** Device token of a paired environment (I-125): sent as `Authorization: Bearer`. */
+  token?: string | null;
+  signal?: AbortSignal;
+}
+
+/** `Authorization` header for a device token (none without one). */
+export function authHeaders(token: string | null | undefined): Record<string, string> {
+  return token ? { authorization: `Bearer ${token}` } : {};
 }
 
 /** A JSON request against one environment (`path` is relative to its `/api` base). */
@@ -69,24 +94,38 @@ export function apiBaseFromUrl(url: string): string {
 }
 
 /** Shared JSON request helper against an absolute API base URL. */
-export async function requestAt<T>(baseUrl: string, method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-  const headers = { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...extraHeaders };
+export async function requestAt<T>(
+  baseUrl: string,
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+  options: RequestOptions = {},
+): Promise<T> {
+  const headers = { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...authHeaders(options.token), ...extraHeaders };
   const res = await fetch(`${baseUrl}${path}`, {
     method,
     headers: Object.keys(headers).length ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...(options.signal ? { signal: options.signal } : {}),
   });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      message = ((await res.json()) as { error?: string }).error ?? message;
-    } catch {
-      /* not json */
-    }
-    throw new ApiRequestError(res.status, message);
-  }
+  if (!res.ok) throw await errorFromResponse(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** The {@link ApiRequestError} for a failed response (`{error, code}` JSON bodies). */
+export async function errorFromResponse(res: Response): Promise<ApiRequestError> {
+  let message = res.statusText;
+  let code: string | undefined;
+  try {
+    const body = (await res.json()) as { error?: string; code?: string };
+    message = body.error ?? message;
+    code = body.code;
+  } catch {
+    /* not json */
+  }
+  return new ApiRequestError(res.status, message, code);
 }
 
 /**
@@ -124,14 +163,58 @@ export function fetchEnvironmentInfo(baseUrl: string): Promise<EnvironmentInfo> 
   return requestAt<EnvironmentInfo>(baseUrl, "GET", "/environment");
 }
 
-/** A typed client for one environment. `baseUrl` is absolute and ends in `/api`. */
-export function createApi(baseUrl: string, send: RequestFn = (method, path, body, headers) => requestAt(baseUrl, method, path, body, headers)) {
+/** How {@link createApi} authenticates (I-125). */
+export interface ApiAuth {
+  /** The device token, read on every request (it can change after pairing again). */
+  token: () => string | null | undefined;
+  /** Called with every 401 / 403 `remote_disabled` answer (the environment's status follows). */
+  onAuthError?: (err: ApiRequestError) => void;
+}
+
+/** A request function against `baseUrl` that sends the device token and reports auth errors. */
+export function authedRequest(baseUrl: string, auth?: ApiAuth): RequestFn {
+  return async <T>(method: string, path: string, body?: unknown, headers?: Record<string, string>) => {
+    try {
+      return await requestAt<T>(baseUrl, method, path, body, headers, { token: auth?.token() });
+    } catch (err) {
+      if (auth?.onAuthError && (isUnauthorized(err) || isRemoteDisabled(err))) auth.onAuthError(err as ApiRequestError);
+      throw err;
+    }
+  };
+}
+
+/**
+ * A typed client for one environment. `baseUrl` is absolute and ends in `/api`. Pass a
+ * {@link RequestFn} (the local client) or {@link ApiAuth} (a paired environment's token).
+ */
+export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
+  const send: RequestFn = typeof sendOrAuth === "function" ? sendOrAuth : authedRequest(baseUrl, sendOrAuth);
+  const auth = typeof sendOrAuth === "object" ? sendOrAuth : undefined;
+  const token = () => auth?.token() ?? null;
+  /** Raw bytes to this environment (attachments), with its token; JSON answer. */
+  const upload = async <T>(path: string, body: Blob): Promise<T> => {
+    const res = await fetch(`${baseUrl}${path}`, { method: "POST", headers: { "content-type": "application/octet-stream", ...authHeaders(token()) }, body });
+    if (!res.ok) {
+      const err = await errorFromResponse(res);
+      if (auth?.onAuthError && (isUnauthorized(err) || isRemoteDisabled(err))) auth.onAuthError(err);
+      throw err;
+    }
+    return (await res.json()) as T;
+  };
   const request = send;
   const command = <T>(method: string, path: string, body?: unknown) => commandVia<T>(send, method, path, body);
   return {
     baseUrl,
     request,
     command,
+    /**
+     * Upload a file referenced by a prompt (I-090) to the session's attachments folder on this
+     * environment's host; the answer's `path` is a path on that host.
+     */
+    uploadAttachment: (sessionId: string, file: Blob, name: string) =>
+      upload<AttachmentUploadResponse>(`/sessions/${sessionId}/attachments?name=${encodeURIComponent(name)}`, file),
+    /** Headers a raw `fetch` against this environment needs (downloads). */
+    authHeaders: () => authHeaders(token()),
     // Environment (I-123)
     getEnvironment: () => request<EnvironmentInfo>("GET", "/environment"),
     updateEnvironment: (body: UpdateEnvironmentRequest) => request<EnvironmentInfo>("PATCH", "/environment", body),

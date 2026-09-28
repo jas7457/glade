@@ -12,15 +12,18 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import * as Popover from "@radix-ui/react-popover";
 import { Globe } from "lucide-preact";
 import { cn } from "@/lib/cn";
+import { Button } from "./Button";
 import { floatingSurfaceClass } from "./floating";
 
-export type RemoteStatus = "connecting" | "live" | "offline" | "error";
+export type RemoteStatus = "connecting" | "live" | "offline" | "error" | "needs-pairing" | "remote-disabled";
 
 const STATUS_LABEL: Record<RemoteStatus, string> = {
   connecting: "Connecting…",
   live: "Connected",
   offline: "Offline, reconnecting…",
   error: "Can't connect",
+  "needs-pairing": "Needs pairing",
+  "remote-disabled": "Remote access is off there",
 };
 
 const STATUS_DOT: Record<RemoteStatus, string> = {
@@ -28,6 +31,8 @@ const STATUS_DOT: Record<RemoteStatus, string> = {
   live: "bg-success",
   offline: "bg-warning",
   error: "bg-danger",
+  "needs-pairing": "bg-danger",
+  "remote-disabled": "bg-warning",
 };
 
 export interface RemoteBadgeProps {
@@ -36,6 +41,10 @@ export interface RemoteBadgeProps {
   /** How it's reached (its origin). */
   address: string;
   status: RemoteStatus;
+  /** Overrides the status line (e.g. "Remote access is off on Studio"). */
+  statusText?: string;
+  /** A button under the status (e.g. "Pair again…"). */
+  action?: { label: string; onSelect: () => void };
   /** Icon size in px (sidebar 12, header 13). */
   size?: number;
   class?: string;
@@ -44,7 +53,7 @@ export interface RemoteBadgeProps {
 const OPEN_DELAY = 350;
 const CLOSE_DELAY = 150;
 
-export function RemoteBadge({ name, address, status, size = 12, class: className }: RemoteBadgeProps) {
+export function RemoteBadge({ name, address, status, statusText, action, size = 12, class: className }: RemoteBadgeProps) {
   const [open, setOpen] = useState(false);
   const pinned = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -115,8 +124,20 @@ export function RemoteBadge({ name, address, status, size = 12, class: className
           <div class="selectable truncate text-fg-muted">{address}</div>
           <div class="mt-1 flex items-center gap-1.5 text-fg-muted">
             <span aria-hidden="true" class={cn("size-1.5 rounded-full", STATUS_DOT[status])} />
-            {STATUS_LABEL[status]}
+            {statusText ?? STATUS_LABEL[status]}
           </div>
+          {action && (
+            <Button
+              size="sm"
+              class="mt-2"
+              onClick={() => {
+                setOpen(false);
+                action.onSelect();
+              }}
+            >
+              {action.label}
+            </Button>
+          )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

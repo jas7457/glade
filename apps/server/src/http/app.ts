@@ -47,7 +47,9 @@ import { GitChangesService } from "../services/git-changes.js";
 import { searchRoutes } from "./search.js";
 import { createAgentsRoutes } from "./agents.js";
 import type { SearchService } from "../services/search/search-service.js";
-import { securityMiddleware, type SecurityOptions } from "./security.js";
+import { isLocal, localOnly, securityMiddleware } from "./security.js";
+import { authRoutes } from "./auth.js";
+import { AuthError, AuthService } from "../services/auth/auth-service.js";
 import { createWsHandler } from "./ws.js";
 import { commandIds } from "./commands.js";
 import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
@@ -55,7 +57,13 @@ import { fsBrowseRoutes } from "./fs-browse.js";
 
 export interface CreateAppOptions {
   service: AppService;
-  security?: SecurityOptions;
+  /**
+   * Device auth and pairing (I-125). Default: one on the service's store with no remote
+   * addresses (tests).
+   */
+  auth?: AuthService;
+  /** Ports whose loopback origins are this server's own (see http/security.ts). */
+  ownPorts?: () => number[];
   /** Built web app (`apps/web/dist`). Served with SPA fallback when it exists. */
   staticDir?: string;
   /**
@@ -71,13 +79,22 @@ export interface CreateAppOptions {
   search?: SearchService;
 }
 
-export function createApp({ service, security, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
-  app.use("*", securityMiddleware(security));
+  const auth =
+    givenAuth ??
+    new AuthService({
+      db: service.store.db,
+      environmentId: service.environment.id,
+      environmentName: () => service.getEnvironment().name,
+      addresses: () => [],
+    });
+  app.use("*", securityMiddleware({ auth, ownPorts }));
 
   app.onError((err, c) => {
+    if (err instanceof AuthError) return c.json({ code: err.code, error: err.message }, err.status);
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
     console.error("[glade] request failed:", err);
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -88,12 +105,16 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
   // Changes panel (I-097): git status/diff/revert/commit of a workspace's folder.
   app.route("/api", changesRoutes(service, new GitChangesService({ complete: (prompt, cwd) => service.completeQuick(prompt, cwd) })));
   if (search) app.route("/api", searchRoutes(search));
+  // Device auth and pairing (I-125/I-126).
+  app.route("/api/auth", authRoutes(auth));
   // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
+  // Agents run on the host: remote devices can't use it (I-125).
+  app.use("/api/agents/*", localOnly);
   app.route("/api/agents", createAgentsRoutes(service, search));
   // Folder browser (I-124): directories in the home folder and /Volumes, New Folder.
   app.route("/api", fsBrowseRoutes());
   app.route("/api", apiRoutes(service, pickFolder));
-  app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
+  app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
 
   const snapshot = staticDir && snapshotStatic ? loadStaticSnapshot(staticDir) : null;
   if (snapshot) {
@@ -126,7 +147,7 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
 
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-  return { app, injectWebSocket: nodeWs.injectWebSocket };
+  return { app, injectWebSocket: nodeWs.injectWebSocket, auth };
 }
 
 function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
@@ -135,7 +156,13 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   const once = commandIds(() => service.store);
 
   // This server as an environment (I-123) -------------------------------------------------------
-  api.get("/environment", (c) => c.json(service.getEnvironment()));
+  api.get("/environment", (c) => {
+    const info = service.getEnvironment();
+    const identity = c.get("identity");
+    // Remote callers without a token (a client checking a pairing link, I-126): identity only.
+    if (identity?.kind === "remote" && !identity.device) return c.json({ id: info.id, name: info.name, version: info.version, protocol: info.protocol });
+    return c.json(info);
+  });
   api.patch("/environment", async (c) => {
     const body = await readBody<UpdateEnvironmentRequest>(c);
     if (typeof body.name !== "string") throw new HttpError(400, "name must be a string");
@@ -163,6 +190,12 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     requireIds(body.ids);
     return c.json(service.reorderProjects(body.ids));
   });
+  // Host-only actions (I-125): opening apps, Finder and the native folder picker act on the host's
+  // screen, meaningless (and unwanted) for remote devices.
+  api.post("/projects/:id/open", localOnly);
+  api.post("/workspaces/:id/open", localOnly);
+  api.post("/fs/pick-folder", localOnly);
+  api.post("/fs/reveal", localOnly);
   api.post("/projects/:id/open", async (c) => {
     const body = await readBody<OpenProjectRequest>(c);
     await service.openProject(c.req.param("id"), body.app);
@@ -330,6 +363,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.post("/sessions/:id/export", async (c) => {
     const body = await readOptionalBody<{ reveal?: boolean }>(c);
     optional(body.reveal, "boolean", "reveal");
+    if (body.reveal && !isLocal(c)) return c.json({ code: "local_only", error: "Only the host itself can reveal files." }, 403);
     return withReveal(c, () => service.exportSession(c.req.param("id"), { reveal: body.reveal }));
   });
   // The export as a download (I-123): for clients not on the host (no Finder to reveal it in).

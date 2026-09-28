@@ -258,7 +258,11 @@ describe("settings", () => {
     );
     const toggle = screen.getByRole("switch", { name: "Connect to other Glade environments" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect((screen.getByRole("button", { name: /Connect to Environment/ }) as HTMLButtonElement).disabled).toBe(true);
+    // Pairing works with the switch off too (a successful pairing turns it on, I-126).
+    expect((screen.getByRole("button", { name: /Connect to Environment/ }) as HTMLButtonElement).disabled).toBe(false);
+    // Two parts: this Mac as a host, then the other environments.
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent).slice(0, 1)).toEqual(["This Mac"]);
+    expect(screen.getByRole("heading", { name: "Other Environments" })).toBeTruthy();
     fireEvent.click(toggle);
     expect(remoteAccessEnabled.value).toBe(true);
     expect(localStorage.getItem("glade.remoteAccess")).toBe("true");

@@ -22,6 +22,7 @@ import { HarnessRegistry } from "./harness/registry.js";
 import { createApp } from "./http/app.js";
 import { startBlockedServer } from "./http/blocked.js";
 import { AppService } from "./services/app-service.js";
+import { AuthService } from "./services/auth/auth-service.js";
 import { FolderInfoService } from "./services/folder-info.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
@@ -149,11 +150,23 @@ const folderInfo = new FolderInfoService({
   scratchDir: config.scratchDir,
   projectPath: (id) => store.getProject(id)?.path,
 });
+// I-125: where clients reach us (phase 5 adds Tailscale) and which loopback origins are our own:
+// this server's port and its web dev server's (Vite: GLADE_WEB_PORT, 5317 for `pnpm dev`).
+let listeningUrl: string | null = null;
+let listeningPort: number | null = null;
+const webPort = Number(env("WEB_PORT") ?? (serverKind === "desktop" ? NaN : 5317));
+const auth = new AuthService({
+  db: store.db,
+  environmentId: service.environment.id,
+  environmentName: () => service.getEnvironment().name,
+  addresses: () => (listeningUrl ? [listeningUrl] : []),
+});
 const { app, injectWebSocket } = createApp({
   service,
   folderInfo,
   search,
-  security: { mode: "loopback" },
+  auth,
+  ownPorts: () => [...(listeningPort === null ? [] : [listeningPort]), ...(Number.isInteger(webPort) ? [webPort] : [])],
   staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
   // The installed app's bundle can be replaced while it runs (I-082): keep serving our own copy.
   snapshotStatic: serverKind === "desktop",
@@ -162,6 +175,8 @@ const { app, injectWebSocket } = createApp({
 const server = serve({ fetch: app.fetch, hostname: config.host, port: listenPort }, (info) => {
   const host = info.family === "IPv6" ? `[${info.address}]` : info.address;
   registry.update({ host: info.address, port: info.port });
+  listeningUrl = `http://${host}:${info.port}`;
+  listeningPort = info.port;
   // Agents reach the agent API here (GLADE_URL, I-037).
   service.setServerUrl(`http://${host}:${info.port}`);
   // I-051: make it obvious which data folder this server uses (and warn if it's temporary).
@@ -195,6 +210,7 @@ async function shutdown(signal: string): Promise<void> {
   try {
     server.close();
     search?.dispose();
+    auth.dispose();
     await service.dispose();
     registry.release();
   } catch (err) {

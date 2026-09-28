@@ -8,6 +8,7 @@ import type { ChatStatus } from "./status.js";
 import type { SessionAgentState, SpawnedAgentRef } from "./agents.js";
 import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, TranscriptPage } from "./sync.js";
 import type { EnvironmentInfo } from "./environments.js";
+import type { PendingPairing } from "./auth.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -545,6 +546,12 @@ export type ServerMessage = (
   | { type: "usage_limits"; usage: UsageLimits | null }
   /** An agent asked to show this chat (`open_chat`, I-091): windows navigate to it like a ⌘K pick. */
   | { type: "open_chat"; workspaceId: string; sessionId: string; sessionKind: "main" | "subagent" }
+  /**
+   * Pairings waiting for the host's Allow/Deny (I-126): the full current list after every change
+   * (new, answered, expired), and once on connect when not empty. Local-owner sockets only; not
+   * sequenced (sent as is, in either socket mode).
+   */
+  | { type: "pairing_pending"; pending: PendingPairing[] }
   // Sequenced sync (I-122) ---------------------------------------------------------------------
   /** Several pushes at once (sent every ~50 ms). */
   | { type: "batch"; messages: ServerMessage[] }
