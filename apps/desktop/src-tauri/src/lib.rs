@@ -9,6 +9,7 @@
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
+//! - Device tokens for paired environments live in the Keychain (`secrets.rs`, I-134).
 //! - The app always runs its own server, also while `pnpm dev` uses the same data folder: the
 //!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
@@ -16,6 +17,7 @@ mod dev;
 mod links;
 mod menu;
 mod quit;
+mod secrets;
 mod server;
 mod writing_tools;
 
@@ -142,6 +144,11 @@ pub fn run() {
         // The web app opens links itself (lib/external-links.ts); skip the plugin's click script.
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .manage(ServerState::default())
+        .invoke_handler(tauri::generate_handler![
+            secrets::secret_get,
+            secrets::secret_set,
+            secrets::secret_delete
+        ])
         .menu(menu::build)
         .on_menu_event(menu::handle)
         .setup(|app| {

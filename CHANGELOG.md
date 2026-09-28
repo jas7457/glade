@@ -147,6 +147,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The Mac app keeps the keys for Macs you've paired with in the macOS Keychain instead of its web
+  storage (moved over automatically).
 - Settings → Remote Access has one Remote access switch: off turns everything remote off (and cuts
   off devices using this Mac); on shows your environments and, separately, "Let other devices use
   this Mac". Other Macs you use stay listed with their status (turned off there, offline, can't

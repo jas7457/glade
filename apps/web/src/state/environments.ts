@@ -17,8 +17,8 @@
  *   Settings show its status instead. They come back with the next sync once it reconnects. A
  *   single dropped connection counts as "connecting" until a reconnect attempt fails too.
  * - Environments are added by pairing (I-126, `state/pairing.ts`); each saved entry carries its
- *   device token (`state/saved-environments.ts`). Requests send it as a bearer token, the socket
- *   gets a fresh ticket per connect (I-125). A 401 turns the environment to "needs-pairing"
+ *   device token (`state/saved-environments.ts`; kept in the Keychain in the Mac app, I-134).
+ *   Requests send it as a bearer token, the socket gets a fresh ticket per connect (I-125). A 401 turns the environment to "needs-pairing"
  *   (no more retries), a 403 `remote_disabled` to "remote-disabled" (slow retries, remembered in
  *   the saved list until the host answers again).
  *
@@ -54,7 +54,7 @@ import {
 } from "./env-registry";
 import { loadRemoteMaster, remoteMaster, setRemoteMaster, useServerMaster } from "./remote-master";
 import { downEnvironments, watchPeers } from "./remote-status";
-import { savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
+import { loadSavedEnvironments, savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
 import { envIdOfSession, initialized, loadAll, localShell, removeEnvironmentItems } from "./store";
 import { attachSync, type SyncStatus } from "./sync";
 
@@ -252,6 +252,8 @@ export interface StartOptions {
 export async function startEnvironments(options: StartOptions = { localBaseUrl: localBaseUrl() }): Promise<void> {
   if (started) return;
   started = true;
+  // Device tokens come from the Keychain / secret store (I-134); remote connections wait for them.
+  const tokensLoaded = loadSavedEnvironments();
   setChatEnvironmentResolver({
     api: (sessionId) => apiFor(envIdOfSession(sessionId)),
     watch: (sessionId) => (connectionFor(envIdOfSession(sessionId))?.socket ?? localSocket).watch(sessionId),
@@ -276,6 +278,8 @@ export async function startEnvironments(options: StartOptions = { localBaseUrl: 
     localEnvironmentId.value = null;
     initialized.value = true;
   }
+  await tokensLoaded;
+  if (!started) return; // reset meanwhile (tests)
   stopReconcile = effect(() => reconcileRemotes(remoteMaster.value, savedEnvironments.value));
   stopHiding = effect(() => hideDown(downEnvironments.value));
 }

@@ -10,7 +10,7 @@ import { connectionFor, localEnvironmentId } from "./env-registry";
 import { resetRemoteMaster } from "./remote-master";
 import { remoteAccessEnabled, resetEnvironments, setRemoteAccessEnabled, startEnvironments } from "./environments";
 import { runPairing, type PairState } from "./pairing";
-import { savedEnvironments, saveEnvironments } from "./saved-environments";
+import { flushSecretWrites, savedEnvironments, saveEnvironments } from "./saved-environments";
 import * as store from "./store";
 
 const info = (id: string, name: string): EnvironmentInfo => ({
@@ -96,7 +96,10 @@ describe("runPairing", () => {
     expect(savedEnvironments.value).toEqual([
       { id: "ENV-B", name: "Studio", urls: ["http://127.0.0.1:5418", "http://10.9.9.9:1"], token: "TOKEN-1", deviceId: "dev1" },
     ]);
-    expect(JSON.parse(localStorage.getItem("glade.environments")!)[0].token).toBe("TOKEN-1");
+    // I-134: the list keeps no token; it goes to the secret store (localStorage fallback here).
+    expect(JSON.parse(localStorage.getItem("glade.environments")!)[0].token).toBeUndefined();
+    await flushSecretWrites();
+    expect(localStorage.getItem("glade.secret.env:ENV-B")).toBe("TOKEN-1");
   });
 
   it.each<[string, PairResponse["status"], string]>([
