@@ -95,6 +95,7 @@ export const spawnAgentSpec: ToolSpec = {
     "spawn_agent closes each sub-agent (its pane or tab) when it finishes. Set keep_open (with keep_open_reason) only when a specific follow-up is likely: you already plan a next step that builds on that agent's context (iterate on its draft, apply review feedback to its own work, phase 2 of the same task), or the user said they want to talk to it. 'Might be useful later' is not a reason; a different job gets a fresh, specialized agent.",
     "When an [agent-teams] result says an agent is still open, either send the planned follow-up with message_agent right away or call close_agent. Do not leave it idle.",
     "Use list_agents to see available agent definitions and team status before choosing an agent for spawn_agent.",
+    "Refer to sub-agents by their display name (e.g. Leo) when talking to the user; use the code name only as the id for message_agent/close_agent.",
   ],
   parameters: obj(
     {
@@ -371,6 +372,8 @@ interface ChatMatch extends ChatInfo {
 
 interface AgentInfo {
   name: string;
+  /** Fun name the user sees (I-120), e.g. "Leo"; absent on older servers. */
+  displayName?: string;
   sessionId: string;
   agent: string | null;
   task: string;
@@ -483,7 +486,7 @@ function executorsFor(pi: PiExtensionApi, call: Call): Record<string, Execute> {
           keepOpenReason: params.keep_open ? keepOpenReason : undefined,
         });
         return text(
-          `Spawned "${agent.name}"${def ? ` (agent: ${def.name})` : ""} in a new Glade tab. ${params.keep_open ? `Kept open for: ${keepOpenReason}.` : "It closes when done."} ` +
+          `Spawned ${agent.displayName ? `${agent.displayName} ("${agent.name}")` : `"${agent.name}"`}${def ? ` (agent: ${def.name})` : ""} in a new Glade tab. ${params.keep_open ? `Kept open for: ${keepOpenReason}.` : "It closes when done."} ` +
             "Its result will arrive as an [agent-teams] message; do not wait or poll.",
         );
       }),
@@ -583,7 +586,7 @@ function formatTeam(agents: AgentInfo[], cwd: string): string {
     ? agents
         .map(
           (s) =>
-            `- ${s.name}${s.agent ? ` [${s.agent}]` : ""}: ${s.status}${s.status === "closed" && s.tabOpen === false ? " (tab closed)" : ""}${s.userEngaged ? " (user engaged)" : ""}` +
+            `- ${s.displayName ? `${s.displayName} (${s.name})` : s.name}${s.agent ? ` [${s.agent}]` : ""}: ${s.status}${s.status === "closed" && s.tabOpen === false ? " (tab closed)" : ""}${s.userEngaged ? " (user engaged)" : ""}` +
             (s.keepOpenReason && s.status !== "closed" ? ` — kept open for: ${s.keepOpenReason}` : ""),
         )
         .join("\n")

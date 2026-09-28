@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage, parseAgentMessage } from "./agent-messages.js";
+import { agentLabel, agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage, parseAgentMessage } from "./agent-messages.js";
 
 const open = { name: "harness-core", closing: false, userEngaged: false, keepOpenReason: null, idleMinutes: 10 };
 
@@ -64,5 +64,38 @@ describe("parseAgentMessage", () => {
     expect(parseAgentMessage("[agent-teams] x did something:\nfoo")).toBeNull();
     expect(parseAgentMessage("[agent-teams] x finished: inline")).toBeNull();
     expect(parseAgentMessage("hello")).toBeNull();
+  });
+});
+
+describe("display names in headers (I-120)", () => {
+  it("formats Leo (code-name) headers and notes", () => {
+    expect(formatAgentFinished("t3-research", "done", "", "Leo")).toBe("[agent-teams] Leo (t3-research) finished:\ndone");
+    expect(formatAgentMessage("t3-research", "hi", "Leo")).toBe("[agent-teams] message from Leo (t3-research):\nhi");
+    expect(formatAgentExited("t3-research", "crashed", "Leo 2")).toBe("[agent-teams] Leo 2 (t3-research) exited:\ncrashed");
+    expect(formatAgentMessage("main", "hi", null)).toBe("[agent-teams] message from main:\nhi");
+    expect(agentLabel("x", "")).toBe("x");
+    expect(agentOpenNote({ ...open, displayName: "Leo" })).toMatch(/^\n\n\(Leo \(harness-core\) is still open\. /);
+  });
+
+  it("parses new headers, keeping the code name as `from`", () => {
+    expect(parseAgentMessage(formatAgentMessage("t3-research", "hi", "Leo"))).toEqual({ kind: "message", from: "t3-research", displayName: "Leo", body: "hi" });
+    expect(parseAgentMessage(formatAgentExited("t3-research", "gone", "Leo 2"))).toEqual({
+      kind: "exited",
+      from: "t3-research",
+      displayName: "Leo 2",
+      body: "gone",
+    });
+    const note = agentOpenNote({ ...open, displayName: "Remy", keepOpenReason: "review (maybe)" });
+    const parsed = parseAgentMessage(formatAgentFinished("harness-core", "Did it (really).", note, "Remy"));
+    expect(parsed).toMatchObject({ kind: "finished", from: "harness-core", displayName: "Remy", body: "Did it (really)." });
+    expect(parsed?.note).toMatch(/^Remy \(harness-core\) is still open — kept open for: review \(maybe\)\./);
+    const engaged = parseAgentMessage(formatAgentFinished("a", "ok", agentOpenNote({ ...open, name: "a", displayName: "Ivy", userEngaged: true }), "Ivy"));
+    expect(engaged?.note).toBe("Ivy (a)'s tab stays open because the user has typed in it. Leave it to the user.");
+  });
+
+  it("still parses old headers", () => {
+    expect(parseAgentMessage("[agent-teams] t3-research finished:\nok")).toEqual({ kind: "finished", from: "t3-research", body: "ok" });
+    expect(parseAgentMessage("[agent-teams] message from main:\nok")).toEqual({ kind: "message", from: "main", body: "ok" });
+    expect(parseAgentMessage("[agent-teams] Leo (t3-research) did something:\nfoo")).toBeNull();
   });
 });

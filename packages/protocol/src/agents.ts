@@ -64,7 +64,12 @@ export interface SessionAgentState {
 }
 
 export interface AgentInfo {
+  /** Code name from spawn_agent: the id for message_agent/close_agent. */
   name: string;
+  /** Fun display name the user sees (I-084), e.g. "Leo"; absent for agents from before. */
+  displayName?: string;
+  /** Its colour key (`AgentColor`, I-084), when it has one. */
+  color?: string;
   /** Its session (tab) id. */
   sessionId: string;
   /** Agent definition used, if any. */

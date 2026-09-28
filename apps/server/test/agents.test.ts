@@ -135,7 +135,9 @@ describe("spawn", () => {
     const options = opened.at(-1)!;
     expect(options.cwd).toBe(env.store.getWorkspace(chat.wid)!.cwd);
     expect(options.env).toMatchObject({ [AGENT_ENV.sessionId]: agent.sessionId, [AGENT_ENV.agentName]: "auth-scout" });
-    expect(options.appendSystemPrompt).toContain('You are "auth-scout", a sub-agent');
+    expect(agent.displayName).toMatch(/^[A-Z]/);
+    expect(agent.color).toBeTruthy();
+    expect(options.appendSystemPrompt).toContain(`You are "auth-scout" (the user sees you as ${agent.displayName}), a sub-agent`);
     expect(options.appendSystemPrompt).toContain("## Agent role: scout\n\nBe quick.");
     expect(options.tools).toEqual(["read", "report_done", "message_agent"]);
     expect(promptsTo(agent.sessionId)[0]).toMatchObject({ text: "task for Auth Scout" });
@@ -209,7 +211,7 @@ describe("report_done", () => {
 
     expect(env.service.reportAgentDone(agent.sessionId, { summary: "Found it." })).toEqual({ closing: true });
     await settle();
-    expect(lastPrompt(chat.sid)).toMatchObject({ text: "[agent-teams] scout finished:\nFound it.", behavior: "followUp" });
+    expect(lastPrompt(chat.sid)).toMatchObject({ text: `[agent-teams] ${agent.displayName} (scout) finished:\nFound it.`, behavior: "followUp" });
 
     // Still running its turn; stops at run_end.
     const token = tokenOf(agent.sessionId);
@@ -249,7 +251,7 @@ describe("report_done", () => {
     const { agent } = await spawn(chat.sid, "writer", { keepOpen: true, keepOpenReason: "apply review feedback" });
     expect(env.service.reportAgentDone(agent.sessionId, { summary: "Draft ready." })).toEqual({ closing: false });
     await settle();
-    expect(lastPrompt(chat.sid)!.text).toContain("(writer is still open — kept open for: apply review feedback.");
+    expect(lastPrompt(chat.sid)!.text).toContain(`(${agent.displayName} (writer) is still open — kept open for: apply review feedback.`);
     expect(env.service.listAgents(chat.sid).agents[0]!.status).toBe("done");
     expect(env.service.liveCount).toBe(2);
     // The browser sees it as done (I-054).
@@ -289,14 +291,15 @@ describe("messages, list and close", () => {
     const chat = await newChat(env);
     const a = (await spawn(chat.sid, "a")).agent;
     const b = (await spawn(chat.sid, "b")).agent;
+    expect(opened.at(-1)!.appendSystemPrompt).toContain(`Other active sub-agents: ${a.displayName} (a).`);
 
     env.service.messageAgent(chat.sid, { to: "a", text: "focus on auth" });
     env.service.messageAgent(a.sessionId, { to: "main", text: "which branch?" });
     env.service.messageAgent(a.sessionId, { to: "b", text: "hello b" });
     await settle();
     expect(lastPrompt(a.sessionId)).toMatchObject({ text: "[agent-teams] message from main:\nfocus on auth", behavior: "steer" });
-    expect(lastPrompt(chat.sid)).toMatchObject({ text: "[agent-teams] message from a:\nwhich branch?" });
-    expect(lastPrompt(b.sessionId)).toMatchObject({ text: "[agent-teams] message from a:\nhello b" });
+    expect(lastPrompt(chat.sid)).toMatchObject({ text: `[agent-teams] message from ${a.displayName} (a):\nwhich branch?` });
+    expect(lastPrompt(b.sessionId)).toMatchObject({ text: `[agent-teams] message from ${a.displayName} (a):\nhello b` });
 
     expect(() => env.service.messageAgent(chat.sid, { to: "nobody", text: "x" })).toThrow(/No active agent/);
     expect(() => env.service.messageAgent(chat.sid, { to: "main", text: "x" })).toThrow(/main session/);
@@ -443,7 +446,9 @@ describe("HTTP routes", () => {
     const done = await call("/report-done", child, { summary: "all good" });
     expect(await done.json()).toEqual({ closing: true });
     await settle();
-    expect(lastPrompt(chat.sid)!.text).toBe("[agent-teams] scout finished:\nall good");
+    expect(agent.displayName).toBeTruthy(); // the spawn response names it (I-120)
+    expect(list.agents[0]!.displayName).toBe(agent.displayName);
+    expect(lastPrompt(chat.sid)!.text).toBe(`[agent-teams] ${agent.displayName} (scout) finished:\nall good`);
     const closed = await call("/close", token, { name: "scout" });
     expect(await closed.json()).toEqual({ closed: true, alreadyClosed: true });
     expect((await call("/close", token, { name: "ghost" })).status).toBe(404);

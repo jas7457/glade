@@ -184,41 +184,59 @@ export function normalizeAgentName(name: string): string {
     .slice(0, 32);
 }
 
-/** The sub-agent's role, appended to its system prompt (same content as agent-teams' role.md). */
-export function buildRolePrompt(opts: { name: string; teammates: string[]; agent?: string | null; agentPrompt?: string | null }): string {
+/**
+ * The sub-agent's role, appended to its system prompt (same content as agent-teams' role.md).
+ * `displayName` is the fun name the user sees (I-120); `teammates` are labels like
+ * `Leo (t3-research)` (see `agentLabel`).
+ */
+export function buildRolePrompt(opts: {
+  name: string;
+  displayName?: string | null;
+  teammates: string[];
+  agent?: string | null;
+  agentPrompt?: string | null;
+}): string {
+  const shownAs = opts.displayName ? ` (the user sees you as ${opts.displayName})` : "";
   return [
     "# agent-teams: you are a sub-agent",
     "",
-    `You are "${opts.name}", a sub-agent spawned by the main Pi session ("${MAIN_AGENT}") to handle one delegated task.`,
+    `You are "${opts.name}"${shownAs}, a sub-agent spawned by the main Pi session ("${MAIN_AGENT}") to handle one delegated task.`,
     "You run in your own tab in Glade. The user can watch you and may type to you directly; treat their messages as authoritative.",
     "",
     "- Your task is the first user message. Stay within its scope.",
     `- If you are blocked or need a decision, call message_agent with to:"${MAIN_AGENT}".`,
     "- When finished, call report_done with a concise, self-contained summary: what you did, files changed, findings, open issues. The main session only sees what you put in report_done.",
-    `- Other active sub-agents: ${opts.teammates.join(", ") || "(none yet)"}. You can reach them with message_agent.`,
+    `- Other active sub-agents: ${opts.teammates.join(", ") || "(none yet)"}. You can reach them with message_agent (by the code name in parentheses).`,
     opts.agentPrompt?.trim() ? `\n## Agent role: ${opts.agent ?? opts.name}\n\n${opts.agentPrompt.trim()}` : "",
   ].join("\n");
 }
 
-/** Prompt text delivered to a session: a message from another agent (format shared via protocol, I-075). */
-export function messageText(from: string, text: string): string {
-  return formatAgentMessage(from, text);
+/**
+ * Prompt text delivered to a session: a message from another agent (format shared via protocol,
+ * I-075). A sub-agent sender is named `Leo (t3-research)` (I-120); `main` stays `main`.
+ */
+export function messageText(from: string | Pick<AgentRecord, "name" | "displayName">, text: string): string {
+  return typeof from === "string" ? formatAgentMessage(from, text) : formatAgentMessage(from.name, text, from.displayName);
 }
 
-/** Prompt text delivered to the parent when a sub-agent reports. */
+/** Prompt text delivered to the parent when a sub-agent reports: `[agent-teams] Leo (t3-research) finished:`. */
 export function doneText(record: AgentRecord, summary: string): string {
-  return formatAgentFinished(record.name, summary, openNote(record));
+  return formatAgentFinished(record.name, summary, openNote(record), record.displayName);
 }
 
-/** Prompt text delivered to the parent when a sub-agent stopped without reporting. */
-export function exitedText(name: string, reason: string): string {
-  return formatAgentExited(name, reason);
+/**
+ * Prompt text delivered to the parent when a sub-agent stopped without reporting. Pass the
+ * record to name it by its display name too (I-120); a bare name still works.
+ */
+export function exitedText(agent: string | Pick<AgentRecord, "name" | "displayName">, reason: string): string {
+  return typeof agent === "string" ? formatAgentExited(agent, reason) : formatAgentExited(agent.name, reason, agent.displayName);
 }
 
 /** After a result, tell the parent what happens to the sub-agent so it acts on it. */
 function openNote(record: AgentRecord): string {
   return agentOpenNote({
     name: record.name,
+    displayName: record.displayName,
     closing: record.closing || record.closed,
     userEngaged: record.userEngaged,
     keepOpenReason: record.keepOpenReason,
@@ -233,6 +251,8 @@ function agentStatus(record: AgentRecord, running: boolean | null): AgentStatus 
 export function agentInfo(record: AgentRecord, running: boolean | null): AgentInfo {
   return {
     name: record.name,
+    ...(record.displayName ? { displayName: record.displayName } : {}),
+    ...(record.color ? { color: record.color } : {}),
     sessionId: record.sessionId,
     agent: record.agent,
     task: record.task,

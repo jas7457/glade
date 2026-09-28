@@ -133,6 +133,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The lead agent now knows its sub-agents by the names you see (Leo, Remy, …) and uses them when it
+  talks to you.
 - Sub-agent chips above the composer show a pointer cursor, so it's clear they open the agent.
 - Dialogs look like native macOS alerts: everything lines up, regular-size buttons, and destructive
   actions in red text instead of a big red button.

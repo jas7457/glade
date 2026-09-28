@@ -194,6 +194,12 @@ describe("glade-tools: calls to the agent API", () => {
     );
     expect(requests[0]).toMatchObject({ url: "http://glade/api/agents/spawn", method: "POST", auth: "Bearer tok", body: { name: "scout-1", task: "look" } });
 
+    reply = () => ({ status: 200, body: { agent: { name: "t3-research", displayName: "Leo" } } });
+    expect(await run("spawn_agent", { name: "t3-research", task: "look" })).toMatch(/^Spawned Leo \("t3-research"\) in a new Glade tab\. /);
+    expect(tools.get("spawn_agent")!.promptGuidelines).toContain(
+      "Refer to sub-agents by their display name (e.g. Leo) when talking to the user; use the code name only as the id for message_agent/close_agent.",
+    );
+
     reply = () => ({ status: 403, body: { error: "Sub-agents are turned off in Glade" } });
     expect(await run("spawn_agent", { name: "x", task: "t" })).toBe("Sub-agents are turned off in Glade");
     expect(await run("spawn_agent", { name: "x", task: "t", keep_open: true })).toMatch(/keep_open needs keep_open_reason/);
@@ -223,6 +229,8 @@ describe("glade-tools: calls to the agent API", () => {
     register();
     reply = () => ({ status: 200, body: { agents: [{ name: "a", agent: null, status: "closed", tabOpen: false, userEngaged: false, keepOpenReason: null }] } });
     expect(await run("list_agents", {})).toMatch(/^Team:\n- a: closed \(tab closed\)\n\nAgent definitions:\n/);
+    reply = () => ({ status: 200, body: { agents: [{ name: "t3-research", displayName: "Leo", agent: "rev", status: "working", userEngaged: false, keepOpenReason: null }] } });
+    expect(await run("list_agents", {})).toMatch(/^Team:\n- Leo \(t3-research\) \[rev\]: working\n/);
     reply = () => ({ status: 200, body: { closed: false, alreadyClosed: true } });
     expect(await run("close_agent", { name: "a" })).toBe("a is already closed.");
 

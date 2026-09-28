@@ -6,6 +6,7 @@
 import {
   MAX_ACTIVE_AGENTS,
   THINKING_LEVELS,
+  agentLabel,
   sameModel,
   type CloseAgentResponse,
   type ListAgentsResponse,
@@ -97,7 +98,8 @@ export class AgentTeam {
     const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
     const systemPrompt = buildRolePrompt({
       name,
-      teammates: active.filter((r) => r.parentSessionId === caller.id).map((r) => r.name),
+      displayName: identity.displayName,
+      teammates: active.filter((r) => r.parentSessionId === caller.id).map((r) => agentLabel(r.name, r.displayName)),
       agent,
       agentPrompt: req.agentPrompt,
     });
@@ -163,12 +165,12 @@ export class AgentTeam {
     if (!text) throw new HttpError(400, "text is required");
     if (req.to === MAIN_AGENT) {
       if (!self) throw new HttpError(400, 'You are the main session; message a sub-agent by name');
-      this.deliver(self.parentSessionId, messageText(self.name, req.text), "steer");
+      this.deliver(self.parentSessionId, messageText(self, req.text), "steer");
       return;
     }
     const target = this.ctx.agents.findActive(self ? self.parentSessionId : caller.id, normalizeAgentName(req.to ?? ""));
     if (!target || target.sessionId === caller.id) throw new HttpError(404, `No active agent named "${req.to}".`);
-    this.deliver(target.sessionId, messageText(self?.name ?? MAIN_AGENT, req.text), "steer");
+    this.deliver(target.sessionId, messageText(self ?? MAIN_AGENT, req.text), "steer");
   }
 
   /** The caller's team: its sub-agents (main) or its teammates (sub-agent). */
