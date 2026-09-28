@@ -38,7 +38,8 @@ export const routes = {
   project: (projectId: string, envId: string | null = envIdOfProject(projectId)) => `${envPrefix(envId)}/projects/${projectId}`,
   projectChat: (projectId: string, workspaceId: string, tab?: string | null, envId: string | null = envIdOfProject(projectId)) =>
     withTab(`${envPrefix(envId)}/projects/${projectId}/chats/${workspaceId}`, tab),
-  settings: (section: SettingsSection = "general") => `/settings/${section}`,
+  /** A settings section; without one, `/settings` reopens the last section you had open (I-133). */
+  settings: (section?: SettingsSection) => (section ? `/settings/${section}` : "/settings"),
 };
 
 export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent", "commands", "prompts", "remote"] as const;

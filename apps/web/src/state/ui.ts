@@ -44,13 +44,15 @@ export function readStored(key: string): string | null {
   }
 }
 const read = readStored;
-function write(key: string, value: string): void {
+/** Stores a value in localStorage (ignored when storage is unavailable). */
+export function writeStored(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
     /* storage unavailable */
   }
 }
+const write = writeStored;
 
 export const sidebarWidth = signal(clampSidebarWidth(Number(read(KEY_WIDTH) ?? SIDEBAR_DEFAULT_WIDTH)));
 export const sidebarCollapsed = signal(read(KEY_COLLAPSED) === "1");

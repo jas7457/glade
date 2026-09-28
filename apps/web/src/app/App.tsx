@@ -1,15 +1,14 @@
 /**
  * Root component: router (every screen is a URL, see routes.ts) + app-wide providers and hosts.
  */
-import { Navigate, RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
+import { RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
 import { ConfirmHost, Toaster, TooltipProvider } from "@/ui";
 import { PairRoute, PendingPairingHost } from "@/features/environments";
-import { SettingsRoute } from "@/features/settings";
+import { SettingsIndexRoute, SettingsRoute } from "@/features/settings";
 import { DeleteChatHost } from "@/features/sidebar";
 import { Layout } from "./Layout";
 import { NotFound } from "./NotFound";
 import { ChatRoute, HomeRoute, ProjectRoute } from "./RouteViews";
-import { routes } from "./routes";
 
 export const appRoutes: RouteObject[] = [
   {
@@ -26,7 +25,7 @@ export const appRoutes: RouteObject[] = [
       { path: "/e/:envId/projects/:projectId/chats/:chatId", element: <ChatRoute /> },
       // A pairing link for this device (I-126): `/pair?link=glade://pair…`.
       { path: "/pair", element: <PairRoute /> },
-      { path: "/settings", element: <Navigate to={routes.settings()} replace /> },
+      { path: "/settings", element: <SettingsIndexRoute /> },
       { path: "/settings/:section", element: <SettingsRoute /> },
       { path: "*", element: <NotFound /> },
     ],

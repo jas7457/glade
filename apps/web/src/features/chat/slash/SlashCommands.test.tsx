@@ -10,6 +10,7 @@ import { harnesses } from "@/state/harnesses";
 import { toasts } from "@/state/toasts";
 import { Composer } from "../Composer";
 import { resetFolderCommands } from "./folder-commands";
+import { SettingsIndexRoute } from "@/features/settings";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -62,6 +63,7 @@ function renderAt(ui: preact.ComponentChildren) {
     [
       { path: "/", element: <TooltipProvider>{ui}</TooltipProvider> },
       { path: "/projects/:projectId", element: <div>project page</div> },
+      { path: "/settings", element: <SettingsIndexRoute /> },
       { path: "/settings/:section", element: <div>settings page</div> },
     ],
     { initialEntries: ["/"] },

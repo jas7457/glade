@@ -147,6 +147,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Settings reopens on the page you had open last (and the machine you had picked there).
 - Destructive buttons in confirm dialogs (Close Tab, Delete Chat, Delete Project, …) are now a
   filled red button, so they stand out clearly from Cancel.
 - Live updates are numbered: after a dropped connection or a server restart, every open window

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/preact";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { MemoryRouter, Route, Routes, createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSettings, type HarnessCapabilities, type HarnessInfo } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({
@@ -12,12 +12,13 @@ import { TooltipProvider } from "@/ui";
 import { models, settings, workspaces } from "@/state/store";
 import { harnesses } from "@/state/harnesses";
 import { makeWorkspace } from "@/test/fixtures";
-import { SettingsRoute } from "./SettingsView";
+import { SettingsIndexRoute, SettingsRoute } from "./SettingsView";
 import { parseArgs } from "./AgentSettings";
 import { groupModels } from "./ModelSettings";
 import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_GROUPS } from "./sections";
-import { SETTINGS_SECTIONS } from "@/app/routes";
+import { SETTINGS_SECTIONS, routes } from "@/app/routes";
+import { settingsEnvironmentId } from "@/state/env-registry";
 
 const mocked = vi.mocked(api);
 
@@ -209,5 +210,60 @@ describe("settings navigation", () => {
     expect(ai.textContent).toContain("pi");
     expect(screen.getByRole("button", { name: "pi" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("button", { name: "Back to App" })).toBeTruthy();
+  });
+});
+
+describe("settings reopens the last section (I-133)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    settings.value = defaultSettings();
+    harnesses.value = [harness("pi", "pi", { isDefault: true })];
+  });
+
+  function renderRouter(path: string) {
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <div>home</div> },
+        { path: "/settings", element: <SettingsIndexRoute /> },
+        { path: "/settings/:section", element: <SettingsRoute /> },
+      ],
+      { initialEntries: [path] },
+    );
+    render(
+      <TooltipProvider>
+        <RouterProvider router={router} />
+      </TooltipProvider>,
+    );
+    return router;
+  }
+
+  it("opens General the first time, then the last section visited", async () => {
+    const router = renderRouter("/settings");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
+    await act(() => router.navigate("/settings/prompts"));
+    await act(() => router.navigate("/"));
+    await act(() => router.navigate(routes.settings()));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/prompts"));
+    expect(screen.getByRole("heading", { name: "Prompts" })).toBeTruthy();
+  });
+
+  it("a deep link to a section still wins (and becomes the remembered one)", async () => {
+    localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "prompts", envId: null }));
+    const router = renderRouter("/settings/appearance");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Appearance" })).toBeTruthy());
+    await act(() => router.navigate("/settings"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/appearance"));
+  });
+
+  it("falls back to General when the remembered section is gone, and to this machine when its environment is", async () => {
+    localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "nope", envId: null }));
+    const router = renderRouter("/settings");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
+    localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "models", envId: "gone" }));
+    settingsEnvironmentId.value = "stale";
+    await act(() => router.navigate("/settings"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/models"));
+    expect(settingsEnvironmentId.value).toBeNull();
   });
 });
