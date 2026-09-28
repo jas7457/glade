@@ -676,3 +676,14 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   - **Transport:** 50 ms batches per client with a 4 MB budget (over it, the client gets snapshots). Pings every 20 s; silent peers are dropped after 45 s.
   - **Idempotency:** `X-Glade-Command-Id`/`commandId` receipts live in `command_receipts` for 24 h.
   - Code: `services/sync/hub.ts`, `packages/protocol/src/sync.ts`, `apps/web/src/state/sync.ts`.
+- **Environments (2026-09-27, I-123/I-124).**
+  - **Identity:** every server is an environment with a permanent ULID (`meta.environment_id`) and an editable name (the Mac's computer name by default). `GET`/`PATCH /api/environment`.
+  - **Projects** carry `environmentId`: backfilled by migration 003, set at creation, never changed.
+  - **The web app is a multi-environment client.** Each environment gets an `EnvironmentConnection` (`state/env-registry.ts`, `environments.ts`, `env-api.ts`): an absolute base URL, its own socket and I-122 sync state, status, and shell data. It works with no local environment at all (the future phone app, F-022).
+  - **Sidebar:** one merged, ungrouped list with a per-device order (`envId:id` keys). Remote rows and the chat header carry `ui/RemoteBadge`.
+  - **Routes:** `/e/:envId/…` for remote environments; plain routes mean this machine.
+  - **Pickers and host settings** (Models, Agents, Slash commands, Prompts) follow the environment. Appearance and General stay on the client.
+  - **The remote switch** (per device, off by default) hides and restores remote environments.
+  - **Connecting:** until pairing (I-126), a loopback-only "Connect to Environment…" by URL. The server allows CORS and WebSocket from loopback origins only; I-125 replaces this with device auth.
+  - **Host-only actions** (Open in, Reveal, native picker) show only for this machine; remote exports download through the browser.
+  - **Folder browser:** `GET /api/fs/browse` and `POST /api/fs/mkdir`, limited to home and `/Volumes` (symlinks resolved), and `ui/FolderBrowser` (environment-agnostic `browse`/`mkdir` props), used by Add Project.

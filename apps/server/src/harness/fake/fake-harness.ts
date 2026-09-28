@@ -18,6 +18,9 @@ import {
   type Transcript,
   type UiResponse,
 } from "@glade/protocol";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
 import type { AgentHarness, GenerateTitleOptions, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
@@ -409,7 +412,10 @@ export class FakeSession implements HarnessSession {
   }
 
   async exportHtml(): Promise<string> {
-    return `/tmp/glade-fake-export-${this.sessionRef}.html`;
+    const path = join(tmpdir(), `glade-fake-export-${this.sessionRef}.html`);
+    // A real file, so downloads work in sandboxes (I-123).
+    await writeFile(path, `<!doctype html><title>Fake export</title><p>${this.sessionRef}</p>`);
+    return path;
   }
 
   respondToUi(response: UiResponse): void {

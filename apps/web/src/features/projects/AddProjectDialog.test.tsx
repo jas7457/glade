@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import type { FsBrowseResult } from "@glade/protocol";
 
 vi.mock("@/lib/api", () => ({ api: { createProject: vi.fn() } }));
 vi.mock("@/lib/native", () => ({ pickFolder: vi.fn() }));
@@ -10,13 +11,11 @@ import { TooltipProvider } from "@/ui";
 import { projects } from "@/state/store";
 import { makeProject } from "@/test/fixtures";
 import { AddProjectDialog } from "./AddProjectDialog";
+import type { ProjectFolderSource } from "./folder-source";
 import { folderName, nameAfterPick, validateProjectPath } from "./validation";
 
 const mocked = vi.mocked(api);
 const pick = vi.mocked(pickFolder);
-
-/** Blur a field. preact/compat listens for `focusout`, which testing-library's fireEvent.blur doesn't send. */
-const leave = (el: HTMLElement) => act(() => void el.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
 
 describe("validation", () => {
   it("requires an absolute or ~ path", () => {
@@ -40,125 +39,128 @@ describe("validation", () => {
 });
 
 describe("AddProjectDialog", () => {
+  const HOME = "/Users/me";
+  const dirs: Record<string, string[]> = { [HOME]: ["code"], [`${HOME}/code`]: ["app", "other"], [`${HOME}/code/app`]: [], [`${HOME}/code/other`]: [] };
+  const folders: ProjectFolderSource = {
+    browse: vi.fn(async (input: string): Promise<FsBrowseResult> => {
+      const path = input === "~" ? HOME : input;
+      return {
+        path,
+        parent: path === HOME ? null : path.slice(0, path.lastIndexOf("/")),
+        entries: (dirs[path] ?? []).map((name) => ({ name, path: `${path}/${name}`, isGitRepo: name === "app", hidden: false })),
+        isGitRepo: path.endsWith("/app"),
+      };
+    }),
+    mkdir: vi.fn(),
+    nativePicker: true,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     projects.value = [];
   });
 
-  const setup = () => {
+  const setup = (source: ProjectFolderSource = folders) => {
     const onAdded = vi.fn();
     const onOpenChange = vi.fn();
     render(
       <TooltipProvider>
-        <AddProjectDialog open onOpenChange={onOpenChange} onAdded={onAdded} />
+        <AddProjectDialog open onOpenChange={onOpenChange} onAdded={onAdded} folders={source} />
       </TooltipProvider>,
     );
     return { onAdded, onOpenChange };
   };
   const nameField = () => screen.getByLabelText("Project name") as HTMLInputElement;
   const createButton = () => screen.getByRole("button", { name: "Create project" }) as HTMLButtonElement;
-  const add = async () => {
-    fireEvent.click(screen.getByRole("button", { name: /Add/ }));
-    await waitFor(() => expect(pick).toHaveBeenCalled());
+  const option = (name: string) => screen.findByRole("option", { name: new RegExp(`^${name}`) });
+  /** Browse to ~/code and choose `name` there. */
+  const browseTo = async (name: string) => {
+    fireEvent.dblClick(await option("code"));
+    fireEvent.mouseDown(await option(name));
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    await screen.findByText(`${HOME}/code/${name}`);
   };
 
-  it("disables Create until a folder is chosen, then fills the empty name", async () => {
-    pick.mockResolvedValue({ path: "/Users/me/code/app" });
+  it("shows the folder browser until a folder is chosen, then fills the empty name", async () => {
     setup();
     expect(screen.getByRole("heading", { name: "Create project" })).toBeTruthy();
     expect(createButton().disabled).toBe(true);
-    await add();
-    expect(await screen.findByText("/Users/me/code/app")).toBeTruthy();
+    await browseTo("app");
+    expect(folders.browse).toHaveBeenCalledWith("~", { hidden: false });
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect(nameField().value).toBe("app");
     expect(createButton().disabled).toBe(false);
   });
 
   it("never overwrites a name the user typed", async () => {
-    pick.mockResolvedValue({ path: "/Users/me/code/app" });
     setup();
     fireEvent.input(nameField(), { target: { value: "My App" } });
-    await add();
-    await screen.findByText("/Users/me/code/app");
+    await browseTo("app");
     expect(nameField().value).toBe("My App");
   });
 
-  it("updates an auto-filled name when the folder is changed", async () => {
-    pick.mockResolvedValueOnce({ path: "/x/one" }).mockResolvedValueOnce({ path: "/x/two" });
+  it("updates an auto-filled name when the folder is changed; Back keeps the old one", async () => {
     setup();
-    await add();
-    await waitFor(() => expect(nameField().value).toBe("one"));
+    await browseTo("app");
     fireEvent.click(screen.getByRole("button", { name: "Change…" }));
-    await screen.findByText("/x/two");
-    expect(nameField().value).toBe("two");
-    expect(pick).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: "/x/one" }));
+    await waitFor(() => expect(folders.browse).toHaveBeenLastCalledWith(`${HOME}/code/app`, { hidden: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText(`${HOME}/code/app`)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Change…" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Enclosing Folder/ }));
+    fireEvent.mouseDown(await option("other"));
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    await screen.findByText(`${HOME}/code/other`);
+    expect(nameField().value).toBe("other");
   });
 
-  it("leaves everything unchanged when the picker is cancelled", async () => {
-    pick.mockResolvedValueOnce({ path: "/x/one" }).mockResolvedValueOnce({ cancelled: true });
+  it("removing the folder clears an auto-filled name and shows the browser again", async () => {
     setup();
-    await add();
-    await screen.findByText("/x/one");
-    fireEvent.click(screen.getByRole("button", { name: "Change…" }));
-    await waitFor(() => expect(pick).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Change…" })).toBeTruthy());
-    expect(screen.getByText("/x/one")).toBeTruthy();
-    expect(nameField().value).toBe("one");
-    expect(createButton().disabled).toBe(false);
-  });
-
-  it("removing the folder clears an auto-filled name and disables Create", async () => {
-    pick.mockResolvedValue({ path: "/x/one" });
-    setup();
-    await add();
-    await screen.findByText("/x/one");
+    await browseTo("app");
     fireEvent.click(screen.getByRole("button", { name: "Remove Folder" }));
-    expect(screen.queryByText("/x/one")).toBeNull();
     expect(nameField().value).toBe("");
     expect(createButton().disabled).toBe(true);
+    expect(await screen.findByRole("listbox")).toBeTruthy();
   });
 
   it("creates the project and reports its id", async () => {
-    pick.mockResolvedValue({ path: "/x/y" });
-    mocked.createProject.mockResolvedValue(makeProject({ id: "new", path: "/x/y" }));
+    mocked.createProject.mockResolvedValue(makeProject({ id: "new", path: `${HOME}/code/app` }));
     const { onAdded } = setup();
-    await add();
-    await screen.findByText("/x/y");
+    await browseTo("app");
     fireEvent.input(nameField(), { target: { value: "Why" } });
     fireEvent.click(createButton());
     await waitFor(() => expect(onAdded).toHaveBeenCalledWith("new"));
-    expect(mocked.createProject).toHaveBeenCalledWith({ path: "/x/y", name: "Why" });
+    expect(mocked.createProject).toHaveBeenCalledWith({ path: `${HOME}/code/app`, name: "Why" });
     expect(projects.value.map((p) => p.id)).toEqual(["new"]);
+  });
+
+  it("offers Choose in Finder… for this Mac and uses its result", async () => {
+    pick.mockResolvedValue({ path: "/x/picked" });
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Choose in Finder…" }));
+    await screen.findByText("/x/picked");
+    expect(nameField().value).toBe("picked");
+  });
+
+  it("hides Choose in Finder… for other environments and when no native picker exists", async () => {
+    setup({ ...folders, nativePicker: false });
+    expect(screen.queryByRole("button", { name: "Choose in Finder…" })).toBeNull();
+    cleanup();
+    pick.mockResolvedValue({ unavailable: true });
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Choose in Finder…" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Choose in Finder…" })).toBeNull());
   });
 
   it("shows picker and server errors inline", async () => {
     pick.mockRejectedValueOnce(new Error("Folder picker failed: boom"));
     setup();
-    await add();
+    fireEvent.click(screen.getByRole("button", { name: "Choose in Finder…" }));
     expect((await screen.findByRole("alert")).textContent).toContain("boom");
-
-    pick.mockResolvedValueOnce({ path: "/x/gone" });
     mocked.createProject.mockRejectedValue(new Error("Folder does not exist"));
-    fireEvent.click(screen.getByRole("button", { name: /Add/ }));
-    await screen.findByText("/x/gone");
+    await browseTo("app");
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(createButton());
     expect((await screen.findByRole("alert")).textContent).toContain("Folder does not exist");
-  });
-
-  it("falls back to a path field when no native picker is available", async () => {
-    pick.mockResolvedValue({ unavailable: true });
-    mocked.createProject.mockResolvedValue(makeProject({ id: "p", path: "/x/typed" }));
-    const { onAdded } = setup();
-    await add();
-    const field = (await screen.findByLabelText("Source folder")) as HTMLInputElement;
-    expect(field.tagName).toBe("INPUT");
-    fireEvent.input(field, { target: { value: "relative" } });
-    leave(field);
-    expect(screen.getByRole("alert").textContent).toMatch(/absolute/);
-    expect(createButton().disabled).toBe(true);
-    fireEvent.input(field, { target: { value: "~/typed" } });
-    fireEvent.click(createButton());
-    await waitFor(() => expect(onAdded).toHaveBeenCalledWith("p"));
-    expect(mocked.createProject).toHaveBeenCalledWith({ path: "~/typed" });
   });
 });

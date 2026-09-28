@@ -28,10 +28,12 @@ import {
 import { socket } from "@/lib/socket";
 import * as chat from "./chat-session";
 import * as store from "./store";
+import { isLocalEnvironment } from "./env-registry";
 
 /** "live" = connected and caught up; "catching-up" = connected, replay/snapshot on its way. */
 export type SyncStatus = "connecting" | "catching-up" | "live" | "offline";
 
+/** The local (primary) environment's sync status; each connection has its own `status`. */
 export const syncStatus = signal<SyncStatus>("connecting");
 
 /** Where synced changes go (the app's stores; a recorder in tests). */
@@ -272,17 +274,48 @@ function sessionScopeOf(message: ServerMessage): string | null {
 }
 
 // Wiring ---------------------------------------------------------------------------------------
+// One SyncController per environment (I-123), each on that environment's socket and feeding the
+// merged stores with its items tagged by environment.
 
-let controller: SyncController | null = null;
+/** Controllers by environment id (`""`: the untagged local one of `startSync`). */
+const controllers = new Map<string, SyncController>();
 
-/** Connect the socket, subscribe and load the initial data. Call once at startup. */
-export function startSync(): void {
-  if (controller) return;
+/** The socket side a controller needs (a `Socket`, or a fake in tests). */
+export interface SyncSocket {
+  send(message: ClientMessage): void;
+  onMessage(handler: (message: ServerMessage) => void): () => void;
+  onOpen(handler: () => void): () => void;
+  onClose(handler: () => void): () => void;
+}
+
+/** The environment of a session's controller (falls back to the only/untagged one). */
+function controllerForSession(sessionId: string): SyncController | undefined {
+  const env = store.envIdOfSession(sessionId);
+  return controllers.get(env) ?? controllers.get("") ?? (controllers.size === 1 ? [...controllers.values()][0] : undefined);
+}
+
+let hooksInstalled = false;
+function installChatHooks(): void {
+  if (hooksInstalled) return;
+  hooksInstalled = true;
+  chat.setChatSyncHooks({
+    retain: (id) => controllerForSession(id)?.retain(id) ?? (() => {}),
+    seed: (id, seq) => controllerForSession(id)?.seed(id, seq),
+    restart: (id) => controllerForSession(id)?.restart(id),
+  });
+}
+
+/**
+ * Keep one environment in sync over its socket. `envId` undefined: the local environment with
+ * untagged items (`startSync`). `onStatus` reports every status change. Returns a disposer.
+ */
+export function attachSync(socket: SyncSocket, envId: string | undefined, onStatus?: (status: SyncStatus) => void): () => void {
+  const key = envId ?? "";
   const sync = new SyncController({
     send: (m) => socket.send(m),
-    applyShell: store.handleServerMessage,
-    applyShellSnapshot: store.applyShellSnapshot,
-    applyShellCheck: store.applyShellCheck,
+    applyShell: (m) => store.handleServerMessage(m, envId),
+    applyShellSnapshot: (shell) => store.applyShellSnapshot(shell, envId),
+    applyShellCheck: (check) => store.applyShellCheck(check, envId),
     applySessionEvent: chat.handleSessionEvent,
     applySessionSnapshot: chat.applySessionSnapshot,
     applySessionLive: chat.applySessionLive,
@@ -290,22 +323,27 @@ export function startSync(): void {
     applySessionError: chat.applySessionError,
     canSubscribe: (id) => chat.getChatSession(id).status.value !== "loading",
     legacyReload: () => {
-      void store.loadAll();
-      void chat.reloadOpenChatSessions();
+      void store.loadAll(envId);
+      void chat.reloadOpenChatSessions((id) => envId === undefined || store.envIdOfSession(id) === envId);
     },
     setStatus: (status) => {
-      syncStatus.value = status;
+      if (envId === undefined || isLocalEnvironment(envId) || controllers.size === 1) syncStatus.value = status;
+      onStatus?.(status);
     },
   });
-  controller = sync;
-  chat.setChatSyncHooks({
-    retain: (id) => sync.retain(id),
-    seed: (id, seq) => sync.seed(id, seq),
-    restart: (id) => sync.restart(id),
-  });
-  socket.onMessage((m) => sync.receive(m));
-  socket.onOpen(() => sync.onOpen());
-  socket.onClose(() => sync.onClose());
+  controllers.set(key, sync);
+  installChatHooks();
+  const offs = [socket.onMessage((m) => sync.receive(m)), socket.onOpen(() => sync.onOpen()), socket.onClose(() => sync.onClose())];
+  return () => {
+    offs.forEach((off) => off?.());
+    if (controllers.get(key) === sync) controllers.delete(key);
+  };
+}
+
+/** Local-only sync (tests; a page without environments): connect, subscribe and load. */
+export function startSync(): void {
+  if (controllers.size > 0) return;
+  attachSync(socket, undefined);
   socket.connect();
   // First paint over HTTP; the shell snapshot replaces it (and wins if it comes first).
   void store.loadAll();

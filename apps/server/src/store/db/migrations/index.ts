@@ -5,14 +5,18 @@
  */
 import { migration001 } from "./001-initial.js";
 import { migration002 } from "./002-sync.js";
+import { migration003 } from "./003-environment.js";
+import type { Db } from "../database.js";
 
 export interface Migration {
   version: number;
   name: string;
   sql: string;
+  /** Data changes SQL alone can't make (runs after `sql`, in the same transaction). */
+  run?: (db: Db) => void;
 }
 
-export const MIGRATIONS: readonly Migration[] = [migration001, migration002];
+export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003];
 
 /** The schema version this build writes (also announced in `servers/<pid>.json`). */
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;

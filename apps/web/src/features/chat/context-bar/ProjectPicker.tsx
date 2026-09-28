@@ -6,7 +6,8 @@
 import { useNavigate } from "react-router";
 import { ChevronDown, Folder, FolderPlus, MessageSquare } from "lucide-preact";
 import { routes } from "@/app/routes";
-import { projectsById, sortedProjects } from "@/state/store";
+import { envIdOf, projectsById, sortedProjects } from "@/state/store";
+import { environmentLabel, isLocalEnvironment } from "@/state/env-registry";
 import { openAddProject } from "@/state/ui";
 import { SearchPopover } from "@/ui";
 import { barButtonClass } from "./shared";
@@ -29,7 +30,14 @@ export function ProjectPicker({ projectId }: { projectId: string | null }) {
       side="top"
       onSelect={onSelect}
       sections={[
-        { items: sortedProjects.value.map((p) => ({ id: p.id, label: p.name, checked: p.id === projectId, keywords: [p.path] })) },
+        {
+          items: sortedProjects.value.map((p) => {
+            // Projects of another environment say where they are (I-123).
+            const env = envIdOf(p);
+            const remote = isLocalEnvironment(env) ? undefined : environmentLabel(env);
+            return { id: p.id, label: p.name, checked: p.id === projectId, keywords: remote ? [p.path, remote] : [p.path], detail: remote };
+          }),
+        },
         {
           items: [
             { id: ADD, label: "Add Project…", icon: <FolderPlus />, persistent: true },

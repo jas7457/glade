@@ -1,16 +1,26 @@
 /**
- * "Create project" sheet: name the project and choose its source folder with the native macOS
- * folder dialog (via {@link pickFolder}). Picking a folder fills in the name unless the user typed
- * one. When no native picker is available, the folder is typed as a path instead.
+ * "Create project" sheet: name the project and choose its source folder with the in-app folder
+ * browser (ui/FolderBrowser, I-124), which lists folders of the project's environment through a
+ * {@link ProjectFolderSource}. When that environment is this Mac, "Choose in Finder…" opens the
+ * native dialog as an extra. Choosing a folder fills in the name unless the user typed one.
+ *
+ * Environment input: the `folders` prop (default: the local server). Everything environment-
+ * specific goes through it; `create` (below) is the one other place that talks to a server.
+ * I-123: with several environments connected the sheet asks which one the project belongs to
+ * (fixed after creation); the folders and the create request then go to that environment.
  */
 import { useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Folder } from "lucide-preact";
 import { routes } from "@/app/routes";
 import { pickFolder } from "@/lib/native";
-import { Button, Dialog, TextField } from "@/ui";
+import { Button, Dialog, FolderBrowser, TextField } from "@/ui";
 import { addProject } from "@/state/actions";
+import { envIdOf, projects } from "@/state/store";
 import { addProjectOpen } from "@/state/ui";
+import { connections, primaryEnvironmentId, THIS_MACHINE_LABEL } from "@/state/env-registry";
+import { Select } from "@/ui";
+import { envFolderSource, type ProjectFolderSource } from "./folder-source";
 import { SourceFolder } from "./SourceFolder";
 import { folderName, nameAfterPick, validateProjectPath } from "./validation";
 
@@ -18,50 +28,62 @@ export interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdded?: (projectId: string) => void;
+  /** The environment whose folders are browsed (default: the chosen environment's, I-123). */
+  folders?: ProjectFolderSource;
 }
 
-export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDialogProps) {
+export function AddProjectDialog({ open, onOpenChange, onAdded, folders: foldersProp }: AddProjectDialogProps) {
+  /** The environment the project is created on (I-123); null = the local/primary one. */
+  const [envId, setEnvId] = useState<string | null>(null);
+  const folders = foldersProp ?? envFolderSource(envId);
+  const envChoices = connections.value;
   const [name, setName] = useState("");
   /** The name we last filled in from a folder; a name equal to it may be replaced on re-pick. */
   const [autoName, setAutoName] = useState<string | null>(null);
   const [path, setPath] = useState("");
+  /** The folder browser is shown (always while no folder is chosen). */
+  const [browsing, setBrowsing] = useState(false);
   const [picking, setPicking] = useState(false);
-  /** No native picker (non-macOS server): type the path instead. Remembered across opens. */
-  const [manual, setManual] = useState(false);
+  /** The native picker turned out to be unavailable (e.g. the server isn't on macOS). */
+  const [nativeUnavailable, setNativeUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const validation = validateProjectPath(path);
-  const shownError = error ?? (manual && touched && path ? validation : null);
+  const showBrowser = browsing || !path;
+  const recent = projects.value.filter((p) => envIdOf(p) === (envId ?? primaryEnvironmentId())).map((p) => p.path);
+  const nativePicker = folders.nativePicker && !nativeUnavailable;
 
   const reset = () => {
     setName("");
     setAutoName(null);
     setPath("");
+    setBrowsing(false);
     setError(null);
-    setTouched(false);
+    setEnvId(null);
   };
   const close = (o: boolean) => {
     onOpenChange(o);
     if (!o) reset();
   };
 
-  const choose = async () => {
+  const chosen = (folder: string) => {
+    const next = nameAfterPick(name, autoName, folder);
+    if (next !== name) setAutoName(next);
+    setName(next);
+    setPath(folder);
+    setBrowsing(false);
+    setError(null);
+  };
+
+  const chooseInFinder = async () => {
     if (picking) return;
     setPicking(true);
     setError(null);
     try {
       const result = await pickFolder({ prompt: "Choose the project's source folder", defaultPath: path || undefined });
-      if ("path" in result) {
-        const next = nameAfterPick(name, autoName, result.path);
-        if (next !== name) setAutoName(next);
-        setName(next);
-        setPath(result.path);
-      } else if ("unavailable" in result) {
-        setManual(true);
-        requestAnimationFrame(() => document.getElementById("project-path")?.focus());
-      }
+      if ("path" in result) chosen(result.path);
+      else if ("unavailable" in result) setNativeUnavailable(true);
       // cancelled: leave everything as it was
     } catch (err) {
       setError((err as Error).message);
@@ -78,11 +100,10 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
   };
 
   const submit = async () => {
-    setTouched(true);
-    if (validation || busy || picking) return;
+    if (validation || busy || picking || showBrowser) return;
     setBusy(true);
     try {
-      const project = await addProject(path.trim(), name.trim() || undefined);
+      const project = await addProject(path.trim(), name.trim() || undefined, envId ?? undefined);
       close(false);
       onAdded?.(project.id);
     } catch (err) {
@@ -97,6 +118,7 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
       open={open}
       onOpenChange={close}
       title="Create project"
+      width={620}
       onOpenAutoFocus={(e) => {
         e.preventDefault();
         document.getElementById("project-name")?.focus();
@@ -104,20 +126,35 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
       footer={
         <>
           <Button onClick={() => close(false)}>Cancel</Button>
-          <Button variant="primary" disabled={!!validation || busy || picking} onClick={() => void submit()}>
+          <Button variant="primary" disabled={!!validation || busy || picking || showBrowser} onClick={() => void submit()}>
             {busy ? "Creating…" : "Create project"}
           </Button>
         </>
       }
     >
-      <form
-        class="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <div class="flex flex-col gap-1.5">
+      <div class="flex flex-col gap-4">
+        {envChoices.length > 1 && (
+          <div class="flex flex-col gap-1.5">
+            <span class="font-medium">Environment</span>
+            <Select
+              aria-label="Environment"
+              value={envId ?? primaryEnvironmentId()}
+              onChange={(id) => {
+                setEnvId(id === primaryEnvironmentId() ? null : id);
+                setPath("");
+                setBrowsing(false);
+              }}
+              options={envChoices.map((c) => ({ value: c.id, label: c.isLocal ? THIS_MACHINE_LABEL : c.name.value, detail: c.isLocal ? undefined : "remote" }))}
+            />
+          </div>
+        )}
+        <form
+          class="flex flex-col gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
           <label for="project-name" class="font-medium">
             Project name
           </label>
@@ -128,41 +165,41 @@ export function AddProjectDialog({ open, onOpenChange, onAdded }: AddProjectDial
             placeholder={path ? folderName(path) : "Project name"}
             onInput={(e) => setName(e.currentTarget.value)}
           />
-        </div>
+          <button type="submit" hidden />
+        </form>
 
         <div class="flex flex-col gap-1.5">
-          <label for={manual ? "project-path" : undefined} class="font-medium">
-            Source folder
-          </label>
-          {manual ? (
-            <>
-              <TextField
-                id="project-path"
-                mono
-                value={path}
-                invalid={!!shownError}
-                placeholder="~/code/my-project"
-                onInput={(e) => {
-                  setPath(e.currentTarget.value);
-                  setError(null);
-                }}
-                onBlur={() => setTouched(true)}
-              />
-              <span class="text-[0.92rem] text-fg-muted">The folder picker isn't available here. Enter the folder's path.</span>
-            </>
+          <span class="font-medium">Source folder</span>
+          {showBrowser ? (
+            <FolderBrowser
+              key={envId ?? ""}
+              browse={folders.browse}
+              mkdir={folders.mkdir}
+              initialPath={path || "~"}
+              recent={recent}
+              onChoose={chosen}
+              onCancel={path ? () => setBrowsing(false) : undefined}
+              cancelLabel="Back"
+            />
           ) : (
-            <SourceFolder path={path || null} picking={picking} onPick={() => void choose()} onRemove={remove} />
+            <SourceFolder path={path} picking={picking} onPick={() => setBrowsing(true)} onRemove={remove} />
           )}
-          <span class="text-[0.92rem] text-fg-muted">Chats in this project run with this folder as their working directory.</span>
+          <div class="flex items-center gap-2">
+            <span class="min-w-0 flex-1 text-[0.92rem] text-fg-muted">Chats in this project run with this folder as their working directory.</span>
+            {nativePicker && (
+              <Button size="sm" variant="ghost" disabled={picking} onClick={() => void chooseInFinder()}>
+                {picking ? "Choosing…" : "Choose in Finder…"}
+              </Button>
+            )}
+          </div>
         </div>
 
-        {shownError && (
+        {error && (
           <div role="alert" class="text-[0.92rem] text-danger">
-            {shownError}
+            {error}
           </div>
         )}
-        <button type="submit" hidden />
-      </form>
+      </div>
     </Dialog>
   );
 }

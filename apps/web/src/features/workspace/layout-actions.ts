@@ -153,6 +153,6 @@ async function closeLastTab(session: SessionSummary, navigate: Navigate): Promis
     delete rest[workspace.id];
     maximizedGroup.value = rest;
   }
-  navigate(workspace.projectId ? routes.project(workspace.projectId) : routes.home(), { replace: true });
+  navigate(workspace.projectId ? routes.project(workspace.projectId) : routes.home(workspace.environmentId), { replace: true });
   return true;
 }

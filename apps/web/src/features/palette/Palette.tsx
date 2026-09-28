@@ -17,6 +17,7 @@ import { COMMAND_GROUPS, isAvailable, type Command, type CommandContext, type Co
 import { chatPath } from "@/app/routes";
 import { requestJump } from "@/features/chat/jump-to-message";
 import { askChats, searchChats } from "@/lib/api-search";
+import { connections, hasLocalEnvironment } from "@/state/env-registry";
 import { workspacesById } from "@/state/store";
 import { paletteOpen } from "@/state/ui";
 import { rankItems } from "./match";
@@ -62,9 +63,16 @@ function useMessageSearch(query: string): SearchHit[] {
     }
     let cancelled = false;
     const timer = setTimeout(() => {
+      // Every connected environment's chats (I-123), local first; one request when there's one.
+      const remotes = connections.value.filter((c) => !c.isLocal);
       Promise.resolve()
-        .then(() => searchChats(q, 12))
-        .then((res) => !cancelled && setHits(res.hits))
+        .then(() =>
+          Promise.all([
+            hasLocalEnvironment.value ? searchChats(q, 12) : { query: q, hits: [] as SearchHit[] },
+            ...remotes.map((c) => searchChats(q, 12, c.request).catch(() => ({ query: q, hits: [] as SearchHit[] }))),
+          ]),
+        )
+        .then((results) => !cancelled && setHits(results.flatMap((r) => r.hits)))
         .catch(() => !cancelled && setHits([]));
     }, SEARCH_DEBOUNCE_MS);
     return () => {

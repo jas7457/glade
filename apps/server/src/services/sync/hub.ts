@@ -6,7 +6,7 @@
  *   (`Store`), committed with the change. The store hands the hub every committed row in seq
  *   order (`Store.onEvents`): this server's right after the write, other servers' when its poll
  *   finds them (I-062), so a client of this server sees theirs with their seqs too.
- * - **Shell scope** (projects, workspaces, sessions, settings, agents): rows mark entities dirty;
+ * - **Shell scope** (projects, workspaces, sessions, settings, agents, the environment): rows mark entities dirty;
  *   every ~50 ms the dirty entities are read once (current record and live summary) and sent as
  *   the usual `*_upsert` / `*_removed` pushes, tagged `seq` (the entity's newest row) and `prev`.
  *   Pushes the app makes without a row (live status, leases elsewhere) mark entities dirty too and
@@ -30,6 +30,7 @@ import {
   type Store,
 } from "../../store/store.js";
 import type {
+  EnvironmentInfo,
   ServerMessage,
   SessionLiveState,
   SessionSummary,
@@ -42,6 +43,8 @@ import type {
 export interface SyncSource {
   readonly store: Store;
   shellSnapshot(): ShellSnapshot;
+  /** This server's environment (I-123), for `environment` pushes after a rename. */
+  environmentInfo?(): EnvironmentInfo;
   sessionSummary(id: string): SessionSummary | null;
   workspaceSummary(id: string): WorkspaceSummary | null;
   /** Sessions whose live status isn't idle (running, waiting for input, busy elsewhere). */
@@ -214,6 +217,9 @@ export class SyncHub {
       }
     } else if (kind === "settings") {
       message = { type: "settings", settings: store.getSettings() };
+    } else if (kind === "environment") {
+      const environment = this.source.environmentInfo?.();
+      message = environment ? { type: "environment", environment } : null;
     }
     this.shellMemo?.set(memoKey, message);
     return message;
@@ -389,6 +395,8 @@ export class SyncClient {
         return this.markDirty(`project:${message.projectId}`, null);
       case "settings":
         return this.markDirty("settings", null);
+      case "environment":
+        return this.markDirty("environment", null);
       case "models":
       case "usage_limits":
         if (this.shell?.state === "live") this.enqueue("shell", { ...message, seq: this.shell.sent });
@@ -445,6 +453,8 @@ export class SyncClient {
         return set(`workspace:${id}`, row.seq);
       case "settings":
         return set("settings", row.seq);
+      case "environment":
+        return set("environment", row.seq);
       case "session": {
         const workspaceId = row.payload?.workspaceId ?? this.store.getSession(id)?.workspaceId;
         set(`session:${id}`, row.seq, workspaceId);

@@ -55,7 +55,7 @@ export function createWsHandler(service: AppService): (c: Context) => WSEvents {
         const send = (message: ServerMessage) => {
           if (ws.readyState === OPEN) ws.send(JSON.stringify(message));
         };
-        send({ type: "hello", version: VERSION, protocol: SYNC_PROTOCOL });
+        send({ type: "hello", version: VERSION, protocol: SYNC_PROTOCOL, environmentId: service.environment.id });
         unsubscribe = service.subscribe(send);
         const usage = service.getUsageLimits();
         if (usage) send({ type: "usage_limits", usage });

@@ -5,6 +5,8 @@
  * Move Up/Down (pinned chats), Mark as Read / Mark as Unread (I-073: flags the last open tab), Delete.
  * Chats working in their own git worktree (I-096) show a small branch glyph.
  */
+import { RemoteMarker } from "@/features/environments/RemoteMarker";
+import { envIdOf } from "@/state/store";
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { GitBranch, MoreHorizontal, Pin } from "lucide-preact";
@@ -100,6 +102,8 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
         strong={chat.status === "unread" && !selected}
         indent={indent}
         onSelect={() => navigate(chatPath(chat))}
+        // Standalone chats of another environment (I-123); a project's chats show it on the project.
+        badge={chat.projectId === null ? <RemoteMarker envId={envIdOf(chat)} /> : undefined}
         trailing={trailing}
         actionsVisible={menuOpen}
         editor={

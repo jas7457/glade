@@ -9,7 +9,7 @@
  */
 import { signal } from "@preact/signals";
 import type { CreateWorkspaceRequest, ProjectGitInfo } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { apiForProject } from "./env-api";
 
 /** Project id "New worktree" is on for; null = Local. */
 export const newChatWorktree = signal<string | null>(null);
@@ -42,7 +42,7 @@ export function loadProjectGit(projectId: string): Promise<void> {
   const pending = loading.get(projectId);
   if (pending) return pending;
   const load = Promise.resolve()
-    .then(() => api.getProjectGit(projectId))
+    .then(() => apiForProject(projectId).getProjectGit(projectId))
     .catch((): ProjectGitInfo => NOT_A_REPO)
     .then((info) => setGit(projectId, info))
     .finally(() => loading.delete(projectId));
@@ -84,14 +84,14 @@ export function worktreeRequestFor(projectId: string | null): Pick<CreateWorkspa
 
 /** Check out a branch in the project folder; updates the project's git info. Throws `ApiRequestError`. */
 export async function checkoutProjectBranch(projectId: string, branch: string): Promise<ProjectGitInfo> {
-  const info = await api.checkoutProjectBranch(projectId, branch);
+  const info = await apiForProject(projectId).checkoutProjectBranch(projectId, branch);
   setGit(projectId, info);
   return info;
 }
 
 /** Create a branch in the project folder (and check it out); updates the project's git info. */
 export async function createProjectBranch(projectId: string, name: string, checkout: boolean): Promise<ProjectGitInfo> {
-  const info = await api.createProjectBranch(projectId, name, checkout);
+  const info = await apiForProject(projectId).createProjectBranch(projectId, name, checkout);
   setGit(projectId, info);
   return info;
 }

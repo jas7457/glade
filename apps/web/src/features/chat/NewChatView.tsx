@@ -3,8 +3,9 @@
  * The context bar above the composer (I-105) picks the project, where the chat works (Local or a
  * new worktree, I-096) and the branch.
  */
-import { harnessLabel, newChatHarnessInfo } from "@/state/harnesses";
-import { projectsById } from "@/state/store";
+import { harnessLabel, newChatHarnessFor } from "@/state/harnesses";
+import { envIdOfProject, projectsById } from "@/state/store";
+import { environmentLabel, isLocalEnvironment } from "@/state/env-registry";
 import { TITLEBAR_HEIGHT } from "@/ui";
 import { Composer } from "./Composer";
 import { ContextBar } from "./context-bar";
@@ -16,8 +17,11 @@ export function shortenPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 }
 
-export function NewChatView({ projectId }: { projectId: string | null }) {
+/** `envId`: the environment a standalone chat runs on (I-123; null = local/primary). */
+export function NewChatView({ projectId, envId = null }: { projectId: string | null; envId?: string | null }) {
   const project = projectId ? projectsById.value.get(projectId) : undefined;
+  const env = project ? envIdOfProject(project.id) : envId;
+  const remote = env && !isLocalEnvironment(env) ? environmentLabel(env) : null;
 
   return (
     <div class="flex h-full min-h-0 flex-col bg-window">
@@ -33,11 +37,15 @@ export function NewChatView({ projectId }: { projectId: string | null }) {
                 {project.name} · <span class="text-fg-subtle">{shortenPath(project.path)}</span>
               </p>
             ) : (
-              <p class="mt-1 text-fg-muted">Ask anything. Standalone chats run in a scratch folder.</p>
+              <p class="mt-1 text-fg-muted">Ask anything. Standalone chats run in a scratch folder{remote ? ` on ${remote}` : ""}.</p>
             )}
           </div>
-          <ContextBar projectId={project ? project.id : null} />
-          <Composer projectId={projectId} placeholder={project ? `Ask ${harnessLabel(newChatHarnessInfo.value?.id)} to work on ${project.name}…` : "Ask anything…"} />
+          <ContextBar projectId={project ? project.id : null} envId={project ? null : envId} />
+          <Composer
+            projectId={projectId}
+            envId={project ? null : envId}
+            placeholder={project ? `Ask ${harnessLabel(newChatHarnessFor(env)?.id, env)} to work on ${project.name}…` : "Ask anything…"}
+          />
         </div>
       </div>
     </div>

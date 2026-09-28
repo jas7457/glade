@@ -4,14 +4,16 @@
  * the folder ("Open worktree glade/x in VS Code", "Open sample-repo in VS Code"). The targets
  * live in one registry so Finder / Terminal / Cursor can be added next to VS Code (then this
  * becomes a split button with a menu). Failures (e.g. the app isn't installed) show a toast.
+ * Only shown for chats and projects of this machine (I-123/I-124: a remote host would open the
+ * app on *its* screen).
  */
 import { useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { SquareCode } from "lucide-preact";
 import type { OpenTarget, WorkspaceSummary } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { apiForProject, apiForWorkspace, isThisMachine } from "@/state/env-api";
 import { runAction } from "@/state/chat-session";
-import { projectsById } from "@/state/store";
+import { envIdOfProject, envIdOfWorkspace, projectsById } from "@/state/store";
 import { IconButton } from "@/ui";
 
 export interface OpenTargetInfo {
@@ -40,10 +42,12 @@ export function OpenInButton(props: OpenInButtonProps) {
   const [busy, setBusy] = useState(false);
   const info = OPEN_TARGETS[target];
   const folder = folderName(props);
+  const envId = workspace ? envIdOfWorkspace(workspace.id) : envIdOfProject(projectId);
+  if (!isThisMachine(envId, "openIn")) return null;
   const open = async () => {
     setBusy(true);
     await runAction(
-      () => (workspace ? api.openWorkspace(workspace.id, target) : api.openProject(projectId!, target)),
+      () => (workspace ? apiForWorkspace(workspace.id).openWorkspace(workspace.id, target) : apiForProject(projectId!).openProject(projectId!, target)),
       `Could not open in ${info.label}`,
     );
     setBusy(false);

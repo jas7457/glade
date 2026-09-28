@@ -6,11 +6,12 @@
  * a harness feature name it in `requires` and are hidden for harnesses without it (I-065).
  */
 import { type HarnessCapabilities, type ModelInfo, type ModelRef, type SlashCommand, type ThinkingLevel } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { downloadUrl } from "@/lib/download";
+import { apiForSession, isThisMachine } from "@/state/env-api";
 import { routes } from "@/app/routes";
 import { renameFromSession } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
-import { sessionsById, workspacesById } from "@/state/store";
+import { envIdOfSession, sessionsById, workspacesById } from "@/state/store";
 import { dismissToast, notify, showToast } from "@/state/toasts";
 import { describeStats } from "../context-meter";
 import { thinkingLabel } from "../composer-utils";
@@ -71,7 +72,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
       }
       // Show the working state right away; pi's compaction events confirm/clear it.
       store.state.value = { ...store.state.value, isCompacting: true };
-      api.compact(chatId, args || undefined).then(
+      apiForSession(chatId).compact(chatId, args || undefined).then(
         () => {
           store.state.value = { ...store.state.value, isCompacting: false };
         },
@@ -91,7 +92,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     run: (_args, ctx) => {
       const workspaceId = ctx.chatId ? sessionsById.value.get(ctx.chatId)?.workspaceId : undefined;
       const projectId = ctx.projectId ?? (workspaceId ? workspacesById.value.get(workspaceId)?.projectId : null) ?? null;
-      ctx.navigate(projectId ? routes.project(projectId) : routes.home());
+      ctx.navigate(projectId ? routes.project(projectId) : routes.home(ctx.chatId ? envIdOfSession(ctx.chatId) : undefined));
       return true;
     },
   },
@@ -108,7 +109,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
       // rename and pushes the new titles.
       const naming = showToast({ level: "info", message: "Naming this chat…", timeoutMs: 60_000 });
       try {
-        const { title } = await api.generateSessionTitle(chatId);
+        const { title } = await apiForSession(chatId).generateSessionTitle(chatId);
         dismissToast(naming);
         notify("success", `Renamed to “${title}”`);
         return true;
@@ -174,8 +175,21 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
     needsChat: true,
     requires: "exportHtml",
     run: async (_args, ctx) => {
+      const chatId = requireChat(ctx);
+      const client = apiForSession(chatId);
+      if (!isThisMachine(envIdOfSession(chatId))) {
+        // A remote environment (I-123): the file is on the host; download it through the browser.
+        try {
+          const name = await downloadUrl(client.exportSessionDownloadUrl(chatId), "chat.html");
+          notify("success", `Chat exported: ${name}`);
+          return true;
+        } catch (err) {
+          notify("error", `Could not export: ${(err as Error).message}`);
+          return false;
+        }
+      }
       try {
-        const { path } = await api.exportSession(requireChat(ctx));
+        const { path } = await client.exportSession(chatId);
         showToast({
           level: "success",
           title: "Chat exported",
@@ -183,7 +197,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
           timeoutMs: 10_000,
           action: {
             label: "Reveal",
-            onClick: () => void api.revealFile(path).catch((err: Error) => notify("error", `Could not reveal: ${err.message}`)),
+            onClick: () => void client.revealFile(path).catch((err: Error) => notify("error", `Could not reveal: ${err.message}`)),
           },
         });
         return true;

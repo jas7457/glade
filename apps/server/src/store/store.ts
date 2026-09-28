@@ -34,7 +34,8 @@ import {
 } from "@glade/protocol";
 import type { AgentRecord } from "../services/agents.js";
 import type { SessionTextMessage } from "../harness/types.js";
-import { DB_FILE, getMeta, getMetaJson, inTransaction, openDatabase, setMetaJson, transaction, type Db } from "./db/database.js";
+import { DB_FILE, getMeta, getMetaJson, inTransaction, openDatabase, setMeta, setMetaJson, transaction, type Db } from "./db/database.js";
+import { ENVIRONMENT_ID_KEY, ensureEnvironmentId } from "./db/migrations/003-environment.js";
 import { ulid } from "./db/ids.js";
 import { migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
 import {
@@ -60,7 +61,7 @@ export interface StoreChange {
 
 /**
  * One row of the event log (I-122), as the sync hub sees it. `type`: "project" | "workspace" |
- * "session" | "agent" | "settings" (scope "shell") or "messages" (scope "session").
+ * "session" | "agent" | "settings" | "environment" (scope "shell") or "messages" (scope "session").
  */
 export interface EventRow {
   seq: number;
@@ -135,11 +136,18 @@ export interface StoreOptions {
 const EVENTS_MAX_AGE_MS = 7 * 24 * 3600_000;
 const EVENTS_MAX_ROWS = 100_000;
 
+const ENVIRONMENT_NAME_KEY = "environment_name";
+
 type Row = Record<string, unknown>;
 
 export class Store {
   readonly db: Db;
   readonly serverId: string;
+  /**
+   * This data folder's environment (I-123): permanent, shared by every server on the folder.
+   * Every project carries it (`Project.environmentId`), set at creation and never changed.
+   */
+  readonly environmentId: string;
   /** The JSON import this open performed (null when the database already had one). */
   readonly jsonImport: JsonImportRecord | null = null;
   private readonly projects = new Map<string, Project>();
@@ -164,6 +172,7 @@ export class Store {
   ) {
     this.serverId = options.serverId ?? ulid();
     this.db = openDatabase(join(dataDir, DB_FILE));
+    this.environmentId = getMeta(this.db, ENVIRONMENT_ID_KEY) ?? transaction(this.db, () => ensureEnvironmentId(this.db));
     if (options.importJson !== false) this.jsonImport = this.importJsonOnce();
     this.loadAll();
     this.lastSeq = Number((this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq);
@@ -448,7 +457,14 @@ export class Store {
 
   private readRecord<T>(table: string, id: string, key = "id"): T | undefined {
     const row = this.db.prepare(`SELECT data_json FROM ${table} WHERE ${key} = ?`).get(id) as { data_json: string } | undefined;
-    return row ? (JSON.parse(row.data_json) as T) : undefined;
+    if (!row) return undefined;
+    const record = JSON.parse(row.data_json) as T;
+    return table === "projects" ? (this.withEnvironment(record as Project) as T) : record;
+  }
+
+  /** A project with its environment (rows an older server wrote after migration 3 lack it). */
+  private withEnvironment(p: Project): Project {
+    return p.environmentId ? p : { ...p, environmentId: this.environmentId };
   }
 
   /** Append to the event log (inside the caller's transaction). */
@@ -480,7 +496,7 @@ export class Store {
 
   private loadAll(): void {
     const all = <T>(sql: string) => (this.db.prepare(sql).all() as Array<{ data_json: string }>).map((r) => JSON.parse(r.data_json) as T);
-    for (const p of all<Project>("SELECT data_json FROM projects ORDER BY rowid")) this.projects.set(p.id, p);
+    for (const p of all<Project>("SELECT data_json FROM projects ORDER BY rowid")) this.projects.set(p.id, this.withEnvironment(p));
     for (const w of all<Workspace>("SELECT data_json FROM workspaces ORDER BY rowid")) this.workspaces.set(w.id, w);
     for (const s of all<Session>("SELECT data_json FROM sessions ORDER BY rowid")) this.sessions.set(s.id, s);
     for (const a of all<AgentRecord>("SELECT data_json FROM agents ORDER BY rowid")) this.agents.set(a.sessionId, a);
@@ -544,13 +560,15 @@ export class Store {
 
   // Row writers (callers hold a transaction) ---------------------------------------------------
 
-  private putProject(p: Project, now: number): void {
+  private putProject(project: Project, now: number): void {
+    const p = this.withEnvironment(project);
     this.db
       .prepare(
-        `INSERT INTO projects (id, sort_order, data_json, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET sort_order = excluded.sort_order, data_json = excluded.data_json, updated_at = excluded.updated_at`,
+        `INSERT INTO projects (id, environment_id, sort_order, data_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET environment_id = excluded.environment_id, sort_order = excluded.sort_order,
+           data_json = excluded.data_json, updated_at = excluded.updated_at`,
       )
-      .run(p.id, p.sortOrder ?? 0, JSON.stringify(p), now);
+      .run(p.id, p.environmentId!, p.sortOrder ?? 0, JSON.stringify(p), now);
   }
 
   private putWorkspace(w: Workspace, now: number): void {
@@ -606,7 +624,13 @@ export class Store {
     return this.projects.get(id);
   }
 
-  upsertProject(project: Project): Project {
+  /**
+   * Add or replace a project. Its `environmentId` can't change (I-123): a known project keeps
+   * its own, a new one gets the given id or this environment's.
+   */
+  upsertProject(next: Project): Project {
+    const environmentId = this.projects.get(next.id)?.environmentId ?? next.environmentId ?? this.environmentId;
+    const project: Project = { ...next, environmentId };
     transaction(this.db, () => {
       this.putProject(project, Date.now());
       this.event("project", project.id);
@@ -622,6 +646,23 @@ export class Store {
       this.event("project", id);
     });
     this.projects.delete(id);
+    this.publish();
+  }
+
+  // Environment (I-123) ------------------------------------------------------------------------
+
+  /** The environment's display name, `null` when never set (the machine name is used then). */
+  getEnvironmentName(): string | null {
+    return getMeta(this.db, ENVIRONMENT_NAME_KEY);
+  }
+
+  /** Rename the environment (`null` = back to the machine name); an "environment" event row. */
+  setEnvironmentName(name: string | null): void {
+    transaction(this.db, () => {
+      if (name === null) this.db.prepare("DELETE FROM meta WHERE key = ?").run(ENVIRONMENT_NAME_KEY);
+      else setMeta(this.db, ENVIRONMENT_NAME_KEY, name);
+      this.event("environment", this.environmentId);
+    });
     this.publish();
   }
 

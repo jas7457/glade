@@ -8,9 +8,7 @@ import { useEffect, useState } from "preact/hooks";
 import { Pencil, Plus, Trash2 } from "lucide-preact";
 import { acpAgentIdFor, type AcpAgentConfig } from "@glade/protocol";
 import { Button, Dialog, FormGroup, FormRow, IconButton, TextArea, TextField, confirm } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
-import { loadHarnesses } from "@/state/harnesses";
+import { hostSettings as settings, loadHostHarnesses as loadHarnesses, updateHostSettings as updateSettings } from "@/state/host-settings";
 
 export const ACP_COST_NOTE = "Glade starts this command when you use it; it may use your account/subscription.";
 

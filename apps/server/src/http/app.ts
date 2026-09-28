@@ -5,7 +5,7 @@
  */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { Hono, type Context } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -30,6 +30,7 @@ import {
   type ThinkingLevel,
   type UiResponse,
   type UpdateProjectRequest,
+  type UpdateEnvironmentRequest,
   type UpdateSessionRequest,
   type UpdateWorkspaceRequest,
   type WorktreeRemoval,
@@ -39,6 +40,7 @@ import type { FolderInfoService } from "../services/folder-info.js";
 import { createFolderPicker, FolderPickerUnavailableError, type FolderPicker, type PickFolderOptions } from "../services/folder-picker.js";
 import { RevealUnavailableError } from "../services/reveal.js";
 import { AttachmentError } from "../services/attachments.js";
+import { MAX_ENVIRONMENT_NAME } from "../services/environment.js";
 import { folderRoutes } from "./folder.js";
 import { changesRoutes } from "./changes.js";
 import { GitChangesService } from "../services/git-changes.js";
@@ -49,6 +51,7 @@ import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
 import { commandIds } from "./commands.js";
 import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
+import { fsBrowseRoutes } from "./fs-browse.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -87,6 +90,8 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
   if (search) app.route("/api", searchRoutes(search));
   // Agent API for sub-agents (I-037): token-authenticated, used by the agent-teams Glade backend.
   app.route("/api/agents", createAgentsRoutes(service, search));
+  // Folder browser (I-124): directories in the home folder and /Volumes, New Folder.
+  app.route("/api", fsBrowseRoutes());
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service)));
 
@@ -129,6 +134,15 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   // Retried commands aren't applied twice (client `commandId`, I-122).
   const once = commandIds(() => service.store);
 
+  // This server as an environment (I-123) -------------------------------------------------------
+  api.get("/environment", (c) => c.json(service.getEnvironment()));
+  api.patch("/environment", async (c) => {
+    const body = await readBody<UpdateEnvironmentRequest>(c);
+    if (typeof body.name !== "string") throw new HttpError(400, "name must be a string");
+    if (body.name.trim().length > MAX_ENVIRONMENT_NAME) throw new HttpError(400, `name can be at most ${MAX_ENVIRONMENT_NAME} characters`);
+    return c.json(service.renameEnvironment(body.name));
+  });
+
   // Projects ----------------------------------------------------------------------------------
   api.get("/projects", (c) => c.json(service.listProjects()));
   api.post("/projects", once, async (c) => {
@@ -140,6 +154,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.patch("/projects/:id", async (c) => {
     const body = await readBody<UpdateProjectRequest>(c);
     optional(body.name, "string", "name");
+    // A project's environment is set at creation and never changes (I-123).
+    if ("environmentId" in body) throw new HttpError(400, "environmentId can't be changed");
     return c.json(service.updateProject(c.req.param("id"), body));
   });
   api.put("/projects/order", async (c) => {
@@ -315,6 +331,16 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     const body = await readOptionalBody<{ reveal?: boolean }>(c);
     optional(body.reveal, "boolean", "reveal");
     return withReveal(c, () => service.exportSession(c.req.param("id"), { reveal: body.reveal }));
+  });
+  // The export as a download (I-123): for clients not on the host (no Finder to reveal it in).
+  api.get("/sessions/:id/export/download", async (c) => {
+    const { path } = await service.exportSession(c.req.param("id"));
+    const html = await readFile(path);
+    const name = basename(path);
+    const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+    c.header("content-type", "text/html; charset=utf-8");
+    c.header("content-disposition", `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    return c.body(new Uint8Array(html));
   });
   api.post("/sessions/:id/ui-response", async (c) => {
     const body = await readBody<UiResponse>(c);

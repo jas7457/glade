@@ -4,12 +4,32 @@
  *
  *   const caps = harnessCapabilities(session.harness); if (caps.compact) …
  *   harnessLabel(session.harness) // "pi"
+ *
+ * I-123: every environment has its own harnesses (`EnvShell.harnesses`); `harnesses` is the local
+ * one's. Functions take an optional environment id (default: the local/primary environment).
  */
-import { computed, signal } from "@preact/signals";
+import { computed, signal, type Signal } from "@preact/signals";
 import type { HarnessCapabilities, HarnessInfo } from "@glade/protocol";
 import { request } from "@/lib/api";
+import { connectionFor } from "./env-registry";
 
 export const harnesses = signal<HarnessInfo[] | null>(null);
+
+/** The harness list signal of an environment (the local one for untagged/unknown). */
+function listSignal(envId?: string | null): Signal<HarnessInfo[] | null> {
+  return connectionFor(envId)?.shell.harnesses ?? harnesses;
+}
+
+/** Installed harnesses of an environment (`null` until loaded). */
+export function harnessesOf(envId?: string | null): HarnessInfo[] | null {
+  return listSignal(envId).value;
+}
+
+/** The harness new chats on an environment use by default. */
+export function defaultHarnessOf(envId?: string | null): HarnessInfo | null {
+  const list = harnessesOf(envId);
+  return list?.find((h) => h.isDefault) ?? list?.[0] ?? null;
+}
 
 const ALL: HarnessCapabilities = {
   compact: true,
@@ -26,10 +46,10 @@ const ALL: HarnessCapabilities = {
 /** The harness new chats use (first `isDefault`, else the first one). */
 export const defaultHarness = computed(() => harnesses.value?.find((h) => h.isDefault) ?? harnesses.value?.[0] ?? null);
 
-function find(id: string | null | undefined): HarnessInfo | null {
-  const list = harnesses.value;
+function find(id: string | null | undefined, envId?: string | null): HarnessInfo | null {
+  const list = harnessesOf(envId);
   if (!list) return null;
-  return (id ? list.find((h) => h.id === id) : null) ?? defaultHarness.value;
+  return (id ? list.find((h) => h.id === id) : null) ?? defaultHarnessOf(envId);
 }
 
 /**
@@ -38,25 +58,32 @@ function find(id: string | null | undefined): HarnessInfo | null {
  */
 export const newChatHarness = signal<string | null>(null);
 
-/** The harness a new chat will use (`newChatHarness` if installed, else the default). */
-export const newChatHarnessInfo = computed(() => {
+/**
+ * The harness a new chat on an environment will use (`newChatHarness` if that environment has
+ * it, else its default).
+ */
+export function newChatHarnessFor(envId?: string | null): HarnessInfo | null {
   const picked = newChatHarness.value;
-  return (picked ? harnesses.value?.find((h) => h.id === picked) : undefined) ?? defaultHarness.value;
-});
+  return (picked ? harnessesOf(envId)?.find((h) => h.id === picked) : undefined) ?? defaultHarnessOf(envId);
+}
+
+/** The harness a new chat on the local environment will use. */
+export const newChatHarnessInfo = computed(() => newChatHarnessFor());
 
 /** Capabilities of a harness (`null` id = the default harness). All true until loaded. */
-export function harnessCapabilities(id?: string | null): HarnessCapabilities {
-  return find(id)?.capabilities ?? ALL;
+export function harnessCapabilities(id?: string | null, envId?: string | null): HarnessCapabilities {
+  return find(id, envId)?.capabilities ?? ALL;
 }
 
 /** Display name for copy ("Ask pi to work on…"). Falls back to "the agent". */
-export function harnessLabel(id?: string | null): string {
-  return find(id)?.label ?? "the agent";
+export function harnessLabel(id?: string | null, envId?: string | null): string {
+  return find(id, envId)?.label ?? "the agent";
 }
 
-export async function loadHarnesses(): Promise<void> {
+export async function loadHarnesses(envId?: string | null): Promise<void> {
+  const conn = envId ? connectionFor(envId) : undefined;
   try {
-    harnesses.value = await request<HarnessInfo[]>("GET", "/harnesses");
+    listSignal(envId).value = await (conn?.request ?? request)<HarnessInfo[]>("GET", "/harnesses");
   } catch {
     /* older server or not ready: keep the permissive defaults */
   }

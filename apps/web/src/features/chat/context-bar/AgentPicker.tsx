@@ -1,16 +1,17 @@
 /**
  * Context bar: which agent (harness) the new chat runs in (I-119). Only shown when more than one
- * is installed (pi plus ACP agents from Settings → Agents). The default comes first.
+ * is installed (pi plus ACP agents from Settings → Agents). The default comes first. Lists the
+ * agents of the chat's environment (I-123).
  */
 import { Bot, ChevronDown } from "lucide-preact";
 import { isAcpHarnessId } from "@glade/protocol";
-import { harnesses, newChatHarness, newChatHarnessInfo } from "@/state/harnesses";
+import { harnessesOf, newChatHarness, newChatHarnessFor } from "@/state/harnesses";
 import { Menu, MenuCheckItem } from "@/ui";
 import { barButtonClass } from "./shared";
 
-export function AgentPicker() {
-  const list = harnesses.value ?? [];
-  const current = newChatHarnessInfo.value;
+export function AgentPicker({ envId = null }: { envId?: string | null }) {
+  const list = harnessesOf(envId) ?? [];
+  const current = newChatHarnessFor(envId);
   if (list.length < 2 || !current) return null;
   return (
     <Menu

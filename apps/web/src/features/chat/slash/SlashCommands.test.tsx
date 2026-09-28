@@ -293,7 +293,7 @@ describe("built-in commands", () => {
 
   it("new-chat composer offers chat-independent built-ins + the folder's commands, A→Z", async () => {
     const router = renderAt(<Composer projectId="p1" />);
-    await waitFor(() => expect(folderApi.listFolderCommands).toHaveBeenCalledWith("p1"));
+    await waitFor(() => expect(folderApi.listFolderCommands).toHaveBeenCalledWith("p1", false, undefined));
     type("/");
     await waitFor(() => expect(options().length).toBeGreaterThan(3));
     expect(options().map((o) => o.match(/^\/[a-z:-]+/)?.[0])).toEqual(["/model", "/settings", "/thinking", "/cd", "/reply", "/skill:web-design"]);

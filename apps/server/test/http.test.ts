@@ -252,7 +252,7 @@ describe("WebSocket /ws", () => {
       ws.on("message", (data) => received.push(JSON.parse(String(data)) as ServerMessage));
       await new Promise((r, j) => ws.once("open", r).once("error", j));
       await until(() => received.length > 0);
-      expect(received[0]).toEqual({ type: "hello", version: expect.any(String), protocol: 2 });
+      expect(received[0]).toEqual({ type: "hello", version: expect.any(String), protocol: 2, environmentId: env.store.environmentId });
 
       const a = await newChat(env);
       const b = await newChat(env);

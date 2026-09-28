@@ -18,8 +18,8 @@ describe("resolveTheme", () => {
 describe("routeContext", () => {
   const byId = new Map([["c1", makeWorkspace({ id: "c1", projectId: "p1" })]]);
   it("derives chat/project from the URL", () => {
-    expect(routeContext("/projects/p1/chats/c1", byId)).toEqual({ workspaceId: "c1", projectId: "p1", isSettings: false });
-    expect(routeContext("/projects/p2", byId)).toEqual({ workspaceId: null, projectId: "p2", isSettings: false });
+    expect(routeContext("/projects/p1/chats/c1", byId)).toEqual({ workspaceId: "c1", projectId: "p1", isSettings: false, envId: null });
+    expect(routeContext("/projects/p2", byId)).toEqual({ workspaceId: null, projectId: "p2", isSettings: false, envId: null });
     expect(routeContext("/chats/c1", byId).projectId).toBe("p1");
     expect(routeContext("/chats/zz", byId).projectId).toBeNull();
     expect(routeContext("/settings/general", byId).isSettings).toBe(true);

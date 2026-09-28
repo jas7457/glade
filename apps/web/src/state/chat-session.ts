@@ -25,9 +25,24 @@ import {
   type TranscriptPage,
   type UiRequest,
 } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { api, type ApiClient } from "@/lib/api";
 import { socket } from "@/lib/socket";
 import { notify } from "./toasts";
+
+/**
+ * Where a session's requests and "on screen" reports go (I-123: its environment's client and
+ * socket). `state/environments.ts` installs the real resolver; the default is the local server.
+ */
+export interface ChatEnvironmentResolver {
+  api(sessionId: string): ApiClient;
+  watch(sessionId: string): () => void;
+}
+
+let resolver: ChatEnvironmentResolver = { api: () => api, watch: (id) => socket.watch(id) };
+
+export function setChatEnvironmentResolver(next: ChatEnvironmentResolver): void {
+  resolver = next;
+}
 
 export interface ChatSessionStore {
   sessionId: string;
@@ -167,7 +182,7 @@ export async function loadEarlierMessages(sessionId: string, turns = 50): Promis
   if (store.start.value === 0 || store.loadingEarlier.value) return;
   store.loadingEarlier.value = true;
   try {
-    const page = await api.getTranscriptPage(sessionId, store.start.value, turns);
+    const page = await resolver.api(sessionId).getTranscriptPage(sessionId, store.start.value, turns);
     const current = store.transcript.value;
     const known = new Set(current.messages.map((m) => m.id));
     store.transcript.value = {
@@ -187,7 +202,7 @@ export async function loadChatSession(sessionId: string): Promise<void> {
   if (store.status.value === "loading") return;
   store.status.value = "loading";
   try {
-    applySessionDetail(await api.getSession(sessionId));
+    applySessionDetail(await resolver.api(sessionId).getSession(sessionId));
   } catch (err) {
     store.status.value = "error";
     store.error.value = (err as Error).message;
@@ -205,7 +220,7 @@ export function loadChatCommands(sessionId: string): Promise<void> {
   let pending = commandLoads.get(sessionId);
   if (!pending) {
     pending = Promise.resolve()
-      .then(() => api.listCommands(sessionId))
+      .then(() => resolver.api(sessionId).listCommands(sessionId))
       .then((commands) => {
         store.commands.value = commands;
       })
@@ -218,9 +233,12 @@ export function loadChatCommands(sessionId: string): Promise<void> {
   return pending;
 }
 
-/** After a reconnect: reload loaded chats, and retry ones that failed while the server was away. */
-export async function reloadOpenChatSessions(): Promise<void> {
-  const stale = [...sessions.values()].filter((s) => s.status.value === "ready" || s.status.value === "error");
+/**
+ * After a reconnect: reload loaded chats, and retry ones that failed while the server was away.
+ * `which`: only the chats of one environment (I-123).
+ */
+export async function reloadOpenChatSessions(which: (sessionId: string) => boolean = () => true): Promise<void> {
+  const stale = [...sessions.values()].filter((s) => (s.status.value === "ready" || s.status.value === "error") && which(s.sessionId));
   await Promise.all(stale.map((s) => loadChatSession(s.sessionId)));
 }
 
@@ -280,7 +298,7 @@ export function useChatSession(sessionId: string, { markViewing = true } = {}): 
   useEffect(() => {
     if (store.status.value === "idle" || store.status.value === "error") void loadChatSession(sessionId);
     const release = syncHooks.retain(sessionId);
-    const unwatch = markViewing ? socket.watch(sessionId) : null;
+    const unwatch = markViewing ? resolver.watch(sessionId) : null;
     return () => {
       release();
       unwatch?.();

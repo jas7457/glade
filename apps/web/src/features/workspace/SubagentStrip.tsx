@@ -14,9 +14,9 @@
 import { Check, Ellipsis, OctagonAlert, Square } from "lucide-preact";
 import type { SessionSummary } from "@glade/protocol";
 import { cn } from "@/lib/cn";
-import { api } from "@/lib/api";
+import { apiForSession } from "@/state/env-api";
 import { runAction, useChatSession } from "@/state/chat-session";
-import { models } from "@/state/store";
+import { envIdOfSession, shellOf } from "@/state/store";
 import { IconButton, Menu, MenuItem, Spinner } from "@/ui";
 import { agentLabel } from "@/features/chat/agent-identity";
 import { formatDuration, useNow } from "@/features/chat/duration";
@@ -36,7 +36,7 @@ export function SubagentStrip({ subagents, openId, onOpen }: SubagentStripProps)
     return kind === "working" || kind === "blocked";
   });
   const stopAll = () => {
-    for (const s of running) void runAction(() => api.abort(s.id), "Could not stop");
+    for (const s of running) void runAction(() => apiForSession(s.id).abort(s.id), "Could not stop");
   };
   return (
     <div role="region" aria-label="Sub-agents" data-subagent-strip class="mb-2 flex flex-wrap items-center gap-1 text-[0.88rem] select-none">
@@ -88,7 +88,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
   const store = useChatSession(session.id, { markViewing: false });
   const kind = chipKind(session);
   const now = useNow(kind === "working" || kind === "blocked", session.createdAt);
-  const chip = agentChip(session, store.status.value === "ready" ? store.transcript.value : null, models.value, now);
+  const chip = agentChip(session, store.status.value === "ready" ? store.transcript.value : null, shellOf(envIdOfSession(session.id)).models.value, now);
   const tooltip = [
     `${agentLabel(chip.identity)} — ${chip.label} · ${formatDuration(chip.elapsedMs)}${chip.model ? ` · ${chip.model}` : ""}`,
     chip.activity,

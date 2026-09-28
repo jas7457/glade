@@ -18,7 +18,7 @@ describe("pickFolder", () => {
     fetchMock.mockResolvedValue(json(200, { path: "/a/b" }));
     expect(await pickFolder({ prompt: "Pick" })).toEqual({ path: "/a/b" });
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/api/fs/pick-folder");
+    expect(url).toBe(`${window.location.origin}/api/fs/pick-folder`);
     expect(init?.method).toBe("POST");
     expect(JSON.parse(init?.body as string)).toEqual({ prompt: "Pick" });
   });

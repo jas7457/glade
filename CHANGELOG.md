@@ -7,6 +7,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Environments: every Glade is an environment, and projects belong to the machine whose files
+  they are. Settings → Remote Access (off by default) lets this app show other Glade environments
+  next to this Mac's projects in one list, marked with a globe. Pickers and agent settings follow
+  the chat's machine. For now you connect by address on the same Mac; pairing and Tailscale come next.
+- Glade's own folder browser in Add Project: type a path with autocomplete, browse with the
+  keyboard, see git repos, create folders. It works for remote machines too.
 - ACP agents: add any agent that speaks the Agent Client Protocol (Gemini CLI, Claude Code via an
   adapter, goose, …) in Settings → Agents and pick it for a new chat. Tool calls, plans, permission
   requests and history work like other chats. Nothing is set up by default.

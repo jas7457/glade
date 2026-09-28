@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AlertTriangle, PanelLeft } from "lucide-preact";
 import { syncStatus } from "@/state/sync";
+import { hasLocalEnvironment } from "@/state/env-registry";
 import { cn } from "@/lib/cn";
 import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
 import { initError, initialized, loadAll, workspacesById } from "@/state/store";
@@ -59,7 +60,8 @@ function ResizeHandle() {
  * moment (avoids flashes).
  */
 function useDisconnected(delayMs = 1000): boolean {
-  const live = syncStatus.value === "live";
+  // No local environment (a pure client, F-022): each remote one shows its own status.
+  const live = syncStatus.value === "live" || !hasLocalEnvironment.value;
   const [late, setLate] = useState(false);
   useEffect(() => {
     if (live) return setLate(false);

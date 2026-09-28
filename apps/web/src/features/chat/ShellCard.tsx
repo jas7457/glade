@@ -9,7 +9,7 @@ import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
 import { Check, Copy, EyeOff, Square, Terminal } from "lucide-preact";
 import type { ShellMessage } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { apiForSession } from "@/state/env-api";
 import { cn } from "@/lib/cn";
 import { runAction } from "@/state/chat-session";
 import { IconButton, Spinner, Tooltip } from "@/ui";
@@ -79,7 +79,7 @@ export const ShellCard = memo(function ShellCard({ message, chatId }: { message:
         )}
         {message.running && <Spinner size={12} />}
         {message.running ? (
-          <IconButton label="Stop command" size="sm" onClick={() => void runAction(() => api.abortShell(chatId), "Could not stop the command")}>
+          <IconButton label="Stop command" size="sm" onClick={() => void runAction(() => apiForSession(chatId).abortShell(chatId), "Could not stop the command")}>
             <Square fill="currentColor" strokeWidth={0} />
           </IconButton>
         ) : (

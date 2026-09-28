@@ -11,7 +11,7 @@ import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
 import { buildCommands, isAvailable } from "./commands";
 
 const build = (workspaceId: string | null) =>
-  buildCommands({ navigate: vi.fn(), route: { workspaceId, projectId: null, isSettings: false }, togglePalette: vi.fn() });
+  buildCommands({ navigate: vi.fn(), route: { workspaceId, projectId: null, isSettings: false, envId: null }, togglePalette: vi.fn() });
 const markCommand = (workspaceId: string | null) => build(workspaceId).find((c) => c.id === "mark-unread")!;
 
 describe("Mark as Unread command", () => {

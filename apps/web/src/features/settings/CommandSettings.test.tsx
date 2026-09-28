@@ -65,8 +65,8 @@ describe("Settings → Slash Commands", () => {
       </TooltipProvider>,
     );
     await waitFor(() => expect(screen.getByRole("switch", { name: "Show /skill:deploy" })).toBeTruthy());
-    expect(listFolderCommands).toHaveBeenCalledWith(null, false);
-    expect(listFolderCommands).toHaveBeenCalledWith("p1", false);
+    expect(listFolderCommands).toHaveBeenCalledWith(null, false, undefined);
+    expect(listFolderCommands).toHaveBeenCalledWith("p1", false, undefined);
     expect(screen.getByText("Only in shop")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("switch", { name: "Show /powerline" }));

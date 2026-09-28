@@ -3,8 +3,7 @@
  * server has the pi harness.
  */
 import { FormGroup, FormRow, Switch } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
+import { hostSettings as settings, updateHostSettings as updateSettings } from "@/state/host-settings";
 import type { PiHarnessSettings } from "@glade/protocol";
 import { CommitField } from "./CommitField";
 

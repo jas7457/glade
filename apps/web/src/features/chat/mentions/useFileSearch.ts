@@ -5,11 +5,16 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { FileEntry } from "@glade/protocol";
 import { searchFiles } from "@/lib/api-folder";
+import { requestFor } from "@/state/env-api";
+import { envIdOfProject } from "@/state/store";
 
 const DEBOUNCE_MS = 60;
 
-/** `query === null` = no mention being typed (clears the results). */
-export function useFileSearch(projectId: string | null, query: string | null): FileEntry[] {
+/**
+ * `query === null` = no mention being typed (clears the results). `envId`: whose scratch folder
+ * when `projectId` is null (I-123; a project's own environment otherwise).
+ */
+export function useFileSearch(projectId: string | null, query: string | null, envId?: string | null): FileEntry[] {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const seq = useRef(0);
 
@@ -21,7 +26,7 @@ export function useFileSearch(projectId: string | null, query: string | null): F
     }
     const timer = setTimeout(() => {
       Promise.resolve()
-        .then(() => searchFiles(projectId, query))
+        .then(() => searchFiles(projectId, query, undefined, requestFor(projectId ? envIdOfProject(projectId) : envId)))
         .then((res) => {
           if (seq.current === id) setEntries(res.entries);
         })
@@ -30,7 +35,7 @@ export function useFileSearch(projectId: string | null, query: string | null): F
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [projectId, query]);
+  }, [projectId, query, envId]);
 
   return query === null ? [] : entries;
 }

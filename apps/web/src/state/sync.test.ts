@@ -42,7 +42,7 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 vi.mock("@/lib/api-folder", () => ({ getHarnessDefaults: vi.fn(async () => null) }));
-vi.mock("./harnesses", () => ({ loadHarnesses: vi.fn(async () => {}) }));
+vi.mock("./harnesses", async () => ({ harnesses: (await import("@preact/signals")).signal(null), loadHarnesses: vi.fn(async () => {}) }));
 
 const { SyncController, startSync, syncStatus } = await import("./sync");
 const { api } = await import("@/lib/api");

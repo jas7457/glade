@@ -5,7 +5,9 @@
 import { Navigate, useParams } from "react-router";
 import { SETTINGS_SECTIONS, routes, type SettingsSection } from "@/app/routes";
 import { Titlebar } from "@/ui";
-import { SECTION_INFO } from "./sections";
+import { HOST_SECTIONS, SECTION_INFO } from "./sections";
+import { RemoteAccessSettings, SettingsEnvironmentSwitcher } from "@/features/environments";
+import { hostEnvId } from "@/state/host-settings";
 import { GeneralSettings } from "./GeneralSettings";
 import { ModelSettings } from "./ModelSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
@@ -20,6 +22,7 @@ const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   agent: AgentSettings,
   commands: CommandSettings,
   prompts: PromptSettings,
+  remote: RemoteAccessSettings,
 };
 
 export function isSettingsSection(value: string | undefined): value is SettingsSection {
@@ -28,13 +31,16 @@ export function isSettingsSection(value: string | undefined): value is SettingsS
 
 export function SettingsView({ section }: { section: SettingsSection }) {
   const Panel = PANELS[section];
+  const host = HOST_SECTIONS.includes(section);
   return (
     <div class="flex h-full min-h-0 flex-col">
       <Titlebar />
       <div class="min-h-0 flex-1 overflow-y-auto">
         <div class="mx-auto w-full max-w-[640px] px-8 pb-10">
           <h1 class="mb-5 text-[1.3rem] font-bold text-fg-strong">{SECTION_INFO[section].label}</h1>
-          <Panel />
+          {host && <SettingsEnvironmentSwitcher />}
+          {/* Keyed by environment so a switch reloads what the panel fetched (e.g. folder commands). */}
+          <Panel key={host ? (hostEnvId() ?? "") : ""} />
         </div>
       </div>
     </div>

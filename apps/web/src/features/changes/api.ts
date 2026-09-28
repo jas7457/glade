@@ -9,25 +9,31 @@ import type {
   GitFileDiffResponse,
 } from "@glade/protocol";
 import { request } from "@/lib/api";
+import { requestFor } from "@/state/env-api";
+import { envIdOfProject, envIdOfWorkspace } from "@/state/store";
+
+/** Requests go to the workspace's / project's environment (I-123). */
+const ws = (workspaceId: string) => requestFor(envIdOfWorkspace(workspaceId)) ?? request;
+const proj = (projectId: string) => requestFor(envIdOfProject(projectId)) ?? request;
 
 const base = (workspaceId: string) => `/workspaces/${encodeURIComponent(workspaceId)}/changes`;
 
 export const changesApi = {
-  status: (workspaceId: string) => request<GitChangesResponse>("GET", base(workspaceId)),
+  status: (workspaceId: string) => ws(workspaceId)<GitChangesResponse>("GET", base(workspaceId)),
   diff: (workspaceId: string, path: string) =>
-    request<GitFileDiffResponse>("GET", `${base(workspaceId)}/diff?path=${encodeURIComponent(path)}`),
-  revert: (workspaceId: string, paths: string[]) => request<GitChangesResponse>("POST", `${base(workspaceId)}/revert`, { paths }),
+    ws(workspaceId)<GitFileDiffResponse>("GET", `${base(workspaceId)}/diff?path=${encodeURIComponent(path)}`),
+  revert: (workspaceId: string, paths: string[]) => ws(workspaceId)<GitChangesResponse>("POST", `${base(workspaceId)}/revert`, { paths }),
   commit: (workspaceId: string, message: string, paths?: string[]) =>
-    request<CommitChangesResponse>("POST", `${base(workspaceId)}/commit`, paths ? { message, paths } : { message }),
+    ws(workspaceId)<CommitChangesResponse>("POST", `${base(workspaceId)}/commit`, paths ? { message, paths } : { message }),
   commitMessage: (workspaceId: string, paths?: string[]) =>
-    request<CommitMessageResponse>("POST", `${base(workspaceId)}/commit-message`, paths ? { paths } : {}),
+    ws(workspaceId)<CommitMessageResponse>("POST", `${base(workspaceId)}/commit-message`, paths ? { paths } : {}),
 };
 
 /** Commit in a project's own folder (I-105: the new-chat screen, which has no workspace yet). */
 const projectBase = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/changes`;
 export const projectChangesApi = {
   commit: (projectId: string, message: string, paths?: string[]) =>
-    request<CommitChangesResponse>("POST", `${projectBase(projectId)}/commit`, paths ? { message, paths } : { message }),
+    proj(projectId)<CommitChangesResponse>("POST", `${projectBase(projectId)}/commit`, paths ? { message, paths } : { message }),
   commitMessage: (projectId: string, paths?: string[]) =>
-    request<CommitMessageResponse>("POST", `${projectBase(projectId)}/commit-message`, paths ? { paths } : {}),
+    proj(projectId)<CommitMessageResponse>("POST", `${projectBase(projectId)}/commit-message`, paths ? { paths } : {}),
 };

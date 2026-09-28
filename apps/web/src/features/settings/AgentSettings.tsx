@@ -6,9 +6,7 @@
  */
 import type { ComponentType } from "preact";
 import { FormGroup, FormRow, Select, Switch } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
-import { defaultHarness, harnesses } from "@/state/harnesses";
+import { hostDefaultHarness as defaultHarness, hostHarnesses as harnesses, hostSettings as settings, updateHostSettings as updateSettings } from "@/state/host-settings";
 import { AcpSettings } from "./AcpSettings";
 import { CommitField } from "./CommitField";
 import { PiSettings } from "./PiSettings";

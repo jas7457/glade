@@ -25,13 +25,15 @@ export interface SidebarItemProps extends Omit<JSX.HTMLAttributes<HTMLDivElement
   indent?: SidebarIndent;
   /** Emphasised label (unread). */
   strong?: boolean;
+  /** Small marker right after the label, always visible (e.g. the remote badge, I-123). */
+  badge?: ComponentChildren;
   /** Replaces the label button entirely (inline rename field). */
   editor?: ComponentChildren;
   title?: string;
 }
 
 export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function SidebarItem(
-  { label, icon, selected, onSelect, trailing, actions, actionsVisible, indent = 0, strong, editor, title, class: className, ...rest },
+  { label, icon, selected, onSelect, trailing, actions, actionsVisible, indent = 0, strong, badge, editor, title, class: className, ...rest },
   ref,
 ) {
   const iconSlot = icon && <span class={cn("flex w-4 shrink-0 justify-center [&_svg]:size-4", sidebarClass.fgMuted)}>{icon}</span>;
@@ -66,7 +68,13 @@ export const SidebarItem = forwardRef<HTMLDivElement, SidebarItemProps>(function
           )}
         >
           {iconSlot}
-          <span class={cn("min-w-0 flex-1 truncate", strong && cn("font-semibold", sidebarClass.fgStrong))}>{label}</span>
+          <span class={cn("min-w-0 truncate", !badge && "flex-1", strong && cn("font-semibold", sidebarClass.fgStrong))}>{label}</span>
+          {badge && (
+            <>
+              <span class="-ml-1 flex shrink-0 items-center">{badge}</span>
+              <span aria-hidden class="flex-1" />
+            </>
+          )}
           {trailing && (
             <span
               data-slot="trailing"

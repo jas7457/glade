@@ -2,23 +2,31 @@
  * Reopen the last screen (I-083): every navigation is remembered in localStorage (`state/ui.ts`),
  * and when the app first loads at `/` the previous route is restored if its chat/project still
  * exists. An explicit non-root URL (a link, a refresh elsewhere) always wins.
+ *
+ * I-123: the stored route names its environment (`/e/:envId/…`, none = local), so the one
+ * remembered screen is environment-scoped; another environment's route is restored while that
+ * environment is connected (its lists may still be loading; the route view waits for them).
  */
 import { useEffect } from "preact/hooks";
 import { matchPath, useLocation, useNavigate } from "react-router";
 import type { Project, WorkspaceSummary } from "@glade/protocol";
+import { connectionFor, isLocalEnvironment } from "@/state/env-registry";
 import { initialized, projectsById, workspacesById } from "@/state/store";
 import { previousRoute, rememberRoute } from "@/state/ui";
-import { SETTINGS_SECTIONS } from "./routes";
+import { SETTINGS_SECTIONS, parseEnvPath } from "./routes";
 
 export interface RouteData {
   workspacesById: ReadonlyMap<string, WorkspaceSummary>;
   projectsById: ReadonlyMap<string, Project>;
+  /** Whether another environment is connected (I-123); default: never. */
+  hasEnvironment?: (envId: string) => boolean;
 }
 
 /** `stored` if it points at something that still exists (other than home), else null. */
 export function restorableRoute(stored: string | null, data: RouteData): string | null {
   if (!stored || !stored.startsWith("/")) return null;
-  const pathname = stored.split(/[?#]/)[0]!;
+  const { envId, path: pathname } = parseEnvPath(stored.split(/[?#]/)[0]!);
+  if (envId && !isLocalEnvironment(envId)) return data.hasEnvironment?.(envId) && pathname !== "/" ? stored : null;
   const projectChat = matchPath("/projects/:projectId/chats/:chatId", pathname);
   if (projectChat) return data.workspacesById.has(projectChat.params.chatId!) ? stored : null;
   const chat = matchPath("/chats/:chatId", pathname);
@@ -58,6 +66,7 @@ export function useLastRoute(options: { initialUrl?: string; stored?: string | n
       const to = startupRoute(options.initialUrl ?? initialUrl, options.stored === undefined ? previousRoute : options.stored, {
         workspacesById: workspacesById.value,
         projectsById: projectsById.value,
+        hasEnvironment: (id) => !!connectionFor(id),
       });
       if (to && to !== route) {
         void navigate(to, { replace: true });

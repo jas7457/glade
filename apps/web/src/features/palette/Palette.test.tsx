@@ -26,7 +26,7 @@ import { makeWorkspace, makeProject, makeSession } from "@/test/fixtures";
 import { pendingJump } from "@/features/chat/jump-to-message";
 import { Palette } from "./Palette";
 
-const noRoute: RouteContext = { workspaceId: null, projectId: null, isSettings: false };
+const noRoute: RouteContext = { workspaceId: null, projectId: null, isSettings: false, envId: null };
 
 function renderPalette(route: RouteContext = noRoute) {
   const navigate = vi.fn();
@@ -100,7 +100,7 @@ describe("Palette", () => {
   });
 
   it("renames the current chat through a prompt", async () => {
-    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false });
+    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false, envId: null });
     type(input(), "rename");
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(paletteOpen.value).toBe(true);
@@ -116,7 +116,7 @@ describe("Palette", () => {
     sessions.value = [makeSession({ id: "s1", workspaceId: "c1", kind: "main" })];
     const generate = vi.mocked(api.generateSessionTitle);
     generate.mockResolvedValueOnce({ title: "OAuth login", session: sessions.value[0]! });
-    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false });
+    const { input } = renderPalette({ workspaceId: "c1", projectId: "p1", isSettings: false, envId: null });
     type(input(), "rename with ai");
     expect(selected()).toBe("Rename with AI");
     fireEvent.keyDown(input(), { key: "Enter" });

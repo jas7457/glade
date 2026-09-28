@@ -50,6 +50,8 @@ export class Projects {
       sortOrder: orders.length ? Math.min(...orders) - 1 : 0,
       createdAt: now,
       lastActivityAt: now,
+      // Projects belong to the environment that created them, for good (I-123).
+      environmentId: this.ctx.store.environmentId,
     };
     this.ctx.store.upsertProject(project);
     this.ctx.broadcast({ type: "project_upsert", project });
@@ -61,6 +63,7 @@ export class Projects {
     const next: Project = {
       ...project,
       ...(req.name !== undefined && req.name.trim() ? { name: req.name.trim() } : {}),
+      environmentId: project.environmentId, // never changes (I-123)
     };
     this.ctx.store.upsertProject(next);
     this.ctx.broadcast({ type: "project_upsert", project: next });

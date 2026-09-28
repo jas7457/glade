@@ -3,7 +3,7 @@ import type { ClientMessage, ServerMessage } from "@glade/protocol";
 
 export type { ClientMessage };
 
-export const connectionStatus = signal<"connecting" | "open" | "closed">("connecting");
+export type SocketStatus = "connecting" | "open" | "closed";
 
 type Handler = (message: ServerMessage) => void;
 
@@ -11,7 +11,8 @@ type Handler = (message: ServerMessage) => void;
 const DEAD_AFTER_MS = 45_000;
 
 /**
- * Auto-reconnecting WebSocket to `/ws`. The server pushes {@link ServerMessage}s; the client
+ * Auto-reconnecting WebSocket to one environment's `/ws` (I-123: one per environment; `socket`
+ * below is the local environment's). The server pushes {@link ServerMessage}s; the client
  * reports which sessions are on screen and subscribes to sync scopes (I-122, `state/sync.ts`).
  * Answers the server's pings and drops a connection that went silent.
  */
@@ -28,6 +29,9 @@ export class Socket {
   /** Sessions shown by mounted views (a count, since several views may show the same one). */
   private readonly watched = new Map<string, number>();
   private stopped = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** This connection's state. */
+  readonly status = signal<SocketStatus>("connecting");
 
   constructor(private readonly url = defaultUrl()) {
     // A session only counts as "being read" while the window is visible; otherwise finished
@@ -65,14 +69,14 @@ export class Socket {
 
   connect(): void {
     this.stopped = false;
-    connectionStatus.value = "connecting";
+    this.status.value = "connecting";
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => {
       const wasReconnect = this.retry > 0;
       this.retry = 0;
       this.lastMessageAt = Date.now();
-      connectionStatus.value = "open";
+      this.status.value = "open";
       if (this.lastViewing) ws.send(JSON.stringify(this.lastViewing));
       this.openHandlers.forEach((h) => h());
       if (wasReconnect) this.reconnectHandlers.forEach((h) => h());
@@ -100,11 +104,14 @@ export class Socket {
     if (this.ws !== ws) return;
     ws.onopen = ws.onmessage = ws.onclose = null;
     this.ws = null;
-    connectionStatus.value = "closed";
+    this.status.value = "closed";
     this.closeHandlers.forEach((h) => h());
     if (this.stopped) return;
     const delay = Math.min(10_000, 250 * 2 ** this.retry++);
-    setTimeout(() => this.connect(), delay);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (!this.stopped) this.connect();
+    }, delay);
   }
 
   /** A socket that received nothing (not even a ping) for a while is dead: drop it now. */
@@ -128,6 +135,8 @@ export class Socket {
 
   disconnect(): void {
     this.stopped = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     if (this.deadTimer) clearInterval(this.deadTimer);
     this.deadTimer = null;
     const ws = this.ws;
@@ -171,4 +180,14 @@ function defaultUrl(): string {
   return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws`;
 }
 
+/** The socket URL of an environment from its API base: `http://h:1/api` → `ws://h:1/ws`. */
+export function wsUrlFromApiBase(apiBase: string): string {
+  const u = new URL(apiBase);
+  const root = u.pathname.replace(/\/?api\/?$/, "");
+  return `${u.protocol === "https:" ? "wss" : "ws"}://${u.host}${root}/ws`;
+}
+
+/** The local environment's socket (the page-origin server). Connected by its environment. */
 export const socket = new Socket();
+/** The local socket's state (kept for existing readers). */
+export const connectionStatus = socket.status;

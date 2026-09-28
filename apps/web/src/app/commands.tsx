@@ -34,7 +34,7 @@ import {
 } from "lucide-preact";
 import { StatusIndicator } from "@/ui";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
-import { loadModels, projects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
+import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
 import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
@@ -87,7 +87,7 @@ export const isAvailable = (c: Command) => c.available?.() ?? true;
 /** The actions behind global shortcuts and desktop menu items. */
 export function globalCommands(ctx: CommandContext): ShortcutHandlers {
   return {
-    "new-chat": () => ctx.navigate(ctx.route.projectId ? routes.project(ctx.route.projectId) : routes.home()),
+    "new-chat": () => ctx.navigate(ctx.route.projectId ? routes.project(ctx.route.projectId) : routes.home(ctx.route.envId)),
     settings: () => ctx.navigate(routes.settings()),
     "toggle-sidebar": toggleSidebar,
     "command-palette": ctx.togglePalette,
@@ -112,7 +112,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
   const global = globalCommands(ctx);
   const current = () => (route.workspaceId ? workspacesById.value.get(route.workspaceId) : undefined);
   const hasChat = () => current() !== undefined;
-  const sortedProjects = [...projects.value].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const sortedProjects = orderedProjects.value;
   const out: Command[] = [];
 
   for (const chat of paletteChatOrder(workspaces.value)) {
@@ -256,7 +256,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
       run: async () => {
         const chat = current();
         if (!chat) return;
-        if (await confirmDeleteChat(chat)) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
+        if (await confirmDeleteChat(chat)) navigate(chat.projectId ? routes.project(chat.projectId) : routes.home(chat.environmentId));
       },
     },
     {

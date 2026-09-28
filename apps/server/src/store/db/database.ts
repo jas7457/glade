@@ -46,7 +46,8 @@ export function migrate(db: Db, migrations: readonly Migration[] = MIGRATIONS): 
     if (current > latest) throw new NewerSchemaError(current);
     for (const m of migrations) {
       if (m.version <= current) continue;
-      db.exec(m.sql);
+      if (m.sql.trim()) db.exec(m.sql);
+      m.run?.(db);
       db.exec(`PRAGMA user_version = ${m.version}`);
     }
   });

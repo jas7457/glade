@@ -62,7 +62,7 @@ describe("Store", () => {
     store.flush();
 
     const reloaded = new Store(dir);
-    expect(reloaded.listProjects()).toEqual([project]);
+    expect(reloaded.listProjects()).toEqual([{ ...project, environmentId: store.environmentId }]); // I-123
     expect(reloaded.listWorkspaces()).toEqual([{ ...workspace, title: "Renamed" }]);
     expect(reloaded.listSessions().map((x) => x.id)).toEqual(["s1", "s3"]);
     expect(reloaded.getSession("s1")).toEqual({ ...session, title: "Tab" });

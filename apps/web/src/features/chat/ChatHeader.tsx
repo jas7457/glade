@@ -13,7 +13,8 @@ import { cn } from "@/lib/cn";
 import { routes } from "@/app/routes";
 import { getChatSession } from "@/state/chat-session";
 import { renameWorkspace, setWorkspacePinned } from "@/state/actions";
-import { projectsById } from "@/state/store";
+import { envIdOf, projectsById } from "@/state/store";
+import { RemoteMarker } from "@/features/environments/RemoteMarker";
 import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, statusLabel } from "@/ui";
 import { changedCount } from "@/features/changes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
@@ -35,7 +36,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
   });
   const liveLabel = status === "working" || status === "blocked" ? statusLabel(status) : null;
 
-  const leave = () => navigate(chat?.projectId ? routes.project(chat.projectId) : routes.home());
+  const leave = () => navigate(chat?.projectId ? routes.project(chat.projectId) : routes.home(chat ? envIdOf(chat) : undefined));
 
   const onDelete = async () => {
     if (chat && (await confirmDeleteChat(chat))) leave();
@@ -72,6 +73,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
           </span>
         )}
         <span data-tauri-drag-region class="flex min-w-0 flex-1 items-baseline gap-1.5">
+          {chat && <RemoteMarker envId={envIdOf(chat)} size={13} class="self-center" />}
           {chat && <ChatLocation workspace={chat} class="self-center" />}
           <ChatAgentBadge sessionId={sessionId} class="self-center" />
         </span>

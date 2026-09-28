@@ -309,7 +309,7 @@ describe("Composer @ file mentions", () => {
     renderAt(<Composer projectId="p1" />);
     typeAt("look at @comp");
     await waitFor(() => expect(files()).toEqual(["apps/web/Composer.tsx", "src/", "my docs/read me.md"]));
-    expect(folderApi.searchFiles).toHaveBeenLastCalledWith("p1", "comp");
+    expect(folderApi.searchFiles).toHaveBeenLastCalledWith("p1", "comp", undefined, undefined);
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(box().value).toBe("look at @apps/web/Composer.tsx ");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());

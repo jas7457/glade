@@ -8,6 +8,7 @@ import type {
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   DeepPartial,
+  EnvironmentInfo,
   GenerateTitleResponse,
   HarnessInfo,
   ListAgentsResponse,
@@ -58,6 +59,7 @@ import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
 import { SyncHub, type SyncOptions } from "./sync/hub.js";
+import { Environment, type EnvironmentOptions } from "./environment.js";
 
 export { ActiveElsewhereError, HttpError } from "./app/errors.js";
 export { decodedBase64Size } from "./app/session-actions.js";
@@ -91,10 +93,13 @@ export class AppService {
   private readonly unwatch: Array<() => void> = [];
   /** Sequenced live sync to protocol-2 clients (I-122). */
   readonly sync: SyncHub;
+  /** This server as an environment (I-123): id, name, capabilities. */
+  readonly environment: Environment;
 
-  constructor(options: AppServiceOptions & { sync?: SyncOptions }) {
+  constructor(options: AppServiceOptions & { sync?: SyncOptions; environment?: EnvironmentOptions }) {
     const ctx = createAppContext(options);
     this.ctx = ctx;
+    this.environment = new Environment(ctx.store, options.environment);
     this.attachments = ctx.attachments;
     mkdirSync(options.scratchDir, { recursive: true });
     // Usage limits are the default harness's account (the gauge is app-wide).
@@ -147,6 +152,7 @@ export class AppService {
       {
         store: ctx.store,
         shellSnapshot: () => this.shellSnapshot(),
+        environmentInfo: () => this.environment.info(),
         sessionSummary: (id) => {
           const session = ctx.store.getSession(id);
           return session ? this.records.summarizeSession(session) : null;
@@ -171,7 +177,23 @@ export class AppService {
       workspaces: this.workspaces.listWorkspaces(),
       sessions: this.sessions.listSessions(),
       settings: this.ctx.store.getSettings(),
+      environment: this.environment.info(),
     };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Environment (I-123)
+  // -------------------------------------------------------------------------------------------
+
+  getEnvironment(): EnvironmentInfo {
+    return this.environment.info();
+  }
+
+  /** Rename this environment (empty = the machine name); every client is told. */
+  renameEnvironment(name: string): EnvironmentInfo {
+    const environment = this.environment.rename(name);
+    this.ctx.broadcast({ type: "environment", environment });
+    return environment;
   }
 
   /** The store (command receipts, I-122). */

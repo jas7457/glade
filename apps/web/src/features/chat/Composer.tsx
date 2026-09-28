@@ -46,13 +46,14 @@ import {
   type ThinkingLevel,
 } from "@glade/protocol";
 import { cn } from "@/lib/cn";
-import { api } from "@/lib/api";
+import { apiForSession } from "@/state/env-api";
 import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
 import { createWorkspace } from "@/state/actions";
 import { attachFilesToText } from "@/state/attachments";
-import { harnessCapabilities, newChatHarnessInfo } from "@/state/harnesses";
-import { harnessDefaults, models as allModels, sessionsById, settings, visibleModels, workspacesById } from "@/state/store";
+import { harnessCapabilities, newChatHarnessFor } from "@/state/harnesses";
+import { envIdOfProject, envIdOfSession, sessionsById, settings, shellOf, visibleModelsOf, workspacesById } from "@/state/store";
+import { isLocalEnvironment } from "@/state/env-registry";
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
 import { Chip, Spinner, Tooltip } from "@/ui";
@@ -130,8 +131,10 @@ export interface ComposerBoxProps {
   /** Extra toolbar items after the pickers (e.g. the context meter). */
   toolbarExtra?: ComponentChildren;
   slash?: ComposerSlashOptions;
-  /** Enables `@` file mentions for the folder of this project (`null` = scratch folder). */
-  mentions?: { projectId: string | null };
+  /** Enables `@` file mentions for the folder of this project (`null` = scratch folder of `envId`). */
+  mentions?: { projectId: string | null; envId?: string | null };
+  /** The environment the chat runs on (I-123): its saved prompts and hidden commands apply. */
+  envId?: string | null;
   /** Enables shell mode (`!cmd` / `!!cmd`, I-076). `run` resolves true when the command started. */
   shell?: { run: (input: ShellInput) => Promise<boolean> };
   class?: string;
@@ -162,7 +165,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   // Slash menu: open while typing a command name at the very start of the text.
   const parsed = slash && !shellInput ? parseSlash(text) : null;
   const typingName = parsed && !parsed.hasArgs ? parsed.name : null;
-  const slashSettings = settings.value;
+  const slashSettings = shellOf(props.envId).settings.value;
   const menuCommands = useMemo(
     () =>
       slash
@@ -182,7 +185,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const [mentionIndex, setMentionIndex] = useState(0);
   const mention = props.mentions && !menuOpen && !busy && !shellInput ? findMention(text, Math.min(caret, text.length)) : null;
   const mentionWanted = mention !== null && mention.start !== mentionDismissedAt;
-  const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null);
+  const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null, props.mentions?.envId);
   const mentionOpen = mentionWanted && fileEntries.length > 0;
   const mentionActive = Math.min(mentionIndex, Math.max(0, fileEntries.length - 1));
   useEffect(() => setMentionIndex(0), [mention?.start, mention?.query]);
@@ -254,7 +257,7 @@ export function ComposerBox(props: ComposerBoxProps) {
 
   /** The saved prompt `/name` stands for, unless a command of this composer has that name. */
   const savedPromptFor = (name: string) =>
-    slash && !slash.commands.some((c) => c.name === name) ? findSavedPrompt(settings.value.prompts, slash.projectId, name) : null;
+    slash && !slash.commands.some((c) => c.name === name) ? findSavedPrompt(slashSettings.prompts, slash.projectId, name) : null;
 
   /** Insert `/name ` and keep typing arguments (a saved prompt inserts its text). */
   const complete = (command: SlashCommand) => {
@@ -648,8 +651,11 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   const ready = store.status.value === "ready";
   const harnessCommands = store.commands.value;
   const summary = sessionsById.value.get(chatId);
+  // I-123: the chat's environment decides its harnesses and models.
+  const envId = envIdOfSession(chatId);
+  const shell = shellOf(envId);
   // I-065: hide what this chat's harness can't do (all allowed until the harness list loads).
-  const capabilities = harnessCapabilities(summary?.harness);
+  const capabilities = harnessCapabilities(summary?.harness, envId);
   const slashCommands = useMemo(
     () => mergeCommands(builtinCommands(true, capabilities), harnessCommands),
     [harnessCommands, capabilities],
@@ -659,7 +665,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   useEffect(() => {
     if (ready) void loadChatCommands(chatId);
   }, [chatId, ready]);
-  const models = visibleModels.value;
+  const models = visibleModelsOf(shell);
   const uiRequests = store.uiRequests.value;
   const agentError = store.agentError.value;
   const queued = [
@@ -670,7 +676,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   const onSend = (text: string, images: PromptImage[], files: File[]) =>
     runAction(
       async () =>
-        api.prompt(chatId, {
+        apiForSession(chatId).prompt(chatId, {
           text: await attachFilesToText(chatId, text, files),
           images: images.length ? images : undefined,
           // Steer vs follow-up only exists for harnesses with message queues (I-065).
@@ -680,7 +686,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     );
 
   const runShell = ({ command, shareWithAgent }: ShellInput) =>
-    runAction(() => api.runShell(chatId, { command, shareWithAgent }), "Could not run the command");
+    runAction(() => apiForSession(chatId).runShell(chatId, { command, shareWithAgent }), "Could not run the command");
 
   const onModelChange = (model: ModelRef) => {
     const info = modelInfo(models, model);
@@ -690,7 +696,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       model,
       ...(info ? { thinkingLevels: info.thinkingLevels, thinkingLevel: clampThinkingLevel(info.thinkingLevels, prev.thinkingLevel) } : {}),
     };
-    void runAction(() => api.setModel(chatId, model), "Could not change model").then((ok) => {
+    void runAction(() => apiForSession(chatId).setModel(chatId, model), "Could not change model").then((ok) => {
       if (!ok) store.state.value = prev;
     });
   };
@@ -698,7 +704,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   const onThinkingChange = (level: ThinkingLevel) => {
     const prev = store.state.value;
     store.state.value = { ...prev, thinkingLevel: level };
-    void runAction(() => api.setThinkingLevel(chatId, level), "Could not change thinking level").then((ok) => {
+    void runAction(() => apiForSession(chatId).setThinkingLevel(chatId, level), "Could not change thinking level").then((ok) => {
       if (!ok) store.state.value = prev;
     });
   };
@@ -726,7 +732,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
           more={uiRequests.length - 1}
           onRespond={(response) => {
             store.uiRequests.value = store.uiRequests.value.filter((r) => r.id !== response.id);
-            void runAction(() => api.respondToUi(chatId, response), "Could not send answer");
+            void runAction(() => apiForSession(chatId).respondToUi(chatId, response), "Could not send answer");
           }}
         />
       )}
@@ -754,6 +760,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   return (
     <ComposerBox
       draftKey={`chat:${chatId}`}
+      envId={envId}
       placeholder={placeholder}
       autoFocus={autoFocus && !uiRequests[0]}
       isRunning={state.isRunning && !lockedReason}
@@ -767,11 +774,11 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       onThinkingChange={onThinkingChange}
       hideModelPickers={capabilities.models === false}
       onSend={onSend}
-      onStop={() => void runAction(() => api.abort(chatId), "Could not stop")}
+      onStop={() => void runAction(() => apiForSession(chatId).abort(chatId), "Could not stop")}
       above={above}
       toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} model={state.model} />}
       slash={{ commands: slashCommands, chatId, projectId, navigate }}
-      mentions={{ projectId }}
+      mentions={{ projectId, envId }}
       shell={capabilities.shell ? { run: runShell } : undefined}
       class={className}
     />
@@ -784,6 +791,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
 
 export interface NewChatComposerProps {
   projectId: string | null;
+  /** The environment a standalone chat runs on (I-123; a project chat uses its project's). */
+  envId?: string | null;
   placeholder?: string;
   autoFocus?: boolean;
   class?: string;
@@ -793,22 +802,25 @@ const NEW_CHAT_COMMANDS = builtinCommands(false);
 /** Every built-in name: harness commands with these names stay hidden in new chats too. */
 const BUILTIN_NAMES = new Set(builtinCommands(true).map((c) => c.name));
 
-function NewChatComposer({ projectId, placeholder, autoFocus, class: className }: NewChatComposerProps) {
+function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, class: className }: NewChatComposerProps) {
   const navigate = useNavigate();
-  const models = visibleModels.value;
-  const defaults = settings.value.models;
+  // I-123: pickers follow the host (the project's environment, or the one chosen for a standalone chat).
+  const envId = projectId ? envIdOfProject(projectId) : (chosenEnv ?? undefined);
+  const shell = shellOf(envId);
+  const models = visibleModelsOf(shell);
+  const defaults = shell.settings.value.models;
   const [pickedModel, setPickedModel] = useState<ModelRef | null>(null);
   const [pickedLevel, setPickedLevel] = useState<ThinkingLevel | null>(null);
   const [busy, setBusy] = useState(false);
 
   // The agent picked in the context bar (I-119); ACP agents choose their own model.
-  const target = newChatHarnessInfo.value;
+  const target = newChatHarnessFor(envId);
   const otherHarness = target && !target.isDefault ? target.id : undefined;
   const usesModels = target?.capabilities.models !== false;
 
   // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043).
   // Those are the default harness's; another agent's commands are only known once its chat runs.
-  const folderCommands = useFolderCommands(projectId);
+  const folderCommands = useFolderCommands(projectId, envId);
   const slashCommands = useMemo(
     () => mergeCommands(NEW_CHAT_COMMANDS, otherHarness ? [] : (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))),
     [folderCommands, otherHarness],
@@ -816,12 +828,12 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
 
   // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
-  const harness = harnessDefaults.value;
+  const harness = shell.harnessDefaults.value;
   const harnessModel = !defaultModel && harness?.model ? harness.model : null;
   const first = models[0];
   const model: ModelRef | null = pickedModel ?? defaultModel ?? harnessModel ?? (first ? { provider: first.provider, id: first.id } : null);
   // The harness's default may be hidden from the picker; still describe it correctly.
-  const info = modelInfo(models, model) ?? modelInfo(allModels.value, model);
+  const info = modelInfo(models, model) ?? modelInfo(shell.models.value, model);
   const levels = info?.thinkingLevels ?? ["off"];
   const followsHarness = !pickedModel && harnessModel !== null;
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
@@ -840,11 +852,11 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
         model: followsHarness || !usesModels ? null : model,
         thinkingLevel: model && usesModels ? thinkingLevel : null,
         ...(otherHarness ? { harness: otherHarness } : {}),
-      });
+      }, envId);
       if (withFiles) {
         const sessionId = created.session.session.id;
         const sent = await runAction(
-          async () => api.prompt(sessionId, { text: await attachFilesToText(sessionId, text, files), images: images.length ? images : undefined }),
+          async () => apiForSession(sessionId).prompt(sessionId, { text: await attachFilesToText(sessionId, text, files), images: images.length ? images : undefined }),
           "Could not send message",
         );
         // The chat exists either way; keep the text in its composer when sending failed.
@@ -862,7 +874,8 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
 
   return (
     <ComposerBox
-      draftKey={`new:${projectId ?? ""}`}
+      draftKey={`new:${projectId ?? (envId && !isLocalEnvironment(envId) ? `@${envId}` : "")}`}
+      envId={envId}
       placeholder={placeholder}
       autoFocus={autoFocus}
       busy={busy}
@@ -876,7 +889,7 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
       hideModelPickers={!usesModels}
       onSend={onSend}
       slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
-      mentions={{ projectId }}
+      mentions={{ projectId, envId }}
       class={className}
     />
   );
@@ -888,12 +901,12 @@ function NewChatComposer({ projectId, placeholder, autoFocus, class: className }
 
 export type ComposerProps = { placeholder?: string; autoFocus?: boolean; class?: string } & (
   | { chatId: string; projectId?: never }
-  | { chatId?: null; projectId: string | null }
+  | { chatId?: null; projectId: string | null; /** Standalone chats: the environment (I-123). */ envId?: string | null }
 );
 
 export function Composer(props: ComposerProps) {
   if (props.chatId) {
     return <ChatComposer chatId={props.chatId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
   }
-  return <NewChatComposer projectId={props.projectId ?? null} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
+  return <NewChatComposer projectId={props.projectId ?? null} envId={(props as { envId?: string | null }).envId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
 }

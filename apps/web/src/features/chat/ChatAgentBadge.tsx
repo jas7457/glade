@@ -5,14 +5,16 @@
  */
 import { Bot } from "lucide-preact";
 import { isAcpHarnessId } from "@glade/protocol";
-import { defaultHarness, harnesses } from "@/state/harnesses";
-import { sessionsById } from "@/state/store";
+import { defaultHarnessOf, harnessesOf } from "@/state/harnesses";
+import { envIdOfSession, sessionsById } from "@/state/store";
 import { Badge } from "@/ui";
 
 export function ChatAgentBadge({ sessionId, class: className }: { sessionId: string; class?: string }) {
   const harnessId = sessionsById.value.get(sessionId)?.harness;
-  const list = harnesses.value;
-  if (!harnessId || !list || harnessId === defaultHarness.value?.id) return null;
+  // The chat's environment's agents (I-123).
+  const envId = envIdOfSession(sessionId);
+  const list = harnessesOf(envId);
+  if (!harnessId || !list || harnessId === defaultHarnessOf(envId)?.id) return null;
   const info = list.find((h) => h.id === harnessId);
   const label = info?.label ?? harnessId;
   const title = `Runs on ${label}${isAcpHarnessId(harnessId) ? " (ACP)" : ""}${info ? "" : ", which isn't installed"}`;

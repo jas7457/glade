@@ -3,8 +3,7 @@
  * whole list (the server validates it) through `updateSettings`, which applies it optimistically.
  */
 import type { SavedPrompt } from "@glade/protocol";
-import { updateSettings } from "./actions";
-import { settings } from "./store";
+import { hostSettings as settings, updateHostSettings as updateSettings } from "./host-settings";
 
 export type PromptDraft = Omit<SavedPrompt, "id">;
 

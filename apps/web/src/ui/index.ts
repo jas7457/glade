@@ -46,3 +46,5 @@ export { Badge, type BadgeProps } from "./Badge";
 export { ToolbarToggle, type ToolbarToggleProps } from "./ToolbarToggle";
 export { Clamp, type ClampProps } from "./Clamp";
 export { Lightbox, canCopyImages, copyImageToClipboard, type LightboxProps, type LightboxImage } from "./Lightbox";
+export { FolderBrowser, type FolderBrowserProps } from "./FolderBrowser";
+export { RemoteBadge, type RemoteBadgeProps, type RemoteStatus } from "./RemoteBadge";

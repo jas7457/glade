@@ -44,6 +44,11 @@ export interface EnvironmentInfo {
   capabilities: EnvironmentCapabilities;
 }
 
+/** `PATCH /api/environment` body. `name` is trimmed; empty resets to the machine name. */
+export interface UpdateEnvironmentRequest {
+  name: string;
+}
+
 /** One directory in a browse listing. */
 export interface FsBrowseEntry {
   name: string;

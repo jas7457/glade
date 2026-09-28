@@ -154,7 +154,7 @@ describe("importing the JSON files (first start)", () => {
     const store = openStore(dir);
 
     expect(store.jsonImport?.counts).toEqual({ projects: 1, workspaces: 2, sessions: 3, agents: 1, summaries: 1, acpTranscripts: 1 });
-    expect(store.listProjects()).toEqual([{ id: "p1", name: "Proj", path: "/p", createdAt: 1, lastActivityAt: 5, sortOrder: 0 }]);
+    expect(store.listProjects()).toEqual([{ id: "p1", name: "Proj", path: "/p", createdAt: 1, lastActivityAt: 5, sortOrder: 0, environmentId: store.environmentId }]); // I-123: stamped on import
     expect(store.getWorkspace("w1")?.pinOrder).toBe(0); // I-019 upgrade applied on import
     expect(store.listSessions().map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
     expect(store.getSettings().harnesses.pi.piPath).toBe("/opt/pi"); // I-066 upgrade applied

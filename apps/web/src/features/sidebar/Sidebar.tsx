@@ -9,7 +9,7 @@ import { routes } from "@/app/routes";
 import { routeContext } from "@/app/paths";
 import { cn } from "@/lib/cn";
 import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, Titlebar, sidebarClass } from "@/ui";
-import { workspacesById, workspacesForProject, sortedProjects } from "@/state/store";
+import { envIdOf, workspacesById, workspacesForProject, sortedProjects } from "@/state/store";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { reorderProjects } from "@/state/actions";
 import { SettingsNav } from "@/features/settings";
@@ -24,13 +24,13 @@ export function Sidebar() {
   const navigate = useNavigate();
   const ctx = routeContext(location.pathname, workspacesById.value);
 
-  const onChatRemoved = (chat: WorkspaceSummary) => navigate(chat.projectId ? routes.project(chat.projectId) : routes.home());
+  const onChatRemoved = (chat: WorkspaceSummary) => navigate(chat.projectId ? routes.project(chat.projectId) : routes.home(envIdOf(chat)));
   const onProjectRemoved = (_project: Project) => navigate(routes.home());
 
-  const newChat = () => navigate(ctx.projectId ? routes.project(ctx.projectId) : routes.home());
+  const newChat = () => navigate(ctx.projectId ? routes.project(ctx.projectId) : routes.home(ctx.envId));
   const projects = sortedProjects.value;
   const standalone = workspacesForProject(null);
-  const newChatSelected = location.pathname === "/";
+  const newChatSelected = location.pathname === "/" || /^\/e\/[^/]+\/?$/.test(location.pathname);
   const projectSort = useSortable({
     group: "projects",
     ids: projects.map((p) => p.id),

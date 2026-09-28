@@ -7,6 +7,7 @@ import type { ToolResult, Transcript } from "./transcript.js";
 import type { ChatStatus } from "./status.js";
 import type { SessionAgentState, SpawnedAgentRef } from "./agents.js";
 import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, TranscriptPage } from "./sync.js";
+import type { EnvironmentInfo } from "./environments.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -145,6 +146,11 @@ export interface Session {
 
 /** Session plus runtime state that isn't persisted. */
 export interface SessionSummary extends Session {
+  /**
+   * The environment it belongs to (I-123). Filled in by the *client* when it receives the item
+   * (servers don't send it); a missing value means the local environment.
+   */
+  environmentId?: string;
   running: boolean;
   /** Open agent dialogs waiting for the user. */
   pendingInputs: number;
@@ -186,6 +192,11 @@ export function activeElsewhereMessage(elsewhere: Pick<ActiveElsewhere, "serverK
 
 /** Workspace plus state rolled up from all of its sessions (see `rollupWorkspace`). */
 export interface WorkspaceSummary extends Workspace {
+  /**
+   * The environment it belongs to (I-123). Filled in by the *client* when it receives the item
+   * (servers don't send it); a missing value means the local environment.
+   */
+  environmentId?: string;
   /** Most urgent session status (blocked > working > unread > idle). */
   status: ChatStatus;
   /** Any session is running. */
@@ -499,6 +510,8 @@ export interface ShellSnapshot {
   workspaces: WorkspaceSummary[];
   sessions: SessionSummary[];
   settings: Settings;
+  /** The server's environment (I-123; missing on older servers). */
+  environment?: EnvironmentInfo;
 }
 
 /**
@@ -506,7 +519,16 @@ export interface ShellSnapshot {
  * receive them in `batch`es, tagged with `seq` / `prev`; older clients get every push untagged.
  */
 export type ServerMessage = (
-  | { type: "hello"; version: string; /** WebSocket protocol version (2 = sequenced sync, I-122). */ protocol?: number }
+  | {
+      type: "hello";
+      version: string;
+      /** WebSocket protocol version (2 = sequenced sync, I-122). */
+      protocol?: number;
+      /** The server's permanent environment id (I-123; missing on older servers). */
+      environmentId?: string;
+    }
+  /** This environment's info changed (renamed, I-123). Shell scope, committed. */
+  | { type: "environment"; environment: EnvironmentInfo }
   /** A live agent event of one session. */
   | { type: "session_event"; sessionId: string; workspaceId: string; event: AgentEvent }
   | { type: "session_upsert"; session: SessionSummary }

@@ -2,8 +2,15 @@ import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
 import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@glade/protocol";
 import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@/ui";
-import { harnessDefaults, loadModels, models, settings, visibleModels } from "@/state/store";
-import { updateSettings } from "@/state/actions";
+import {
+  hostEnvId,
+  hostHarnessDefaults as harnessDefaults,
+  hostModels as models,
+  hostSettings as settings,
+  hostVisibleModels as visibleModels,
+  loadHostModels as loadModels,
+  updateHostSettings as updateSettings,
+} from "@/state/host-settings";
 import { harnessLabel } from "@/state/harnesses";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
@@ -123,7 +130,7 @@ export function ModelSettings() {
         }
       >
         {all.length === 0 ? (
-          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${harnessLabel()} is configured with a provider.`}</span>} />
+          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${harnessLabel(null, hostEnvId())} is configured with a provider.`}</span>} />
         ) : (
           groupModels(all).map(([provider, ms]) => (
             <div key={provider}>

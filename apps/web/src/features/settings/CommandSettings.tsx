@@ -8,8 +8,8 @@ import { RefreshCw, Search } from "lucide-preact";
 import { builtinCommands } from "@/features/chat/slash/builtins";
 import { listFolderCommands } from "@/lib/api-folder";
 import { Button, FormGroup, FormRow, Spinner, Switch, TextField } from "@/ui";
-import { projects, settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
+import { hostEnvId, hostProjects as projects, hostSettings as settings, updateHostSettings as updateSettings } from "@/state/host-settings";
+import { requestFor } from "@/state/env-api";
 import { setSlashCommandsHidden } from "@/state/slash-visibility";
 import { listSlashCommands, type FolderCommands } from "./slash-command-list";
 
@@ -17,7 +17,7 @@ type Load = { status: "loading" } | { status: "done"; folders: FolderCommands[];
 
 async function loadFolders(refresh: boolean): Promise<Load> {
   const targets: Array<{ id: string | null; name: string | null }> = [{ id: null, name: null }, ...projects.value.map((p) => ({ id: p.id, name: p.name }))];
-  const results = await Promise.allSettled(targets.map((t) => listFolderCommands(t.id, refresh)));
+  const results = await Promise.allSettled(targets.map((t) => listFolderCommands(t.id, refresh, requestFor(hostEnvId()))));
   const folders: FolderCommands[] = [];
   results.forEach((r, i) => {
     if (r.status === "fulfilled") folders.push({ projectName: targets[i]!.name, commands: r.value });

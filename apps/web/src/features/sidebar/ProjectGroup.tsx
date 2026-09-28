@@ -10,7 +10,8 @@ import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade
 import { routes } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
 import { cn } from "@/lib/cn";
-import { workspacesForProject } from "@/state/store";
+import { envIdOf, workspacesForProject } from "@/state/store";
+import { RemoteMarker } from "@/features/environments/RemoteMarker";
 import { closedProjects, setProjectOpen } from "@/state/ui";
 import { moveProject, removeProject, renameProject } from "@/state/actions";
 import { notify } from "@/state/toasts";
@@ -138,6 +139,7 @@ export function ProjectGroup({
           label={project.name}
           title={project.path}
           icon={open ? <FolderOpen /> : <Folder />}
+          badge={<RemoteMarker envId={envIdOf(project)} />}
           selected={selected}
           aria-expanded={open}
           onSelect={() => setProjectOpen(project.id, !open)}

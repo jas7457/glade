@@ -27,7 +27,8 @@ import {
 } from "lucide-preact";
 import { attachmentName, parseAgentMessage, parseAttachedFiles, type ImageBlock, type UserMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
-import { api } from "@/lib/api";
+import { apiFor, isThisMachine } from "@/state/env-api";
+import { useChatEnv } from "./chat-env";
 import { notify } from "@/state/toasts";
 import { Chip, Clamp } from "@/ui";
 import { AgentMessageCard } from "./AgentMessageCard";
@@ -54,15 +55,18 @@ export function fileIcon(name: string, kind: "file" | "dir" = "file"): LucideIco
   return EXTENSION_ICONS.find(([re]) => re.test(name))?.[1] ?? File;
 }
 
-function revealFile(path: string) {
-  api.revealFile(path).catch((err: Error) => notify("error", `Couldn't show the file: ${err.message}`));
+function revealFile(path: string, envId: string | null) {
+  apiFor(envId).revealFile(path).catch((err: Error) => notify("error", `Couldn't show the file: ${err.message}`));
 }
 
 /** A file attached by reference, on a sent message. */
 export function AttachedFileChip({ path }: { path: string }) {
   const name = attachmentName(path);
   const Icon = fileIcon(name);
-  return <Chip icon={<Icon />} label={name} title={path} onClick={() => revealFile(path)} />;
+  // Show in Finder only when the chat runs on this machine (I-123/I-124).
+  const env = useChatEnv();
+  const canReveal = isThisMachine(env, "reveal");
+  return <Chip icon={<Icon />} label={name} title={path} onClick={canReveal ? () => revealFile(path, env) : undefined} />;
 }
 
 /** Message text with `@path` mentions as inline chips (I-092). */

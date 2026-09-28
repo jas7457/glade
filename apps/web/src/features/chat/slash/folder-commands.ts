@@ -8,6 +8,17 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { SlashCommand } from "@glade/protocol";
 import { listFolderCommands } from "@/lib/api-folder";
+import { requestFor } from "@/state/env-api";
+import { isLocalEnvironment } from "@/state/env-registry";
+import { envIdOfProject } from "@/state/store";
+
+/**
+ * Cache key: the project id, or "" for the scratch folder (`@<envId>` appended for another
+ * environment's scratch folder, I-123).
+ */
+function keyOf(projectId: string | null, envId?: string | null): string {
+  return projectId ?? (envId && !isLocalEnvironment(envId) ? `@${envId}` : "");
+}
 
 const STALE_MS = 30_000;
 
@@ -20,14 +31,14 @@ interface Entry {
 export const folderCommands = signal<ReadonlyMap<string, Entry>>(new Map());
 const inflight = new Map<string, Promise<void>>();
 
-export function loadFolderCommands(projectId: string | null, force = false): Promise<void> {
-  const key = projectId ?? "";
+export function loadFolderCommands(projectId: string | null, force = false, envId?: string | null): Promise<void> {
+  const key = keyOf(projectId, envId);
   const hit = folderCommands.value.get(key);
   if (!force && hit && Date.now() - hit.at < STALE_MS) return Promise.resolve();
   let pending = inflight.get(key);
   if (!pending) {
     pending = Promise.resolve()
-      .then(() => listFolderCommands(projectId))
+      .then(() => listFolderCommands(projectId, false, requestFor(projectId ? envIdOfProject(projectId) : envId)))
       .then((commands) => {
         folderCommands.value = new Map(folderCommands.value).set(key, { at: Date.now(), commands });
       })
@@ -41,14 +52,14 @@ export function loadFolderCommands(projectId: string | null, force = false): Pro
 }
 
 /** The folder's harness commands (`null` until first loaded); loads/refreshes as described above. */
-export function useFolderCommands(projectId: string | null): SlashCommand[] | null {
+export function useFolderCommands(projectId: string | null, envId?: string | null): SlashCommand[] | null {
   useEffect(() => {
-    void loadFolderCommands(projectId);
-    const onFocus = () => void loadFolderCommands(projectId);
+    void loadFolderCommands(projectId, false, envId);
+    const onFocus = () => void loadFolderCommands(projectId, false, envId);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [projectId]);
-  return folderCommands.value.get(projectId ?? "")?.commands ?? null;
+  }, [projectId, envId]);
+  return folderCommands.value.get(keyOf(projectId, envId))?.commands ?? null;
 }
 
 /** Test helper. */

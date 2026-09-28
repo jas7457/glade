@@ -5,7 +5,7 @@
  */
 import { useState } from "preact/hooks";
 import { CirclePause } from "lucide-preact";
-import { api } from "@/lib/api";
+import { apiForSession } from "@/state/env-api";
 import { runAction } from "@/state/chat-session";
 import { dismissInterrupted } from "@/state/actions";
 import { Button } from "@/ui";
@@ -26,7 +26,7 @@ export function InterruptedBanner({ chatId: sessionId }: { chatId: string }) {
       <Button
         size="sm"
         disabled={busy}
-        onClick={() => void act(() => runAction(() => api.prompt(sessionId, { text: CONTINUE_PROMPT }), "Could not continue"))}
+        onClick={() => void act(() => runAction(() => apiForSession(sessionId).prompt(sessionId, { text: CONTINUE_PROMPT }), "Could not continue"))}
       >
         Continue
       </Button>

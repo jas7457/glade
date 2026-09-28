@@ -18,6 +18,11 @@ export const appRoutes: RouteObject[] = [
       { path: "/chats/:chatId", element: <ChatRoute /> },
       { path: "/projects/:projectId", element: <ProjectRoute /> },
       { path: "/projects/:projectId/chats/:chatId", element: <ChatRoute /> },
+      // Another environment's screens (I-123); the ones above are the local environment's.
+      { path: "/e/:envId", element: <HomeRoute /> },
+      { path: "/e/:envId/chats/:chatId", element: <ChatRoute /> },
+      { path: "/e/:envId/projects/:projectId", element: <ProjectRoute /> },
+      { path: "/e/:envId/projects/:projectId/chats/:chatId", element: <ChatRoute /> },
       { path: "/settings", element: <Navigate to={routes.settings()} replace /> },
       { path: "/settings/:section", element: <SettingsRoute /> },
       { path: "*", element: <NotFound /> },

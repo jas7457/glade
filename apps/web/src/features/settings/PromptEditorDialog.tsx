@@ -7,7 +7,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { MAX_PROMPT_BODY, MAX_PROMPT_DESCRIPTION, MAX_PROMPT_NAME, promptCommandName, type SavedPrompt } from "@glade/protocol";
 import { Button, Dialog, Select, TextArea, TextField } from "@/ui";
-import { sortedProjects } from "@/state/store";
+import { hostProjects as sortedProjects } from "@/state/host-settings";
 import { addPrompt, updatePrompt, type PromptDraft } from "@/state/prompts";
 
 const GLOBAL = "__global__";

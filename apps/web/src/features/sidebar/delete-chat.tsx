@@ -9,7 +9,7 @@
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import type { WorkspaceSummary, WorkspaceWorktree, WorktreeRemoval, WorktreeStatus } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { apiForWorkspace } from "@/state/env-api";
 import { Button, Dialog, SegmentedControl, Spinner, confirm, shortenSubject } from "@/ui";
 import { deleteWorkspace } from "@/state/actions";
 
@@ -77,7 +77,7 @@ export function DeleteWorktreeChatDialog({ chat, options = {}, onResult }: Delet
 
   useEffect(() => {
     let live = true;
-    api.getWorktreeStatus(chat.id).then(
+    apiForWorkspace(chat.id).getWorktreeStatus(chat.id).then(
       (s) => live && setStatus(s),
       () => live && setFailed(true),
     );
