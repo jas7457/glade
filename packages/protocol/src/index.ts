@@ -18,3 +18,4 @@ export * from "./git-changes.js";
 export * from "./worktrees.js";
 export * from "./acp.js";
 export * from "./sync.js";
+export * from "./environments.js";

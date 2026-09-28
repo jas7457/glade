@@ -22,6 +22,13 @@ export interface Project {
   createdAt: number;
   /** Updated whenever one of its chats has activity. Not used for ordering. */
   lastActivityAt: number;
+  /**
+   * The environment (machine) whose files this project is (I-123). Set at creation, never changed;
+   * projects from before I-123 are filled in with the local server's id. Optional on the wire so
+   * old servers' projects still parse; a client treats a missing value as "the environment it
+   * came from".
+   */
+  environmentId?: string;
 }
 
 /**
