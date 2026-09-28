@@ -268,6 +268,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Links in the Mac app open in your default browser again (chats, tool output, settings, dialogs),
+  and the app never navigates away from Glade.
 - "Open in VS Code" in a worktree chat opens the worktree, not the main project folder.
 - The thinking picker and context meter no longer disappear after a Glade server restarts or hands a
   chat back.

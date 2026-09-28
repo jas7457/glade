@@ -61,3 +61,16 @@ export async function setWindowTheme(theme: "light" | "dark" | null): Promise<vo
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow().setTheme(theme);
 }
+
+/**
+ * Open a URL in the default app (browser, mail) via the opener plugin (I-129). The capability
+ * allows http/https/mailto only. Outside the desktop app it opens a new browser tab.
+ */
+export async function openExternal(url: string): Promise<void> {
+  if (!isDesktop()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
+}

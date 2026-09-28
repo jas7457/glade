@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isDesktop, onMenuAction, setDockBadge } from "./desktop";
+import { isDesktop, onMenuAction, openExternal, setDockBadge } from "./desktop";
 
 describe("desktop bridge in a browser", () => {
   afterEach(() => {
@@ -18,5 +18,12 @@ describe("desktop bridge in a browser", () => {
     expect(() => off()).not.toThrow();
     await expect(setDockBadge(3)).resolves.toBeUndefined();
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("opens external links in a new tab outside the desktop app", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    await openExternal("https://example.com/");
+    expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener,noreferrer");
+    open.mockRestore();
   });
 });

@@ -4,6 +4,8 @@
 //!   `tauri dev` loads the Vite dev server instead (devUrl) and starts nothing.
 //! - Native chrome: overlay titlebar (tauri.conf.json), sidebar vibrancy, app menu whose custom
 //!   items are forwarded to the web app as `glade:menu` events (see apps/web/src/lib/desktop.ts).
+//! - Links never navigate the window away: external ones open in the default browser (`links.rs`,
+//!   I-129).
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
 //!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
 //!   working, see `quit.rs`).
@@ -11,6 +13,7 @@
 //!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
 mod dev;
+mod links;
 mod menu;
 mod quit;
 mod server;
@@ -18,7 +21,7 @@ mod writing_tools;
 
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, RunEvent, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use server::{Bundle, ServerState};
@@ -47,6 +50,23 @@ fn apply_vibrancy(window: &WebviewWindow) {
             eprintln!("[glade] vibrancy unavailable: {e}");
         }
     }
+}
+
+/// Create the main window from its tauri.conf.json entry (`create: false` there) so it can get
+/// the external-link guards (`links.rs`; `on_new_window` only exists on the builder).
+fn create_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == MAIN_WINDOW)
+        .cloned()
+        .expect("main window missing from tauri.conf.json");
+    WebviewWindowBuilder::from_config(app, &config)?
+        .on_navigation(links::on_navigation)
+        .on_new_window(|url, _features| links::on_new_window(url))
+        .build()
 }
 
 /// Start the bundled server off the main thread, then navigate the window to it.
@@ -119,14 +139,15 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| focus_main(app)))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        // The web app opens links itself (lib/external-links.ts); skip the plugin's click script.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .manage(ServerState::default())
         .menu(menu::build)
         .on_menu_event(menu::handle)
         .setup(|app| {
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-                apply_vibrancy(&window);
-                writing_tools::disable_affordance(&window);
-            }
+            let window = create_main_window(app.handle())?;
+            apply_vibrancy(&window);
+            writing_tools::disable_affordance(&window);
             quit::install(app.handle());
             if !tauri::is_dev() {
                 start_server(app.handle().clone());
