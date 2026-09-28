@@ -19,6 +19,7 @@ import type {
   SessionDetail,
   SessionSummary,
   Settings,
+  TranscriptPageResponse,
   ShellRequest,
   ShellResponse,
   SlashCommand,
@@ -32,6 +33,7 @@ import type {
   WorktreeRemoval,
   WorktreeStatus,
 } from "@glade/protocol";
+import { COMMAND_ID_HEADER } from "@glade/protocol";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -43,10 +45,11 @@ export class ApiRequestError extends Error {
 }
 
 /** Shared JSON request helper; feature-specific clients (e.g. `lib/api-search.ts`) build on it. */
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+  const headers = { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...extraHeaders };
   const res = await fetch(`/api${path}`, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -62,10 +65,30 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   return (await res.json()) as T;
 }
 
+/**
+ * A command that must not run twice (I-122): sent with a client `commandId`, and retried once
+ * with the same id when the connection failed before an answer came (the server replays the
+ * first answer instead of running it again).
+ */
+export async function command<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers = { [COMMAND_ID_HEADER]: newCommandId() };
+  try {
+    return await request<T>(method, path, body, headers);
+  } catch (err) {
+    if (err instanceof ApiRequestError) throw err;
+    await new Promise((r) => setTimeout(r, 500));
+    return request<T>(method, path, body, headers);
+  }
+}
+
+function newCommandId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const api = {
   // Projects
   listProjects: () => request<Project[]>("GET", "/projects"),
-  createProject: (body: CreateProjectRequest) => request<Project>("POST", "/projects", body),
+  createProject: (body: CreateProjectRequest) => command<Project>("POST", "/projects", body),
   updateProject: (id: string, body: UpdateProjectRequest) => request<Project>("PATCH", `/projects/${id}`, body),
   deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
   /** Full list of project ids in the new order. */
@@ -81,7 +104,7 @@ export const api = {
 
   // Workspaces (sidebar rows)
   listWorkspaces: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
-  createWorkspace: (body: CreateWorkspaceRequest) => request<CreateWorkspaceResponse>("POST", "/workspaces", body),
+  createWorkspace: (body: CreateWorkspaceRequest) => command<CreateWorkspaceResponse>("POST", "/workspaces", body),
   getWorkspace: (id: string) => request<WorkspaceDetail>("GET", `/workspaces/${id}`),
   /** Open the chat's own folder (its worktree, or the project folder) in another app (I-106). */
   openWorkspace: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/workspaces/${id}/open`, { app }),
@@ -95,20 +118,23 @@ export const api = {
     request<WorkspaceSummary[]>("PUT", "/workspaces/pin-order", { projectId, ids }),
   /** A new main session (tab) in a workspace. */
   createSession: (workspaceId: string, body: CreateSessionRequest = {}) =>
-    request<SessionDetail>("POST", `/workspaces/${workspaceId}/sessions`, body),
+    command<SessionDetail>("POST", `/workspaces/${workspaceId}/sessions`, body),
 
   // Sessions (one agent conversation each; everything below takes a session id)
   listSessions: () => request<SessionSummary[]>("GET", "/sessions"),
   getSession: (id: string) => request<SessionDetail>("GET", `/sessions/${id}`),
+  /** Earlier turns of a transcript, before message index `before` (I-122 "load earlier"). */
+  getTranscriptPage: (id: string, before: number, turns = 50) =>
+    request<TranscriptPageResponse>("GET", `/sessions/${id}/transcript?before=${before}&turns=${turns}`),
   updateSession: (id: string, body: UpdateSessionRequest) => request<SessionSummary>("PATCH", `/sessions/${id}`, body),
   /** Name the session from its conversation with the small model, applied like a rename (`/name`, I-074). */
   generateSessionTitle: (id: string) => request<GenerateTitleResponse>("POST", `/sessions/${id}/title/generate`),
   /** Close a tab (deletes its session file). Refused (409) for a workspace's last main session. */
   deleteSession: (id: string) => request<void>("DELETE", `/sessions/${id}`),
-  prompt: (id: string, body: PromptRequest) => request<void>("POST", `/sessions/${id}/prompt`, body),
+  prompt: (id: string, body: PromptRequest) => command<void>("POST", `/sessions/${id}/prompt`, body),
   abort: (id: string) => request<void>("POST", `/sessions/${id}/abort`),
   /** `!cmd` / `!!cmd` (I-076): run a shell command in the chat's folder; output arrives as `shell_*` events. */
-  runShell: (id: string, body: ShellRequest) => request<ShellResponse>("POST", `/sessions/${id}/shell`, body),
+  runShell: (id: string, body: ShellRequest) => command<ShellResponse>("POST", `/sessions/${id}/shell`, body),
   abortShell: (id: string) => request<void>("POST", `/sessions/${id}/shell/abort`),
   setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
   setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),

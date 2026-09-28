@@ -23,14 +23,18 @@ import {
   type DeepPartial,
   type Project,
   type Session,
+  type MessagePatch,
   type Settings,
   type ToolResult,
+  type TranscriptPage,
   type Transcript,
   type Workspace,
+  toolCallIdsOf,
+  turnPageStart,
 } from "@glade/protocol";
 import type { AgentRecord } from "../services/agents.js";
 import type { SessionTextMessage } from "../harness/types.js";
-import { DB_FILE, getMeta, getMetaJson, openDatabase, setMetaJson, transaction, type Db } from "./db/database.js";
+import { DB_FILE, getMeta, getMetaJson, inTransaction, openDatabase, setMetaJson, transaction, type Db } from "./db/database.js";
 import { ulid } from "./db/ids.js";
 import { migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
 import {
@@ -53,6 +57,45 @@ export interface StoreChange {
   sessions: { upserted: Session[]; removed: Session[] };
   settings: boolean;
 }
+
+/**
+ * One row of the event log (I-122), as the sync hub sees it. `type`: "project" | "workspace" |
+ * "session" | "agent" | "settings" (scope "shell") or "messages" (scope "session").
+ */
+export interface EventRow {
+  seq: number;
+  serverId: string;
+  /** Written by another server on the data folder. */
+  foreign: boolean;
+  scope: "shell" | "session";
+  sessionId: string | null;
+  type: string;
+  entityId: string | null;
+  payload: EventPayload | null;
+}
+
+/** What `payload_json` holds (all optional: rows of schema-1 servers have none). */
+export interface EventPayload {
+  /** session rows: the session's workspace (for removals). */
+  workspaceId?: string;
+  /** messages rows written by a live process's TranscriptWriter. */
+  messages?: string[];
+  toolResults?: string[];
+  /** The changes were pushed to clients as `session_event`s already (this server's live stream). */
+  live?: boolean;
+  /** A harness file was imported or merged and messages moved (clients reload the transcript). */
+  reset?: boolean;
+  /** Import counts (harness file merges). */
+  imported?: number;
+  updated?: number;
+}
+
+/** A command receipt (I-122): what happened to a request with this `commandId`. */
+export type CommandReceipt =
+  | { state: "new" }
+  | { state: "pending"; serverId: string }
+  | { state: "done"; status: number; body: string | null }
+  | { state: "conflict"; route: string };
 
 /** Where a stored conversation came from and how current it is (`transcripts` row). */
 export interface TranscriptInfo {
@@ -111,6 +154,7 @@ export class Store {
   private closed = false;
   private readonly changeListeners = new Set<(change: StoreChange) => void>();
   private readonly agentListeners = new Set<(sessionIds: string[]) => void>();
+  private readonly rowListeners = new Set<(rows: EventRow[]) => void>();
 
   constructor(
     readonly dataDir: string,
@@ -139,25 +183,168 @@ export class Store {
   /** Read other servers' new events now (tests; the poll does this on its own). */
   reload(): void {
     if (this.closed) return;
+    // A listener that writes (e.g. marking a session read) reads again after this round, so every
+    // `onEvents` listener gets the rows in seq order.
+    if (this.reloading) {
+      this.reloadAgain = true;
+      return;
+    }
+    this.reloading = true;
+    try {
+      do {
+        this.reloadAgain = false;
+        this.readEvents();
+      } while (this.reloadAgain && !this.closed);
+    } finally {
+      this.reloading = false;
+    }
+  }
+
+  private reloading = false;
+  private reloadAgain = false;
+
+  private readEvents(): void {
     let rows: Row[];
     try {
-      rows = this.db.prepare("SELECT seq, server_id, type, entity_id FROM events WHERE seq > ? ORDER BY seq").all(this.lastSeq) as Row[];
+      rows = this.db.prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq").all(this.lastSeq) as Row[];
     } catch (err) {
       console.warn(`[glade] could not read the event log: ${(err as Error).message}`);
       return;
     }
     if (!rows.length) return;
     this.lastSeq = Number(rows.at(-1)!.seq);
+    const events = rows.map((row) => this.toEventRow(row));
     const touched = new Map<string, Set<string>>();
-    for (const row of rows) {
-      if (row.server_id === this.serverId) continue;
-      const type = String(row.type);
-      let ids = touched.get(type);
-      if (!ids) touched.set(type, (ids = new Set()));
-      ids.add(String(row.entity_id ?? ""));
+    for (const row of events) {
+      if (!row.foreign) continue;
+      // A removed session's workspace, from our copy while we still have it (older rows lack it).
+      if (row.type === "session" && row.entityId && !row.payload?.workspaceId) {
+        const known = this.sessions.get(row.entityId);
+        if (known) row.payload = { ...row.payload, workspaceId: known.workspaceId };
+      }
+      let ids = touched.get(row.type);
+      if (!ids) touched.set(row.type, (ids = new Set()));
+      ids.add(row.entityId ?? "");
     }
-    if (touched.size) this.applyForeign(touched);
+    const notify = touched.size ? this.applyForeign(touched) : null;
+    for (const listener of this.rowListeners) {
+      try {
+        listener(events);
+      } catch (err) {
+        console.warn(`[glade] event listener failed: ${(err as Error).message}`);
+      }
+    }
+    notify?.();
     if (Date.now() - this.lastPrune > 3600_000) this.pruneEvents();
+  }
+
+  /**
+   * Every event-log row, in seq order, once it's committed (I-122): this server's rows right after
+   * the write, other servers' rows when the poll finds them. Caches are current when it's called.
+   */
+  onEvents(listener: (rows: EventRow[]) => void): () => void {
+    this.rowListeners.add(listener);
+    return () => this.rowListeners.delete(listener);
+  }
+
+  /** The last event-log seq this store has read (and told `onEvents` listeners about). */
+  get headSeq(): number {
+    return this.lastSeq;
+  }
+
+  /** After a local write: read the log up to its end (our rows, and other servers' before them). */
+  private publish(): void {
+    if (this.closed || inTransaction(this.db)) return;
+    this.reload();
+  }
+
+  private toEventRow(row: Row): EventRow {
+    let payload: EventPayload | null = null;
+    if (typeof row.payload_json === "string") {
+      try {
+        payload = JSON.parse(row.payload_json) as EventPayload;
+      } catch {
+        payload = null;
+      }
+    }
+    return {
+      seq: Number(row.seq),
+      serverId: String(row.server_id),
+      foreign: row.server_id !== this.serverId,
+      scope: row.scope === "session" ? "session" : "shell",
+      sessionId: row.session_id === null || row.session_id === undefined ? null : String(row.session_id),
+      type: String(row.type),
+      entityId: row.entity_id === null || row.entity_id === undefined ? null : String(row.entity_id),
+      payload,
+    };
+  }
+
+  // Replay (I-122) -----------------------------------------------------------------------------
+
+  /** The oldest seq still in the log (pruning removes older ones); `null` when it's empty. */
+  oldestSeq(): number | null {
+    const row = this.db.prepare("SELECT MIN(seq) AS seq FROM events").get() as { seq: number | null };
+    return row.seq === null ? null : Number(row.seq);
+  }
+
+  /** Rows of one scope (or one session's) in `(afterSeq, toSeq]`, oldest first. */
+  eventsBetween(afterSeq: number, toSeq: number, filter: { scope: "shell" } | { sessionId: string }, limit = 100_000): EventRow[] {
+    const rows =
+      "scope" in filter
+        ? this.db.prepare("SELECT * FROM events WHERE seq > ? AND seq <= ? AND scope = ? ORDER BY seq LIMIT ?").all(afterSeq, toSeq, filter.scope, limit)
+        : this.db
+            .prepare("SELECT * FROM events WHERE session_id = ? AND seq > ? AND seq <= ? AND scope = 'session' ORDER BY seq LIMIT ?")
+            .all(filter.sessionId, afterSeq, toSeq, limit);
+    return (rows as Row[]).map((r) => this.toEventRow(r));
+  }
+
+  /** Stored messages with these ids and their positions (for patches). */
+  messagesByIds(sessionId: string, ids: Iterable<string>): MessagePatch[] {
+    const out: MessagePatch[] = [];
+    const stmt = this.db.prepare("SELECT seq, payload_json FROM messages WHERE session_id = ? AND id = ?");
+    for (const id of new Set(ids)) {
+      const row = stmt.get(sessionId, id) as { seq: number; payload_json: string } | undefined;
+      if (row) out.push({ index: Number(row.seq), message: JSON.parse(row.payload_json) as ChatMessage });
+    }
+    return out.sort((a, b) => a.index - b.index);
+  }
+
+  toolResultsByIds(sessionId: string, ids: Iterable<string>): ToolResult[] {
+    const out: ToolResult[] = [];
+    const stmt = this.db.prepare("SELECT payload_json FROM tool_results WHERE session_id = ? AND tool_call_id = ?");
+    for (const id of new Set(ids)) {
+      const row = stmt.get(sessionId, id) as { payload_json: string } | undefined;
+      if (row) out.push(JSON.parse(row.payload_json) as ToolResult);
+    }
+    return out;
+  }
+
+  // Command receipts (I-122) ------------------------------------------------------------------
+
+  /** Claim `commandId` for `route`, or learn what happened to it. */
+  beginCommand(commandId: string, route: string): CommandReceipt {
+    return transaction(this.db, () => {
+      const row = this.db.prepare("SELECT route, server_id, status, response_json FROM command_receipts WHERE command_id = ?").get(commandId) as Row | undefined;
+      if (row) {
+        if (row.route !== route) return { state: "conflict", route: String(row.route) };
+        if (row.status === null) return { state: "pending", serverId: String(row.server_id) };
+        return { state: "done", status: Number(row.status), body: row.response_json === null ? null : String(row.response_json) };
+      }
+      const now = Date.now();
+      this.db.prepare("DELETE FROM command_receipts WHERE created_at < ?").run(now - COMMAND_RECEIPT_TTL_MS);
+      this.db.prepare("INSERT INTO command_receipts (command_id, route, server_id, created_at) VALUES (?, ?, ?, ?)").run(commandId, route, this.serverId, now);
+      return { state: "new" };
+    });
+  }
+
+  /** The command finished: remember its response (a retry gets the same answer). */
+  finishCommand(commandId: string, status: number, body: string | null): void {
+    this.db.prepare("UPDATE command_receipts SET status = ?, response_json = ?, done_at = ? WHERE command_id = ?").run(status, body, Date.now(), commandId);
+  }
+
+  /** The command failed before it changed anything: forget it (a retry runs it again). */
+  dropCommand(commandId: string): void {
+    this.db.prepare("DELETE FROM command_receipts WHERE command_id = ? AND status IS NULL").run(commandId);
   }
 
   onExternalChange(listener: (change: StoreChange) => void): () => void {
@@ -171,7 +358,8 @@ export class Store {
     return () => this.agentListeners.delete(listener);
   }
 
-  private applyForeign(touched: Map<string, Set<string>>): void {
+  /** Update our copies of what other servers changed; returns the call that tells the listeners. */
+  private applyForeign(touched: Map<string, Set<string>>): () => void {
     const change: StoreChange = {
       projects: { upserted: [], removed: [] },
       workspaces: { upserted: [], removed: [] },
@@ -244,16 +432,18 @@ export class Store {
       change.sessions.upserted.length ||
       change.sessions.removed.length ||
       change.settings;
-    if (any) {
-      for (const listener of this.changeListeners) {
-        try {
-          listener(change);
-        } catch (err) {
-          console.warn(`[glade] store change listener failed: ${(err as Error).message}`);
+    return () => {
+      if (any) {
+        for (const listener of this.changeListeners) {
+          try {
+            listener(change);
+          } catch (err) {
+            console.warn(`[glade] store change listener failed: ${(err as Error).message}`);
+          }
         }
       }
-    }
-    if (agentIds.length) for (const listener of this.agentListeners) listener(agentIds);
+      if (agentIds.length) for (const listener of this.agentListeners) listener(agentIds);
+    };
   }
 
   private readRecord<T>(table: string, id: string, key = "id"): T | undefined {
@@ -422,6 +612,7 @@ export class Store {
       this.event("project", project.id);
     });
     this.projects.set(project.id, project);
+    this.publish();
     return project;
   }
 
@@ -431,6 +622,7 @@ export class Store {
       this.event("project", id);
     });
     this.projects.delete(id);
+    this.publish();
   }
 
   // Workspaces ---------------------------------------------------------------------------------
@@ -449,6 +641,7 @@ export class Store {
       this.event("workspace", workspace.id);
     });
     this.workspaces.set(workspace.id, workspace);
+    this.publish();
     return workspace;
   }
 
@@ -459,13 +652,14 @@ export class Store {
       const rows = this.db.prepare("SELECT id FROM sessions WHERE workspace_id = ?").all(id) as Array<{ id: string }>;
       for (const sid of new Set([...doomed.map((s) => s.id), ...rows.map((r) => r.id)])) {
         this.deleteSessionRows(sid);
-        this.event("session", sid);
+        this.event("session", sid, { payload: { workspaceId: id } });
       }
       this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
       this.event("workspace", id);
     });
     this.workspaces.delete(id);
     for (const s of doomed) this.sessions.delete(s.id);
+    this.publish();
   }
 
   // Sessions -----------------------------------------------------------------------------------
@@ -483,19 +677,22 @@ export class Store {
   upsertSession(session: Session): Session {
     transaction(this.db, () => {
       this.putSession(session, Date.now());
-      this.event("session", session.id);
+      this.event("session", session.id, { payload: { workspaceId: session.workspaceId } });
     });
     this.sessions.set(session.id, session);
+    this.publish();
     return session;
   }
 
   /** Removes the session and its conversation. */
   removeSession(id: string): void {
+    const workspaceId = this.sessions.get(id)?.workspaceId;
     transaction(this.db, () => {
       this.deleteSessionRows(id);
-      this.event("session", id);
+      this.event("session", id, workspaceId ? { payload: { workspaceId } } : {});
     });
     this.sessions.delete(id);
+    this.publish();
   }
 
   /** The adapter's resume cursor (`sessions.resume_json`), opaque to Glade. */
@@ -537,6 +734,7 @@ export class Store {
       this.event("agent", record.sessionId);
     });
     this.agents.set(record.sessionId, record);
+    this.publish();
     return record;
   }
 
@@ -551,6 +749,7 @@ export class Store {
       return merged;
     });
     if (next) this.agents.set(sessionId, next);
+    this.publish();
     return next;
   }
 
@@ -563,6 +762,7 @@ export class Store {
       }
     });
     for (const id of sessionIds) this.agents.delete(id);
+    this.publish();
   }
 
   // Settings ----------------------------------------------------------------------------------
@@ -590,6 +790,7 @@ export class Store {
     this.settingsOverrides = next;
     this.settingsCache = null;
     this.writeSettingsExport();
+    this.publish();
     return this.getSettings();
   }
 
@@ -641,10 +842,24 @@ export class Store {
   }
 
   /**
+   * The newest `turns` turns of a stored conversation before message index `before` (default: the
+   * end), with their tool results (I-122 snapshots and "load earlier").
+   */
+  transcriptPage(sessionId: string, { before, turns, settle = false }: { before?: number; turns: number; settle?: boolean }): TranscriptPage {
+    return pageOf(this.loadTranscript(sessionId, { settle }), { before, turns });
+  }
+
+  /**
    * Write changed messages (at their position `seq`) and tool results of a live session, in one
    * transaction with one `messages` event. Creates the `transcripts` row (source "live") if needed.
+   * `pushed`: every change was already pushed to clients as `session_event`s (I-122).
    */
-  saveTranscriptChanges(sessionId: string, messages: ReadonlyArray<{ message: ChatMessage; seq: number }>, toolResults: readonly ToolResult[]): void {
+  saveTranscriptChanges(
+    sessionId: string,
+    messages: ReadonlyArray<{ message: ChatMessage; seq: number }>,
+    toolResults: readonly ToolResult[],
+    { pushed = false }: { pushed?: boolean } = {},
+  ): void {
     if (!messages.length && !toolResults.length) return;
     transaction(this.db, () => {
       const now = Date.now();
@@ -655,9 +870,10 @@ export class Store {
       this.event("messages", sessionId, {
         scope: "session",
         sessionId,
-        payload: { messages: messages.map((m) => m.message.id), toolResults: toolResults.map((r) => r.toolCallId) },
+        payload: { messages: messages.map((m) => m.message.id), toolResults: toolResults.map((r) => r.toolCallId), ...(pushed ? { live: true } : {}) },
       });
     });
+    this.publish();
   }
 
   /**
@@ -666,7 +882,9 @@ export class Store {
    * signature, recorded as in sync. Returns the merged transcript.
    */
   importTranscript(sessionId: string, imported: Transcript, { source, sig }: { source: string; sig: string | null }): MergeResult {
-    return transaction(this.db, () => this.importTranscriptRows(sessionId, imported, { source, sig }));
+    const result = transaction(this.db, () => this.importTranscriptRows(sessionId, imported, { source, sig }));
+    this.publish();
+    return result;
   }
 
   private importTranscriptRows(sessionId: string, imported: Transcript, { source, sig }: { source: string; sig: string | null }): MergeResult {
@@ -675,13 +893,22 @@ export class Store {
     const storedIds = new Map(stored.messages.map((m, i) => [m.id, { index: i, message: m }]));
     const result = mergeTranscripts(stored, settleTranscript(imported), (m) => ulid(m.timestamp > 0 ? m.timestamp : now));
     const to = this.agentNameOf(sessionId);
+    const changed: string[] = [];
+    const changedTools: string[] = [];
+    let moved = false;
     result.transcript.messages.forEach((m, seq) => {
       const before = storedIds.get(m.id);
       if (before && before.message === m && before.index === seq) return;
+      changed.push(m.id);
+      if (before && before.index !== seq) moved = true;
       if (before && before.message === m) this.db.prepare("UPDATE messages SET seq = ? WHERE id = ?").run(seq, m.id);
       else this.putMessage(sessionId, seq, m, to, now);
     });
-    for (const [id, r] of Object.entries(result.transcript.toolResults)) if (stored.toolResults[id] !== r) this.putToolResult(sessionId, r, now);
+    for (const [id, r] of Object.entries(result.transcript.toolResults)) {
+      if (stored.toolResults[id] === r) continue;
+      changedTools.push(id);
+      this.putToolResult(sessionId, r, now);
+    }
     const existing = this.transcriptInfo(sessionId);
     this.db
       .prepare(
@@ -691,7 +918,13 @@ export class Store {
       )
       .run(sessionId, existing?.source ?? source, sig, result.transcript.messages.length, now, now);
     if (result.added || result.updated) {
-      this.event("messages", sessionId, { scope: "session", sessionId, payload: { imported: result.added, updated: result.updated } });
+      // Messages only added at the end or changed in place can be sent as a patch; anything that
+      // moved (turns merged in between) makes clients reload the transcript (I-122).
+      this.event("messages", sessionId, {
+        scope: "session",
+        sessionId,
+        payload: { imported: result.added, updated: result.updated, messages: changed, toolResults: changedTools, ...(moved ? { reset: true } : {}) },
+      });
     }
     return result;
   }
@@ -826,3 +1059,17 @@ export class Store {
 }
 
 export const SETTINGS_EXPORT_FILE = "settings.export.json";
+
+/** Command receipts are kept this long (a retry comes within seconds; a day is plenty). */
+const COMMAND_RECEIPT_TTL_MS = 24 * 3600_000;
+
+/** A page of `transcript` by turn: the newest `turns` turns before index `before`. */
+export function pageOf(transcript: Transcript, { before, turns }: { before?: number; turns: number }): TranscriptPage {
+  const end = Math.max(0, Math.min(before ?? transcript.messages.length, transcript.messages.length));
+  const start = turnPageStart(transcript.messages, end, Math.max(1, turns));
+  const messages = transcript.messages.slice(start, end);
+  const ids = toolCallIdsOf(messages);
+  const toolResults: Record<string, ToolResult> = {};
+  for (const [id, result] of Object.entries(transcript.toolResults)) if (ids.has(id)) toolResults[id] = result;
+  return { messages, toolResults, start, total: transcript.messages.length };
+}

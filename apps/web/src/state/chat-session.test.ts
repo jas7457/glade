@@ -11,9 +11,16 @@ vi.mock("@/lib/api", () => ({ api: { getSession: vi.fn() } }));
 vi.mock("@/lib/socket", () => ({ socket: { watch: vi.fn(() => () => {}) } }));
 
 const { api } = await import("@/lib/api");
-const { applySessionDetail, getChatSession, loadChatSession, reloadIfChangedElsewhere, reloadOpenChatSessions, resetChatSessions } = await import(
-  "./chat-session"
-);
+const {
+  applySessionDetail,
+  applySessionSnapshot,
+  applyTranscriptPatch,
+  getChatSession,
+  loadChatSession,
+  reloadIfChangedElsewhere,
+  reloadOpenChatSessions,
+  resetChatSessions,
+} = await import("./chat-session");
 const getSession = vi.mocked(api.getSession);
 
 const LIVE: SessionState = {
@@ -70,5 +77,19 @@ describe("chat session reloads (I-102)", () => {
     expect(getChatSession("s1").state.value.contextUsage).toEqual(LIVE.contextUsage);
     expect(getChatSession("s2").status.value).toBe("ready");
     expect(getChatSession("idle").status.value).toBe("idle");
+  });
+});
+
+describe("transcript patches (I-122)", () => {
+  const msg = (id: string, text: string) => ({ id, role: "user" as const, content: [{ type: "text" as const, text }], timestamp: 0 });
+
+  it("replaces known messages, appends new ones at their index, and skips ones before the loaded page", () => {
+    applySessionSnapshot("s1", { messages: [msg("c", "c"), msg("d", "d")], toolResults: {}, start: 2, total: 4 }, { state: LIVE, pendingUiRequests: [] });
+    const store = getChatSession("s1");
+    expect(store.start.value).toBe(2);
+    expect(applyTranscriptPatch("s1", [{ index: 0, message: msg("a", "a") }, { index: 3, message: msg("d", "d2") }, { index: 4, message: msg("e", "e") }], [])).toBe(true);
+    expect(store.transcript.value.messages.map((m) => (m.role === "user" && m.content[0]?.type === "text" ? m.content[0].text : ""))).toEqual(["c", "d2", "e"]);
+    // A message far past the end doesn't fit: the caller starts over with a snapshot.
+    expect(applyTranscriptPatch("s1", [{ index: 9, message: msg("z", "z") }], [])).toBe(false);
   });
 });

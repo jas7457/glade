@@ -52,6 +52,18 @@ const FAKE_TOKENS_PER_PROMPT = 12_000;
 export type FakeScript = (request: PromptRequest, ids: () => string) => AgentEvent[];
 
 export const defaultFakeScript: FakeScript = (request, nextId) => {
+  // `stream <n>`: a long reply of n words, one delta each (testing live sync, I-122).
+  const stream = /^stream (\d+)$/.exec(request.text.trim());
+  if (stream) {
+    const id = nextId();
+    const words = Array.from({ length: Math.min(Number(stream[1]), 5000) }, (_, i) => `word${i + 1}${(i + 1) % 12 === 0 ? "\n\n" : " "}`);
+    return [
+      { type: "message_start", message: { id, role: "assistant", content: [], timestamp: Date.now(), streaming: true } },
+      { type: "block_start", messageId: id, index: 0, block: { type: "text", text: "" } },
+      ...words.map((delta) => ({ type: "block_delta" as const, messageId: id, index: 0, delta })),
+      { type: "message_end", message: { id, role: "assistant", content: [{ type: "text", text: words.join("") }], timestamp: Date.now(), stopReason: "stop" } },
+    ];
+  }
   const assistantId = nextId();
   const toolCallId = `call-${assistantId}`;
   const answerId = nextId();

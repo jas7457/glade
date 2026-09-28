@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AlertTriangle, PanelLeft } from "lucide-preact";
-import { connectionStatus } from "@/lib/socket";
+import { syncStatus } from "@/state/sync";
 import { cn } from "@/lib/cn";
 import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
 import { initError, initialized, loadAll, workspacesById } from "@/state/store";
@@ -54,16 +54,19 @@ function ResizeHandle() {
   );
 }
 
-/** "Reconnecting…" only after the socket has been down for a moment (avoids flashes). */
+/**
+ * "Reconnecting…" only after the connection has been down (or still catching up, I-122) for a
+ * moment (avoids flashes).
+ */
 function useDisconnected(delayMs = 1000): boolean {
-  const status = connectionStatus.value;
+  const live = syncStatus.value === "live";
   const [late, setLate] = useState(false);
   useEffect(() => {
-    if (status === "open") return setLate(false);
+    if (live) return setLate(false);
     const t = setTimeout(() => setLate(true), delayMs);
     return () => clearTimeout(t);
-  }, [status === "open"]);
-  return status !== "open" && late;
+  }, [live]);
+  return !live && late;
 }
 
 function StatusBanner() {

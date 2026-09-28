@@ -19,11 +19,14 @@ import type {
 import { HttpError, type AppService } from "../services/app-service.js";
 import { ChatTools } from "../services/chat-tools.js";
 import type { SearchService } from "../services/search/search-service.js";
+import { commandIds } from "./commands.js";
 
 /** `search` powers `/chats/find` (501 without it; read/open work regardless). */
 export function createAgentsRoutes(service: AppService, search?: SearchService): Hono {
   const api = new Hono();
   const chats = new ChatTools(service, search ?? null);
+  // A retried spawn/message isn't applied twice (client `commandId`, I-122).
+  const once = commandIds(() => service.store);
 
   api.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
@@ -40,7 +43,7 @@ export function createAgentsRoutes(service: AppService, search?: SearchService):
 
   api.get("/", (c) => c.json(service.listAgents(caller(c).id)));
 
-  api.post("/spawn", async (c) => {
+  api.post("/spawn", once, async (c) => {
     const session = caller(c);
     const body = await readBody<SpawnAgentRequest>(c);
     requireString(body.name, "name");
@@ -53,7 +56,7 @@ export function createAgentsRoutes(service: AppService, search?: SearchService):
     return c.json(await service.spawnAgent(session.id, body));
   });
 
-  api.post("/message", async (c) => {
+  api.post("/message", once, async (c) => {
     const session = caller(c);
     const body = await readBody<MessageAgentRequest>(c);
     requireString(body.to, "to");

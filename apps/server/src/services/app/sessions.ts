@@ -14,6 +14,7 @@ import {
   type SessionDetail,
   type SessionState,
   type SessionSummary,
+  type TranscriptPage,
   type UpdateSessionRequest,
   type Workspace,
 } from "@glade/protocol";
@@ -27,6 +28,8 @@ import type { LivePool } from "./live-pool.js";
 import type { Records } from "./records.js";
 import type { SessionActions } from "./session-actions.js";
 import type { Transcripts } from "./transcripts.js";
+import { pageOf } from "../../store/store.js";
+import type { SessionSyncView } from "../sync/hub.js";
 
 /**
  * How a session is created. `subagent` sessions are for the agent API (I-037); `register` runs
@@ -160,16 +163,60 @@ export class Sessions {
   }
 
   async getSessionDetail(id: string): Promise<SessionDetail> {
+    // Everything up to this seq is in the detail (later changes are replayed after it, I-122).
+    const seq = this.ctx.store.headSeq;
     const session = this.records.requireSession(id);
     const offline = (await this.closedAgentDetail(session)) ?? (await this.elsewhereDetail(session));
-    if (offline) return offline;
+    if (offline) return { ...offline, seq };
     const live = await this.pool.ensureLive(id);
     return {
       session: this.records.summarizeSession(this.records.requireSession(id)),
       transcript: live.transcript,
       state: { ...live.session.getState(), runStartedAt: live.running ? live.runStartedAt : null },
       pendingUiRequests: [...live.pendingUi.values()],
+      seq,
     };
+  }
+
+  /**
+   * Get a session ready for a sync subscription (I-122), deciding like {@link getSessionDetail}
+   * (closed sub-agents and sessions another server holds aren't started). Resolves to a
+   * synchronous reader of the current state that first writes pending transcript changes.
+   */
+  async prepareSync(id: string): Promise<() => SessionSyncView> {
+    const session = this.records.requireSession(id);
+    const dormant = this.records.isDormantAgent(id) ? await this.transcripts.read(session).then(() => this.ctx.store.hasTranscript(id)) : false;
+    const elsewhere = !dormant && !!this.ctx.leases && !this.ctx.live.has(id) && !this.ctx.opening.has(id) && !!this.ctx.leases.foreignLeaseNow(id);
+    if (!dormant && !elsewhere) await this.pool.ensureLive(id);
+    const offlineState = dormant || elsewhere || !this.ctx.live.has(id) ? await this.offlineState(session) : null;
+    return () => {
+      const live = this.ctx.live.get(id);
+      if (live) {
+        live.writer.flush();
+        return {
+          transcript: live.transcript,
+          state: { ...live.session.getState(), runStartedAt: live.running ? live.runStartedAt : null },
+          pendingUiRequests: [...live.pendingUi.values()],
+        };
+      }
+      const { store } = this.ctx;
+      const current = store.getSession(id) ?? session;
+      const running = this.records.summarizeSession(current).running;
+      const transcript = store.hasTranscript(id) ? store.loadTranscript(id, { settle: !running }) : emptyTranscript();
+      return {
+        transcript,
+        state: { ...(offlineState ?? defaultSessionState()), isRunning: running },
+        pendingUiRequests: [],
+        offline: true,
+      };
+    };
+  }
+
+  /** Earlier turns of a transcript ("load earlier", I-122): the newest `turns` turns before index `before`. */
+  async transcriptPage(id: string, before: number | undefined, turns: number): Promise<TranscriptPage> {
+    const session = this.records.requireSession(id);
+    const live = this.ctx.live.get(id);
+    return pageOf(live ? live.transcript : await this.transcripts.read(session), { before, turns });
   }
 
   /**

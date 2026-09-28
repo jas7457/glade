@@ -13,12 +13,12 @@ import {
   type ServerMessage,
   type SessionSummary,
   type Settings,
+  type ShellSnapshot,
   type WorkspaceSummary,
 } from "@glade/protocol";
 import { api } from "@/lib/api";
 import { getHarnessDefaults } from "@/lib/api-folder";
-import { socket } from "@/lib/socket";
-import { handleSessionEvent, reloadIfChangedElsewhere, reloadOpenChatSessions } from "./chat-session";
+import { handleSessionEvent, reloadIfChangedElsewhere } from "./chat-session";
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
 import { loadHarnesses } from "./harnesses";
@@ -92,13 +92,18 @@ export function resolveSessionId(workspaceId: string, tab?: string | null): stri
 // Loading + server push
 // ---------------------------------------------------------------------------------------------
 
+/** A sync snapshot of the shell was applied (I-122): it's newer than any list fetched over HTTP. */
+let shellSynced = false;
+
 export async function loadAll(): Promise<void> {
   try {
     const [p, w, ss, s] = await Promise.all([api.listProjects(), api.listWorkspaces(), api.listSessions(), api.getSettings()]);
-    projects.value = p;
-    workspaces.value = w;
-    sessions.value = ss;
-    settings.value = s;
+    if (!shellSynced) {
+      projects.value = p;
+      workspaces.value = w;
+      sessions.value = ss;
+      settings.value = s;
+    }
     initError.value = null;
   } catch (err) {
     initError.value = (err as Error).message;
@@ -136,6 +141,40 @@ export function upsert<T extends { id: string }>(list: T[], item: T): T[] {
   const copy = list.slice();
   copy[idx] = item;
   return copy;
+}
+
+/** The shell scope's snapshot (I-122): replaces the lists and settings. */
+export function applyShellSnapshot(shell: ShellSnapshot): void {
+  shellSynced = true;
+  const before = new Map(sessions.value.map((s) => [s.id, s]));
+  projects.value = shell.projects;
+  workspaces.value = shell.workspaces;
+  sessions.value = shell.sessions;
+  const acpChanged = JSON.stringify(settings.value.harnesses.acp) !== JSON.stringify(shell.settings.harnesses.acp);
+  settings.value = shell.settings;
+  if (acpChanged) void loadHarnesses();
+  initError.value = null;
+  initialized.value = true;
+  for (const session of shell.sessions) reloadIfChangedElsewhere(before.get(session.id), session);
+}
+
+/**
+ * After catching up (I-122), the lists are checked against every id the server has: ours that it
+ * doesn't have are dropped. Returns true when the server has some we don't (take a snapshot).
+ */
+export function applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[] }): boolean {
+  const ids = { projects: new Set(check.projects), workspaces: new Set(check.workspaces), sessions: new Set(check.sessions) };
+  const prune = <T extends { id: string }>(list: T[], keep: Set<string>) => (list.every((x) => keep.has(x.id)) ? list : list.filter((x) => keep.has(x.id)));
+  projects.value = prune(projects.value, ids.projects);
+  workspaces.value = prune(workspaces.value, ids.workspaces);
+  sessions.value = prune(sessions.value, ids.sessions);
+  const missing = (list: Array<{ id: string }>, all: Set<string>) => list.length < all.size;
+  return missing(projects.value, ids.projects) || missing(workspaces.value, ids.workspaces) || missing(sessions.value, ids.sessions);
+}
+
+/** Tests: forget that a snapshot was applied. */
+export function resetShellSync(): void {
+  shellSynced = false;
 }
 
 export function handleServerMessage(message: ServerMessage): void {
@@ -184,19 +223,4 @@ export function handleServerMessage(message: ServerMessage): void {
     case "hello":
       break;
   }
-}
-
-let started = false;
-
-/** Connect the socket and load initial data. Call once at startup. */
-export function startSync(): void {
-  if (started) return;
-  started = true;
-  socket.onMessage(handleServerMessage);
-  socket.onReconnect(() => {
-    void loadAll();
-    void reloadOpenChatSessions();
-  });
-  socket.connect();
-  void loadAll();
 }

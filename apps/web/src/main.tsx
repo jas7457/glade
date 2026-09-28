@@ -3,7 +3,7 @@ import "./styles.css";
 import { App } from "./app/App";
 import { startAppearanceSync } from "./app/appearance";
 import { startAttentionSync } from "./state/attention";
-import { startSync } from "./state/store";
+import { startSync } from "./state/sync";
 
 startAppearanceSync();
 startSync();

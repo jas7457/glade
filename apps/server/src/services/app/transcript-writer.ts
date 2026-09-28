@@ -53,6 +53,8 @@ export class TranscriptWriter {
   private readonly writtenTools = new Map<string, ToolResult>();
   private latest: Transcript;
   private timer: NodeJS.Timeout | null = null;
+  /** Some change since the last write wasn't pushed to clients as events (I-122). */
+  private unpushed = false;
 
   constructor(
     private readonly store: Store,
@@ -67,9 +69,14 @@ export class TranscriptWriter {
     this.latest = stored;
   }
 
-  /** The transcript changed: write now (`urgent`) or within `intervalMs`. */
-  update(transcript: Transcript, urgent = false): void {
+  /**
+   * The transcript changed: write now (`urgent`) or within `intervalMs`. `pushed`: clients got the
+   * change as `session_event`s (the event-log row then only marks the seq, I-122); otherwise the
+   * row's messages are sent to them as content.
+   */
+  update(transcript: Transcript, urgent = false, pushed = true): void {
     if (transcript === this.latest && !urgent) return;
+    if (transcript !== this.latest && !pushed) this.unpushed = true;
     this.latest = transcript;
     if (urgent) this.flush();
     else if (!this.timer) {
@@ -95,12 +102,13 @@ export class TranscriptWriter {
     if (!messages.length && !tools.length) return;
     if (this.store.isClosed) return;
     try {
-      this.store.saveTranscriptChanges(this.sessionId, messages, tools);
+      this.store.saveTranscriptChanges(this.sessionId, messages, tools, { pushed: !this.unpushed });
     } catch (err) {
       // Keep them pending; the next flush retries (e.g. the database was busy for too long).
       this.log?.(`session ${this.sessionId}: could not save the conversation: ${(err as Error).message}`);
       return;
     }
+    this.unpushed = false;
     for (const m of messages) this.written.set(m.message.id, m);
     for (const r of tools) this.writtenTools.set(r.toolCallId, r);
   }

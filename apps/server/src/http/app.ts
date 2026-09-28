@@ -47,6 +47,7 @@ import { createAgentsRoutes } from "./agents.js";
 import type { SearchService } from "../services/search/search-service.js";
 import { securityMiddleware, type SecurityOptions } from "./security.js";
 import { createWsHandler } from "./ws.js";
+import { commandIds } from "./commands.js";
 import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
 
 export interface CreateAppOptions {
@@ -125,10 +126,12 @@ export function createApp({ service, security, staticDir, snapshotStatic = false
 
 function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   const api = new Hono();
+  // Retried commands aren't applied twice (client `commandId`, I-122).
+  const once = commandIds(() => service.store);
 
   // Projects ----------------------------------------------------------------------------------
   api.get("/projects", (c) => c.json(service.listProjects()));
-  api.post("/projects", async (c) => {
+  api.post("/projects", once, async (c) => {
     const body = await readBody<CreateProjectRequest>(c);
     requireString(body.path, "path");
     optional(body.name, "string", "name");
@@ -168,7 +171,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
 
   // Workspaces (sidebar rows) ----------------------------------------------------------------
   api.get("/workspaces", (c) => c.json(service.listWorkspaces()));
-  api.post("/workspaces", async (c) => {
+  api.post("/workspaces", once, async (c) => {
     const body = await readBody<CreateWorkspaceRequest>(c);
     if (body.projectId !== null && typeof body.projectId !== "string") {
       throw new HttpError(400, "projectId must be a string or null");
@@ -216,7 +219,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     return c.body(null, 204);
   });
   api.get("/workspaces/:id/sessions", (c) => c.json(service.listSessions(c.req.param("id"))));
-  api.post("/workspaces/:id/sessions", async (c) => {
+  api.post("/workspaces/:id/sessions", once, async (c) => {
     const body = await readOptionalBody<CreateSessionRequest>(c);
     requireNewSession(body);
     return c.json(await service.createSession(c.req.param("id"), body));
@@ -227,6 +230,18 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   // Sessions (one agent conversation each) ---------------------------------------------------
   api.get("/sessions", (c) => c.json(service.listSessions()));
   api.get("/sessions/:id", async (c) => c.json(await service.getSessionDetail(c.req.param("id"))));
+  // Earlier turns of a transcript (I-122): `before` = index of the first message the client has.
+  api.get("/sessions/:id/transcript", async (c) => {
+    const before = c.req.query("before");
+    const turns = c.req.query("turns");
+    const parse = (value: string | undefined, name: string, min: number) => {
+      if (value === undefined) return undefined;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < min) throw new HttpError(400, `${name} must be an integer ≥ ${min}`);
+      return n;
+    };
+    return c.json(await service.getTranscriptPage(c.req.param("id"), parse(before, "before", 0), parse(turns, "turns", 1) ?? 50));
+  });
   api.patch("/sessions/:id", async (c) => {
     const body = await readBody<UpdateSessionRequest>(c);
     optional(body.title, "string", "title");
@@ -241,7 +256,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.deleteSession(c.req.param("id"));
     return c.body(null, 204);
   });
-  api.post("/sessions/:id/prompt", async (c) => {
+  api.post("/sessions/:id/prompt", once, async (c) => {
     const body = await readBody<PromptRequest>(c);
     requireString(body.text, "text", true);
     if (body.images !== undefined) requireImages(body.images);
@@ -268,7 +283,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.abort(c.req.param("id"));
     return c.body(null, 204);
   });
-  api.post("/sessions/:id/shell", async (c) => {
+  api.post("/sessions/:id/shell", once, async (c) => {
     const body = await readBody<ShellRequest>(c);
     requireString(body.command, "command");
     if (typeof body.shareWithAgent !== "boolean") throw new HttpError(400, "shareWithAgent must be a boolean");

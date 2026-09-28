@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
 import { subagentSessionsOf, type AgentColor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
-import { loadChatSession, useChatSession } from "@/state/chat-session";
+import { loadChatSession, loadEarlierMessages, useChatSession } from "@/state/chat-session";
 import { sessions } from "@/state/store";
 import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
@@ -146,6 +146,13 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
       <div ref={scrollRef} class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="transcript-scroll">
         {placeholder}
         <div ref={contentRef} class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}>
+          {store.start.value > 0 && (
+            <div class="mb-4 flex justify-center">
+              <Button size="sm" disabled={store.loadingEarlier.value} onClick={() => void loadEarlierMessages(chatId)}>
+                {store.loadingEarlier.value ? "Loading…" : "Load earlier messages"}
+              </Button>
+            </div>
+          )}
           <SpawnLinksContext.Provider value={spawnValue}>
             {items.map((item, i) => (
               <Fragment key={item.key}>

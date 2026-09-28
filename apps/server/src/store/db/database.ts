@@ -87,6 +87,11 @@ export function transaction<T>(db: Db, fn: () => T): T {
   }
 }
 
+/** Whether `db` is inside a {@link transaction} right now (changes aren't committed yet). */
+export function inTransaction(db: Db): boolean {
+  return (depth.get(db) ?? 0) > 0;
+}
+
 /** Tests only: forget nesting state (a test that throws mid-transaction on a closed db). */
 export function resetTransactionState(): void {
   depth = new WeakMap();

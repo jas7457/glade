@@ -3,9 +3,10 @@
  */
 import type { AgentEvent, SessionState, UiResponse } from "./events.js";
 import type { ModelInfo, ModelRef, ThinkingLevel } from "./models.js";
-import type { Transcript } from "./transcript.js";
+import type { ToolResult, Transcript } from "./transcript.js";
 import type { ChatStatus } from "./status.js";
 import type { SessionAgentState, SpawnedAgentRef } from "./agents.js";
+import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, TranscriptPage } from "./sync.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -456,7 +457,12 @@ export interface SessionDetail {
    * load it again when the session changes (I-102).
    */
   offline?: boolean;
+  /** The event log's seq this detail includes (I-122): subscribe to the session after it. */
+  seq?: number;
 }
+
+/** `GET /api/sessions/:id/transcript?before=&turns=`: earlier turns of a transcript (I-122). */
+export type TranscriptPageResponse = TranscriptPage;
 
 /** `GET /api/workspaces/:id`: the workspace and all of its sessions (doesn't start agents). */
 export interface WorkspaceDetail {
@@ -480,8 +486,20 @@ export type { UiResponse, ModelInfo };
 // WebSocket (server -> client push)
 // ---------------------------------------------------------------------------------------------
 
-export type ServerMessage =
-  | { type: "hello"; version: string }
+/** The shell scope's snapshot (I-122): everything the sidebar and settings show. */
+export interface ShellSnapshot {
+  projects: Project[];
+  workspaces: WorkspaceSummary[];
+  sessions: SessionSummary[];
+  settings: Settings;
+}
+
+/**
+ * Server -> client pushes. Protocol 2 clients (I-122, see `sync.ts`) subscribe to scopes and
+ * receive them in `batch`es, tagged with `seq` / `prev`; older clients get every push untagged.
+ */
+export type ServerMessage = (
+  | { type: "hello"; version: string; /** WebSocket protocol version (2 = sequenced sync, I-122). */ protocol?: number }
   /** A live agent event of one session. */
   | { type: "session_event"; sessionId: string; workspaceId: string; event: AgentEvent }
   | { type: "session_upsert"; session: SessionSummary }
@@ -497,14 +515,31 @@ export type ServerMessage =
   /** Subscription usage limits; `null` when unavailable (feature hidden). */
   | { type: "usage_limits"; usage: UsageLimits | null }
   /** An agent asked to show this chat (`open_chat`, I-091): windows navigate to it like a ⌘K pick. */
-  | { type: "open_chat"; workspaceId: string; sessionId: string; sessionKind: "main" | "subagent" };
+  | { type: "open_chat"; workspaceId: string; sessionId: string; sessionKind: "main" | "subagent" }
+  // Sequenced sync (I-122) ---------------------------------------------------------------------
+  /** Several pushes at once (sent every ~50 ms). */
+  | { type: "batch"; messages: ServerMessage[] }
+  | { type: "snapshot"; scope: "shell"; seq: number; shell: ShellSnapshot }
+  | ({ type: "snapshot"; scope: "session"; sessionId: string; seq: number; page: TranscriptPage } & SessionLiveState)
+  /** Caught up: live pushes follow. `check`: every id the server has (drop the others; missing ones mean resubscribe). */
+  | { type: "live"; scope: "shell"; seq: number; check: { projects: string[]; workspaces: string[]; sessions: string[] } }
+  | ({ type: "live"; scope: "session"; sessionId: string; seq: number } & SessionLiveState)
+  /** Changed messages / tool results of a session's transcript (replay, or written by another server). */
+  | { type: "transcript_patch"; sessionId: string; messages: MessagePatch[]; toolResults: ToolResult[] }
+  /** The transcript as streamed so far equals the event log at `seq` (the content came as `session_event`s). */
+  | { type: "session_sync"; sessionId: string }
+  | { type: "subscribe_error"; scope: "session"; sessionId: string; error: string }
+  | { type: "ping"; t: number }
+  | { type: "pong"; t: number }
+) &
+  SyncTag;
 
 /**
  * Client -> server messages over the WebSocket. `viewing` lists every session currently on
  * screen (in a visible window), replacing the previous list; finished runs there aren't marked
- * unread.
+ * unread. The rest is sequenced sync (I-122, `sync.ts`).
  */
-export type ClientMessage = { type: "viewing"; sessionIds: string[] };
+export type ClientMessage = { type: "viewing"; sessionIds: string[] } | ClientSyncMessage;
 
 /** Result of `POST /api/fs/pick-folder` (native folder dialog on the server's machine). */
 export type PickFolderResponse = { path: string } | { cancelled: true };

@@ -133,6 +133,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Live updates are numbered: after a dropped connection or a server restart, every open window
+  catches up on exactly what it missed, without reloading, and a retried send can't post a message
+  twice. Long chats open with the most recent turns and a "Load earlier messages" button.
 - Glade now keeps all its data, including every conversation, in its own database (`glade.db`).
   Existing chats are copied in automatically the first time the new version starts (quit any older
   Glade first; it tells you if one is still running). Chats load without starting the agent, and

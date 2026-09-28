@@ -23,6 +23,8 @@ import type {
   SessionDetail,
   SessionSummary,
   Settings,
+  ShellSnapshot,
+  TranscriptPage,
   ShellRequest,
   ShellResponse,
   SlashCommand,
@@ -55,6 +57,7 @@ import { Workspaces } from "./app/workspaces.js";
 import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
 import { UsageLimitsPoller } from "./usage-limits.js";
+import { SyncHub, type SyncOptions } from "./sync/hub.js";
 
 export { ActiveElsewhereError, HttpError } from "./app/errors.js";
 export { decodedBase64Size } from "./app/session-actions.js";
@@ -86,8 +89,10 @@ export class AppService {
   private readonly projects: Projects;
   private readonly team: AgentTeam;
   private readonly unwatch: Array<() => void> = [];
+  /** Sequenced live sync to protocol-2 clients (I-122). */
+  readonly sync: SyncHub;
 
-  constructor(options: AppServiceOptions) {
+  constructor(options: AppServiceOptions & { sync?: SyncOptions }) {
     const ctx = createAppContext(options);
     this.ctx = ctx;
     this.attachments = ctx.attachments;
@@ -137,6 +142,41 @@ export class AppService {
       ctx.leases.start();
     }
     this.leaseSync.recoverInterruptedRuns();
+
+    this.sync = new SyncHub(
+      {
+        store: ctx.store,
+        shellSnapshot: () => this.shellSnapshot(),
+        sessionSummary: (id) => {
+          const session = ctx.store.getSession(id);
+          return session ? this.records.summarizeSession(session) : null;
+        },
+        workspaceSummary: (id) => {
+          const workspace = ctx.store.getWorkspace(id);
+          return workspace ? this.records.summarizeWorkspace(workspace) : null;
+        },
+        activeSessionSummaries: () => this.sessions.listSessions().filter((s) => s.running || s.pendingInputs > 0 || s.activeElsewhere),
+        prepareSession: (id) => this.sessions.prepareSync(id),
+        subscribe: (listener) => this.subscribe(listener),
+        log: options.log,
+      },
+      options.sync,
+    );
+  }
+
+  /** Everything the shell scope shows (I-122 snapshots). */
+  shellSnapshot(): ShellSnapshot {
+    return {
+      projects: this.projects.listProjects(),
+      workspaces: this.workspaces.listWorkspaces(),
+      sessions: this.sessions.listSessions(),
+      settings: this.ctx.store.getSettings(),
+    };
+  }
+
+  /** The store (command receipts, I-122). */
+  get store() {
+    return this.ctx.store;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -319,6 +359,11 @@ export class AppService {
     return this.sessions.getSessionDetail(id);
   }
 
+  /** Earlier turns of a transcript (I-122 "load earlier"). */
+  getTranscriptPage(id: string, before: number | undefined, turns: number): Promise<TranscriptPage> {
+    return this.sessions.transcriptPage(id, before, turns);
+  }
+
   updateSession(id: string, req: UpdateSessionRequest): Promise<SessionSummary> {
     return this.sessions.updateSession(id, req);
   }
@@ -452,6 +497,7 @@ export class AppService {
   async dispose(): Promise<void> {
     const { ctx } = this;
     ctx.disposed = true;
+    this.sync.dispose();
     ctx.leases?.stop();
     for (const off of this.unwatch.splice(0)) off();
     ctx.usage?.stop();

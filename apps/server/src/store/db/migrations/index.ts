@@ -4,6 +4,7 @@
  * migration: add the next number.
  */
 import { migration001 } from "./001-initial.js";
+import { migration002 } from "./002-sync.js";
 
 export interface Migration {
   version: number;
@@ -11,7 +12,7 @@ export interface Migration {
   sql: string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [migration001];
+export const MIGRATIONS: readonly Migration[] = [migration001, migration002];
 
 /** The schema version this build writes (also announced in `servers/<pid>.json`). */
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;

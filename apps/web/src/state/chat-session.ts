@@ -14,11 +14,15 @@ import {
   defaultSessionState,
   emptyTranscript,
   type AgentEvent,
+  type MessagePatch,
   type SessionDetail,
+  type SessionLiveState,
   type SessionSummary,
   type SessionState,
   type SlashCommand,
+  type ToolResult,
   type Transcript,
+  type TranscriptPage,
   type UiRequest,
 } from "@glade/protocol";
 import { api } from "@/lib/api";
@@ -41,6 +45,30 @@ export interface ChatSessionStore {
    * session, or a closed sub-agent): partial state, reloaded when the session changes (I-102).
    */
   offline: boolean;
+  /**
+   * Index of the first loaded message in the whole transcript (I-122): a sync snapshot holds only
+   * the newest turns; `loadEarlierMessages` loads the rest. 0 = everything is loaded.
+   */
+  start: Signal<number>;
+  loadingEarlier: Signal<boolean>;
+}
+
+/**
+ * Sequenced sync of open chats (I-122, `state/sync.ts` registers these at startup; no-ops in tests
+ * and before it): a mounted chat is subscribed, and a loaded detail is the point to replay from.
+ */
+export interface ChatSyncHooks {
+  retain(sessionId: string): () => void;
+  /** A detail was loaded over HTTP: everything up to `seq` is in it (`null`: unknown). */
+  seed(sessionId: string, seq: number | null): void;
+  /** Subscribe from scratch (a patch didn't fit). */
+  restart(sessionId: string): void;
+}
+
+let syncHooks: ChatSyncHooks = { retain: () => () => {}, seed: () => {}, restart: () => {} };
+
+export function setChatSyncHooks(hooks: ChatSyncHooks): void {
+  syncHooks = hooks;
 }
 
 const sessions = new Map<string, ChatSessionStore>();
@@ -58,6 +86,8 @@ export function getChatSession(sessionId: string): ChatSessionStore {
       agentError: signal(null),
       commands: signal(null),
       offline: false,
+      start: signal(0),
+      loadingEarlier: signal(false),
     };
     sessions.set(sessionId, store);
   }
@@ -71,9 +101,85 @@ export function applySessionDetail(detail: SessionDetail): ChatSessionStore {
   store.state.value = detail.state;
   store.uiRequests.value = detail.pendingUiRequests;
   store.offline = detail.offline === true;
+  store.start.value = 0;
   store.status.value = "ready";
   store.error.value = null;
+  syncHooks.seed(detail.session.id, detail.seq ?? null);
   return store;
+}
+
+/** A sync snapshot (I-122): the newest turns of the transcript and the live state. */
+export function applySessionSnapshot(sessionId: string, page: TranscriptPage, live: SessionLiveState): void {
+  const store = getChatSession(sessionId);
+  store.transcript.value = { messages: page.messages, toolResults: page.toolResults };
+  store.start.value = page.start;
+  applySessionLive(sessionId, live);
+}
+
+/** Caught up (I-122): the live state that isn't in the event log. */
+export function applySessionLive(sessionId: string, live: SessionLiveState): void {
+  const store = getChatSession(sessionId);
+  store.state.value = live.state;
+  store.uiRequests.value = live.pendingUiRequests;
+  store.offline = live.offline === true;
+  store.status.value = "ready";
+  store.error.value = null;
+}
+
+/** Subscribing failed (e.g. the chat's agent isn't installed here). */
+export function applySessionError(sessionId: string, error: string): void {
+  const store = getChatSession(sessionId);
+  if (store.status.value === "ready") return;
+  store.status.value = "error";
+  store.error.value = error;
+}
+
+/**
+ * Changed messages from the event log (I-122), at their index in the whole transcript. Returns
+ * false when they don't fit what's loaded (the caller subscribes from scratch).
+ */
+export function applyTranscriptPatch(sessionId: string, patches: MessagePatch[], toolResults: ToolResult[]): boolean {
+  const store = sessions.get(sessionId);
+  if (!store || store.status.value !== "ready") return true;
+  const start = store.start.value;
+  const current = store.transcript.value;
+  let messages = current.messages;
+  for (const { index, message } of patches) {
+    const at = messages.findIndex((m) => m.id === message.id);
+    if (at !== -1) {
+      if (messages === current.messages) messages = messages.slice();
+      messages[at] = message;
+      continue;
+    }
+    const local = index - start;
+    if (local < 0) continue; // before the loaded page
+    if (local > messages.length) return false;
+    messages = [...messages.slice(0, local), message, ...messages.slice(local)];
+  }
+  const results = toolResults.length ? { ...current.toolResults, ...Object.fromEntries(toolResults.map((r) => [r.toolCallId, r])) } : current.toolResults;
+  if (messages !== current.messages || results !== current.toolResults) store.transcript.value = { messages, toolResults: results };
+  return true;
+}
+
+/** Load the turns before the first loaded message (I-122 "load earlier"). */
+export async function loadEarlierMessages(sessionId: string, turns = 50): Promise<void> {
+  const store = getChatSession(sessionId);
+  if (store.start.value === 0 || store.loadingEarlier.value) return;
+  store.loadingEarlier.value = true;
+  try {
+    const page = await api.getTranscriptPage(sessionId, store.start.value, turns);
+    const current = store.transcript.value;
+    const known = new Set(current.messages.map((m) => m.id));
+    store.transcript.value = {
+      messages: [...page.messages.filter((m) => !known.has(m.id)), ...current.messages],
+      toolResults: { ...page.toolResults, ...current.toolResults },
+    };
+    store.start.value = page.start;
+  } catch (err) {
+    notify("error", `Could not load earlier messages: ${(err as Error).message}`);
+  } finally {
+    store.loadingEarlier.value = false;
+  }
 }
 
 export async function loadChatSession(sessionId: string): Promise<void> {
@@ -85,6 +191,8 @@ export async function loadChatSession(sessionId: string): Promise<void> {
   } catch (err) {
     store.status.value = "error";
     store.error.value = (err as Error).message;
+    // The sync subscription (I-122) retries with a snapshot once the server is back.
+    syncHooks.seed(sessionId, null);
   }
 }
 
@@ -171,8 +279,12 @@ export function useChatSession(sessionId: string, { markViewing = true } = {}): 
   const store = getChatSession(sessionId);
   useEffect(() => {
     if (store.status.value === "idle" || store.status.value === "error") void loadChatSession(sessionId);
-    if (!markViewing) return;
-    return socket.watch(sessionId);
+    const release = syncHooks.retain(sessionId);
+    const unwatch = markViewing ? socket.watch(sessionId) : null;
+    return () => {
+      release();
+      unwatch?.();
+    };
   }, [sessionId, markViewing]);
   return store;
 }

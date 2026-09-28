@@ -669,3 +669,10 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   `capabilities.models === false` hides the model/thinking pickers. New sessions in a workspace
   inherit its focused tab's harness. Plans are a harness-neutral `NoticeMessage.kind: "plan"`.
 - **Glade owns conversations** (2026-09-27, I-121, user decision). Everything lives in one SQLite database, `glade.db` (`node:sqlite`, so the minimum Node is 22.13), in one normalized format for every harness: stable ULID message ids assigned in `LivePool`, and an opaque per-adapter resume cursor. Harness files are for import and resume only. The JSON files are imported once and deleted after 3 starts; an older-server guard uses `storeSchema`. The `events` table is the base for I-122 (sequenced sync). Design: `docs/design/environments-and-store.md`.
+- **Sequenced sync (2026-09-27, I-122).** The `events` seq is the only sequence.
+  - **Shell scope:** coalesced entity pushes (`*_upsert`/`*_removed`) tagged `seq`/`prev`. Live-only pushes (status, leases) carry `seq` only.
+  - **Transcripts:** stream as `session_event`s tagged with their base seq. The log keeps message snapshots at most every 250 ms. `session_sync` marks rows the client already has from the live stream; `transcript_patch` carries rows from other servers or imports.
+  - **Subscribing:** replay or snapshot (over 1000 rows, pruned, or no `afterSeq`), then `live`. The shell's `live` lists every id, and the client prunes or refetches against it. Session snapshots hold the newest 50 turns; earlier turns load via `GET /sessions/:id/transcript?before=`.
+  - **Transport:** 50 ms batches per client with a 4 MB budget (over it, the client gets snapshots). Pings every 20 s; silent peers are dropped after 45 s.
+  - **Idempotency:** `X-Glade-Command-Id`/`commandId` receipts live in `command_receipts` for 24 h.
+  - Code: `services/sync/hub.ts`, `packages/protocol/src/sync.ts`, `apps/web/src/state/sync.ts`.

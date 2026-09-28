@@ -121,7 +121,7 @@ export class LivePool {
       transcript = stored;
     }
     const writer = new TranscriptWriter(store, id, stored, 250, this.ctx.options.log);
-    writer.update(transcript, true); // settled leftovers of a run that was cut off
+    writer.update(transcript, true, false); // settled leftovers of a run that was cut off
     const live: LiveSession = {
       harness,
       session,
@@ -189,7 +189,6 @@ export class LivePool {
   private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
     const event = live.ids.rewrite(stampEvent(rawEvent));
     live.transcript = applyAgentEvent(live.transcript, event);
-    live.writer.update(live.transcript, isFlushPoint(event));
     if (event.type === "run_start") {
       live.running = true;
       live.runStartedAt = event.at ?? Date.now();
@@ -208,8 +207,11 @@ export class LivePool {
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
     const session = this.ctx.store.getSession(id);
+    // Written after the event is pushed (I-122): an event-log row then never gets ahead of the
+    // stream clients have seen.
+    if (session) this.records.emitSessionEvent(session, event);
+    live.writer.update(live.transcript, isFlushPoint(event));
     if (!session) return;
-    this.records.emitSessionEvent(session, event);
 
     if (event.type === "run_start") {
       const next: Session = { ...session, lastActivityAt: Date.now(), lastRunFailed: false, runInProgress: true };
