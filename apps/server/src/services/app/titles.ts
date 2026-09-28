@@ -20,6 +20,7 @@ import type { AgentHarness } from "../../harness/types.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
 import type { Records } from "./records.js";
+import type { Transcripts } from "./transcripts.js";
 
 /** Default small model when `settings.models.smallModel` is unset (used only if available). */
 export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
@@ -33,6 +34,7 @@ export class Titles {
   constructor(
     private readonly ctx: AppContext,
     private readonly records: Records,
+    private readonly transcripts: Transcripts,
     private readonly hooks: TitlesHooks,
   ) {}
 
@@ -95,19 +97,13 @@ export class Titles {
     return { title, session: this.records.summarizeSession(this.records.requireSession(id)) };
   }
 
-  /** The user/assistant texts of a session: live transcript, else its persisted data. */
-  private async conversationText(session: Session, harness: AgentHarness): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
+  /** The user/assistant texts of a session: live transcript, else the store's copy (I-121). */
+  private async conversationText(session: Session, _harness: AgentHarness): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
     const fromTranscript = (t: Transcript) =>
       t.messages.flatMap((m) => (m.role === "user" || m.role === "assistant" ? [{ role: m.role, text: transcriptText(m) }] : []));
     const live = this.ctx.live.get(session.id);
     if (live) return fromTranscript(live.transcript);
-    if (!session.sessionRef) return [];
-    if (harness.readSessionText) {
-      const text = await harness.readSessionText(session.sessionRef).catch(() => null);
-      if (text) return text.messages;
-    }
-    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
-    return transcript ? fromTranscript(transcript) : [];
+    return this.transcripts.text(session);
   }
 
   /**

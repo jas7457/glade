@@ -8,7 +8,6 @@ import {
   activeMainSessionId,
   defaultSessionState,
   emptyTranscript,
-  messageText as transcriptText,
   quickTitle,
   type CreateSessionRequest,
   type Session,
@@ -18,7 +17,7 @@ import {
   type UpdateSessionRequest,
   type Workspace,
 } from "@glade/protocol";
-import type { SessionText, SessionTextMessage } from "../../harness/types.js";
+import type { SessionText } from "../../harness/types.js";
 import type { AgentIdentity } from "../agent-names.js";
 import { exitedText } from "../agents.js";
 import type { AppContext } from "./context.js";
@@ -27,6 +26,7 @@ import type { LeaseSync } from "./lease-sync.js";
 import type { LivePool } from "./live-pool.js";
 import type { Records } from "./records.js";
 import type { SessionActions } from "./session-actions.js";
+import type { Transcripts } from "./transcripts.js";
 
 /**
  * How a session is created. `subagent` sessions are for the agent API (I-037); `register` runs
@@ -57,6 +57,7 @@ export class Sessions {
     private readonly pool: LivePool,
     private readonly leaseSync: LeaseSync,
     private readonly actions: SessionActions,
+    private readonly transcripts: Transcripts,
     private readonly hooks: SessionsHooks,
   ) {}
 
@@ -70,23 +71,14 @@ export class Sessions {
   }
 
   /**
-   * A session's conversation as plain user/assistant text, read from its persisted data without
-   * starting an agent (chat tools, I-091): the harness's `readSessionText`, else its transcript.
-   * `null` when there's nothing persisted (yet) or the harness can't read it.
+   * A session's conversation as plain user/assistant text, from the store without starting an
+   * agent (chat tools, I-091; imported from the harness's file first if needed, I-121). `null`
+   * when there's nothing stored (yet).
    */
   async readSessionText(sessionId: string): Promise<SessionText | null> {
     const session = this.records.requireSession(sessionId);
-    const harness = this.ctx.harnesses.get(session.harness);
-    if (!harness || !session.sessionRef) return null;
-    if (harness.readSessionText) return harness.readSessionText(session.sessionRef).catch(() => null);
-    const transcript = await harness.readTranscript?.(session.sessionRef).catch(() => null);
-    if (!transcript) return null;
-    const messages: SessionTextMessage[] = [];
-    for (const m of transcript.messages) {
-      if (m.role !== "user" && m.role !== "assistant") continue;
-      const text = transcriptText(m).trim();
-      if (text) messages.push({ role: m.role, text, timestamp: m.timestamp });
-    }
+    const messages = await this.transcripts.text(session);
+    if (!messages.length && !this.ctx.store.hasTranscript(session.id)) return null;
     return { name: null, messages };
   }
 
@@ -181,14 +173,13 @@ export class Sessions {
   }
 
   /**
-   * A closed sub-agent (its process crashed or stopped) is shown from its session file without
-   * starting it again (I-054); typing in it starts it. `null` when it should be started as usual.
+   * A closed sub-agent (its process crashed or stopped) is shown from the store without starting
+   * it again (I-054); typing in it starts it. `null` when it should be started as usual.
    */
   private async closedAgentDetail(session: Session): Promise<SessionDetail | null> {
-    const harness = this.ctx.harnesses.get(session.harness);
-    if (!this.records.isDormantAgent(session.id) || !session.sessionRef || !harness?.readTranscript) return null;
-    const transcript = await harness.readTranscript(session.sessionRef).catch(() => null);
-    if (!transcript) return null;
+    if (!this.records.isDormantAgent(session.id)) return null;
+    const transcript = await this.transcripts.read(session);
+    if (!this.ctx.store.hasTranscript(session.id)) return null;
     const state = await this.offlineState(session);
     return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [], offline: true };
   }
@@ -209,14 +200,14 @@ export class Sessions {
   }
 
   /**
-   * A session another server runs (I-062) is shown from its session file; viewing it doesn't
-   * take it over (typing in it does, once it's idle there). `null` when it isn't leased elsewhere.
+   * A session another server runs (I-062) is shown from the store, which that server keeps
+   * current while it runs (I-121); viewing it doesn't take it over (typing in it does, once it's
+   * idle there). `null` when it isn't leased elsewhere.
    */
   private async elsewhereDetail(session: Session): Promise<SessionDetail | null> {
     if (!this.ctx.leases || this.ctx.live.has(session.id) || this.ctx.opening.has(session.id)) return null;
     if (!this.ctx.leases.foreignLeaseNow(session.id)) return null;
-    const harness = this.ctx.harnesses.get(session.harness);
-    const transcript = (session.sessionRef && (await harness?.readTranscript?.(session.sessionRef).catch(() => null))) || emptyTranscript();
+    const transcript = this.ctx.store.hasTranscript(session.id) ? this.ctx.store.loadTranscript(session.id) : emptyTranscript();
     const summary = this.records.summarizeSession(session);
     const state = { ...(await this.offlineState(session)), isRunning: summary.running };
     return { session: summary, transcript, state, pendingUiRequests: [], offline: true };
@@ -260,7 +251,7 @@ export class Sessions {
       const agent = ctx.agents.get(s.id);
       if (agent && !doomedIds.has(agent.parentSessionId)) {
         if (!agent.closed && agent.doneAt === null) {
-          this.hooks.deliver(agent.parentSessionId, exitedText(agent.name, "Exited before calling report_done (the user closed its tab)."), "followUp");
+          this.hooks.deliver(agent.parentSessionId, exitedText(agent, "Exited before calling report_done (the user closed its tab)."), "followUp");
         }
         // Its parent keeps seeing it as closed (list_agents; close_agent says "already closed").
         ctx.agentTimers.clear(s.id);

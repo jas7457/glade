@@ -20,6 +20,8 @@ import { exitedText } from "../agents.js";
 import type { AppContext, LiveSession } from "./context.js";
 import { ActiveElsewhereError } from "./errors.js";
 import type { Records } from "./records.js";
+import { isFlushPoint, MessageIds, TranscriptWriter } from "./transcript-writer.js";
+import type { Transcripts } from "./transcripts.js";
 
 /** What the pool needs from the agent API (sub-agents, I-037), wired by `AppService`. */
 export interface LivePoolHooks {
@@ -33,6 +35,7 @@ export class LivePool {
   constructor(
     private readonly ctx: AppContext,
     private readonly records: Records,
+    private readonly transcripts: Transcripts,
     private readonly hooks: LivePoolHooks,
   ) {}
 
@@ -86,6 +89,9 @@ export class LivePool {
 
   private async startLive(id: string, record: Session, workspace: Workspace, harness: AgentHarness): Promise<LiveSession> {
     mkdirSync(workspace.cwd, { recursive: true });
+    // The store is the conversation's source of truth (I-121): bring it up to date with the
+    // harness's file first (import, or merge turns added outside Glade).
+    await this.transcripts.ensureImported(record, { owned: true });
     const agent = this.ctx.agents.get(id);
     let session: HarnessSession;
     try {
@@ -101,7 +107,21 @@ export class LivePool {
       this.ctx.tokens.revoke(id);
       throw err;
     }
-    const transcript = await session.loadTranscript();
+    // The store's copy when it has one; the harness's own history (pi: `get_messages`) only for
+    // sessions the store doesn't know yet, imported once with Glade ids.
+    let stored: Transcript;
+    let transcript: Transcript;
+    const { store } = this.ctx;
+    if (store.hasTranscript(id)) {
+      stored = store.loadTranscript(id);
+      transcript = store.loadTranscript(id, { settle: true });
+    } else {
+      const history = await session.loadTranscript().catch(() => null);
+      stored = store.importTranscript(id, history ?? { messages: [], toolResults: {} }, { source: "live", sig: null }).transcript;
+      transcript = stored;
+    }
+    const writer = new TranscriptWriter(store, id, stored, 250, this.ctx.options.log);
+    writer.update(transcript, true); // settled leftovers of a run that was cut off
     const live: LiveSession = {
       harness,
       session,
@@ -114,6 +134,8 @@ export class LivePool {
       lastPromptAt: 0,
       awaitingRun: false,
       shells: new Set(),
+      ids: new MessageIds(),
+      writer,
       unsubscribe: () => {},
     };
     const offEvent = session.onEvent((event) => this.handleEvent(id, live, event));
@@ -165,8 +187,9 @@ export class LivePool {
   }
 
   private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
-    const event = stampEvent(rawEvent);
+    const event = live.ids.rewrite(stampEvent(rawEvent));
     live.transcript = applyAgentEvent(live.transcript, event);
+    live.writer.update(live.transcript, isFlushPoint(event));
     if (event.type === "run_start") {
       live.running = true;
       live.runStartedAt = event.at ?? Date.now();
@@ -254,6 +277,7 @@ export class LivePool {
     if (this.ctx.live.get(id) !== live) return;
     this.clearPendingUi(live);
     live.unsubscribe();
+    live.writer.close();
     this.ctx.live.delete(id);
     this.ctx.tokens.revoke(id);
     const wasRunning = live.running;
@@ -267,7 +291,7 @@ export class LivePool {
       this.ctx.agentTimers.clear(id);
       this.ctx.agents.update(id, { closed: true, closing: false }); // pushed with the session below
       if (agent.doneAt === null) {
-        this.hooks.deliver(agent.parentSessionId, exitedText(agent.name, "Process ended without calling report_done (crashed)."), "followUp");
+        this.hooks.deliver(agent.parentSessionId, exitedText(agent, "Process ended without calling report_done (crashed)."), "followUp");
       }
     }
     if (error) {
@@ -288,13 +312,13 @@ export class LivePool {
     } else {
       this.records.saveSession(session);
     }
+    void this.transcripts.syncAfterStop(id);
     this.releaseLease(id);
   }
 
   /** Give a session's lease back once its process is gone; its record is written first. */
   private releaseLease(id: string): void {
     if (!this.ctx.leases) return;
-    this.ctx.store.flush();
     this.ctx.leases.release(id);
   }
 
@@ -309,6 +333,7 @@ export class LivePool {
     const dialogs = [...live.pendingUi.keys()];
     this.clearPendingUi(live);
     live.unsubscribe();
+    live.writer.flush();
     this.ctx.live.delete(id);
     this.ctx.tokens.revoke(id);
     const session = this.ctx.store.getSession(id);
@@ -319,6 +344,10 @@ export class LivePool {
       if (live.running || dialogs.length || session.runInProgress) this.records.saveSession({ ...session, runInProgress: false });
     }
     await live.session.dispose();
+    live.writer.close();
+    // Merge what the harness's file has that the store doesn't (idempotent; skipped at shutdown:
+    // the next open does it).
+    if (!quiet) await this.transcripts.syncAfterStop(id);
     // Only if no new process started meanwhile (e.g. reopened right away).
     if (!this.ctx.live.has(id) && !this.ctx.opening.has(id)) this.releaseLease(id);
   }
@@ -332,6 +361,11 @@ export class LivePool {
     this.ctx.viewers.delete(session.id);
     this.ctx.leases?.release(session.id);
     await this.ctx.attachments.removeSession(session.id).catch(() => {});
+  }
+
+  /** Write every live session's pending conversation changes now (shutdown, the exit hook). */
+  flushTranscripts(): void {
+    for (const live of this.ctx.live.values()) live.writer.flush();
   }
 
   /** Keep at most `maxIdleProcesses` idle sessions alive (least recently used go first). */

@@ -133,6 +133,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Glade now keeps all its data, including every conversation, in its own database (`glade.db`).
+  Existing chats are copied in automatically the first time the new version starts (quit any older
+  Glade first; it tells you if one is still running). Chats load without starting the agent, and
+  search, titles and Ask work the same for every agent. Glade now needs Node 22.13 or newer.
 - The lead agent now knows its sub-agents by the names you see (Leo, Remy, …) and uses them when it
   talks to you.
 - Sub-agent chips above the composer show a pointer cursor, so it's clear they open the agent.

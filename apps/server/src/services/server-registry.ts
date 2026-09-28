@@ -8,6 +8,7 @@
  */
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SCHEMA_VERSION } from "../store/db/migrations/index.js";
 
 export const SERVERS_DIR = "servers";
 export const HEARTBEAT_MS = 2_000;
@@ -27,6 +28,11 @@ export interface ServerInfo {
   port: number;
   startedAt: number;
   heartbeatAt: number;
+  /**
+   * The store schema this server uses (I-121: `glade.db`'s migration number). Missing = an older
+   * Glade that still keeps its data in JSON files: a newer server must not run next to it.
+   */
+  storeSchema?: number;
 }
 
 export interface ServerRegistryOptions {
@@ -35,6 +41,8 @@ export interface ServerRegistryOptions {
   port: number;
   /** Registry id; defaults to the pid (tests run two servers in one process). */
   id?: string;
+  /** Announced store schema (`SCHEMA_VERSION`); omitted only to simulate an older server in tests. */
+  storeSchema?: number | null;
   pid?: number;
   heartbeatMs?: number;
   staleMs?: number;
@@ -61,7 +69,17 @@ export class ServerRegistry {
     this.staleMs = options.staleMs ?? STALE_SERVER_MS;
     const pid = options.pid ?? process.pid;
     const now = this.now();
-    this.info = { id: options.id ?? String(pid), pid, kind: options.kind, host: options.host, port: options.port, startedAt: now, heartbeatAt: now };
+    const storeSchema = options.storeSchema === undefined ? SCHEMA_VERSION : options.storeSchema;
+    this.info = {
+      id: options.id ?? String(pid),
+      pid,
+      kind: options.kind,
+      host: options.host,
+      port: options.port,
+      startedAt: now,
+      heartbeatAt: now,
+      ...(storeSchema !== null ? { storeSchema } : {}),
+    };
   }
 
   get self(): ServerInfo {
@@ -134,6 +152,14 @@ export class ServerRegistry {
     return this.list().filter((s) => s.id !== this.info.id && this.isLiveInfo(s));
   }
 
+  /**
+   * Live servers of an older Glade on this data folder (I-121): they announce no store schema
+   * because they still keep their data in the JSON files this version imported.
+   */
+  olderServers(): ServerInfo[] {
+    return this.others().filter((s) => s.storeSchema === undefined);
+  }
+
   read(id: string): ServerInfo | null {
     try {
       const value = JSON.parse(readFileSync(this.pathOf(id), "utf8")) as Partial<ServerInfo>;
@@ -146,6 +172,7 @@ export class ServerRegistry {
         port: typeof value.port === "number" ? value.port : 0,
         startedAt: typeof value.startedAt === "number" ? value.startedAt : 0,
         heartbeatAt: value.heartbeatAt,
+        ...(typeof value.storeSchema === "number" ? { storeSchema: value.storeSchema } : {}),
       };
     } catch {
       return null;

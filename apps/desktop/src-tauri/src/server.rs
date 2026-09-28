@@ -19,8 +19,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Oldest Node major the bundled server supports (esbuild target `node22`).
-const MIN_NODE_MAJOR: u32 = 22;
+/// Oldest Node the bundled server supports: 22.13 has `node:sqlite` without a flag (I-121,
+/// Glade's own database); the esbuild target is `node22`.
+const MIN_NODE: (u32, u32) = (22, 13);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What we learned from the login shell.
@@ -175,18 +176,37 @@ fn is_executable(p: &Path) -> bool {
 }
 
 /// The user may point Glade at pi explicitly (Settings → Agent → pi path); honour that when
-/// `pi` isn't on PATH.
+/// `pi` isn't on PATH. Settings live in `glade.db` since I-121; the server keeps a JSON export
+/// (`settings.export.json`) for us. `settings.json` is the older versions' file.
 fn configured_pi_path() -> Option<PathBuf> {
-    let text = fs::read_to_string(data_dir().join("settings.json")).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let path = PathBuf::from(json.get("agent")?.get("piPath")?.as_str()?);
+    ["settings.export.json", "settings.json"].iter().find_map(|name| {
+        let text = fs::read_to_string(data_dir().join(name)).ok()?;
+        pi_path_in_settings(&text)
+    })
+}
+
+fn pi_path_in_settings(text: &str) -> Option<PathBuf> {
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+    let value = json
+        .get("harnesses")
+        .and_then(|h| h.get("pi"))
+        .and_then(|p| p.get("piPath"))
+        .or_else(|| json.get("agent").and_then(|a| a.get("piPath")))?;
+    let path = PathBuf::from(value.as_str()?);
     (path.is_absolute() && is_executable(&path)).then_some(path)
 }
 
-fn node_major(node: &Path, path: &str) -> Option<u32> {
+/// `(major, minor)` of `node --version`.
+fn node_version(node: &Path, path: &str) -> Option<(u32, u32)> {
     let out = Command::new(node).arg("--version").env("PATH", path).output().ok()?;
-    let v = String::from_utf8_lossy(&out.stdout);
-    v.trim().trim_start_matches('v').split('.').next()?.parse().ok()
+    parse_node_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_node_version(v: &str) -> Option<(u32, u32)> {
+    let mut parts = v.trim().trim_start_matches('v').split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().and_then(|m| m.parse().ok()).unwrap_or(0);
+    Some((major, minor))
 }
 
 /// Port the installed app's server prefers (I-083). The web view's origin includes the port and
@@ -302,15 +322,18 @@ pub fn start(bundle: &Bundle, log_path: &Path, preferred_port: Option<u16>) -> R
     let env = resolve_shell_env();
     let Some(node) = env.node.clone() else {
         return Err(format!(
-            "Node.js wasn't found.\n\nGlade runs its server with your own Node.js (≥ {MIN_NODE_MAJOR}), the one pi uses. \
-             Install it (e.g. with nvm or Homebrew) so that `command -v node` works in a new terminal, then reopen Glade."
+            "Node.js wasn't found.\n\nGlade runs its server with your own Node.js (≥ {}.{}), the one pi uses. \
+             Install it (e.g. with nvm or Homebrew) so that `command -v node` works in a new terminal, then reopen Glade.",
+            MIN_NODE.0, MIN_NODE.1
         ));
     };
-    if let Some(major) = node_major(&node, &env.path) {
-        if major < MIN_NODE_MAJOR {
+    if let Some((major, minor)) = node_version(&node, &env.path) {
+        if (major, minor) < MIN_NODE {
             return Err(format!(
-                "Node.js {major} is too old ({}).\n\nGlade needs Node.js {MIN_NODE_MAJOR} or newer.",
-                node.display()
+                "Node.js {major}.{minor} is too old ({}).\n\nGlade needs Node.js {}.{} or newer.",
+                node.display(),
+                MIN_NODE.0,
+                MIN_NODE.1
             ));
         }
     }
@@ -404,6 +427,15 @@ impl RunningServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_node_versions() {
+        assert_eq!(parse_node_version("v22.13.1\n"), Some((22, 13)));
+        assert_eq!(parse_node_version("v24.2.0"), Some((24, 2)));
+        assert!(parse_node_version("v22.12.0").unwrap() < MIN_NODE);
+        assert!(parse_node_version("v23.0.0").unwrap() >= MIN_NODE);
+        assert_eq!(parse_node_version("nope"), None);
+    }
 
     #[test]
     fn picks_the_preferred_port_unless_taken() {

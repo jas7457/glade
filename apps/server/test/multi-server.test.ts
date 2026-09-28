@@ -1,7 +1,7 @@
 /**
  * I-062: two servers on one data folder. Two AppServices share a temp data dir (and one
- * FakeHarness, standing in for pi's session files on disk): changes travel through the watched
- * store, writes don't get lost, and session leases keep a session's agent in one server.
+ * FakeHarness, standing in for pi's session files on disk): changes travel through the store's
+ * event log (I-121), writes don't get lost, and session leases keep a session's agent in one server.
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -14,7 +14,6 @@ import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService, HttpError } from "../src/services/app-service.js";
 import { LeaseManager } from "../src/services/leases.js";
 import { ServerRegistry } from "../src/services/server-registry.js";
-import { JsonFile } from "../src/store/json-file.js";
 import { Store } from "../src/store/store.js";
 import { until } from "./helpers.js";
 
@@ -84,7 +83,7 @@ describe("two servers on one data folder (I-062)", () => {
     expect(a.store.getSession(sid)?.markedUnread).toBeUndefined();
   });
 
-  it("a chat created in one server appears in the other via the watcher", async () => {
+  it("a chat created in one server appears in the other via the event log", async () => {
     const { a, b } = pair();
     const created = await a.service.createWorkspace({ projectId: null, prompt: "hello" });
     await until(() => b.service.listWorkspaces().some((w) => w.id === created.workspace.id), 4000);
@@ -128,21 +127,31 @@ describe("two servers on one data folder (I-062)", () => {
     await until(() => a.service.listWorkspaces().length === 2 && b.service.listWorkspaces().length === 2, 4000);
   });
 
-  it("interleaved read-modify-writes on one file keep every change", () => {
-    const path = join(tempDir(), "shared.json");
-    const one = new JsonFile<{ items: number[] }>(path, () => ({ items: [] }), 10_000);
-    const two = new JsonFile<{ items: number[] }>(path, () => ({ items: [] }), 10_000);
+  it("interleaved writes from two stores on one database keep every change, and each sees the other's", () => {
+    const dataDir = join(tempDir(), "data");
+    const one = new Store(dataDir);
+    const two = new Store(dataDir);
+    cleanups.push(() => {
+      one.dispose();
+      two.dispose();
+    });
+    const changes: string[] = [];
+    two.onExternalChange((c) => changes.push(...c.projects.upserted.map((p) => p.id)));
     for (let i = 0; i < 50; i++) {
-      one.update((f) => ({ items: [...f.items, i] }));
-      two.update((f) => ({ items: [...f.items, 100 + i] }));
-      if (i % 7 === 0) one.flush();
-      if (i % 5 === 0) two.flush();
+      one.upsertProject({ id: `a${i}`, name: "a", path: `/a${i}`, sortOrder: i, createdAt: 1, lastActivityAt: 1 });
+      two.upsertProject({ id: `b${i}`, name: "b", path: `/b${i}`, sortOrder: i, createdAt: 1, lastActivityAt: 1 });
     }
-    one.flush();
-    two.flush();
-    const items = (JSON.parse(readFileSync(path, "utf8")) as { items: number[] }).items;
-    expect(items).toHaveLength(100);
-    expect(new Set(items).size).toBe(100);
+    // Patches to one sub-agent record from both servers merge per field.
+    const record = { sessionId: "s", parentSessionId: "p", workspaceId: "w", name: "n", agent: null, task: "t", systemPrompt: "", tools: null, autoClose: true, keepOpenReason: null, userEngaged: false, spawnedAt: 1, doneAt: null, result: null, closing: false, closed: false };
+    one.upsertAgent(record);
+    two.reload();
+    one.patchAgent("s", { closing: true });
+    two.patchAgent("s", { result: "done" });
+    expect(new Store(dataDir).getAgent("s")).toMatchObject({ closing: true, result: "done" });
+    expect(new Store(dataDir).listProjects()).toHaveLength(100);
+    two.reload();
+    expect(two.listProjects()).toHaveLength(100);
+    expect(changes.sort()).toEqual(Array.from({ length: 50 }, (_, i) => `a${i}`).sort());
   });
 
   it("a session running in one server is active elsewhere in the other and can't be prompted there", async () => {

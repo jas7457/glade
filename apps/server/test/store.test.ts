@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Project, Session, Workspace } from "@glade/protocol";
 import type { LegacyChat } from "../src/store/migrate-workspaces.js";
-import { JsonFile } from "../src/store/json-file.js";
 import { migrateSettings, Store } from "../src/store/store.js";
 
 const dirs: string[] = [];
@@ -46,38 +45,6 @@ const session: Session = {
   thinkingLevel: "low",
 };
 
-describe("JsonFile", () => {
-  it("falls back when missing, writes atomically and reads back", () => {
-    const path = join(tempDir(), "nested", "x.json");
-    const f = new JsonFile(path, () => ({ n: 0 }), 0);
-    expect(f.get()).toEqual({ n: 0 });
-    f.set({ n: 2 });
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ n: 2 });
-    expect(new JsonFile(path, () => ({ n: -1 })).get()).toEqual({ n: 2 });
-  });
-
-  it("debounces writes until flush", () => {
-    const path = join(tempDir(), "x.json");
-    const f = new JsonFile(path, () => ({ n: 0 }), 10_000);
-    f.set({ n: 1 });
-    expect(() => readFileSync(path)).toThrow();
-    f.flush();
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ n: 1 });
-  });
-
-  it("uses the fallback for corrupt files", () => {
-    const path = join(tempDir(), "x.json");
-    writeFileSync(path, "{nope");
-    const warn = console.warn;
-    console.warn = () => {};
-    try {
-      expect(new JsonFile(path, () => ({ ok: true })).get()).toEqual({ ok: true });
-    } finally {
-      console.warn = warn;
-    }
-  });
-});
-
 describe("Store", () => {
   it("round-trips projects, workspaces, sessions and settings", () => {
     const dir = tempDir();
@@ -107,11 +74,11 @@ describe("Store", () => {
     expect(settings.general.sendKey).toBe("mod-enter");
     expect(settings.general.generateTitles).toBe(true); // default preserved
     expect(settings.models.hiddenModels).toEqual(["a/b"]);
-    // Only overrides are stored.
-    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({
-      general: { sendKey: "mod-enter" },
-      models: { hiddenModels: ["a/b"] },
-    });
+    // Only overrides are stored (and exported as JSON for the desktop app).
+    const overrides = { general: { sendKey: "mod-enter" }, models: { hiddenModels: ["a/b"] } };
+    expect(reloaded.getSettingsOverrides()).toEqual(overrides);
+    expect(JSON.parse(readFileSync(join(dir, "settings.export.json"), "utf8"))).toEqual(overrides);
+    expect(existsSync(join(dir, "settings.json"))).toBe(false);
 
     reloaded.removeProject("p1");
     reloaded.flush();
@@ -126,8 +93,7 @@ describe("settings migration", () => {
     const store = new Store(dir, 0);
     expect(store.getSettings().general).not.toHaveProperty("notifyOnComplete");
     expect(store.getSettings().general.sendKey).toBe("mod-enter");
-    store.flush();
-    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")).general).toEqual({ sendKey: "mod-enter" });
+    expect(store.getSettingsOverrides().general).toEqual({ sendKey: "mod-enter" });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -141,8 +107,7 @@ describe("settings migration", () => {
     const settings = store.getSettings();
     expect(settings.agent).toEqual({ maxIdleProcesses: 2, defaultHarness: null, subagents: true });
     expect(settings.harnesses.pi).toEqual({ piPath: "/opt/pi", extraArgs: ["--x"], autoCompaction: true, autoRetry: false });
-    store.flush();
-    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({
+    expect(store.getSettingsOverrides()).toEqual({
       agent: { maxIdleProcesses: 2 },
       harnesses: { pi: { piPath: "/opt/pi", extraArgs: ["--x"], autoRetry: false } },
       general: { sendKey: "mod-enter" },
@@ -164,13 +129,7 @@ describe("settings migration", () => {
     const store = new Store(dir, 0);
     expect(store.getSettings().models).toMatchObject({ smallModel: haiku, hiddenModels: ["a/b"], subagentModel: null, subagentThinkingLevel: null });
     expect(store.getSettings().models).not.toHaveProperty("titleModel");
-    store.flush();
-    expect(JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"))).toEqual({ models: { smallModel: haiku, hiddenModels: ["a/b"] } });
-    // An older server writing the old key later is read as the new one.
-    const fast = { provider: "fake", id: "fast" };
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ models: { titleModel: fast } }));
-    store.reload();
-    expect(store.getSettings().models.smallModel).toEqual(fast);
+    expect(store.getSettingsOverrides()).toEqual({ models: { smallModel: haiku, hiddenModels: ["a/b"] } });
     rmSync(dir, { recursive: true, force: true });
     // A value already under smallModel wins; migrated files are left alone.
     const both = { models: { titleModel: null, smallModel: haiku } } as never;
@@ -236,8 +195,8 @@ describe("workspaces migration (I-035)", () => {
       thinkingLevel: "low",
     });
     expect(store.getSession("c2")).toMatchObject({ workspaceId: "c2", sessionRef: null });
-    // Written right away; chats.json is left as it was.
-    expect(JSON.parse(readFileSync(join(dir, "workspaces.json"), "utf8")).sessions).toHaveLength(2);
+    // Imported into glade.db; chats.json is left as it was (no workspaces.json is written).
+    expect(existsSync(join(dir, "workspaces.json"))).toBe(false);
     expect(JSON.parse(readFileSync(join(dir, "chats.json"), "utf8")).chats).toHaveLength(2);
   });
 
@@ -267,19 +226,15 @@ describe("workspaces migration (I-035)", () => {
     expect(store.getWorkspace("c")).not.toHaveProperty("pinOrder");
   });
 
-  it("starts empty without chats.json, and doesn't overwrite an unreadable one", () => {
+  it("starts empty without chats.json, and reports (and keeps) an unreadable one", () => {
     const empty = tempDir();
     expect(new Store(empty, 0).listWorkspaces()).toEqual([]);
 
     const corrupt = tempDir();
     writeFileSync(join(corrupt, "chats.json"), "{nope");
-    const warn = console.warn;
-    console.warn = () => {};
-    try {
-      expect(new Store(corrupt, 0).listWorkspaces()).toEqual([]);
-    } finally {
-      console.warn = warn;
-    }
-    expect(existsSync(join(corrupt, "workspaces.json"))).toBe(false);
+    const store = new Store(corrupt, 0);
+    expect(store.listWorkspaces()).toEqual([]);
+    expect(store.jsonImport?.failed.map((f) => f.file)).toEqual(["chats.json"]);
+    expect(readFileSync(join(corrupt, "chats.json"), "utf8")).toBe("{nope");
   });
 });

@@ -1,4 +1,5 @@
 import {
+  AGENT_ENV,
   applyAgentEvent,
   clampThinkingLevel,
   defaultSessionState,
@@ -40,6 +41,9 @@ export const FAKE_COMMANDS: SlashCommand[] = [
   { name: "skill:fake-skill", description: "A fake skill", source: "skill" },
   { name: "fake-prompt", description: "A fake prompt template", source: "prompt" },
 ];
+
+/** Tells this process's session refs apart from an earlier run's (the counter restarts). */
+const RUN_ID = Date.now().toString(36);
 
 /** Pretend every prompt adds this many tokens of context (and costs a tenth of a cent). */
 const FAKE_TOKENS_PER_PROMPT = 12_000;
@@ -151,7 +155,8 @@ export class FakeHarness implements AgentHarness {
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
     let ref = options.sessionRef;
     if (!ref || !this.sessions.has(ref)) {
-      ref = ref ?? `${this.id}-session-${++this.counter}`;
+      // Unique across restarts too: chats outlive the harness's memory (the store keeps them, I-121).
+      ref = ref ?? `${this.id}-session-${++this.counter}-${RUN_ID}`;
       this.sessions.set(ref, {
         transcript: emptyTranscript(),
         contextTokens: 0,
@@ -162,7 +167,7 @@ export class FakeHarness implements AgentHarness {
         thinkingLevel: options.thinkingLevel ?? "medium",
       });
     }
-    const session = new FakeSession(this, ref, options.cwd);
+    const session = new FakeSession(this, ref, options.cwd, options.env ?? {});
     this.openSessions.add(session);
     return session;
   }
@@ -201,6 +206,8 @@ export class FakeSession implements HarnessSession {
     readonly sessionRef: string,
     /** Folder the session was opened in. */
     readonly cwd = "",
+    /** The agent API identity Glade gave the process (`GLADE_URL`, `GLADE_TOKEN`, …). */
+    private readonly env: Record<string, string> = {},
   ) {
     const stored = this.stored;
     const model = FAKE_MODELS.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
@@ -258,7 +265,32 @@ export class FakeSession implements HarnessSession {
       { type: "state", state: { isRunning: false, ...this.statsState() } },
       { type: "run_end" },
     ];
-    void this.play(events);
+    void this.play(events).then(() => this.agentCommand(request.text));
+  }
+
+  /**
+   * Sub-agents without a model (UI work in `GLADE_HARNESS=fake` sandboxes): a prompt
+   * `spawn <name> <task>` spawns a sub-agent through Glade's agent API, and a sub-agent whose
+   * task starts with `report: <summary>` reports it with report_done, like pi's extension would.
+   */
+  private async agentCommand(text: string): Promise<void> {
+    const url = this.env[AGENT_ENV.url];
+    const token = this.env[AGENT_ENV.token];
+    if (!url || !token) return;
+    const spawn = /^spawn (\S+) ([\s\S]+)$/.exec(text.trim());
+    const report = /^report: ([\s\S]+)$/.exec(text.trim());
+    const call = (path: string, body: unknown) =>
+      fetch(`${url}/api/agents/${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then(async (res) => {
+          if (!res.ok) console.warn(`[fake] agent API ${path}: ${res.status} ${await res.text()}`);
+        })
+        .catch((err: Error) => console.warn(`[fake] agent API ${path}: ${err.message}`));
+    if (spawn) await call("spawn", { name: spawn[1], task: spawn[2] });
+    else if (report) await call("report-done", { summary: report[1] });
   }
 
   private async play(events: AgentEvent[]): Promise<void> {

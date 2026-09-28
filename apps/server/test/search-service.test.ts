@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,9 @@ import { defaultSettings, type AskResponse, type MessageAnchor, type ModelInfo, 
 import { parsePiSessionText } from "../src/harness/pi/session-reader.js";
 import { transcriptFromPiSession } from "../src/harness/pi/transcript-file.js";
 import { searchRoutes } from "../src/http/search.js";
-import { SearchService, type SearchAppSource } from "../src/services/search/search-service.js";
+import { readerTexts, storeSummaries, storeTexts } from "../src/services/search/create.js";
+import { MemorySummaryStore, SearchService, type SearchAppSource } from "../src/services/search/search-service.js";
+import { Store } from "../src/store/store.js";
 import type { SmallModel, SessionText, SessionTextReader } from "../src/services/search/types.js";
 
 function session(id: string, title: string, extra: Partial<SessionSummary> = {}): SessionSummary {
@@ -72,6 +74,7 @@ class MemReader implements SessionTextReader {
 
 let dir: string;
 let reader: MemReader;
+let summaries: MemorySummaryStore;
 let sessions: SessionSummary[];
 let settings: Settings;
 let project: Project;
@@ -86,7 +89,7 @@ const app: SearchAppSource = {
 };
 const services: SearchService[] = [];
 const make = (smallModel?: SmallModel) => {
-  const s = new SearchService({ app, dataDir: dir, readers: { mem: reader }, smallModel, pollMs: 0, debounceMs: 0, now: () => clock });
+  const s = new SearchService({ app, texts: readerTexts({ mem: reader }), summaries, smallModel, pollMs: 0, now: () => clock });
   services.push(s);
   return s;
 };
@@ -94,6 +97,7 @@ const make = (smallModel?: SmallModel) => {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "glade-search-"));
   reader = new MemReader();
+  summaries = new MemorySummaryStore();
   settings = defaultSettings();
   clock = 1000;
   project = { id: "p1", name: "shop", path: "/tmp/shop", sortOrder: 0, createdAt: 0, lastActivityAt: 0 };
@@ -156,14 +160,30 @@ describe("SearchService.search", () => {
     expect((await services[0]!.search("migration")).hits[0]).toMatchObject({ sessionId: "c", matchedIn: "user" });
   });
 
-  it("persists extracted text so a restart doesn't re-read unchanged files", async () => {
-    await make().search("x");
-    services[0]!.dispose();
-    const cache = JSON.parse(readFileSync(join(dir, "search-index.json"), "utf8"));
-    expect(Object.keys(cache.sessions).sort()).toEqual(["a", "b", "c"]);
-    const second = make();
-    expect((await second.search("coupon")).hits).toHaveLength(1);
-    expect(reader.reads).toBe(3);
+  it("reads text and summaries from the store (I-121)", async () => {
+    const store = new Store(join(dir, "data"));
+    try {
+      const at = 1_700_000_000_000;
+      store.importTranscript("b", {
+        messages: [
+          { id: "x1", role: "user", content: [{ type: "text", text: "The checkout page crashes on submit" }], timestamp: at },
+          { id: "x2", role: "assistant", content: [{ type: "text", text: "Fixed the null coupon." }, { type: "thinking", text: "hidden zebra" }], timestamp: at + 1 },
+        ],
+        toolResults: {},
+      }, { source: "test", sig: null });
+      store.setSummary("b", { text: "Checkout crash fix.", messageCount: 2, at });
+      const search = new SearchService({ app, texts: storeTexts(store), summaries: storeSummaries(store), pollMs: 0, now: () => clock });
+      services.push(search);
+      expect((await search.search("coupon")).hits).toMatchObject([{ sessionId: "b", matchedIn: "assistant", message: { role: "assistant", timestamp: at + 1 } }]);
+      expect((await search.search("zebra")).hits).toHaveLength(0); // thinking isn't indexed
+      expect(search.summaryOf("b")).toBe("Checkout crash fix.");
+      // A new message bumps the transcript version: re-read on the next refresh.
+      store.saveTranscriptChanges("b", [{ seq: 2, message: { id: "x3", role: "user", content: [{ type: "text", text: "add a rollback" }], timestamp: at + 2 } }], []);
+      clock += 5000;
+      expect((await search.search("rollback")).hits.map((h) => h.sessionId)).toEqual(["b"]);
+    } finally {
+      store.dispose();
+    }
   });
 
   it("forgets deleted sessions", async () => {
@@ -289,7 +309,7 @@ describe("message anchors (I-093)", () => {
   };
   const makePi = () => {
     sessions = [session("p", "Payments")];
-    const s = new SearchService({ app, dataDir: dir, readers: { mem: piReader }, pollMs: 0, debounceMs: 0, now: () => clock });
+    const s = new SearchService({ app, texts: readerTexts({ mem: piReader }), summaries, pollMs: 0, now: () => clock });
     services.push(s);
     return s;
   };

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { messageText, type AcpAgentConfig, type AgentEvent, type AssistantMessage, type UiRequest } from "@glade/protocol";
+import { MemoryAcpResumeStore } from "../src/harness/acp/resume-store.js";
 import { AcpHarness, AcpHarnessProvider, ACP_CAPABILITIES } from "../src/harness/acp/acp-harness.js";
 import type { AcpSession } from "../src/harness/acp/acp-session.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
@@ -24,6 +25,7 @@ let dir: string;
 let cwd: string;
 let logFile: string;
 let stateFile: string;
+let resume: MemoryAcpResumeStore;
 const open: AcpSession[] = [];
 
 beforeEach(() => {
@@ -32,6 +34,7 @@ beforeEach(() => {
   mkdirSync(cwd);
   logFile = join(dir, "agent-log.jsonl");
   stateFile = join(dir, "agent-state.json");
+  resume = new MemoryAcpResumeStore();
 });
 
 afterEach(async () => {
@@ -44,7 +47,7 @@ function config(env: Record<string, string> = {}, overrides: Partial<AcpAgentCon
 }
 
 function harness(env: Record<string, string> = {}, overrides: Partial<AcpAgentConfig> = {}, cancelGraceMs?: number): AcpHarness {
-  return new AcpHarness(config(env, overrides), { transcriptsDir: join(dir, "acp-sessions"), session: cancelGraceMs ? { cancelGraceMs } : {} });
+  return new AcpHarness(config(env, overrides), { resume, session: cancelGraceMs ? { cancelGraceMs } : {} });
 }
 
 async function openSession(h: AcpHarness, sessionRef: string | null = null) {
@@ -125,10 +128,8 @@ describe("ACP harness", () => {
     expect(session.getState().isRunning).toBe(false);
     // Slash commands from available_commands_update.
     expect(await session.listCommands()).toEqual([{ name: "review", description: "Review the changes", source: "extension", argsHint: "[focus]" }]);
-    // Glade keeps the transcript.
-    expect((await h.readTranscript(session.sessionRef))?.messages).toHaveLength(2);
-    expect(await h.readSessionText(session.sessionRef)).toMatchObject({ messages: [{ role: "user", text: "hello" }, { role: "assistant", text: "Hello there!" }] });
-    expect(await h.statSession(session.sessionRef)).toMatchObject({ size: expect.any(Number) });
+    // Only the resume state is kept by the harness (the conversation is in Glade's store, I-121).
+    expect(resume.load(session.sessionRef)).toEqual({ acpSessionId: expect.any(String), title: null });
   });
 
   it("maps tool calls and their updates, then continues in a new message", async () => {
@@ -337,8 +338,8 @@ describe("ACP harness", () => {
     await first.session.dispose();
 
     const second = await openSession(h, ref);
-    // History comes from Glade's copy, before the agent starts.
-    expect((await second.session.loadTranscript()).messages).toHaveLength(2);
+    // History comes from Glade's store (the live pool), not from the harness.
+    expect((await second.session.loadTranscript()).messages).toHaveLength(0);
     await second.run("history");
     const log = agentLog();
     expect(log.filter((m) => m.method === "session/new")).toHaveLength(1);
@@ -347,8 +348,6 @@ describe("ACP harness", () => {
     // The replay (user + agent chunks) didn't duplicate anything.
     const t = await second.session.loadTranscript();
     expect(t.messages.map((m) => [m.role, messageText(m)])).toEqual([
-      ["user", "hello"],
-      ["assistant", "Hello there!"],
       ["user", "history"],
       ["assistant", "seen:2"],
     ]);
@@ -375,16 +374,16 @@ describe("ACP harness", () => {
     expect(agentLog().filter((m) => m.method === "session/new")).toHaveLength(2);
     expect(await lastText(second.session)).toBe("seen:1");
     const t = await second.session.loadTranscript();
-    expect(t.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "notice", "assistant"]);
-    expect(messageText(t.messages[3]!)).toMatch(/started a new session/);
+    expect(t.messages.map((m) => m.role)).toEqual(["user", "notice", "assistant"]);
+    expect(messageText(t.messages[1]!)).toMatch(/started a new session/);
   });
 
-  it("deletes Glade's transcript copy", async () => {
+  it("forgets the resume state when the chat is deleted", async () => {
     const h = harness();
     const { session, run } = await openSession(h);
     await run("hello");
     await h.deleteSession(session.sessionRef);
-    expect(await h.readTranscript(session.sessionRef)).toBeNull();
+    expect(resume.load(session.sessionRef)).toBeNull();
   });
 });
 
@@ -395,7 +394,7 @@ describe("ACP agents in the registry", () => {
       { id: "bad id!", name: "Broken", command: "x" },
       { id: "nocmd", name: "No command", command: "" },
     ];
-    const provider = new AcpHarnessProvider(() => agents, { transcriptsDir: join(dir, "t") });
+    const provider = new AcpHarnessProvider(() => agents, {});
     const pi = new FakeHarness(undefined, 0, { id: "pi" });
     const registry = new HarnessRegistry([pi], { dynamic: () => provider.list() });
     expect(registry.list().map((h) => h.id)).toEqual(["pi", "acp-gem"]);
@@ -416,7 +415,7 @@ describe("ACP agents in the registry", () => {
   });
 
   it("can be the default harness when the setting names one", () => {
-    const provider = new AcpHarnessProvider(() => [{ id: "gem", name: "Gemini", command: "gemini", args: [], env: {} }], { transcriptsDir: join(dir, "t") });
+    const provider = new AcpHarnessProvider(() => [{ id: "gem", name: "Gemini", command: "gemini", args: [], env: {} }], {});
     const registry = new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { preferred: () => "acp-gem", dynamic: () => provider.list() });
     expect(registry.default().id).toBe("acp-gem");
   });
@@ -426,7 +425,7 @@ describe("ACP chats through the app service", () => {
   it("creates a chat in the chosen ACP agent and answers its permission request", async () => {
     const store = new Store(join(dir, "data"), 0);
     store.updateSettings({ harnesses: { acp: { agents: [config()] } } });
-    const provider = new AcpHarnessProvider(() => store.getSettings().harnesses.acp.agents, { transcriptsDir: join(dir, "acp-sessions") });
+    const provider = new AcpHarnessProvider(() => store.getSettings().harnesses.acp.agents, {});
     const registry = new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { dynamic: () => provider.list() });
     const service = new AppService({ store, harnesses: registry, scratchDir: cwd });
     try {
@@ -464,7 +463,7 @@ describe("ACP chats through the app service", () => {
   it("shows a crash once: in the transcript, without a duplicate error banner", async () => {
     const store = new Store(join(dir, "data"), 0);
     store.updateSettings({ harnesses: { acp: { agents: [config()] } } });
-    const provider = new AcpHarnessProvider(() => store.getSettings().harnesses.acp.agents, { transcriptsDir: join(dir, "acp-sessions") });
+    const provider = new AcpHarnessProvider(() => store.getSettings().harnesses.acp.agents, {});
     const service = new AppService({ store, harnesses: new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { dynamic: () => provider.list() }), scratchDir: cwd });
     const events: AgentEvent[] = [];
     service.subscribe((m) => {
@@ -479,6 +478,38 @@ describe("ACP chats through the app service", () => {
       expect(store.getSession(id)?.lastRunFailed).toBe(true);
     } finally {
       await service.dispose();
+    }
+  });
+
+  it("keeps the conversation in the store: a restarted server shows it without starting the agent (I-121)", async () => {
+    const dataDir = join(dir, "data");
+    const agents = () => [config()];
+    const start = () => {
+      const store = new Store(dataDir, 0);
+      const provider = new AcpHarnessProvider(agents, {
+        resume: { load: (ref) => store.getResumeByRef(ref), save: (ref, state) => void store.patchResumeByRef(ref, { ...state }), delete: () => {} },
+      });
+      const service = new AppService({ store, harnesses: new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { dynamic: () => provider.list() }), scratchDir: cwd });
+      return { store, service };
+    };
+    const first = start();
+    const created = await first.service.createWorkspace({ projectId: null, harness: "acp-fake", prompt: "hello" });
+    const id = created.session.session.id;
+    await until(() => !first.service.listSessions()[0]!.running && first.store.loadTranscript(id).messages.length === 2, 5000);
+    const ids = first.store.loadTranscript(id).messages.map((m) => m.id);
+    expect(first.store.getResume(id)).toMatchObject({ acpSessionId: expect.any(String) });
+    await first.service.dispose();
+
+    const second = start();
+    try {
+      const detail = await second.service.getSessionDetail(id);
+      expect(detail.transcript.messages.map((m) => [m.id, m.role, messageText(m)])).toEqual([
+        [ids[0], "user", "hello"],
+        [ids[1], "assistant", "Hello there!"],
+      ]);
+      expect(agentLog().filter((m) => m.method === "initialize")).toHaveLength(1); // not started again
+    } finally {
+      await second.service.dispose();
     }
   });
 });

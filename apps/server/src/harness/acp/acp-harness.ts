@@ -8,22 +8,14 @@
  * requests, plans, slash commands (`available_commands_update`), context usage. What it lacks
  * (so the capabilities hide it): compaction, HTML export, steering, usage limits, Glade
  * sub-agents, `!` shell commands, Glade's model/thinking pickers, titles and one-shot completions.
- * Transcripts are kept by Glade (`transcript-store.ts`) so reloads, search and Ask work without
- * starting the agent.
+ * Transcripts are kept in Glade's store like every harness's (I-121), so reloads, search and Ask
+ * work without starting the agent; this harness only keeps what it needs to resume a chat
+ * (`resume-store.ts`).
  */
-import { join } from "node:path";
-import {
-  acpHarnessId,
-  messageText,
-  normalizeAcpAgents,
-  type AcpAgentConfig,
-  type HarnessCapabilities,
-  type ModelInfo,
-  type Transcript,
-} from "@glade/protocol";
-import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions, SessionFileStat, SessionText } from "../types.js";
+import { acpHarnessId, normalizeAcpAgents, type AcpAgentConfig, type HarnessCapabilities, type ModelInfo } from "@glade/protocol";
+import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 import { AcpSession, type AcpSessionOptions } from "./acp-session.js";
-import { AcpTranscriptStore, emptySessionFile } from "./transcript-store.js";
+import { MemoryAcpResumeStore, newAcpSessionRef, type AcpResumeStore } from "./resume-store.js";
 
 export const ACP_CAPABILITIES: HarnessCapabilities = {
   compact: false,
@@ -38,8 +30,8 @@ export const ACP_CAPABILITIES: HarnessCapabilities = {
 };
 
 export interface AcpHarnessOptions {
-  /** Where Glade keeps ACP transcripts (`<dataDir>/acp-sessions`). */
-  transcriptsDir: string;
+  /** Where the ACP session ids and titles are kept (the store; memory when omitted). */
+  resume?: AcpResumeStore;
   log?: (msg: string) => void;
   /** Test hooks passed to every session (e.g. a shorter cancel grace period). */
   session?: Partial<Pick<AcpSessionOptions, "cancelGraceMs" | "startProcess" | "clientVersion">>;
@@ -48,7 +40,7 @@ export interface AcpHarnessOptions {
 export class AcpHarness implements AgentHarness {
   readonly id: string;
   readonly info: HarnessDescription;
-  private readonly store: AcpTranscriptStore;
+  private readonly store: AcpResumeStore;
 
   constructor(
     readonly config: AcpAgentConfig,
@@ -56,7 +48,7 @@ export class AcpHarness implements AgentHarness {
   ) {
     this.id = acpHarnessId(config.id);
     this.info = { label: config.name, capabilities: { ...ACP_CAPABILITIES } };
-    this.store = new AcpTranscriptStore(options.transcriptsDir);
+    this.store = options.resume ?? new MemoryAcpResumeStore();
   }
 
   /** ACP agents pick their own model; Glade's pickers are hidden (`capabilities.models`). */
@@ -65,14 +57,14 @@ export class AcpHarness implements AgentHarness {
   }
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
-    const existing = options.sessionRef ? this.store.read(options.sessionRef) : null;
-    const sessionRef = options.sessionRef ?? this.store.newRef();
+    const resume = options.sessionRef ? this.store.load(options.sessionRef) : null;
+    const sessionRef = options.sessionRef ?? newAcpSessionRef();
     return new AcpSession({
       harnessId: this.id,
       config: this.config,
       cwd: options.cwd,
       sessionRef,
-      file: existing ?? emptySessionFile(this.id, options.cwd),
+      resume,
       store: this.store,
       log: this.options.log,
       ...this.options.session,
@@ -81,26 +73,6 @@ export class AcpHarness implements AgentHarness {
 
   async deleteSession(sessionRef: string): Promise<void> {
     this.store.delete(sessionRef);
-  }
-
-  async readTranscript(sessionRef: string): Promise<Transcript | null> {
-    return this.store.read(sessionRef)?.transcript ?? null;
-  }
-
-  async statSession(sessionRef: string): Promise<SessionFileStat | null> {
-    return this.store.stat(sessionRef);
-  }
-
-  async readSessionText(sessionRef: string): Promise<SessionText | null> {
-    const file = this.store.read(sessionRef);
-    if (!file) return null;
-    const messages: SessionText["messages"] = [];
-    for (const m of file.transcript.messages) {
-      if (m.role !== "user" && m.role !== "assistant") continue;
-      const text = messageText(m).trim();
-      if (text) messages.push({ role: m.role, text, timestamp: m.timestamp });
-    }
-    return { name: file.title, messages };
   }
 
   async dispose(): Promise<void> {}
@@ -133,9 +105,4 @@ export class AcpHarnessProvider {
     for (const id of [...this.cache.keys()]) if (!configs.some((c) => c.id === id)) this.cache.delete(id);
     return out;
   }
-}
-
-/** `<dataDir>/acp-sessions`. */
-export function acpTranscriptsDir(dataDir: string): string {
-  return join(dataDir, "acp-sessions");
 }

@@ -14,6 +14,7 @@ import type { OpenSessionOptions } from "../src/harness/types.js";
 import { createAgentsRoutes } from "../src/http/agents.js";
 import { AgentRegistry } from "../src/services/agents.js";
 import { HttpError } from "../src/services/app-service.js";
+import { Store } from "../src/store/store.js";
 import { createTestEnv, flush, newChat, until, type TestEnv } from "./helpers.js";
 
 const URL_BASE = "http://127.0.0.1:4999";
@@ -187,15 +188,18 @@ describe("spawn", () => {
   it("persists records so a reopened sub-agent keeps its role", async () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-agents-"));
     try {
-      const registry = new AgentRegistry(dir);
+      const store = new Store(dir);
+      const registry = new AgentRegistry(store);
       registry.upsert({
         sessionId: "s1", parentSessionId: "p", workspaceId: "w", name: "n", agent: null, task: "t", systemPrompt: "role",
         tools: null, autoClose: true, keepOpenReason: null, userEngaged: false, spawnedAt: 1, doneAt: null, result: null,
         closing: false, closed: false,
       });
-      registry.flush();
-      expect(JSON.parse(readFileSync(join(dir, "agents.json"), "utf8")).agents).toHaveLength(1);
-      expect(new AgentRegistry(dir).get("s1")?.systemPrompt).toBe("role");
+      // Stored in glade.db (I-121): another store on the folder reads it back.
+      const reopened = new Store(dir);
+      expect(new AgentRegistry(reopened).get("s1")?.systemPrompt).toBe("role");
+      store.dispose();
+      reopened.dispose();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -339,12 +343,12 @@ describe("messages, list and close", () => {
     const b = (await spawn(chat.sid, "b")).agent;
     fakeOf(a.sessionId).crash("boom");
     await settle();
-    expect(lastPrompt(chat.sid)!.text).toBe("[agent-teams] a exited:\nProcess ended without calling report_done (crashed).");
+    expect(lastPrompt(chat.sid)!.text).toMatch(/^\[agent-teams\] (\S+ \()?a\)? exited:\nProcess ended without calling report_done \(crashed\)\.$/);
     expect(env.service.listAgents(chat.sid).agents.find((x) => x.name === "a")!.status).toBe("closed");
 
     await env.service.deleteSession(b.sessionId);
     await settle();
-    expect(lastPrompt(chat.sid)!.text).toContain("[agent-teams] b exited:\nExited before calling report_done (the user closed its tab).");
+    expect(lastPrompt(chat.sid)!.text).toMatch(/\[agent-teams\] (\S+ \()?b\)? exited:\nExited before calling report_done \(the user closed its tab\)\./);
     expect(env.service.listAgents(chat.sid).agents.map((x) => [x.name, x.status, x.tabOpen])).toEqual([
       ["a", "closed", true], // crashed: its tab stays so the error is readable
       ["b", "closed", false],

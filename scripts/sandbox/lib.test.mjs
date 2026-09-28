@@ -1,6 +1,7 @@
 /**
  * Unit tests for the `pnpm dev:agent` sandbox helpers (run by `pnpm test` via `node --test`).
  */
+import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -173,6 +174,22 @@ describe("filesystem cleanup", () => {
     assert.equal(deleted.length, 2);
     assert.equal(existsSync(own), false, "empty folder removed");
     assert.equal(existsSync(join(shared, "users-own.jsonl")), true, "unrelated session kept");
+  });
+
+  it("also finds the session files in the sandbox's glade.db (I-121)", () => {
+    const sessions = join(tmp, "sessions-db");
+    const own = join(sessions, "--db--");
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, "b.jsonl"), "{}");
+    const box = join(tmp, "box-db");
+    mkdirSync(join(box, "data"), { recursive: true });
+    const db = new DatabaseSync(join(box, "data", "glade.db"));
+    db.exec("CREATE TABLE sessions (id TEXT, session_ref TEXT)");
+    db.prepare("INSERT INTO sessions VALUES (?, ?)").run("s1", join(own, "b.jsonl"));
+    db.prepare("INSERT INTO sessions VALUES (?, ?)").run("s2", "fake-session-1");
+    db.close();
+    assert.deepEqual(deleteSandboxSessions(box, sessions), [join(own, "b.jsonl")]);
+    assert.equal(existsSync(own), false);
   });
 
   it("removes the sandbox's own empty session folders but never non-empty ones", () => {

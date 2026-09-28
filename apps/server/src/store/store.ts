@@ -1,22 +1,51 @@
-import { existsSync, readFileSync } from "node:fs";
+/**
+ * Glade's own persistent data (I-121): one SQLite database, `<dataDir>/glade.db`, holding
+ * projects, workspaces, sessions, sub-agent records, settings, chat summaries and every
+ * conversation in one normalized format (`messages` + `tool_results`), whatever harness ran it.
+ * Harness files (pi's JSONL, ACP's old JSON copies) are only import sources; the harness keeps
+ * its own session only to resume it (`sessions.resume_json`, `Session.sessionRef`).
+ *
+ * Records are cached in memory (the app reads them constantly) and written through: every change
+ * is one transaction that also appends a row to `events`. Several servers may share the data
+ * folder (I-062): `watch()` polls `events` for other servers' rows (`seq > last`), refreshes the
+ * records they name from the database and reports them to `onExternalChange` listeners (the
+ * AppService pushes them to its clients). Per-record last-writer-wins, like the JSON store was.
+ *
+ * On first open the JSON files of older versions are imported once (`import-json.ts`) and left
+ * untouched; `store/startup.ts` deletes them after the migration is confirmed.
+ */
+import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { deepMerge, defaultSettings, type DeepPartial, type Project, type Session, type Settings, type Workspace } from "@glade/protocol";
-import { DataDirWatcher, type Reloadable } from "./dir-watcher.js";
-import { JsonFile } from "./json-file.js";
-import { migrateChats, type LegacyChat } from "./migrate-workspaces.js";
+import {
+  deepMerge,
+  defaultSettings,
+  type ChatMessage,
+  type DeepPartial,
+  type Project,
+  type Session,
+  type Settings,
+  type ToolResult,
+  type Transcript,
+  type Workspace,
+} from "@glade/protocol";
+import type { AgentRecord } from "../services/agents.js";
+import type { SessionTextMessage } from "../harness/types.js";
+import { DB_FILE, getMeta, getMetaJson, openDatabase, setMetaJson, transaction, type Db } from "./db/database.js";
+import { ulid } from "./db/ids.js";
+import { migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
+import {
+  agentMessageMeta,
+  mergeTranscripts,
+  messageStatus,
+  PAYLOAD_VERSION,
+  searchableText,
+  settleTranscript,
+  type MergeResult,
+} from "./transcript-rows.js";
 
-interface ProjectsFile {
-  version: 1;
-  projects: Project[];
-}
+export { migrateSettings } from "./import-json.js";
 
-interface WorkspacesFile {
-  version: 1;
-  workspaces: Workspace[];
-  sessions: Session[];
-}
-
-/** What another server changed in the shared files (I-062), found by diffing before/after. */
+/** What another server changed (I-062), found by reading the records its events name. */
 export interface StoreChange {
   projects: { upserted: Project[]; removed: string[] };
   workspaces: { upserted: Workspace[]; removed: string[] };
@@ -25,63 +54,110 @@ export interface StoreChange {
   settings: boolean;
 }
 
-/**
- * Glade's own persistent data: projects, the workspace + session index, and settings.
- * Stored as JSON under the app data dir; see docs/ARCHITECTURE.md.
- *
- * Several servers may share the folder (I-062): every change is a read-modify-write under the
- * file's lock (JsonFile), and `watch()` picks up what the others write and reports it to
- * `onExternalChange` listeners (the AppService pushes it to its clients).
- */
+/** Where a stored conversation came from and how current it is (`transcripts` row). */
+export interface TranscriptInfo {
+  /** "live" (written while it ran here), or the harness / format it was imported from. */
+  source: string;
+  /** The harness file's signature when last known to be in sync (`null` = unknown). */
+  sourceSig: string | null;
+  version: number;
+  messageCount: number;
+}
+
+/** A stored summary of a chat (search, I-048). */
+export interface StoredSummary {
+  text: string;
+  messageCount: number;
+  at: number;
+}
+
+/** What `meta.json_import` records about the one-time JSON import. */
+export interface JsonImportRecord {
+  at: number;
+  files: string[];
+  failed: Array<{ file: string; error: string }>;
+  counts: Record<string, number>;
+}
+
+export interface StoreOptions {
+  /** Id written on this store's events (other servers skip their own). Default: a new ULID. */
+  serverId?: string;
+  /** How often `watch()` polls `events` (ms). Default 150. */
+  pollMs?: number;
+  /** Import the older JSON files on first open (default true). */
+  importJson?: boolean;
+}
+
+/** Events older than this are pruned (and never needed by other servers after a few seconds). */
+const EVENTS_MAX_AGE_MS = 7 * 24 * 3600_000;
+const EVENTS_MAX_ROWS = 100_000;
+
+type Row = Record<string, unknown>;
+
 export class Store {
-  private readonly projectsFile: JsonFile<ProjectsFile>;
-  private readonly workspacesFile: JsonFile<WorkspacesFile>;
-  private readonly settingsFile: JsonFile<DeepPartial<Settings>>;
-  private readonly watcher: DataDirWatcher;
+  readonly db: Db;
+  readonly serverId: string;
+  /** The JSON import this open performed (null when the database already had one). */
+  readonly jsonImport: JsonImportRecord | null = null;
+  private readonly projects = new Map<string, Project>();
+  private readonly workspaces = new Map<string, Workspace>();
+  private readonly sessions = new Map<string, Session>();
+  private readonly agents = new Map<string, AgentRecord>();
+  private settingsOverrides: DeepPartial<Settings> = {};
+  private settingsCache: Settings | null = null;
+  private lastSeq = 0;
+  private timer: NodeJS.Timeout | null = null;
+  private lastPrune = 0;
+  private closed = false;
   private readonly changeListeners = new Set<(change: StoreChange) => void>();
+  private readonly agentListeners = new Set<(sessionIds: string[]) => void>();
 
   constructor(
     readonly dataDir: string,
-    debounceMs = 50,
+    /** Unused (the JSON store's write debounce); kept so callers and tests don't change. */
+    _debounceMs?: number,
+    private readonly options: StoreOptions = {},
   ) {
-    this.projectsFile = new JsonFile<ProjectsFile>(join(dataDir, "projects.json"), () => ({ version: 1, projects: [] }), debounceMs);
-    const workspacesPath = join(dataDir, "workspaces.json");
-    const hadWorkspaces = existsSync(workspacesPath);
-    this.workspacesFile = new JsonFile<WorkspacesFile>(workspacesPath, () => ({ version: 1, workspaces: [], sessions: [] }), debounceMs);
-    if (!hadWorkspaces) this.migrateLegacyChats(join(dataDir, "chats.json"));
-    this.settingsFile = new JsonFile<DeepPartial<Settings>>(join(dataDir, "settings.json"), () => ({}), debounceMs);
-    this.migrate();
-    this.watcher = new DataDirWatcher(dataDir);
-    for (const file of [this.projectsFile, this.workspacesFile, this.settingsFile]) this.watcher.add(file);
-    this.projectsFile.onExternalChange((before, after) =>
-      this.emitChange({ projects: diffById(before.projects, after.projects, (p) => p.id) }),
-    );
-    this.workspacesFile.onExternalChange((before, after) => {
-      const sessions = diffById(before.sessions, after.sessions, (s) => s.id);
-      const removedIds = new Set(sessions.removed);
-      this.emitChange({
-        workspaces: diffById(before.workspaces, after.workspaces, (w) => w.id),
-        sessions: { upserted: sessions.upserted, removed: before.sessions.filter((s) => removedIds.has(s.id)) },
-      });
-    });
-    this.settingsFile.onExternalChange(() => this.emitChange({ settings: true }));
+    this.serverId = options.serverId ?? ulid();
+    this.db = openDatabase(join(dataDir, DB_FILE));
+    if (options.importJson !== false) this.jsonImport = this.importJsonOnce();
+    this.loadAll();
+    this.lastSeq = Number((this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq);
+    this.pruneEvents();
+    this.writeSettingsExport();
   }
 
   // Sharing with other servers (I-062) -------------------------------------------------------
 
-  /** Start watching the data folder for other servers' writes. */
+  /** Start polling the event log for other servers' changes. */
   watch(): void {
-    this.watcher.start();
+    if (this.timer || this.closed) return;
+    this.timer = setInterval(() => this.reload(), this.options.pollMs ?? 150);
+    this.timer.unref();
   }
 
-  /** Also watch another shared file of this folder (e.g. `agents.json`). */
-  watchFile(file: Reloadable): void {
-    this.watcher.add(file);
-  }
-
-  /** Re-read every watched file now (tests; the watcher does this on its own). */
+  /** Read other servers' new events now (tests; the poll does this on its own). */
   reload(): void {
-    this.watcher.checkAll();
+    if (this.closed) return;
+    let rows: Row[];
+    try {
+      rows = this.db.prepare("SELECT seq, server_id, type, entity_id FROM events WHERE seq > ? ORDER BY seq").all(this.lastSeq) as Row[];
+    } catch (err) {
+      console.warn(`[glade] could not read the event log: ${(err as Error).message}`);
+      return;
+    }
+    if (!rows.length) return;
+    this.lastSeq = Number(rows.at(-1)!.seq);
+    const touched = new Map<string, Set<string>>();
+    for (const row of rows) {
+      if (row.server_id === this.serverId) continue;
+      const type = String(row.type);
+      let ids = touched.get(type);
+      if (!ids) touched.set(type, (ids = new Set()));
+      ids.add(String(row.entity_id ?? ""));
+    }
+    if (touched.size) this.applyForeign(touched);
+    if (Date.now() - this.lastPrune > 3600_000) this.pruneEvents();
   }
 
   onExternalChange(listener: (change: StoreChange) => void): () => void {
@@ -89,247 +165,664 @@ export class Store {
     return () => this.changeListeners.delete(listener);
   }
 
-  private emitChange(partial: Partial<StoreChange>): void {
+  /** Sub-agent records another server added, changed or removed (session ids). */
+  onExternalAgentChange(listener: (sessionIds: string[]) => void): () => void {
+    this.agentListeners.add(listener);
+    return () => this.agentListeners.delete(listener);
+  }
+
+  private applyForeign(touched: Map<string, Set<string>>): void {
     const change: StoreChange = {
-      projects: partial.projects ?? { upserted: [], removed: [] },
-      workspaces: partial.workspaces ?? { upserted: [], removed: [] },
-      sessions: partial.sessions ?? { upserted: [], removed: [] },
-      settings: partial.settings ?? false,
+      projects: { upserted: [], removed: [] },
+      workspaces: { upserted: [], removed: [] },
+      sessions: { upserted: [], removed: [] },
+      settings: false,
     };
-    for (const listener of this.changeListeners) listener(change);
-  }
-
-  /**
-   * I-035: turn the old `chats.json` into workspaces + sessions (see migrate-workspaces.ts). Runs
-   * only while `workspaces.json` doesn't exist yet, so it happens once; `chats.json` is left
-   * untouched (no longer read) as a backup.
-   */
-  private migrateLegacyChats(chatsPath: string): void {
-    let chats: LegacyChat[];
-    try {
-      chats = (JSON.parse(readFileSync(chatsPath, "utf8")) as { chats?: LegacyChat[] }).chats ?? [];
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        // Don't create an empty workspaces.json over data we couldn't read; retry next start.
-        console.warn(`[glade] could not migrate ${chatsPath}: ${(err as Error).message}`);
+    for (const id of touched.get("project") ?? []) {
+      const next = this.readRecord<Project>("projects", id);
+      const before = this.projects.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) change.projects.upserted.push(next);
+        this.projects.set(id, next);
+      } else if (before) {
+        this.projects.delete(id);
+        change.projects.removed.push(id);
       }
-      return;
     }
-    const migrated = migrateChats(chats);
-    // Another server may have migrated (and started writing) meanwhile: only fill an empty index.
-    this.workspacesFile.update((file) => (file.workspaces.length || file.sessions.length ? file : { version: 1, ...migrated }));
-    this.workspacesFile.flush();
+    for (const id of touched.get("workspace") ?? []) {
+      const next = this.readRecord<Workspace>("workspaces", id);
+      const before = this.workspaces.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) change.workspaces.upserted.push(next);
+        this.workspaces.set(id, next);
+      } else if (before) {
+        this.workspaces.delete(id);
+        change.workspaces.removed.push(id);
+      }
+    }
+    for (const id of touched.get("session") ?? []) {
+      const next = this.readRecord<Session>("sessions", id);
+      const before = this.sessions.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) change.sessions.upserted.push(next);
+        this.sessions.set(id, next);
+      } else if (before) {
+        this.sessions.delete(id);
+        change.sessions.removed.push(before);
+      }
+    }
+    // A workspace removed there took its sessions along.
+    for (const wid of change.workspaces.removed) {
+      for (const s of [...this.sessions.values()]) {
+        if (s.workspaceId !== wid) continue;
+        this.sessions.delete(s.id);
+        change.sessions.removed.push(s);
+      }
+    }
+    if (touched.has("settings")) {
+      const before = JSON.stringify(this.settingsOverrides);
+      this.loadSettings();
+      change.settings = before !== JSON.stringify(this.settingsOverrides);
+    }
+    const agentIds: string[] = [];
+    for (const id of touched.get("agent") ?? []) {
+      const next = this.readRecord<AgentRecord>("agents", id, "session_id");
+      const before = this.agents.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) agentIds.push(id);
+        this.agents.set(id, next);
+      } else if (before) {
+        this.agents.delete(id);
+        agentIds.push(id);
+      }
+    }
+    const any =
+      change.projects.upserted.length ||
+      change.projects.removed.length ||
+      change.workspaces.upserted.length ||
+      change.workspaces.removed.length ||
+      change.sessions.upserted.length ||
+      change.sessions.removed.length ||
+      change.settings;
+    if (any) {
+      for (const listener of this.changeListeners) {
+        try {
+          listener(change);
+        } catch (err) {
+          console.warn(`[glade] store change listener failed: ${(err as Error).message}`);
+        }
+      }
+    }
+    if (agentIds.length) for (const listener of this.agentListeners) listener(agentIds);
+  }
+
+  private readRecord<T>(table: string, id: string, key = "id"): T | undefined {
+    const row = this.db.prepare(`SELECT data_json FROM ${table} WHERE ${key} = ?`).get(id) as { data_json: string } | undefined;
+    return row ? (JSON.parse(row.data_json) as T) : undefined;
+  }
+
+  /** Append to the event log (inside the caller's transaction). */
+  private event(type: string, entityId: string | null, opts: { scope?: "shell" | "session"; sessionId?: string | null; payload?: unknown } = {}): void {
+    this.db
+      .prepare("INSERT INTO events (at, server_id, scope, session_id, type, entity_id, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        Date.now(),
+        this.serverId,
+        opts.scope ?? "shell",
+        opts.sessionId ?? null,
+        type,
+        entityId,
+        opts.payload === undefined ? null : JSON.stringify(opts.payload),
+      );
+  }
+
+  private pruneEvents(): void {
+    this.lastPrune = Date.now();
+    try {
+      this.db.prepare("DELETE FROM events WHERE at < ?").run(Date.now() - EVENTS_MAX_AGE_MS);
+      this.db.prepare("DELETE FROM events WHERE seq <= (SELECT MAX(seq) FROM events) - ?").run(EVENTS_MAX_ROWS);
+    } catch {
+      /* busy: next time */
+    }
+  }
+
+  // Loading -----------------------------------------------------------------------------------
+
+  private loadAll(): void {
+    const all = <T>(sql: string) => (this.db.prepare(sql).all() as Array<{ data_json: string }>).map((r) => JSON.parse(r.data_json) as T);
+    for (const p of all<Project>("SELECT data_json FROM projects ORDER BY rowid")) this.projects.set(p.id, p);
+    for (const w of all<Workspace>("SELECT data_json FROM workspaces ORDER BY rowid")) this.workspaces.set(w.id, w);
+    for (const s of all<Session>("SELECT data_json FROM sessions ORDER BY rowid")) this.sessions.set(s.id, s);
+    for (const a of all<AgentRecord>("SELECT data_json FROM agents ORDER BY rowid")) this.agents.set(a.sessionId, a);
+    this.loadSettings();
+  }
+
+  private loadSettings(): void {
+    const row = this.db.prepare("SELECT data_json FROM settings WHERE id = 1").get() as { data_json: string } | undefined;
+    this.settingsOverrides = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
+    this.settingsCache = null;
   }
 
   /**
-   * Upgrade data written by older versions (I-019): projects get a manual `sortOrder` (from their
-   * previous order: pinned first, then most recently active) and lose `pinned`; pinned chats get
-   * a `pinOrder` the same way, per list. Writes only when something changed.
+   * The one-time import of the JSON files (I-121). Runs in one transaction, only while
+   * `meta.json_import` is missing (another server may have done it meanwhile).
    */
-  private migrate(): void {
-    // Each migration is a pure function of the file's content, so it's safe to replay on top of
-    // what another server wrote (I-062); it only runs when it would change something.
-    const settings = this.settingsFile.get();
-    if (migrateSettings(settings) !== settings) this.settingsFile.update(migrateSettings);
-    const projects = this.projectsFile.get();
-    if (migrateProjects(projects) !== projects) this.projectsFile.update(migrateProjects);
-    const workspaces = this.workspacesFile.get();
-    if (migratePinOrder(workspaces) !== workspaces) this.workspacesFile.update(migratePinOrder);
+  private importJsonOnce(): JsonImportRecord | null {
+    if (getMeta(this.db, "json_import") !== null) return null;
+    const legacy = readLegacyData(this.dataDir);
+    return transaction(this.db, () => {
+      if (getMeta(this.db, "json_import") !== null) return null;
+      const record = this.writeLegacy(legacy);
+      setMetaJson(this.db, "json_import", record);
+      return record;
+    });
+  }
+
+  private writeLegacy(legacy: LegacyData): JsonImportRecord {
+    const now = Date.now();
+    for (const p of legacy.projects) this.putProject(p, now);
+    for (const w of legacy.workspaces) this.putWorkspace(w, now);
+    for (const s of legacy.sessions) this.putSession(s, now);
+    if (legacy.settings) this.putSettings(legacy.settings, now);
+    for (const a of legacy.agents) this.putAgent(a, now);
+    for (const [id, s] of Object.entries(legacy.summaries.entries)) {
+      this.db.prepare("INSERT OR REPLACE INTO session_summaries (session_id, text, message_count, at) VALUES (?, ?, ?, ?)").run(id, s.text, s.messageCount, s.at);
+    }
+    if (legacy.summaries.enabledAt !== null) setMetaJson(this.db, "summaries_enabled_at", legacy.summaries.enabledAt);
+    let acpTranscripts = 0;
+    for (const acp of legacy.acp) {
+      const row = this.db.prepare("SELECT id FROM sessions WHERE session_ref = ?").get(acp.ref) as { id: string } | undefined;
+      if (!row) continue;
+      this.db.prepare("UPDATE sessions SET resume_json = ? WHERE id = ?").run(JSON.stringify({ acpSessionId: acp.acpSessionId, title: acp.title }), row.id);
+      this.importTranscriptRows(row.id, acp.transcript, { source: "acp-json", sig: null });
+      acpTranscripts++;
+    }
+    return {
+      at: now,
+      files: legacy.files,
+      failed: legacy.failed,
+      counts: {
+        projects: legacy.projects.length,
+        workspaces: legacy.workspaces.length,
+        sessions: legacy.sessions.length,
+        agents: legacy.agents.length,
+        summaries: Object.keys(legacy.summaries.entries).length,
+        acpTranscripts,
+      },
+    };
+  }
+
+  // Row writers (callers hold a transaction) ---------------------------------------------------
+
+  private putProject(p: Project, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO projects (id, sort_order, data_json, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET sort_order = excluded.sort_order, data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(p.id, p.sortOrder ?? 0, JSON.stringify(p), now);
+  }
+
+  private putWorkspace(w: Workspace, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO workspaces (id, project_id, data_json, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET project_id = excluded.project_id, data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(w.id, w.projectId, JSON.stringify(w), now);
+  }
+
+  private putSession(s: Session, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, workspace_id, kind, harness, session_ref, data_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET workspace_id = excluded.workspace_id, kind = excluded.kind, harness = excluded.harness,
+           session_ref = excluded.session_ref, data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(s.id, s.workspaceId, s.kind, s.harness, s.sessionRef, JSON.stringify(s), now);
+  }
+
+  private putAgent(a: AgentRecord, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO agents (session_id, parent_session_id, workspace_id, data_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (session_id) DO UPDATE SET parent_session_id = excluded.parent_session_id, workspace_id = excluded.workspace_id,
+           data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(a.sessionId, a.parentSessionId, a.workspaceId, JSON.stringify(a), now);
+  }
+
+  private putSettings(overrides: DeepPartial<Settings>, now: number): void {
+    this.db
+      .prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at")
+      .run(JSON.stringify(overrides), now);
+  }
+
+  private deleteSessionRows(id: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
+    this.db.prepare("DELETE FROM tool_results WHERE session_id = ?").run(id);
+    this.db.prepare("DELETE FROM transcripts WHERE session_id = ?").run(id);
+    this.db.prepare("DELETE FROM session_summaries WHERE session_id = ?").run(id);
   }
 
   // Projects ----------------------------------------------------------------------------------
 
   listProjects(): Project[] {
-    return this.projectsFile.get().projects;
+    return [...this.projects.values()];
   }
 
   getProject(id: string): Project | undefined {
-    return this.listProjects().find((p) => p.id === id);
+    return this.projects.get(id);
   }
 
   upsertProject(project: Project): Project {
-    this.projectsFile.update((file) => ({ ...file, version: 1, projects: [...file.projects.filter((p) => p.id !== project.id), project] }));
+    transaction(this.db, () => {
+      this.putProject(project, Date.now());
+      this.event("project", project.id);
+    });
+    this.projects.set(project.id, project);
     return project;
   }
 
   removeProject(id: string): void {
-    this.projectsFile.update((file) => ({ ...file, version: 1, projects: file.projects.filter((p) => p.id !== id) }));
+    transaction(this.db, () => {
+      this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+      this.event("project", id);
+    });
+    this.projects.delete(id);
   }
 
   // Workspaces ---------------------------------------------------------------------------------
 
   listWorkspaces(): Workspace[] {
-    return this.workspacesFile.get().workspaces;
+    return [...this.workspaces.values()];
   }
 
   getWorkspace(id: string): Workspace | undefined {
-    return this.listWorkspaces().find((w) => w.id === id);
+    return this.workspaces.get(id);
   }
 
   upsertWorkspace(workspace: Workspace): Workspace {
-    this.workspacesFile.update((file) => ({ ...file, workspaces: replaceOrAppend(file.workspaces, workspace) }));
+    transaction(this.db, () => {
+      this.putWorkspace(workspace, Date.now());
+      this.event("workspace", workspace.id);
+    });
+    this.workspaces.set(workspace.id, workspace);
     return workspace;
   }
 
-  /** Removes the workspace and all of its sessions. */
+  /** Removes the workspace and all of its sessions (with their conversations). */
   removeWorkspace(id: string): void {
-    this.workspacesFile.update((file) => ({
-      ...file,
-      workspaces: file.workspaces.filter((w) => w.id !== id),
-      sessions: file.sessions.filter((s) => s.workspaceId !== id),
-    }));
+    const doomed = [...this.sessions.values()].filter((s) => s.workspaceId === id);
+    transaction(this.db, () => {
+      const rows = this.db.prepare("SELECT id FROM sessions WHERE workspace_id = ?").all(id) as Array<{ id: string }>;
+      for (const sid of new Set([...doomed.map((s) => s.id), ...rows.map((r) => r.id)])) {
+        this.deleteSessionRows(sid);
+        this.event("session", sid);
+      }
+      this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
+      this.event("workspace", id);
+    });
+    this.workspaces.delete(id);
+    for (const s of doomed) this.sessions.delete(s.id);
   }
 
   // Sessions -----------------------------------------------------------------------------------
 
   /** All sessions, or those of one workspace. */
   listSessions(workspaceId?: string): Session[] {
-    const all = this.workspacesFile.get().sessions;
+    const all = [...this.sessions.values()];
     return workspaceId === undefined ? all : all.filter((s) => s.workspaceId === workspaceId);
   }
 
   getSession(id: string): Session | undefined {
-    return this.workspacesFile.get().sessions.find((s) => s.id === id);
+    return this.sessions.get(id);
   }
 
   upsertSession(session: Session): Session {
-    this.workspacesFile.update((file) => ({ ...file, sessions: replaceOrAppend(file.sessions, session) }));
+    transaction(this.db, () => {
+      this.putSession(session, Date.now());
+      this.event("session", session.id);
+    });
+    this.sessions.set(session.id, session);
     return session;
   }
 
+  /** Removes the session and its conversation. */
   removeSession(id: string): void {
-    this.workspacesFile.update((file) => ({ ...file, sessions: file.sessions.filter((s) => s.id !== id) }));
+    transaction(this.db, () => {
+      this.deleteSessionRows(id);
+      this.event("session", id);
+    });
+    this.sessions.delete(id);
+  }
+
+  /** The adapter's resume cursor (`sessions.resume_json`), opaque to Glade. */
+  getResume<T = Record<string, unknown>>(sessionId: string): T | null {
+    const row = this.db.prepare("SELECT resume_json FROM sessions WHERE id = ?").get(sessionId) as { resume_json: string | null } | undefined;
+    return row?.resume_json ? (JSON.parse(row.resume_json) as T) : null;
+  }
+
+  /** Resume cursor of the session whose `sessionRef` is `ref` (harnesses know only their refs). */
+  getResumeByRef<T = Record<string, unknown>>(ref: string): T | null {
+    const row = this.db.prepare("SELECT resume_json FROM sessions WHERE session_ref = ?").get(ref) as { resume_json: string | null } | undefined;
+    return row?.resume_json ? (JSON.parse(row.resume_json) as T) : null;
+  }
+
+  /** Merge `patch` into the resume cursor of the session with `sessionRef` = `ref`. False if none. */
+  patchResumeByRef(ref: string, patch: Record<string, unknown>): boolean {
+    return transaction(this.db, () => {
+      const row = this.db.prepare("SELECT id, resume_json FROM sessions WHERE session_ref = ?").get(ref) as { id: string; resume_json: string | null } | undefined;
+      if (!row) return false;
+      const next = { ...(row.resume_json ? (JSON.parse(row.resume_json) as Record<string, unknown>) : {}), ...patch };
+      this.db.prepare("UPDATE sessions SET resume_json = ? WHERE id = ?").run(JSON.stringify(next), row.id);
+      return true;
+    });
+  }
+
+  // Sub-agent records (I-037) -------------------------------------------------------------------
+
+  listAgents(): AgentRecord[] {
+    return [...this.agents.values()];
+  }
+
+  getAgent(sessionId: string): AgentRecord | undefined {
+    return this.agents.get(sessionId);
+  }
+
+  upsertAgent(record: AgentRecord): AgentRecord {
+    transaction(this.db, () => {
+      this.putAgent(record, Date.now());
+      this.event("agent", record.sessionId);
+    });
+    this.agents.set(record.sessionId, record);
+    return record;
+  }
+
+  /** Patch a record on the database's current copy (fields another server changed survive). */
+  patchAgent(sessionId: string, patch: Partial<AgentRecord>): AgentRecord | undefined {
+    const next = transaction(this.db, () => {
+      const current = this.readRecord<AgentRecord>("agents", sessionId, "session_id") ?? this.agents.get(sessionId);
+      if (!current) return undefined;
+      const merged = { ...current, ...patch };
+      this.putAgent(merged, Date.now());
+      this.event("agent", sessionId);
+      return merged;
+    });
+    if (next) this.agents.set(sessionId, next);
+    return next;
+  }
+
+  removeAgents(sessionIds: readonly string[]): void {
+    if (!sessionIds.length) return;
+    transaction(this.db, () => {
+      for (const id of sessionIds) {
+        this.db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
+        this.event("agent", id);
+      }
+    });
+    for (const id of sessionIds) this.agents.delete(id);
   }
 
   // Settings ----------------------------------------------------------------------------------
 
   /** Effective settings (defaults merged with the stored overrides). */
   getSettings(): Settings {
-    // Migrated on read too: a server from before a rename may write the old keys meanwhile (I-062).
-    return deepMerge(defaultSettings(), migrateSettings(this.settingsFile.get()));
+    this.settingsCache ??= deepMerge(defaultSettings(), migrateSettings(this.settingsOverrides));
+    return this.settingsCache;
+  }
+
+  /** The stored overrides only (the JSON export). */
+  getSettingsOverrides(): DeepPartial<Settings> {
+    return this.settingsOverrides;
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
-    this.settingsFile.update((stored) => deepMerge(stored as Settings, patch));
+    const next = transaction(this.db, () => {
+      const row = this.db.prepare("SELECT data_json FROM settings WHERE id = 1").get() as { data_json: string } | undefined;
+      const current = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
+      const merged = deepMerge(current as Settings, patch) as DeepPartial<Settings>;
+      this.putSettings(merged, Date.now());
+      this.event("settings", null);
+      return merged;
+    });
+    this.settingsOverrides = next;
+    this.settingsCache = null;
+    this.writeSettingsExport();
     return this.getSettings();
   }
 
-  flush(): void {
-    this.projectsFile.flush();
-    this.workspacesFile.flush();
-    this.settingsFile.flush();
+  /**
+   * `<dataDir>/settings.export.json`: the stored overrides as JSON, for readers outside the
+   * server (the desktop app looks up the pi path there before the server starts). Never read back.
+   */
+  private writeSettingsExport(): void {
+    try {
+      const path = join(this.dataDir, SETTINGS_EXPORT_FILE);
+      const tmp = `${path}.${process.pid}.tmp`;
+      writeFileSync(tmp, `${JSON.stringify(this.settingsOverrides, null, 2)}\n`);
+      renameSync(tmp, path);
+    } catch {
+      /* data folder gone (tests); not essential */
+    }
   }
 
-  /** Stop watching and write what's pending. */
+  // Conversations -------------------------------------------------------------------------------
+
+  transcriptInfo(sessionId: string): TranscriptInfo | null {
+    const row = this.db.prepare("SELECT source, source_sig, version, message_count FROM transcripts WHERE session_id = ?").get(sessionId) as Row | undefined;
+    if (!row) return null;
+    return {
+      source: String(row.source),
+      sourceSig: row.source_sig === null ? null : String(row.source_sig),
+      version: Number(row.version),
+      messageCount: Number(row.message_count),
+    };
+  }
+
+  /** Whether the store holds this session's conversation (live-written or imported). */
+  hasTranscript(sessionId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM transcripts WHERE session_id = ?").get(sessionId) !== undefined;
+  }
+
+  /** The stored conversation (`settle`: nothing can still be streaming, for sessions no process runs). */
+  loadTranscript(sessionId: string, { settle = false } = {}): Transcript {
+    const messages = (this.db.prepare("SELECT payload_json FROM messages WHERE session_id = ? ORDER BY seq, rowid").all(sessionId) as Array<{ payload_json: string }>).map(
+      (r) => JSON.parse(r.payload_json) as ChatMessage,
+    );
+    const toolResults: Record<string, ToolResult> = {};
+    for (const r of this.db.prepare("SELECT payload_json FROM tool_results WHERE session_id = ? ORDER BY rowid").all(sessionId) as Array<{ payload_json: string }>) {
+      const result = JSON.parse(r.payload_json) as ToolResult;
+      toolResults[result.toolCallId] = result;
+    }
+    const transcript = { messages, toolResults };
+    return settle ? settleTranscript(transcript) : transcript;
+  }
+
+  /**
+   * Write changed messages (at their position `seq`) and tool results of a live session, in one
+   * transaction with one `messages` event. Creates the `transcripts` row (source "live") if needed.
+   */
+  saveTranscriptChanges(sessionId: string, messages: ReadonlyArray<{ message: ChatMessage; seq: number }>, toolResults: readonly ToolResult[]): void {
+    if (!messages.length && !toolResults.length) return;
+    transaction(this.db, () => {
+      const now = Date.now();
+      const to = this.agentNameOf(sessionId);
+      for (const { message, seq } of messages) this.putMessage(sessionId, seq, message, to, now);
+      for (const r of toolResults) this.putToolResult(sessionId, r, now);
+      this.bumpTranscript(sessionId, "live", now);
+      this.event("messages", sessionId, {
+        scope: "session",
+        sessionId,
+        payload: { messages: messages.map((m) => m.message.id), toolResults: toolResults.map((r) => r.toolCallId) },
+      });
+    });
+  }
+
+  /**
+   * Merge a harness's view of a conversation (e.g. pi's JSONL) into the store: messages the store
+   * lacks get new ids, stored ones keep theirs (`mergeTranscripts`). `sig` = the source's
+   * signature, recorded as in sync. Returns the merged transcript.
+   */
+  importTranscript(sessionId: string, imported: Transcript, { source, sig }: { source: string; sig: string | null }): MergeResult {
+    return transaction(this.db, () => this.importTranscriptRows(sessionId, imported, { source, sig }));
+  }
+
+  private importTranscriptRows(sessionId: string, imported: Transcript, { source, sig }: { source: string; sig: string | null }): MergeResult {
+    const now = Date.now();
+    const stored = this.loadTranscript(sessionId);
+    const storedIds = new Map(stored.messages.map((m, i) => [m.id, { index: i, message: m }]));
+    const result = mergeTranscripts(stored, settleTranscript(imported), (m) => ulid(m.timestamp > 0 ? m.timestamp : now));
+    const to = this.agentNameOf(sessionId);
+    result.transcript.messages.forEach((m, seq) => {
+      const before = storedIds.get(m.id);
+      if (before && before.message === m && before.index === seq) return;
+      if (before && before.message === m) this.db.prepare("UPDATE messages SET seq = ? WHERE id = ?").run(seq, m.id);
+      else this.putMessage(sessionId, seq, m, to, now);
+    });
+    for (const [id, r] of Object.entries(result.transcript.toolResults)) if (stored.toolResults[id] !== r) this.putToolResult(sessionId, r, now);
+    const existing = this.transcriptInfo(sessionId);
+    this.db
+      .prepare(
+        `INSERT INTO transcripts (session_id, source, source_sig, version, message_count, imported_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT (session_id) DO UPDATE SET source_sig = excluded.source_sig, version = transcripts.version + 1,
+           message_count = excluded.message_count, imported_at = excluded.imported_at, updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, existing?.source ?? source, sig, result.transcript.messages.length, now, now);
+    if (result.added || result.updated) {
+      this.event("messages", sessionId, { scope: "session", sessionId, payload: { imported: result.added, updated: result.updated } });
+    }
+    return result;
+  }
+
+  /** Record the harness file's signature as in sync with the store (after a run / close here). */
+  setTranscriptSig(sessionId: string, sig: string | null): void {
+    this.db.prepare("UPDATE transcripts SET source_sig = ? WHERE session_id = ?").run(sig, sessionId);
+  }
+
+  /** User/assistant text of a stored conversation, in order (search, titles, chat tools). */
+  sessionText(sessionId: string): SessionTextMessage[] {
+    return (
+      this.db
+        .prepare("SELECT role, text, created_at FROM messages WHERE session_id = ? AND text IS NOT NULL ORDER BY seq, rowid")
+        .all(sessionId) as Array<{ role: string; text: string; created_at: number }>
+    ).map((r) => ({ role: r.role as SessionTextMessage["role"], text: r.text, timestamp: Number(r.created_at) }));
+  }
+
+  /** sessionId -> transcript version, for every stored conversation (search freshness). */
+  transcriptVersions(): Map<string, number> {
+    const rows = this.db.prepare("SELECT session_id, version FROM transcripts").all() as Array<{ session_id: string; version: number }>;
+    return new Map(rows.map((r) => [r.session_id, Number(r.version)]));
+  }
+
+  private agentNameOf(sessionId: string): string {
+    const session = this.sessions.get(sessionId);
+    return session?.kind === "subagent" && session.agentName ? session.agentName : "main";
+  }
+
+  private putMessage(sessionId: string, seq: number, m: ChatMessage, to: string, now: number): void {
+    const meta = agentMessageMeta(m, to);
+    this.db
+      .prepare(
+        `INSERT INTO messages (id, session_id, seq, role, kind, meta_json, text, created_at, updated_at, status, payload_version, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, role = excluded.role, kind = excluded.kind, meta_json = excluded.meta_json,
+           text = excluded.text, updated_at = excluded.updated_at, status = excluded.status,
+           payload_version = excluded.payload_version, payload_json = excluded.payload_json`,
+      )
+      .run(
+        m.id,
+        sessionId,
+        seq,
+        m.role,
+        meta ? "agent_message" : null,
+        meta ? JSON.stringify(meta) : null,
+        searchableText(m),
+        Number.isFinite(m.timestamp) ? m.timestamp : now,
+        now,
+        messageStatus(m),
+        PAYLOAD_VERSION,
+        JSON.stringify(m),
+      );
+  }
+
+  private putToolResult(sessionId: string, r: ToolResult, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO tool_results (session_id, tool_call_id, status, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (session_id, tool_call_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, payload_json = excluded.payload_json`,
+      )
+      .run(sessionId, r.toolCallId, r.status, now, JSON.stringify(r));
+  }
+
+  private bumpTranscript(sessionId: string, source: string, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO transcripts (session_id, source, version, message_count, updated_at)
+           VALUES (?, ?, 1, (SELECT COUNT(*) FROM messages WHERE session_id = ?), ?)
+         ON CONFLICT (session_id) DO UPDATE SET version = transcripts.version + 1,
+           message_count = (SELECT COUNT(*) FROM messages WHERE session_id = excluded.session_id), updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, source, sessionId, now);
+  }
+
+  // Chat summaries (search, I-048) ----------------------------------------------------------------
+
+  getSummary(sessionId: string): StoredSummary | null {
+    const row = this.db.prepare("SELECT text, message_count, at FROM session_summaries WHERE session_id = ?").get(sessionId) as Row | undefined;
+    return row ? { text: String(row.text), messageCount: Number(row.message_count), at: Number(row.at) } : null;
+  }
+
+  listSummaries(): Map<string, StoredSummary> {
+    const rows = this.db.prepare("SELECT session_id, text, message_count, at FROM session_summaries").all() as Row[];
+    return new Map(rows.map((r) => [String(r.session_id), { text: String(r.text), messageCount: Number(r.message_count), at: Number(r.at) }]));
+  }
+
+  setSummary(sessionId: string, summary: StoredSummary): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO session_summaries (session_id, text, message_count, at) VALUES (?, ?, ?, ?)")
+      .run(sessionId, summary.text, summary.messageCount, summary.at);
+  }
+
+  removeSummaries(sessionIds: readonly string[]): void {
+    if (!sessionIds.length) return;
+    transaction(this.db, () => {
+      for (const id of sessionIds) this.db.prepare("DELETE FROM session_summaries WHERE session_id = ?").run(id);
+    });
+  }
+
+  /** When summaries were first enabled (older untouched chats aren't backfilled); set once. */
+  summariesEnabledAt(now: number): number {
+    return transaction(this.db, () => {
+      const at = getMetaJson<number>(this.db, "summaries_enabled_at");
+      if (typeof at === "number") return at;
+      setMetaJson(this.db, "summaries_enabled_at", now);
+      return now;
+    });
+  }
+
+  // Lifecycle -------------------------------------------------------------------------------------
+
+  /** Nothing is buffered any more (every change is written at once); kept for callers. */
+  flush(): void {}
+
+  /** Stop polling and close the database. */
   dispose(): void {
-    this.watcher.stop();
-    this.flush();
-  }
-}
-
-/** Records added/changed (by JSON) and ids removed between two lists. */
-function diffById<T>(before: readonly T[], after: readonly T[], id: (item: T) => string): { upserted: T[]; removed: string[] } {
-  const old = new Map(before.map((item) => [id(item), JSON.stringify(item)]));
-  const upserted = after.filter((item) => old.get(id(item)) !== JSON.stringify(item));
-  const kept = new Set(after.map(id));
-  return { upserted, removed: [...old.keys()].filter((key) => !kept.has(key)) };
-}
-
-function replaceOrAppend<T extends { id: string }>(list: T[], item: T): T[] {
-  const idx = list.findIndex((x) => x.id === item.id);
-  return idx === -1 ? [...list, item] : list.map((x, i) => (i === idx ? item : x));
-}
-
-/** Stored-settings upgrades. Returns the same object when nothing changes. */
-export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  return migrateSmallModel(migratePiSettings(migrateNotifications(stored)));
-}
-
-/**
- * I-074: `models.titleModel` became `models.smallModel` (one small model for titles, `/name`,
- * summaries and search). A value already under `smallModel` wins.
- */
-function migrateSmallModel(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  const models = (stored as { models?: Record<string, unknown> }).models;
-  if (!models || !("titleModel" in models)) return stored;
-  const { titleModel, ...rest } = models;
-  const next = "smallModel" in rest ? rest : { ...rest, smallModel: titleModel };
-  return { ...stored, models: next } as DeepPartial<Settings>;
-}
-
-/** I-028: system notifications were removed; drop the old toggle from stored settings. */
-function migrateNotifications(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  const general = (stored as { general?: Record<string, unknown> }).general;
-  if (!general || !("notifyOnComplete" in general)) return stored;
-  const { notifyOnComplete: _removed, ...rest } = general;
-  return { ...stored, general: rest } as DeepPartial<Settings>;
-}
-
-/** pi's settings kept in `agent` before I-066. */
-const LEGACY_PI_KEYS = ["piPath", "extraArgs", "autoCompaction", "autoRetry"] as const;
-
-/**
- * I-066: pi's settings moved from `agent` to `harnesses.pi`. Values already under
- * `harnesses.pi` win (e.g. written by a newer server while an older one still wrote `agent`).
- */
-function migratePiSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  const agent = (stored as { agent?: Record<string, unknown> }).agent;
-  if (!agent || !LEGACY_PI_KEYS.some((k) => k in agent)) return stored;
-  const rest: Record<string, unknown> = { ...agent };
-  const moved: Record<string, unknown> = {};
-  for (const key of LEGACY_PI_KEYS) {
-    if (key in rest) moved[key] = rest[key];
-    delete rest[key];
-  }
-  const harnesses = (stored as { harnesses?: Record<string, Record<string, unknown>> }).harnesses ?? {};
-  const pi = { ...moved, ...harnesses.pi };
-  return { ...stored, agent: rest, harnesses: { ...harnesses, pi } } as DeepPartial<Settings>;
-}
-
-/**
- * I-019: projects get a manual `sortOrder` (from their previous order: pinned first, then most
- * recently active) and lose `pinned`. Returns the same object when nothing changes.
- */
-function migrateProjects(file: ProjectsFile): ProjectsFile {
-  /** Shape of projects written before I-019 (may have `pinned`, may lack `sortOrder`). */
-  type LegacyProject = Project & { pinned?: boolean };
-  const projects = file.projects as LegacyProject[];
-  if (!projects.some((p) => typeof p.sortOrder !== "number" || "pinned" in p)) return file;
-  const byPrevious = (a: LegacyProject, b: LegacyProject) =>
-    Number(b.pinned ?? false) - Number(a.pinned ?? false) || b.lastActivityAt - a.lastActivityAt;
-  const ordered = projects.filter((p) => typeof p.sortOrder === "number");
-  let next = ordered.length ? Math.max(...ordered.map((p) => p.sortOrder)) + 1 : 0;
-  const missing = new Map(
-    projects
-      .filter((p) => typeof p.sortOrder !== "number")
-      .sort(byPrevious)
-      .map((p) => [p.id, next++] as const),
-  );
-  const migrated = projects.map(({ pinned: _pinned, ...p }) => ({ ...p, sortOrder: missing.get(p.id) ?? p.sortOrder }));
-  return { version: 1, projects: migrated };
-}
-
-/** I-019: pinned chats get a `pinOrder` per list (most recent activity first); unpinned lose it. */
-function migratePinOrder(file: WorkspacesFile): WorkspacesFile {
-  const workspaces = file.workspaces;
-  const needsPinOrder = (w: Workspace) => w.pinned && typeof w.pinOrder !== "number";
-  const strayPinOrder = (w: Workspace) => !w.pinned && w.pinOrder !== undefined;
-  if (!workspaces.some((w) => needsPinOrder(w) || strayPinOrder(w))) return file;
-  const assigned = new Map<string, number>();
-  for (const listId of new Set(workspaces.map((w) => w.projectId))) {
-    const pinned = workspaces.filter((w) => w.projectId === listId && w.pinned);
-    const ordered = pinned.filter((w) => typeof w.pinOrder === "number");
-    let next = ordered.length ? Math.max(...ordered.map((w) => w.pinOrder!)) + 1 : 0;
-    for (const w of pinned.filter(needsPinOrder).sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
-      assigned.set(w.id, next++);
+    if (this.closed) return;
+    this.closed = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    try {
+      this.db.close();
+    } catch {
+      /* already closed */
     }
   }
-  const migrated = workspaces.map((w) => {
-    if (strayPinOrder(w)) {
-      const { pinOrder: _pinOrder, ...rest } = w;
-      return rest;
-    }
-    return assigned.has(w.id) ? { ...w, pinOrder: assigned.get(w.id)! } : w;
-  });
-  return { ...file, workspaces: migrated };
+
+  get isClosed(): boolean {
+    return this.closed;
+  }
 }
+
+export const SETTINGS_EXPORT_FILE = "settings.export.json";

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
-import { smallModel, sessionReaders } from "../src/services/search/create.js";
+import { smallModel } from "../src/services/search/create.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
 import { flush, until } from "./helpers.js";
@@ -149,19 +149,12 @@ describe("AppService with two harnesses", () => {
 });
 
 describe("search wiring (I-067)", () => {
-  it("takes session readers and the small model from the registry", async () => {
-    const statSession = vi.fn(async () => ({ mtimeMs: 1, size: 2 }));
+  it("takes the small model from the registry", async () => {
     const reader = Object.assign(new FakeHarness(undefined, 0, { id: "reader" }), {
-      statSession,
-      readSessionText: vi.fn(async () => ({ name: null, messages: [] })),
       complete: vi.fn(async () => "done"),
     });
     const plain = new FakeHarness(undefined, 0, { id: "plain" });
     const registry = new HarnessRegistry([plain, reader], { preferred: () => "reader" });
-    const readers = sessionReaders(registry);
-    expect(Object.keys(readers)).toEqual(["reader"]);
-    expect(await readers.reader!.stat("ref")).toEqual({ mtimeMs: 1, size: 2 });
-    expect(statSession).toHaveBeenCalledWith("ref");
     expect(await smallModel(registry)!({ prompt: "p", model: null })).toBe("done");
     expect(smallModel(new HarnessRegistry([plain]))).toBeUndefined();
   });

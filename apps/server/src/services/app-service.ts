@@ -48,6 +48,7 @@ import { Projects } from "./app/projects.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
+import { Transcripts, type ImportSummary } from "./app/transcripts.js";
 import { Sessions, type NewSessionKind } from "./app/sessions.js";
 import { DEFAULT_SMALL_MODEL, Titles } from "./app/titles.js";
 import { Workspaces } from "./app/workspaces.js";
@@ -75,6 +76,7 @@ export class AppService {
   readonly attachments: AttachmentStore;
   private readonly ctx: AppContext;
   private readonly records: Records;
+  private readonly transcripts: Transcripts;
   private readonly pool: LivePool;
   private readonly leaseSync: LeaseSync;
   private readonly titles: Titles;
@@ -113,14 +115,15 @@ export class AppService {
 
     // Modules, lowest layer first; calls up the layers go through hooks.
     this.records = new Records(ctx);
-    this.pool = new LivePool(ctx, this.records, {
+    this.transcripts = new Transcripts(ctx);
+    this.pool = new LivePool(ctx, this.records, this.transcripts, {
       closeAgentSession: (id) => this.team.closeAgentSession(id),
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
     });
     this.leaseSync = new LeaseSync(ctx, this.records, this.pool);
-    this.titles = new Titles(ctx, this.records, { updateWorkspace: (id, req) => this.workspaces.updateWorkspace(id, req) });
+    this.titles = new Titles(ctx, this.records, this.transcripts, { updateWorkspace: (id, req) => this.workspaces.updateWorkspace(id, req) });
     this.actions = new SessionActions(ctx, this.records, this.pool, this.leaseSync, this.titles);
-    this.sessions = new Sessions(ctx, this.records, this.pool, this.leaseSync, this.actions, {
+    this.sessions = new Sessions(ctx, this.records, this.pool, this.leaseSync, this.actions, this.transcripts, {
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
     });
     this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions);
@@ -130,7 +133,6 @@ export class AppService {
     if (ctx.leases) {
       this.unwatch.push(ctx.store.onExternalChange((change) => this.leaseSync.applyExternalChange(change)));
       this.unwatch.push(ctx.agents.onExternalChange((ids) => this.records.pushSessions(ids)));
-      if (ctx.agents.file) ctx.store.watchFile(ctx.agents.file);
       ctx.store.watch();
       ctx.leases.start();
     }
@@ -178,6 +180,11 @@ export class AppService {
 
   getSettings(): Settings {
     return this.ctx.store.getSettings();
+  }
+
+  /** The stored settings overrides, as a JSON export (I-121). */
+  exportSettings(): DeepPartial<Settings> {
+    return this.ctx.store.getSettingsOverrides();
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
@@ -422,6 +429,19 @@ export class AppService {
   /** Stop a session's agent process (the multi-server tests call this). */
   private closeLive(id: string): Promise<void> {
     return this.pool.closeLive(id);
+  }
+
+  /**
+   * Import every chat's harness file into the store in the background, oldest first (I-121; the
+   * server starts it once listening). Chats opened meanwhile are imported on open.
+   */
+  startTranscriptImport(): Promise<ImportSummary> {
+    return this.transcripts.startBackgroundImport();
+  }
+
+  /** Write pending conversation changes now (synchronous; the exit hook). */
+  flushTranscripts(): void {
+    if (!this.ctx.store.isClosed) this.pool.flushTranscripts();
   }
 
   /** Drop every session lease we hold (synchronous; the exit hook, when dispose() didn't run). */

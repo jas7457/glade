@@ -231,19 +231,23 @@ cut-off runs still show as interrupted on the next start.
 
 ## Data on disk
 
-| What                            | Where                                                        |
-| ------------------------------- | ------------------------------------------------------------ |
-| Session transcripts             | Owned by the harness. pi: `~/.pi/agent/sessions/--<cwd>--/…`  |
-| Projects                        | `<dataDir>/projects.json`                                    |
-| Workspaces + sessions index (title, pin, unread, model, session ref…) | `<dataDir>/workspaces.json` `{ version: 1, workspaces, sessions }` |
-| Pre-I-035 chat index (no longer read; kept as a backup) | `<dataDir>/chats.json`               |
-| Settings (overrides only)       | `<dataDir>/settings.json`                                    |
-| Scratch cwd for non-project chats | `<dataDir>/scratch/`                                       |
-| Sub-agent records               | `<dataDir>/agents.json`                                      |
-| Chat summaries (search, I-048)  | `<dataDir>/session-summaries.json` (+ per-server cache `search-index.json`) |
-| Running servers (registry)      | `<dataDir>/servers/<pid>.json` (see below)                   |
-| Session leases                  | `<dataDir>/leases/<sessionId>.json` (see below)              |
-| Short write locks               | `<file>.lock/` directories next to the shared JSON files (milliseconds) |
+| What | Where |
+| --- | --- |
+| Everything Glade owns (I-121): projects, workspaces, sessions (with `session_ref` / `resume_json`), sub-agent records, settings, summaries, **conversations** (`messages`, `tool_results`, `transcripts`), `events`, `meta` | `<dataDir>/glade.db` (SQLite via `node:sqlite`, WAL; migrations in `apps/server/src/store/db/`) |
+| Harness session files (import and resume only) | pi: `~/.pi/agent/sessions/--<cwd>--/…` (never written by Glade) |
+| Settings export (read by the desktop app for the pi path) | `<dataDir>/settings.export.json` |
+| Pre-I-121 JSON files (`projects.json`, `workspaces.json`, `settings.json`, `agents.json`, `session-summaries.json`, `search-index.json`, `chats.json`, `acp-sessions/`) | imported once, then deleted after 3 successful starts with no older server around |
+| Scratch cwd for non-project chats | `<dataDir>/scratch/` |
+| Running servers (registry, with `storeSchema`) | `<dataDir>/servers/<pid>.json` |
+| Session leases | `<dataDir>/leases/<sessionId>.json` |
+
+**Glade's store (I-121).**
+- `LivePool.handleEvent` replaces each harness message id with a ULID (`MessageIds`) before folding, so live events, stored rows and reloads agree.
+- `TranscriptWriter` writes a session's changed messages at most every 250 ms, immediately at message, tool or run end, and flushes on close.
+- Every reader uses the store: transcripts (live, dormant and elsewhere), search (plain text per row), titles, and the chat tools.
+- The harness readers (`readTranscript` etc.) are import-only. pi JSONL is imported in the background at first start (oldest first) or on demand when a chat is opened.
+- A pi file that changed outside Glade is merged in (`mergeTranscripts`: missing turns added, ids kept, matched by role and timestamp). Only a merge records the file signature.
+- **Older-server guard:** a registered server without `storeSchema` is an older Glade. The new server then doesn't open the database and serves "Quit the older Glade first" (API 503) until that server is gone.
 
 `dataDir` = `~/Library/Application Support/Glade` on macOS (override with `GLADE_DATA_DIR`).
 
@@ -283,21 +287,8 @@ New workspaces get fresh ids for the workspace and its first session (they diffe
 can any number of servers). Nothing is borrowed; each server owns only the agent processes it
 started. Four mechanisms keep them from stepping on each other:
 
-1. **Locked read-modify-write** (`store/json-file.ts`, `store/file-lock.ts`). The shared files
-   (`workspaces.json`, `projects.json`, `settings.json`, `agents.json`,
-   `session-summaries.json`) are changed through *operations* ("replace the record with id X",
-   "patch agent Y", "merge this settings patch"), applied to the in-memory copy at once and written
-   in coalesced bursts (50ms): take `<file>.lock` (an atomic `mkdir`; waits a few ms if held;
-   broken after 5s as a crashed holder's), **re-read the file**, replay the pending operations on
-   it, write tmp + rename, unlock. So a record another server changed in the meantime survives;
-   two servers editing the *same* record is last-writer-wins per record (sub-agent records are
-   patched per field). Migrations are pure functions of the file, so they're safe to replay.
-2. **Watching** (`store/dir-watcher.ts`). An `fs.watch` on the data folder (plus a 2s poll as a
-   safety net; unchanged files cost one `stat`) reloads a file another server wrote. The store
-   diffs before/after (`StoreChange`: projects/workspaces/sessions upserted or removed, settings)
-   and the AppService pushes `project_*` / `workspace_*` / `session_*` / `settings` to its own
-   clients; sub-agent record changes re-push their sessions. A chat created in one server shows up
-   in the other in ~0.1s. A run that ends unread there while our clients view it is marked read.
+1. **One SQLite database** (`glade.db`, WAL, busy_timeout). Writes are transactions, so there's no file locking. Record tables keep the protocol object as JSON; sub-agent records are patched per field.
+2. **The `events` table** replaces file watching. Every change appends a row (`seq`, `server_id`, scope, entity). Each server polls `seq > last` every 150 ms, re-reads the records named by other servers' events and pushes `project_*` / `workspace_*` / `session_*` / `settings` to its own clients (`StoreChange`, as before). Events are pruned after 7 days or 100k rows.
 3. **Session leases** (`services/leases.ts`). Only one server may run a session's pi process
    (two processes on one session file would interleave writes). Before starting it, a server
    claims `<dataDir>/leases/<sessionId>.json` `{ sessionId, serverId, serverKind, pid, since,
@@ -592,7 +583,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   Deleting stops its agent (waiting for the process to exit so it can't rewrite the file) and
   removes the session file outright rather than moving it to the Trash.
 
-- **Session storage stays harness-owned, in the harness's default location** (2026-09-26). Every
+- ~~**Session storage stays harness-owned, in the harness's default location** (2026-09-26).~~ Superseded by I-121 (below). Every
   harness must keep its own session format to resume conversations, so Glade stores only an index
   (`chats.json`) with an opaque `sessionRef`. Considered and rejected for now: moving pi sessions
   under our data dir (`--session-dir`), since terminal resume isn't needed, and keeping our own
@@ -677,3 +668,4 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   agent's context; replayed updates are ignored); fs access is confined to the chat's folder;
   `capabilities.models === false` hides the model/thinking pickers. New sessions in a workspace
   inherit its focused tab's harness. Plans are a harness-neutral `NoticeMessage.kind: "plan"`.
+- **Glade owns conversations** (2026-09-27, I-121, user decision). Everything lives in one SQLite database, `glade.db` (`node:sqlite`, so the minimum Node is 22.13), in one normalized format for every harness: stable ULID message ids assigned in `LivePool`, and an opaque per-adapter resume cursor. Harness files are for import and resume only. The JSON files are imported once and deleted after 3 starts; an older-server guard uses `storeSchema`. The `events` table is the base for I-122 (sequenced sync). Design: `docs/design/environments-and-store.md`.

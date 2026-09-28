@@ -1,21 +1,19 @@
 /**
  * Search across chats (I-045) and the natural-language chat finder (I-046).
  *
- * - Text comes from the harness's session files via a {@link SessionTextReader} (built from
- *   `AgentHarness.statSession`/`readSessionText` in `create.ts`), never from running agents. Extracted text is cached in
- *   `<dataDir>/search-index.json` keyed by session id with the file's mtime/size, so a restart
- *   only re-reads files that changed.
- * - Freshness: files are re-`stat`ed (cheap) before each search when the last check is older
- *   than a second, on a background poll, and shortly after `onRunEnd`. Titles and summaries are
- *   re-indexed whenever they change.
+ * - Text comes from Glade's store (I-121: the `messages` table keeps each message's plain text) via
+ *   a {@link SessionTextSource} (`create.ts`), never from running agents or harness files. Each
+ *   session's text is kept in memory with its transcript version, so only changed ones are re-read.
+ * - Freshness: versions are re-checked (one query) before each search when the last check is
+ *   older than a second, on a background poll, and shortly after `onRunEnd`. Titles and summaries
+ *   are re-indexed whenever they change.
  * - Summaries: after a session settles (not running, new messages since the last summary), a
- *   one-line summary is generated with the small model, one at a time, and kept in
- *   `<dataDir>/session-summaries.json`. Only sessions active since the feature was first enabled
- *   are summarized (no backfill of old chats); `settings.general.generateSummaries` turns it off.
+ *   one-line summary is generated with the small model, one at a time, and kept in the store
+ *   (`session_summaries`). Only sessions active since the feature was first enabled are
+ *   summarized (no backfill of old chats); `settings.general.generateSummaries` turns it off.
  * - `ask`: keyword candidates (any word) padded with recent chats, then the small model picks the
  *   best matches (`finder.ts`). Without a model (or on failure) it falls back to keyword ranking.
  */
-import { join } from "node:path";
 import {
   modelKey,
   type AskMatch,
@@ -30,11 +28,10 @@ import {
   type Settings,
   type WorkspaceSummary,
 } from "@glade/protocol";
-import { JsonFile } from "../../store/json-file.js";
 import { agentMessageText, isAgentMessage } from "./agent-text.js";
 import { cleanSummary, finderPrompt, parseFinderReply, summaryPrompt, type FinderCandidate } from "./finder.js";
 import { TextIndex, type FieldInput } from "./text-index.js";
-import type { SmallModel, SessionTextMessage, SessionTextReader } from "./types.js";
+import type { SessionTextMessage, SessionTextSource, SmallModel, StoredSummary, SummaryStore } from "./types.js";
 
 /** The small model used when none is set and the harness lists it. */
 export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
@@ -50,47 +47,46 @@ export interface SearchAppSource {
 
 export interface SearchServiceOptions {
   app: SearchAppSource;
-  /** Where the index cache and summaries are stored. */
-  dataDir: string;
-  /** Session readers by harness id (`sessionReaders(harnesses)` in `create.ts`). */
-  readers: Readonly<Record<string, SessionTextReader>>;
+  /** Each session's stored text (the store, `create.ts`). */
+  texts: SessionTextSource;
+  /** Where summaries are kept (the store; memory when omitted). */
+  summaries?: SummaryStore;
   /** One-shot fast model; without it summaries are off and `ask` uses keyword ranking. */
   smallModel?: SmallModel;
   /** Background poll interval (0 = no timer; tests). Default 20 s. */
   pollMs?: number;
   /** Delay after a run ends before re-reading the file and summarizing. Default 1.5 s. */
   runEndDelayMs?: number;
-  /** Write debounce for the cache files. */
-  debounceMs?: number;
   log?: (msg: string) => void;
   now?: () => number;
 }
 
 interface CachedText {
-  ref: string;
-  mtimeMs: number;
-  size: number;
+  version: string;
   name: string | null;
   messages: SessionTextMessage[];
 }
 
-interface IndexFile {
-  version: 1;
-  sessions: Record<string, CachedText>;
-}
-
-interface StoredSummary {
-  text: string;
-  /** Number of messages summarized (a new summary is due when it changes). */
-  messageCount: number;
-  at: number;
-}
-
-interface SummariesFile {
-  version: 1;
-  /** When summaries were first enabled; older, untouched sessions aren't backfilled. */
-  enabledAt: number;
-  summaries: Record<string, StoredSummary>;
+/** Summaries in memory (tests, and when no store is given). */
+export class MemorySummaryStore implements SummaryStore {
+  private readonly map = new Map<string, StoredSummary>();
+  private enabled: number | null = null;
+  get(id: string) {
+    return this.map.get(id) ?? null;
+  }
+  list() {
+    return new Map(this.map);
+  }
+  set(id: string, summary: StoredSummary) {
+    this.map.set(id, summary);
+  }
+  remove(ids: readonly string[]) {
+    for (const id of ids) this.map.delete(id);
+  }
+  enabledAt(now: number) {
+    this.enabled ??= now;
+    return this.enabled;
+  }
 }
 
 /** Longest message text kept in the cache (very long replies are rare and mostly code). */
@@ -111,8 +107,9 @@ const RECENT_PAD = 25;
 
 export class SearchService {
   private readonly index = new TextIndex();
-  private readonly cache: JsonFile<IndexFile>;
-  private readonly summaries: JsonFile<SummariesFile>;
+  /** sessionId -> its text at a transcript version. */
+  private readonly cache = new Map<string, CachedText>();
+  private readonly summaries: SummaryStore;
   /** sessionId -> key of what's indexed (re-index when it changes). */
   private readonly indexed = new Map<string, string>();
   private refreshing: Promise<void> | null = null;
@@ -127,13 +124,7 @@ export class SearchService {
 
   constructor(private readonly options: SearchServiceOptions) {
     this.now = options.now ?? Date.now;
-    const debounce = options.debounceMs ?? 2000;
-    this.cache = new JsonFile(join(options.dataDir, "search-index.json"), () => ({ version: 1, sessions: {} }), debounce);
-    this.summaries = new JsonFile(
-      join(options.dataDir, "session-summaries.json"),
-      () => ({ version: 1, enabledAt: this.now(), summaries: {} }),
-      debounce,
-    );
+    this.summaries = options.summaries ?? new MemorySummaryStore();
     const pollMs = options.pollMs ?? 20_000;
     if (pollMs > 0) {
       this.poll = setInterval(() => void this.refresh().catch(this.logError), pollMs);
@@ -217,7 +208,7 @@ export class SearchService {
 
     const candidates: FinderCandidate[] = ids.map((id, i) => {
       const { session, workspace, project } = ctx.resolve(id)!;
-      const opening = this.cache.get().sessions[id]?.messages.find((m) => m.role === "user" && !isAgentMessage(m))?.text ?? null;
+      const opening = this.cache.get(id)?.messages.find((m) => m.role === "user" && !isAgentMessage(m))?.text ?? null;
       return {
         label: `c${i + 1}`,
         title: session.title || workspace.title,
@@ -246,7 +237,7 @@ export class SearchService {
 
   /** The stored one-line summary of a session, if any. */
   summaryOf(sessionId: string): string | null {
-    return this.summaries.get().summaries[sessionId]?.text ?? null;
+    return this.summaries.get(sessionId)?.text ?? null;
   }
 
   /**
@@ -278,8 +269,6 @@ export class SearchService {
     if (this.poll) clearInterval(this.poll);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
-    this.cache.flush();
-    this.summaries.flush();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -292,69 +281,42 @@ export class SearchService {
 
   private async doRefresh(): Promise<void> {
     const ctx = this.context();
-    const file = this.cache.get();
-    const cached = { ...file.sessions };
-    let changed = false;
     const live = new Set<string>();
     for (const session of ctx.sessions) {
       live.add(session.id);
-      const reader = this.options.readers[session.harness];
-      const ref = session.sessionRef;
-      if (reader && ref) {
-        const stat = await reader.stat(ref);
-        const prev = cached[session.id];
-        if (!stat) {
-          if (prev) {
-            delete cached[session.id];
-            changed = true;
-          }
-        } else if (!prev || prev.ref !== ref || prev.mtimeMs !== stat.mtimeMs || prev.size !== stat.size) {
-          const text = await reader.read(ref);
-          if (text) {
-            cached[session.id] = {
-              ref,
-              mtimeMs: stat.mtimeMs,
-              size: stat.size,
-              name: text.name,
-              messages: text.messages.map((m) => (m.text.length > MAX_MESSAGE_CHARS ? { ...m, text: m.text.slice(0, MAX_MESSAGE_CHARS) } : m)),
-            };
-            changed = true;
-          }
+      const version = await this.options.texts.version(session);
+      const prev = this.cache.get(session.id);
+      if (version === null) {
+        this.cache.delete(session.id);
+      } else if (!prev || prev.version !== version) {
+        const text = await this.options.texts.read(session);
+        if (text) {
+          this.cache.set(session.id, {
+            version,
+            name: text.name,
+            messages: text.messages.map((m) => (m.text.length > MAX_MESSAGE_CHARS ? { ...m, text: m.text.slice(0, MAX_MESSAGE_CHARS) } : m)),
+          });
         }
       }
-      this.indexSession(session, ctx.workspaces.get(session.workspaceId), cached[session.id]);
+      this.indexSession(session, ctx.workspaces.get(session.workspaceId), this.cache.get(session.id));
     }
     // Forget deleted sessions.
-    for (const id of Object.keys(cached)) {
-      if (!live.has(id)) {
-        delete cached[id];
-        changed = true;
-      }
-    }
+    for (const id of [...this.cache.keys()]) if (!live.has(id)) this.cache.delete(id);
     for (const id of [...this.indexed.keys()]) {
       if (!live.has(id)) {
         this.index.remove(id);
         this.indexed.delete(id);
       }
     }
-    const summaries = this.summaries.get();
-    const stale = Object.keys(summaries.summaries).filter((id) => !live.has(id));
-    if (stale.length) {
-      // An operation on the file's current content: another server shares it (I-062).
-      this.summaries.update((file) => {
-        const next = { ...file.summaries };
-        for (const id of stale) delete next[id];
-        return { ...file, summaries: next };
-      });
-    }
-    if (changed) this.cache.set({ version: 1, sessions: cached });
+    const stale = [...this.summaries.list().keys()].filter((id) => !live.has(id));
+    if (stale.length) this.summaries.remove(stale);
     this.queueSummaries(ctx.sessions);
   }
 
   private indexSession(session: SessionSummary, workspace: WorkspaceSummary | undefined, text: CachedText | undefined): void {
     const summary = this.summaryOf(session.id);
     const titles = [...new Set([session.title, workspace?.title, text?.name].filter((t): t is string => !!t?.trim()))];
-    const key = JSON.stringify([titles, summary, text?.mtimeMs ?? 0, text?.size ?? 0]);
+    const key = JSON.stringify([titles, summary, text?.version ?? null]);
     if (this.indexed.get(session.id) === key) return;
     const fields: FieldInput[] = [{ kind: "title", text: titles.join("\n") }];
     if (summary) fields.push({ kind: "summary", text: summary });
@@ -376,12 +338,13 @@ export class SearchService {
   private queueSummaries(sessions: readonly SessionSummary[]): void {
     const settings = this.options.app.getSettings();
     if (!this.options.smallModel || settings.general.generateSummaries === false) return;
-    const { enabledAt, summaries } = this.summaries.get();
     const now = this.now();
+    const enabledAt = this.summaries.enabledAt(now);
+    const summaries = this.summaries.list();
     for (const session of sessions) {
       if (session.running || session.lastActivityAt < enabledAt) continue;
-      const count = this.cache.get().sessions[session.id]?.messages.length ?? 0;
-      if (count < 2 || summaries[session.id]?.messageCount === count) continue;
+      const count = this.cache.get(session.id)?.messages.length ?? 0;
+      if (count < 2 || summaries.get(session.id)?.messageCount === count) continue;
       const failed = this.summaryFailedAt.get(session.id);
       if (failed && now - failed < SUMMARY_RETRY_MS) continue;
       if (!this.summaryQueue.includes(session.id)) this.summaryQueue.push(session.id);
@@ -406,7 +369,7 @@ export class SearchService {
 
   private async summarize(sessionId: string): Promise<void> {
     const fast = this.options.smallModel;
-    const text = this.cache.get().sessions[sessionId];
+    const text = this.cache.get(sessionId);
     const session = this.options.app.listSessions().find((s) => s.id === sessionId);
     if (!fast || !text || !session) return;
     const count = text.messages.length;
@@ -417,7 +380,7 @@ export class SearchService {
       return;
     }
     const entry = { text: summary, messageCount: count, at: this.now() };
-    this.summaries.update((file) => ({ ...file, summaries: { ...file.summaries, [sessionId]: entry } }));
+    this.summaries.set(sessionId, entry);
     // Re-index with the new summary.
     const workspace = this.options.app.listWorkspaces().find((w) => w.id === session.workspaceId);
     this.indexSession(session, workspace, text);

@@ -3,15 +3,14 @@
  * identify calling sessions, and the texts sub-agents and their parents see. The orchestration
  * (spawn, deliver, close) lives in AppService, which owns the sessions and their processes.
  *
- * Records are kept in `<dataDir>/agents.json` (keyed by the sub-agent's session id) so a
+ * Records are kept in the store (`agents` table, keyed by the sub-agent's session id) so a
  * sub-agent reopened after a restart still gets its role prompt and tool allowlist. Tokens are
  * memory only: a new one per agent process, revoked when the process stops.
  */
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
 import { agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage } from "@glade/protocol";
 import type { AgentInfo, AgentStatus, SessionAgentState, SpawnedAgentRef } from "@glade/protocol";
-import { JsonFile } from "../store/json-file.js";
+import type { Store } from "../store/store.js";
 
 /** The name a sub-agent uses for its parent. */
 export const MAIN_AGENT = "main";
@@ -54,47 +53,25 @@ export interface AgentRecord {
   removed?: boolean;
 }
 
-interface AgentsFile {
-  version: 1;
-  agents: AgentRecord[];
-}
-
 /**
- * Sub-agent records; persisted when given a data dir, memory only otherwise (tests). The file is
- * shared with other servers on the same data folder (I-062): every change is an operation on the
- * file's current content (JsonFile), and `onExternalChange` reports records another server changed.
+ * Sub-agent records, kept in the store's `agents` table (I-121; `agents.json` before). Shared with
+ * other servers on the same data folder (I-062): patches apply to the database's current copy of
+ * a record, and `onExternalChange` reports records another server changed.
  */
 export class AgentRegistry {
-  /** Exposed so the store's folder watcher can reload it. */
-  readonly file: JsonFile<AgentsFile> | null;
-  private memory: AgentRecord[] = [];
-
-  constructor(dataDir?: string) {
-    this.file = dataDir ? new JsonFile<AgentsFile>(join(dataDir, "agents.json"), () => ({ version: 1, agents: [] })) : null;
-  }
-
-  private get records(): AgentRecord[] {
-    return this.file ? this.file.get().agents : this.memory;
-  }
-
-  private apply(fn: (records: AgentRecord[]) => AgentRecord[]): void {
-    if (this.file) this.file.update((f) => ({ ...f, version: 1, agents: fn(f.agents) }));
-    else this.memory = fn(this.memory);
-  }
+  constructor(private readonly store: Store) {}
 
   /** Session ids whose record another server added, changed or removed. */
   onExternalChange(listener: (sessionIds: string[]) => void): () => void {
-    if (!this.file) return () => {};
-    return this.file.onExternalChange((before, after) => {
-      const old = new Map(before.agents.map((r) => [r.sessionId, JSON.stringify(r)]));
-      const changed = after.agents.filter((r) => old.get(r.sessionId) !== JSON.stringify(r)).map((r) => r.sessionId);
-      const kept = new Set(after.agents.map((r) => r.sessionId));
-      listener([...changed, ...[...old.keys()].filter((id) => !kept.has(id))]);
-    });
+    return this.store.onExternalAgentChange(listener);
+  }
+
+  private get records(): AgentRecord[] {
+    return this.store.listAgents();
   }
 
   get(sessionId: string): AgentRecord | undefined {
-    return this.records.find((r) => r.sessionId === sessionId);
+    return this.store.getAgent(sessionId);
   }
 
   /** Sub-agents of one parent, oldest first. */
@@ -122,31 +99,27 @@ export class AgentRegistry {
   }
 
   upsert(record: AgentRecord): AgentRecord {
-    this.apply((records) => [...records.filter((r) => r.sessionId !== record.sessionId), record]);
-    return record;
+    return this.store.upsertAgent(record);
   }
 
-  /** Patch a record (applied to the file's current copy of it, so other fields another server changed survive). */
+  /** Patch a record (applied to the stored copy, so other fields another server changed survive). */
   update(sessionId: string, patch: Partial<AgentRecord>): AgentRecord | undefined {
     if (!this.get(sessionId)) return undefined;
-    this.apply((records) => records.map((r) => (r.sessionId === sessionId ? { ...r, ...patch } : r)));
-    return this.get(sessionId);
+    return this.store.patchAgent(sessionId, patch);
   }
 
   remove(sessionId: string): void {
     if (!this.get(sessionId)) return;
-    this.apply((records) => records.filter((r) => r.sessionId !== sessionId));
+    this.store.removeAgents([sessionId]);
   }
 
   /** Drop every record matching `predicate` (e.g. the sub-agents of a deleted session). */
   removeWhere(predicate: (record: AgentRecord) => boolean): void {
-    if (!this.records.some(predicate)) return;
-    this.apply((records) => records.filter((r) => !predicate(r)));
+    this.store.removeAgents(this.records.filter(predicate).map((r) => r.sessionId));
   }
 
-  flush(): void {
-    this.file?.flush();
-  }
+  /** Writes are immediate; kept for callers. */
+  flush(): void {}
 }
 
 /** Per-process secrets for the agent API: token -> session id. */

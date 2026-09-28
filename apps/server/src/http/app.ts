@@ -321,6 +321,11 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     return c.json(await service.listModels(refresh === "1" || refresh === "true"));
   });
   api.get("/settings", (c) => c.json(service.getSettings()));
+  // I-121: settings live in glade.db; this is their JSON export (the stored overrides only).
+  api.get("/settings/export", (c) => {
+    c.header("content-disposition", 'attachment; filename="glade-settings.json"');
+    return c.json(service.exportSettings());
+  });
   api.patch("/settings", async (c) => {
     const body = await readBody<DeepPartial<Settings>>(c);
     return c.json(service.updateSettings(body));

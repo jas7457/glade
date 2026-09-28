@@ -1,45 +1,59 @@
 /**
- * Wires the search service to the installed harnesses (I-067): each harness with
- * `statSession` + `readSessionText` gets a session reader (sessions are read by the harness that
- * created them, `Session.harness`), and the default harness's `complete` is the small model for
- * summaries and the chat finder. Without a reader only titles/summaries are searchable; without
- * `complete` summaries are off and "Ask" falls back to keyword ranking.
+ * Wires the search service to the store and the installed harnesses: every session's text comes
+ * from the store (I-121; sessions not imported yet are filled in by the background import), and
+ * the default harness's `complete` is the small model for summaries and the chat finder (I-067).
+ * Without `complete` summaries are off and "Ask" falls back to keyword ranking.
  *
- *   const search = createSearchService({ app: service, harnesses, dataDir });
+ *   const search = createSearchService({ app: service, harnesses, store });
  */
 import type { HarnessRegistry } from "../../harness/registry.js";
-import type { AgentHarness } from "../../harness/types.js";
+import type { Store } from "../../store/store.js";
 import { SearchService, type SearchAppSource } from "./search-service.js";
-import type { SmallModel, SessionTextReader } from "./types.js";
+import type { SessionTextReader, SessionTextSource, SmallModel, SummaryStore } from "./types.js";
 
 export interface CreateSearchServiceOptions {
   app: SearchAppSource;
   harnesses: HarnessRegistry;
-  dataDir: string;
+  store: Store;
   log?: (msg: string) => void;
 }
 
-/**
- * Session readers by harness id, for harnesses that can read their sessions without an agent.
- * Looked up live, so harnesses added later (ACP agents configured in Settings, I-119) are included.
- */
-export function sessionReaders(harnesses: HarnessRegistry): Record<string, SessionTextReader> {
-  const readerOf = (harness: AgentHarness | undefined): SessionTextReader | undefined => {
-    if (!harness) return undefined;
-    const { statSession, readSessionText } = harness;
-    if (!statSession || !readSessionText) return undefined;
-    return { stat: (ref) => statSession.call(harness, ref), read: (ref) => readSessionText.call(harness, ref) };
-  };
-  const ids = () => harnesses.list().filter((h) => readerOf(h)).map((h) => h.id);
-  return new Proxy({} as Record<string, SessionTextReader>, {
-    get: (_, id) => (typeof id === "string" ? readerOf(harnesses.get(id)) : undefined),
-    has: (_, id) => typeof id === "string" && !!readerOf(harnesses.get(id)),
-    ownKeys: () => ids(),
-    getOwnPropertyDescriptor: (_, id) => {
-      const reader = typeof id === "string" ? readerOf(harnesses.get(id)) : undefined;
-      return reader ? { value: reader, enumerable: true, configurable: true, writable: false } : undefined;
+/** Session text from the store: the transcript version, and the messages' plain text. */
+export function storeTexts(store: Store): SessionTextSource {
+  return {
+    version: (session) => {
+      if (store.isClosed) return null;
+      const info = store.transcriptInfo(session.id);
+      return info ? String(info.version) : null;
     },
-  });
+    read: (session) => (store.isClosed ? null : { name: null, messages: store.sessionText(session.id) }),
+  };
+}
+
+export function storeSummaries(store: Store): SummaryStore {
+  return {
+    get: (id) => (store.isClosed ? null : store.getSummary(id)),
+    list: () => (store.isClosed ? new Map() : store.listSummaries()),
+    set: (id, summary) => !store.isClosed && store.setSummary(id, summary),
+    remove: (ids) => !store.isClosed && store.removeSummaries(ids),
+    enabledAt: (now) => (store.isClosed ? now : store.summariesEnabledAt(now)),
+  };
+}
+
+/** Text read straight from harness readers keyed by harness id (tests of the readers). */
+export function readerTexts(readers: Readonly<Record<string, SessionTextReader>>): SessionTextSource {
+  return {
+    async version(session) {
+      const reader = readers[session.harness];
+      if (!reader || !session.sessionRef) return null;
+      const stat = await reader.stat(session.sessionRef);
+      return stat ? `${session.sessionRef}:${stat.mtimeMs}:${stat.size}` : null;
+    },
+    async read(session) {
+      const reader = readers[session.harness];
+      return reader && session.sessionRef ? reader.read(session.sessionRef) : null;
+    },
+  };
 }
 
 /** The default harness's one-shot completion, or `undefined` when no harness has one. */
@@ -51,6 +65,6 @@ export function smallModel(harnesses: HarnessRegistry): SmallModel | undefined {
   };
 }
 
-export function createSearchService({ app, harnesses, dataDir, log }: CreateSearchServiceOptions): SearchService {
-  return new SearchService({ app, dataDir, readers: sessionReaders(harnesses), smallModel: smallModel(harnesses), log });
+export function createSearchService({ app, harnesses, store, log }: CreateSearchServiceOptions): SearchService {
+  return new SearchService({ app, texts: storeTexts(store), summaries: storeSummaries(store), smallModel: smallModel(harnesses), log });
 }

@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@12.3.4",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @glade/server dev\" \"pnpm --filter @glade/web dev\"",

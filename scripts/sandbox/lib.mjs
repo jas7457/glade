@@ -10,7 +10,8 @@
  * Every `pnpm dev:agent --name <name>` process is an *owner* (its pid is in `owners`). The first
  * one spawns a detached supervisor that runs server + web; later ones with the same name join it.
  * When the last owner leaves (or dies), the supervisor stops both and deletes the sandbox,
- * including the pi session files its chats created (`sessionRef`s in data/workspaces.json).
+ * including the pi session files its chats created (`sessionRef`s in data/glade.db, I-121; and in
+ * the older data/workspaces.json).
  *
  * The first half of this file is pure (unit-tested in lib.test.mjs); the rest does I/O.
  */
@@ -18,6 +19,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameS
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 /**
  * `GLADE_<name>`, else the pre-rename `PI_UI_<name>` (I-059; same rule as `env` in
@@ -297,6 +299,7 @@ export function deleteSandboxSessions(dir, sessionsRoot = piSessionsRoot()) {
       return null;
     }
   });
+  indexes.push(sessionsFromDatabase(join(dir, "data", "glade.db")));
   const refs = collectSessionRefs(indexes, sessionsRoot);
   for (const ref of refs) {
     rmSync(ref, { force: true });
@@ -318,6 +321,25 @@ export function deleteSandboxSessions(dir, sessionsRoot = piSessionsRoot()) {
     }
   }
   return refs;
+}
+
+/**
+ * The session index in a data folder's `glade.db` (I-121), shaped like workspaces.json
+ * (`{ sessions: [{ sessionRef }] }`), or null without a readable database. Read-only.
+ * @param {string} path @returns {{ sessions: Array<{ sessionRef: string | null }> } | null}
+ */
+export function sessionsFromDatabase(path) {
+  if (!existsSync(path)) return null;
+  let db;
+  try {
+    db = new DatabaseSync(path, { readOnly: true });
+    const rows = /** @type {Array<{ session_ref: string | null }>} */ (db.prepare("SELECT session_ref FROM sessions").all());
+    return { sessions: rows.map((r) => ({ sessionRef: r.session_ref })) };
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
 }
 
 /**

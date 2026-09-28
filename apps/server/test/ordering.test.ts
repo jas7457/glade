@@ -201,8 +201,7 @@ describe("store migration", () => {
       ["busy", 1],
       ["quiet", 2],
     ]);
-    const onDisk = JSON.parse(readFileSync(join(dir, "projects.json"), "utf8")) as { projects: object[] };
-    expect(onDisk.projects.every((p) => !("pinned" in p))).toBe(true);
+    expect(store.listProjects().every((p) => !("pinned" in p))).toBe(true);
     expect(store.getWorkspace("new")?.pinOrder).toBe(0);
     expect(store.getWorkspace("old")?.pinOrder).toBe(1);
     expect(store.getWorkspace("solo")?.pinOrder).toBe(0);

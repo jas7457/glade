@@ -1,7 +1,8 @@
 /**
  * Sharing the data folder with other Glade servers (I-062): refusing sessions another server is
  * busy with, handing idle sessions over, taking leases before deletes, forwarding other servers'
- * file changes to our clients, and marking runs interrupted when their server went away.
+ * changes (read from the store's event log, I-121) to our clients, and marking runs interrupted
+ * when their server went away.
  */
 import type { Session } from "@glade/protocol";
 import type { StoreChange } from "../../store/store.js";

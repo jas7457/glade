@@ -17,7 +17,8 @@ import type { OpenSessionOptions, SessionTextMessage } from "../src/harness/type
 import { createAgentsRoutes } from "../src/http/agents.js";
 import { lastMessages } from "../src/services/chat-tools.js";
 import { SearchService } from "../src/services/search/search-service.js";
-import type { SessionTextReader, SmallModel } from "../src/services/search/types.js";
+import { storeSummaries, storeTexts } from "../src/services/search/create.js";
+import type { SmallModel } from "../src/services/search/types.js";
 import { createTestEnv, flush, newChat, until, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
@@ -26,28 +27,6 @@ let search: SearchService;
 let api: Hono;
 /** Replies of the fake small model (null = unavailable). */
 let pick: ((prompt: string) => string | null) | null;
-
-/** Session text straight from the fake harness's in-memory transcripts. */
-function fakeReader(): SessionTextReader {
-  return {
-    async stat(ref) {
-      const s = env.harness.sessions.get(ref);
-      return s ? { mtimeMs: s.transcript.messages.length, size: JSON.stringify(s.transcript).length } : null;
-    },
-    async read(ref) {
-      const s = env.harness.sessions.get(ref);
-      if (!s) return null;
-      const messages: SessionTextMessage[] = [];
-      for (const m of s.transcript.messages) {
-        if (m.role === "user" || m.role === "assistant") {
-          const text = messageText(m);
-          if (text) messages.push({ role: m.role, text, timestamp: m.timestamp });
-        }
-      }
-      return { name: null, messages };
-    },
-  };
-}
 
 /** Label of the candidate whose line mentions `needle`, from a finder prompt. */
 function labelFor(prompt: string, needle: string): string | null {
@@ -66,7 +45,7 @@ beforeEach(() => {
   };
   pick = null;
   const smallModel: SmallModel = async ({ prompt }) => (pick ? pick(prompt) : null);
-  search = new SearchService({ app: env.service, dataDir: env.dir, readers: { fake: fakeReader() }, smallModel, pollMs: 0, debounceMs: 0 });
+  search = new SearchService({ app: env.service, texts: storeTexts(env.store), summaries: storeSummaries(env.store), smallModel, pollMs: 0 });
   api = createAgentsRoutes(env.service, search);
 });
 afterEach(async () => {

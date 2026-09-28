@@ -8,9 +8,9 @@
  *
  * `session/update`s of a running turn become `AgentEvent`s (`translate.ts`); updates outside a
  * turn (the history an agent replays on `session/load`) only refresh metadata (commands, mode,
- * usage), because Glade keeps its own copy of the transcript (`transcript-store.ts`), saved after
- * every finished message, tool call and run. Permission requests become `permission` dialogs
- * answered with `respondToUi`; file reads/writes are confined to the chat's folder (`fs.ts`).
+ * usage), because Glade keeps its own copy of the transcript (the store, I-121); only the ACP
+ * session id and title are saved here (`resume-store.ts`). Permission requests become
+ * `permission` dialogs answered with `respondToUi`; file reads/writes are confined to the chat's folder (`fs.ts`).
  * Messages sent while a turn runs are queued as follow-ups (ACP has no steering); like pi, they're
  * sent after a run that finishes, and stay queued when it's stopped or fails.
  */
@@ -29,6 +29,7 @@ import type {
 import {
   applyAgentEvent,
   defaultSessionState,
+  emptyTranscript,
   type AcpAgentConfig,
   type AgentEvent,
   type ModelRef,
@@ -47,7 +48,7 @@ import { AcpProcess, type AcpClientHandlers } from "./connection.js";
 import { FsAccessError, readTextFile, writeTextFile } from "./fs.js";
 import { acpToolSummary } from "./tools.js";
 import { AcpTranslator, type TurnEnd } from "./translate.js";
-import type { AcpSessionFile, AcpTranscriptStore } from "./transcript-store.js";
+import type { AcpResumeState, AcpResumeStore } from "./resume-store.js";
 
 /** JSON-RPC error code ACP agents use for "authentication required". */
 const AUTH_REQUIRED = -32000;
@@ -57,8 +58,9 @@ export interface AcpSessionOptions {
   config: AcpAgentConfig;
   cwd: string;
   sessionRef: string;
-  file: AcpSessionFile;
-  store: AcpTranscriptStore;
+  /** Saved resume state (`null` for a new chat). */
+  resume: AcpResumeState | null;
+  store: AcpResumeStore;
   /** How long to wait for the agent to confirm a `session/cancel` before ending the run anyway. */
   cancelGraceMs?: number;
   /** Starts the agent process (tests may inject; default spawns `config.command`). */
@@ -90,7 +92,7 @@ export class AcpSession implements HarnessSession {
   private readonly events: SessionEvents;
   private state: SessionState;
   private transcript: Transcript;
-  private file: AcpSessionFile;
+  private file: AcpResumeState;
   private connected: Connected | null = null;
   private connecting: Promise<Connected> | null = null;
   private readonly translator: AcpTranslator;
@@ -108,8 +110,8 @@ export class AcpSession implements HarnessSession {
 
   constructor(private readonly options: AcpSessionOptions) {
     this.sessionRef = options.sessionRef;
-    this.file = options.file;
-    this.transcript = options.file.transcript;
+    this.file = options.resume ?? { acpSessionId: null, title: null };
+    this.transcript = emptyTranscript();
     this.events = new SessionEvents(options.log);
     this.state = { ...defaultSessionState() };
     this.translator = new AcpTranslator(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`);
@@ -168,7 +170,7 @@ export class AcpSession implements HarnessSession {
   async setTitle(title: string): Promise<void> {
     if (this.file.title === title) return;
     this.file = { ...this.file, title };
-    if (this.transcript.messages.length) this.persist();
+    this.persist();
   }
 
   respondToUi(response: UiResponse): void {
@@ -208,7 +210,6 @@ export class AcpSession implements HarnessSession {
       if (this.turn?.prompted) await connected.process.connection.agent.notify("session/cancel", { sessionId: connected.sessionId }).catch(() => {});
       await connected.process.kill();
     }
-    if (this.transcript.messages.length) this.persist();
   }
 
   /** The current ACP mode id (`current_mode_update`), for diagnostics. */
@@ -362,7 +363,10 @@ export class AcpSession implements HarnessSession {
         }
       }
       if (modes?.currentModeId) this.modeId = modes.currentModeId;
-      this.file = { ...this.file, acpSessionId: sessionId };
+      if (this.file.acpSessionId !== sessionId) {
+        this.file = { ...this.file, acpSessionId: sessionId };
+        this.persist();
+      }
       const connected: Connected = { process: proc, sessionId, capabilities };
       if (this.disposed) {
         await proc.kill();
@@ -481,15 +485,14 @@ export class AcpSession implements HarnessSession {
     if (event.type === "state") this.state = { ...this.state, ...event.state };
     this.transcript = applyAgentEvent(this.transcript, event);
     this.events.emit(event);
-    if (event.type === "message_end" || event.type === "tool_end" || event.type === "run_end") this.persist();
   }
 
+  /** Save the ACP session id and title (the conversation is saved by Glade's store). */
   private persist(): void {
-    this.file = { ...this.file, transcript: this.transcript };
     try {
-      this.options.store.write(this.sessionRef, this.file);
+      this.options.store.save(this.sessionRef, this.file);
     } catch (err) {
-      this.options.log?.(`${this.options.harnessId}: could not save the transcript: ${(err as Error).message}`);
+      this.options.log?.(`${this.options.harnessId}: could not save the session: ${(err as Error).message}`);
     }
   }
 }

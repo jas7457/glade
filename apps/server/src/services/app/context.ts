@@ -15,6 +15,7 @@ import type { OpenIn } from "../open-in.js";
 import type { RevealPath } from "../reveal.js";
 import type { ServerRegistry } from "../server-registry.js";
 import type { UsageLimitsPoller } from "../usage-limits.js";
+import type { MessageIds, TranscriptWriter } from "./transcript-writer.js";
 
 export interface AppServiceOptions {
   store: Store;
@@ -29,7 +30,7 @@ export interface AppServiceOptions {
   /** "Open in <app>" for project folders (injectable for tests). Default: `open -a` on macOS. */
   openIn?: OpenIn;
   log?: (msg: string) => void;
-  /** App data folder; sub-agent records are kept in `agents.json` there (memory only if unset). */
+  /** App data folder (default: the store's). */
   dataDir?: string;
   /** This server's base URL, handed to agents as `GLADE_URL` (see `AppService.setServerUrl`). */
   serverUrl?: string;
@@ -66,6 +67,10 @@ export interface LiveSession {
   awaitingRun: boolean;
   /** Ids of the user's shell commands still running (I-076): keep the process alive meanwhile. */
   shells: Set<string>;
+  /** Harness message ids -> stable Glade ids (I-121). */
+  ids: MessageIds;
+  /** Writes the conversation to the store (coalesced). */
+  writer: TranscriptWriter;
   unsubscribe: () => void;
 }
 
@@ -132,7 +137,7 @@ export interface AppContext {
 
 export function createAppContext(options: AppServiceOptions): AppContext {
   const listeners = new Set<Listener>();
-  const agents = new AgentRegistry(options.dataDir);
+  const agents = new AgentRegistry(options.store);
   const attachments = options.attachments ?? new AttachmentStore(join(options.dataDir ?? options.store.dataDir, "attachments"));
   return {
     options,

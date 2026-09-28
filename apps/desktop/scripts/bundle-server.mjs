@@ -34,7 +34,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node22", // Node ≥ 22.13 at runtime: `node:sqlite` (I-121) is a built-in, left external
   sourcemap: "linked",
   // ws optionally requires these native add-ons inside try/catch; they're not installed.
   external: ["bufferutil", "utf-8-validate"],

@@ -112,16 +112,21 @@ export interface AgentHarness {
   /** Permanently remove a persisted session. */
   deleteSession(sessionRef: string): Promise<void>;
   /**
-   * Read a persisted session's transcript without starting an agent (I-054: closed sub-agents
-   * are shown without restarting them). `null` if unreadable. Optional: callers start it instead.
+   * **Import only** (I-121): the harness's own persisted transcript, read without starting an
+   * agent. Glade stores every conversation itself; this is how chats from before that (and turns
+   * added outside Glade, e.g. pi resumed in a terminal) get into the store. `null` if unreadable.
    */
   readTranscript?(sessionRef: string): Promise<Transcript | null>;
   /**
-   * Change detection for a persisted session (search re-reads it when this changes, I-067).
-   * `null` when it has no persisted data (yet). Search needs this and {@link readSessionText}.
+   * **Import only** (I-121): change detection for the harness's persisted session; the store
+   * re-imports (merges) when it differs from the last one seen in sync. `null` when it has no
+   * persisted data (yet).
    */
   statSession?(sessionRef: string): Promise<SessionFileStat | null>;
-  /** The user/assistant text of a persisted session, without starting an agent (search). */
+  /**
+   * **Import only / unused by the app** (I-121): the user/assistant text of a persisted session.
+   * Search, titles and chat tools read the store instead.
+   */
   readSessionText?(sessionRef: string): Promise<SessionText | null>;
   /**
    * One-shot completion with no tools and no session (titles, summaries, the chat finder).

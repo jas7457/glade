@@ -43,7 +43,7 @@ See [AGENTS.md](AGENTS.md#dogfooding-developing-glade-from-inside-glade-i-058) f
 stays as a backup), and the old `PI_UI_*` environment variables still work as fallbacks for the
 new `GLADE_*` ones.
 
-Requires Node ≥ 22 and `pi` on your PATH (configurable in Settings → Agent).
+Requires Node ≥ 22.13 (for its built-in SQLite) and `pi` on your PATH (configurable in Settings → Agent).
 
 - Plan & progress: [PLAN.md](PLAN.md) · Changes: [CHANGELOG.md](CHANGELOG.md)
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Contributor/agent rules: [AGENTS.md](AGENTS.md)
