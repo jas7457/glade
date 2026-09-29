@@ -18,3 +18,7 @@ serde_json = "1"
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 security-framework = "3"
+
+# QR scanning of the Mac's pairing code (I-164 step 6). Mobile only; registered under #[cfg(mobile)].
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"

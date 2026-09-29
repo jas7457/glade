@@ -40,5 +40,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Glade uses the camera to scan the pairing code shown by your Mac.</string>
 </dict>
 </plist>
