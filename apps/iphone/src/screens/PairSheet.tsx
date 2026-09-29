@@ -8,7 +8,7 @@ import { useEffect } from "preact/hooks";
 import { CircleAlert, CircleCheck } from "lucide-preact";
 import { Spinner } from "@/ui";
 import { cancelPairing, pairState, startPairing } from "~/state/connect";
-import { scanPairingLink } from "~/lib/scan";
+import { cancelScan, scanPairingLink } from "~/lib/scan";
 import { PhoneButton, PhoneInput, PhoneTextArea, Sheet } from "~/ui/phone";
 
 export type PairMode = "scan" | "link" | "code";
@@ -52,6 +52,7 @@ export function PairSheet({ mode, onClose, onPaired }: { mode: PairMode | null; 
   }, [state?.step]);
 
   const close = () => {
+    if (mode === "scan") cancelScan();
     cancelPairing();
     onClose();
   };
