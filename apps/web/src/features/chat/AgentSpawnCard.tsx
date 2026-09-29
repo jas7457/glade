@@ -16,9 +16,10 @@
  *   <SpawnLinksContext.Provider value={…}> … <AgentSpawnCard part={toolPart} />   (spawn-context.ts)
  */
 import { useState } from "preact/hooks";
-import { Check, ChevronRight, Copy, PanelRight } from "lucide-preact";
+import { ArrowRight, Check, ChevronRight, Copy, PanelRight } from "lucide-preact";
 import type { SessionSummary, Transcript } from "@glade/protocol";
 import { cn } from "@/lib/cn";
+import { isIphoneApp } from "@/lib/desktop";
 import { useChatSession } from "@/state/chat-session";
 import { IconButton } from "@/ui";
 import { AgentStatusMarker } from "@/features/workspace/SubagentStrip";
@@ -113,8 +114,9 @@ function SpawnCard({ part, link, session, transcript }: { part: ToolCallPart; li
           <ChevronRight size={12} strokeWidth={2.5} class={cn("shrink-0 text-fg-subtle transition-transform", open && "rotate-90")} />
         </button>
         {canOpen && (
-          <IconButton label={`Open ${identity.displayName}`} size="sm" onClick={openAgent}>
-            <PanelRight />
+          // The iPhone (I-164) opens it full screen, not in a pane: a bigger target and an arrow.
+          <IconButton label={`Open ${identity.displayName}`} size={isIphoneApp() ? "md" : "sm"} onClick={openAgent}>
+            {isIphoneApp() ? <ArrowRight /> : <PanelRight />}
           </IconButton>
         )}
       </div>

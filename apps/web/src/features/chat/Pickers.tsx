@@ -1,15 +1,70 @@
 /**
  * Composer toolbar pickers: model (grouped by provider) and thinking level.
  * Controlled components; the composer decides what a change means (API call or local state).
+ * Inside an `OptionSheetContext` (the iPhone app, I-164) they open as bottom sheets instead of
+ * popover menus.
  */
+import type { ComponentChildren } from "preact";
+import { useState } from "preact/hooks";
 import { Brain, ChevronDown } from "lucide-preact";
 import { sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { Menu, MenuCheckItem, MenuLabel, MenuSeparator } from "@/ui";
 import { thinkingLabel } from "./composer-utils";
+import { useOptionSheet, type OptionSheetSection } from "./option-sheet";
 
 const triggerClass =
   "inline-flex h-6 max-w-[220px] items-center gap-1 rounded-control px-1.5 text-[0.92rem] text-fg-muted outline-none hover:bg-hover hover:text-fg data-[state=open]:bg-selected data-[state=open]:text-fg disabled:opacity-40";
+
+/** Taller trigger for touch (the sheet variant): a 36px row instead of the 24px desktop one. */
+const touchTriggerClass = "h-9 px-2";
+
+/**
+ * The sheet form of a picker: `trigger` opens a sheet with `sections`; picking closes it. Open
+ * state is controlled when `open` is given (e.g. `/model`), local otherwise.
+ */
+export function SheetPicker({
+  title,
+  trigger,
+  sections,
+  open,
+  onOpenChange,
+}: {
+  title: string;
+  trigger: (open: () => void) => ComponentChildren;
+  sections: OptionSheetSection[];
+} & Pick<PickerOpenProps, "open" | "onOpenChange">) {
+  const SheetImpl = useOptionSheet();
+  const [localOpen, setLocalOpen] = useState(false);
+  const isOpen = open ?? localOpen;
+  const setOpen = (value: boolean) => {
+    onOpenChange?.(value);
+    if (open === undefined) setLocalOpen(value);
+  };
+  const close = () => setOpen(false);
+  return (
+    <>
+      {trigger(() => setOpen(true))}
+      {SheetImpl && (
+        <SheetImpl
+          open={isOpen}
+          onClose={close}
+          title={title}
+          sections={sections.map((section) => ({
+            ...section,
+            items: section.items.map((item) => ({
+              ...item,
+              onSelect: () => {
+                close();
+                item.onSelect();
+              },
+            })),
+          }))}
+        />
+      )}
+    </>
+  );
+}
 
 /** Optional control over the menu (e.g. to open it from the `/model` command). */
 export interface PickerOpenProps {
@@ -30,6 +85,33 @@ export function ModelPicker({ value, models, onChange, disabled, open, onOpenCha
   const label = current?.name ?? value?.id ?? (models.length ? "Select model" : "Loading models…");
   const providers = new Map<string, ModelInfo[]>();
   for (const m of models) providers.set(m.provider, [...(providers.get(m.provider) ?? []), m]);
+  const sheet = useOptionSheet();
+  const triggerButton = (onClick?: () => void) => (
+    <button type="button" class={cn(triggerClass, sheet && touchTriggerClass)} disabled={disabled || models.length === 0} aria-label="Model" onClick={onClick}>
+      <span class="truncate">{label}</span>
+      <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+    </button>
+  );
+
+  if (sheet) {
+    return (
+      <SheetPicker
+        title="Model"
+        open={open}
+        onOpenChange={onOpenChange}
+        trigger={triggerButton}
+        sections={[...providers.entries()].map(([provider, list]) => ({
+          title: provider,
+          items: list.map((m) => ({
+            key: `${m.provider}/${m.id}`,
+            label: m.name,
+            checked: sameModel(m, value),
+            onSelect: () => onChange({ provider: m.provider, id: m.id }),
+          })),
+        }))}
+      />
+    );
+  }
 
   return (
     <Menu
@@ -38,12 +120,7 @@ export function ModelPicker({ value, models, onChange, disabled, open, onOpenCha
       onOpenChange={onOpenChange}
       onCloseAutoFocus={onCloseAutoFocus}
       contentClass="max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px]"
-      trigger={
-        <button type="button" class={triggerClass} disabled={disabled || models.length === 0} aria-label="Model">
-          <span class="truncate">{label}</span>
-          <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
-        </button>
-      }
+      trigger={triggerButton()}
     >
       {[...providers.entries()].map(([provider, list], i) => (
         <div key={provider}>
@@ -69,20 +146,33 @@ export interface ThinkingPickerProps extends PickerOpenProps {
 
 /** Hidden when the model doesn't reason (levels empty or exactly ["off"]). */
 export function ThinkingPicker({ value, levels, onChange, disabled, open, onOpenChange, onCloseAutoFocus }: ThinkingPickerProps) {
+  const sheet = useOptionSheet();
   if (levels.length === 0 || (levels.length === 1 && levels[0] === "off")) return null;
+  const triggerButton = (onClick?: () => void) => (
+    <button type="button" class={cn(triggerClass, sheet && touchTriggerClass)} disabled={disabled} aria-label="Thinking level" onClick={onClick}>
+      <Brain size={12} class={cn("shrink-0", value === "off" && "opacity-50")} />
+      <span class="truncate">{thinkingLabel(value)}</span>
+      <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+    </button>
+  );
+  if (sheet) {
+    return (
+      <SheetPicker
+        title="Thinking"
+        open={open}
+        onOpenChange={onOpenChange}
+        trigger={triggerButton}
+        sections={[{ items: levels.map((level) => ({ key: level, label: thinkingLabel(level), checked: level === value, onSelect: () => onChange(level) })) }]}
+      />
+    );
+  }
   return (
     <Menu
       side="top"
       open={open}
       onOpenChange={onOpenChange}
       onCloseAutoFocus={onCloseAutoFocus}
-      trigger={
-        <button type="button" class={triggerClass} disabled={disabled} aria-label="Thinking level">
-          <Brain size={12} class={cn("shrink-0", value === "off" && "opacity-50")} />
-          <span class="truncate">{thinkingLabel(value)}</span>
-          <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
-        </button>
-      }
+      trigger={triggerButton()}
     >
       <MenuLabel>Thinking</MenuLabel>
       {levels.map((level) => (
