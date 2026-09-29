@@ -18,10 +18,12 @@ import { shortenPath } from "@glade/app-core/features/chat/NewChatView";
 import { OptionSheetContext } from "@glade/app-core/features/chat/option-sheet";
 import { cn } from "@glade/app-core/lib/cn";
 import { connections, type EnvHandle } from "@glade/app-core/state/env-registry";
-import { remoteStateOf, remoteStateShort } from "@glade/app-core/state/remote-status";
+import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { envIdOf, sortedProjects } from "@glade/app-core/state/store";
 import { useKeyboardViewport } from "~/chat/keyboard";
+import { macStatusShort, macStatusTitle } from "~/lib/mac-status";
 import { ContextChip, GladeLeaf } from "~/newchat/parts";
+import { MacStatusNotice } from "~/ui/MacStatus";
 import { SheetList } from "~/ui/SheetList";
 import { ListGroup, NavBar, NavIconButton, Sheet } from "~/ui/phone";
 import { CheckRow } from "~/ui/phone-extra";
@@ -62,7 +64,8 @@ export function NewChatScreen() {
   }, []);
 
   const close = () => (picker.value = null);
-  const offline = !connected && env ? `${env.name.value} is ${remoteStateShort(remoteStateOf(env.id))}` : undefined;
+  // I-170: "Can't reach Studio" (the notice says what to check, with Retry).
+  const offline = !connected && env ? macStatusTitle(remoteStateOf(env.id), env.name.value) : undefined;
 
   return (
     <OptionSheetContext.Provider value={SheetList}>
@@ -83,13 +86,13 @@ export function NewChatScreen() {
           <div class="flex h-full flex-col items-center justify-center overflow-hidden px-8 text-center" style={{ paddingBottom: `${bottomHeight}px` }}>
             {!keyboardOpen && <GladeLeaf size={56} class="mb-4" />}
             <h1 class="text-[22px] font-semibold tracking-tight text-fg-strong">What should we work on?</h1>
-            <p class="mt-1.5 max-w-full text-[15px] text-fg-muted">
-              {offline
-                ? `${offline}. Chats can start once it's connected.`
-                : project
-                  ? shortenPath(project.path)
-                  : `Standalone chats run in a scratch folder${env && envs.length > 1 ? ` on ${env.name.value}` : ""}.`}
-            </p>
+            {offline && env ? (
+              <MacStatusNotice envId={env.id} class="mt-4 w-full max-w-sm" />
+            ) : (
+              <p class="mt-1.5 max-w-full text-[15px] text-fg-muted">
+                {project ? shortenPath(project.path) : `Standalone chats run in a scratch folder${env && envs.length > 1 ? ` on ${env.name.value}` : ""}.`}
+              </p>
+            )}
           </div>
           <div
             ref={bottomRef}
@@ -109,7 +112,7 @@ export function NewChatScreen() {
                 onClick={() => (picker.value = "project")}
               />
             </div>
-            <Composer key={`${envId}:${project?.id ?? ""}`} projectId={project?.id ?? null} envId={project ? null : envId} autoFocus={false} replace lockedReason={offline ? `${offline}…` : undefined} />
+            <Composer key={`${envId}:${project?.id ?? ""}`} projectId={project?.id ?? null} envId={project ? null : envId} autoFocus={false} replace lockedReason={offline} />
           </div>
         </div>
       </div>
@@ -121,7 +124,7 @@ export function NewChatScreen() {
               key={c.id}
               icon={<Laptop size={20} />}
               title={c.name.value}
-              subtitle={remoteStateOf(c.id) === "connected" ? undefined : remoteStateShort(remoteStateOf(c.id))}
+              subtitle={remoteStateOf(c.id) === "connected" ? undefined : macStatusShort(remoteStateOf(c.id))}
               checked={c.id === envId}
               onClick={() => {
                 envChoice.value = c.id;

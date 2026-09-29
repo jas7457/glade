@@ -10,10 +10,11 @@ import { Navigate, useNavigate, useParams } from "react-router";
 import { sameModel, type ModelRef } from "@glade/protocol";
 import { connectionFor } from "@glade/app-core/state/env-registry";
 import { environmentAddress } from "@glade/app-core/state/environments";
-import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
+import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { removeSavedEnvironment, savedEnvironments, setEnvironmentAlias } from "@glade/app-core/state/saved-environments";
 import { visibleModelsOf } from "@glade/app-core/state/store";
 import { paths } from "~/app/routes";
+import { canRetryMac, macStatusHint, macStatusShort, macStatusTitle, retryMac } from "~/lib/mac-status";
 import { ListGroup, ListRow, NavBar, NavIconButton, PhoneButton, PhoneInput, Screen, ScreenBody, Sheet } from "~/ui/phone";
 import { ConfirmSheet } from "~/ui/phone-extra";
 
@@ -67,7 +68,7 @@ export function DeviceScreen() {
               renaming.value = true;
             }}
           />
-          <ListRow title="Status" detail={<span data-testid="device-status">{remoteStateText(state, name)}</span>} />
+          <ListRow title="Status" detail={<span data-testid="device-status">{macStatusShort(state)}</span>} />
           <ListRow title="Address" detail={address} />
         </ListGroup>
 
@@ -76,9 +77,9 @@ export function DeviceScreen() {
             <ListRow title="Pair Again…" tone="accent" onClick={() => navigate(paths.connect())} />
           </ListGroup>
         )}
-        {(state === "unreachable" || state === "host-offline") && conn?.retry && (
-          <ListGroup>
-            <ListRow title="Try Again" tone="accent" onClick={() => conn.retry?.()} />
+        {canRetryMac(state) && (
+          <ListGroup header={macStatusTitle(state, name)} footer={macStatusHint(state, name)}>
+            <ListRow title="Retry" tone="accent" onClick={() => retryMac(envId)} />
           </ListGroup>
         )}
 
