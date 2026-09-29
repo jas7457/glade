@@ -40,6 +40,7 @@ export type PairState =
   | { step: "cancelled" };
 
 export interface PairOptions {
+  /** Sent to the host (its Allow prompt and list): this device's own name, {@link defaultDeviceName} (I-138). */
   deviceName: string;
   deviceKind: DeviceKind;
   onState?: (state: PairState) => void;
@@ -160,7 +161,16 @@ export async function runPairing(target: PairTarget, options: PairOptions): Prom
         return fail("wrong-environment", "The host answered with a different environment id. Nothing was saved.");
       // The address that worked goes first; the link's others stay as fallbacks.
       const urls = [originOf(found.url), ...target.urls.map(originOf).filter((u) => u !== originOf(found.url))];
-      const environment: SavedEnvironment = { id: answer.environmentId, name: found.info?.name ?? target.name ?? hostName, urls, token: answer.token, deviceId: answer.device.id };
+      // Pairing again keeps this device's own name for it (I-138).
+      const alias = savedEnvironments.value.find((e) => e.id === answer.environmentId)?.alias;
+      const environment: SavedEnvironment = {
+        id: answer.environmentId,
+        name: found.info?.name ?? target.name ?? hostName,
+        urls,
+        token: answer.token,
+        deviceId: answer.device.id,
+        ...(alias ? { alias } : {}),
+      };
       upsertSavedEnvironment(environment);
       return report({ step: "paired", environment });
     }

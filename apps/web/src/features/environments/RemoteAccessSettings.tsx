@@ -30,6 +30,7 @@ interface DialogRequest {
   link?: string;
   envId?: string;
   address?: string;
+  name?: string;
 }
 
 /**
@@ -107,6 +108,7 @@ export function RemoteAccessSettings() {
         onOpenChange={(open) => !open && setDialog(null)}
         initialLink={dialog?.link}
         initialAddress={dialog?.address}
+        initialName={dialog?.name}
         envId={dialog?.envId}
       />
       {local && <AddDeviceDialog open={sharing} onOpenChange={setSharing} />}

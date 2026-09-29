@@ -41,6 +41,7 @@ import {
 } from "@/lib/api";
 import { Socket, socket as localSocket, wsUrlFromApiBase, type SocketAuthError } from "@/lib/socket";
 import { setChatEnvironmentResolver } from "./chat-session";
+import { connectionName } from "./connections";
 import { apiFor } from "./env-api";
 import {
   LOCAL_FALLBACK_ID,
@@ -54,7 +55,7 @@ import {
 } from "./env-registry";
 import { loadRemoteMaster, remoteMaster, setRemoteMaster, useServerMaster } from "./remote-master";
 import { downEnvironments, watchPeers } from "./remote-status";
-import { loadSavedEnvironments, savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
+import { environmentAlias, loadSavedEnvironments, savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
 import { envIdOfSession, initialized, loadAll, localShell, removeEnvironmentItems } from "./store";
 import { attachSync, type SyncStatus } from "./sync";
 
@@ -98,7 +99,10 @@ const STATUS: Record<SyncStatus, EnvStatus> = { connecting: "connecting", "catch
 export class EnvironmentConnection implements EnvHandle {
   readonly info = signal<EnvironmentInfo | null>(null);
   readonly status = signal<EnvStatus>("connecting");
-  readonly name = computed(() => this.info.value?.name ?? this.savedName ?? hostOf(this.baseUrl));
+  /** The name shown everywhere (I-138): this device's alias for it, else its own name. */
+  readonly name = computed(() =>
+    connectionName({ alias: this.isLocal ? null : environmentAlias(this.id), ownName: this.info.value?.name, fallback: this.savedName ?? hostOf(this.baseUrl) }),
+  );
   readonly api: ApiClient;
   readonly request: RequestFn;
   readonly socket: Socket;

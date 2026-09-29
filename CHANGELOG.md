@@ -150,6 +150,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Connect to a Device shows who you're connecting to and no longer asks for your own name; each
+  device names its connections itself (Rename in the Connections row), and that name is used
+  everywhere. Devices found on your tailnet now show up on their own, with a Refresh button.
 - Remote Access is simpler: the sharing switch sits right under the main switch, and one
   Connections list shows every device with "You use it" and/or "Uses this device", next to
   Connect to a Device… and Share This Device….

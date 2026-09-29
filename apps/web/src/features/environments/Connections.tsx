@@ -6,26 +6,30 @@
  * Each row carries direction labels:
  * - **You use it**: a saved environment, with its status (`state/remote-status.ts`) and Retry /
  *   Pair Again… / Disconnect… (removes it from this device's list).
- * - **Uses this device**: a paired device, last seen and a connected dot, Rename / Revoke….
+ * - **Uses this device**: a paired device, last seen and a connected dot, Revoke….
  *
- * Glade hosts found on the tailnet that this device doesn't use yet follow as "Connect…" rows.
+ * I-138: one name per row, set by this device (`nameOfConnection`); Rename (or double-click the
+ * name) sets it for both directions at once (`renameConnection`).
+ *
+ * Glade hosts found on the tailnet that this device doesn't use yet follow as "Connect…" rows,
+ * kept fresh while shown (I-137, `use-discovery.ts`) with a Refresh button.
  */
-import { useEffect, useState } from "preact/hooks";
-import { Monitor, Plus, Share } from "lucide-preact";
+import { useState } from "preact/hooks";
+import { Monitor, Plus, RefreshCw, Share } from "lucide-preact";
 import type { DiscoveredEnvironment, PairedDevice } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
-import { mergeConnections, type Connection } from "@/state/connections";
-import { connectionFor, hasLocalEnvironment, localEnvironmentId } from "@/state/env-registry";
+import { mergeConnections, nameOfConnection, type Connection } from "@/state/connections";
+import { connectionFor, localEnvironmentId } from "@/state/env-registry";
 import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@/state/environments";
-import { pairedDevices, renameDevice, revokeAllDevices, revokeDevice } from "@/state/remote-host";
+import { hostRemote, pairedDevices, renameConnection, revokeAllDevices, revokeDevice } from "@/state/remote-host";
 import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { Badge, Button, FormGroup, FormRow, TextField, confirm } from "@/ui";
+import { Badge, Button, FormGroup, FormRow, Spinner, TextField, confirm } from "@/ui";
 import { formatLastSeen } from "./HostRemoteAccess";
 import { DeviceKindIcon } from "./device-kind";
+import { useDiscovery } from "./use-discovery";
 
 export interface ConnectionsProps {
-  /** Open "Connect to a Device…" (optionally Pair Again with an environment, or a found address). */
-  onConnect: (request: { envId?: string; address?: string }) => void;
+  /** Open "Connect to a Device…" (optionally Pair Again with an environment, or a found device). */
+  onConnect: (request: { envId?: string; address?: string; name?: string }) => void;
   /** "Share This Device…"; absent without a local server (nothing to share). */
   onShare?: () => void;
 }
@@ -34,7 +38,10 @@ export function Connections({ onConnect, onShare }: ConnectionsProps) {
   const saved = savedEnvironments.value;
   const devices = pairedDevices.value ?? [];
   const list = mergeConnections(saved, devices);
-  const found = useDiscovered(saved);
+  const discovery = useDiscovery();
+  const found = unknownHosts(discovery.found, saved);
+  // The tailnet line (with Refresh) shows once there's a tailnet to look at.
+  const tailnet = found.length > 0 || hostRemote.value?.transport?.available === true;
 
   const revokeAll = async () => {
     const ok = await confirm({
@@ -82,9 +89,20 @@ export function Connections({ onConnect, onShare }: ConnectionsProps) {
       {list.map((c) => (
         <ConnectionRow key={c.key} connection={c} onPair={() => c.environment && onConnect({ envId: c.environment.id })} />
       ))}
+      {tailnet && (
+        <FormRow
+          label={<span class="text-[0.92rem] text-fg-muted">Found on your tailnet</span>}
+          description={found.length === 0 ? "No other devices sharing Glade right now." : undefined}
+        >
+          <Button size="sm" variant="ghost" aria-label="Refresh" disabled={discovery.refreshing} onClick={discovery.refresh}>
+            {discovery.refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
+            Refresh
+          </Button>
+        </FormRow>
+      )}
       {found.map((d) => (
         <FormRow key={d.address} label={d.name} description={`${hostOf(d.address)} · Found on your tailnet`}>
-          <Button size="sm" onClick={() => onConnect({ address: d.address })}>
+          <Button size="sm" onClick={() => onConnect({ address: d.address, name: d.name })}>
             Connect…
           </Button>
         </FormRow>
@@ -104,9 +122,10 @@ function hostOf(url: string): string {
 function ConnectionRow({ connection, onPair }: { connection: Connection; onPair: () => void }) {
   const { environment: env, device } = connection;
   const conn = env ? connectionFor(env.id) : undefined;
-  const name = env ? (conn?.name.value ?? env.name) : device!.name;
+  const ownName = conn?.info.value?.name;
+  const name = nameOfConnection(connection, ownName);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(device?.name ?? "");
+  const [draft, setDraft] = useState(name);
   const [error, setError] = useState<string | null>(null);
 
   const disconnect = async () => {
@@ -125,7 +144,7 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
     if (!device) return;
     const ok = await confirm({
       title: "Revoke device?",
-      subject: device.name,
+      subject: name,
       message: "can't use this device anymore (open connections are closed). It can pair again with a new code.",
       confirmLabel: "Revoke",
       destructive: true,
@@ -135,26 +154,29 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
 
   const commit = async () => {
     setEditing(false);
-    if (!device) return;
     const next = draft.trim();
-    if (!next || next === device.name) {
-      setDraft(device.name);
+    if (!next || next === name) {
+      setDraft(name);
       return;
     }
     try {
-      await renameDevice(device.id, next);
+      await renameConnection(connection, next, ownName);
       setError(null);
     } catch (err) {
-      setDraft(device.name);
+      setDraft(name);
       setError((err as Error).message);
     }
   };
 
   const startRename = () => {
-    if (!device) return;
-    setDraft(device.name);
+    setDraft(name);
     setEditing(true);
   };
+  const renameButton = (
+    <Button size="sm" onClick={startRename}>
+      Rename
+    </Button>
+  );
 
   const state = env ? remoteStateOf(env.id) : null;
 
@@ -163,7 +185,7 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
       label={
         <span class="flex min-w-0 items-center gap-2" data-connection={connection.key}>
           {device ? <DeviceKindIcon kind={device.kind} /> : <Monitor size={14} strokeWidth={1.75} class="shrink-0 text-fg-muted" />}
-          {editing && device ? (
+          {editing ? (
             <TextField
               size="sm"
               aria-label="Device name"
@@ -175,13 +197,13 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
                 if (e.key === "Enter") void commit();
                 if (e.key === "Escape") {
                   e.stopPropagation();
-                  setDraft(device.name);
+                  setDraft(name);
                   setEditing(false);
                 }
               }}
             />
           ) : (
-            <span class="min-w-0 truncate" title={device ? "Double-click to rename" : undefined} onDblClick={startRename}>
+            <span class="min-w-0 truncate" title="Double-click to rename" onDblClick={startRename}>
               {name}
             </span>
           )}
@@ -205,6 +227,7 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
                     Retry
                   </Button>
                 )}
+                {renameButton}
                 <Button size="sm" onClick={() => void disconnect()}>
                   Disconnect…
                 </Button>
@@ -215,12 +238,10 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
             <span class="flex min-w-0 items-center gap-1.5" data-line="used-by">
               <Badge>Uses this device</Badge>
               <span class="min-w-0 flex-1 truncate" data-testid="device-status">
-                {error ? <span class="text-danger">{error}</span> : deviceDetails(device, name)}
+                {error ? <span class="text-danger">{error}</span> : deviceDetails(device)}
               </span>
               <span class="flex shrink-0 items-center gap-1.5" data-actions="used-by">
-                <Button size="sm" onClick={startRename}>
-                  Rename
-                </Button>
+                {!env && renameButton}
                 <Button size="sm" onClick={() => void revoke()}>
                   Revoke…
                 </Button>
@@ -233,30 +254,13 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
   );
 }
 
-function deviceDetails(device: PairedDevice, shownName: string): string {
+function deviceDetails(device: PairedDevice): string {
   const seen = device.connected ? "now" : formatLastSeen(device.lastSeenAt);
-  // In a merged row the name shown is the environment's; say what the device calls itself if different.
-  const alias = device.name !== shownName ? `as “${device.name}”` : null;
-  return [alias, `Last seen ${seen}`, device.lastAddress, device.tailscaleLogin].filter(Boolean).join(" · ");
+  return [`Last seen ${seen}`, device.lastAddress, device.tailscaleLogin].filter(Boolean).join(" · ");
 }
 
-/** Glade hosts on this device's tailnet it doesn't use yet (local server only). */
-function useDiscovered(saved: SavedEnvironment[]): DiscoveredEnvironment[] {
-  const [found, setFound] = useState<DiscoveredEnvironment[]>([]);
-  const local = hasLocalEnvironment.value;
-  useEffect(() => {
-    if (!local) return;
-    let live = true;
-    Promise.resolve()
-      .then(() => hostAuth.discover())
-      .then(
-        (list) => live && Array.isArray(list) && setFound(list.filter((d) => d.reachable)),
-        () => {},
-      );
-    return () => {
-      live = false;
-    };
-  }, [local]);
+/** Found hosts that aren't this device and that it doesn't use yet. */
+function unknownHosts(found: DiscoveredEnvironment[], saved: SavedEnvironment[]): DiscoveredEnvironment[] {
   const own = localEnvironmentId.value;
   return found.filter((d) => d.environmentId !== own && !saved.some((s) => s.id === d.environmentId || s.urls.includes(d.address)));
 }

@@ -256,48 +256,100 @@ describe("transport status (I-127)", () => {
 });
 
 describe("connect dialog", () => {
-  it("lists Glade hosts found on the tailnet; picking one fills in the address", async () => {
-    mocked.discover.mockResolvedValueOnce([
-      { name: "Studio", address: "https://studio.tail1234.ts.net", environmentId: "ENV-B", reachable: true, os: "macOS" },
-      { name: "iPhone", address: "https://iphone.tail1234.ts.net", reachable: false, os: "iOS" },
-    ]);
+  const found = [
+    { name: "Studio", address: "https://studio.tail1234.ts.net", environmentId: "ENV-B", reachable: true, os: "macOS" },
+    { name: "iPhone", address: "https://iphone.tail1234.ts.net", reachable: false, os: "iOS" },
+  ];
+  /** Answers GET /environment as Studio; the pair request waits (or answers with `pair`). */
+  const stubHost = (pair?: object) => {
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        if (url.endsWith("/environment")) return new Response(JSON.stringify({ id: "ENV-B", name: "Studio" }), { status: 200 });
+        if (pair) return new Response(JSON.stringify(pair), { status: 200 });
+        return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+      }),
+    );
+    return calls;
+  };
+  afterEach(() => {
+    cleanup();
+    localEnvironmentId.value = null;
+    saveEnvironments([]);
+  });
+
+  it("a typed code: the address field with the hint and the found devices as quick picks", async () => {
+    mocked.discover.mockResolvedValue(found);
     render(<ConnectEnvironmentDialog open onOpenChange={() => {}} />);
     const dialog = await screen.findByRole("dialog");
+    // Nothing typed yet: no address, no target line.
+    expect(within(dialog).queryByLabelText("Address")).toBeNull();
+    expect(within(dialog).queryByTestId("connect-target")).toBeNull();
+    fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
+    expect(within(dialog).getByLabelText("Address")).toBeTruthy();
+    expect(within(dialog).getByText("The address shown on the other device under Share This Device.")).toBeTruthy();
     const list = await within(dialog).findByRole("list", { name: "Found on your tailnet" });
     expect(within(list).queryByText("iPhone")).toBeNull();
     fireEvent.click(within(list).getByRole("button", { name: /Studio/ }));
     expect((within(dialog).getByLabelText("Address") as HTMLInputElement).value).toBe("https://studio.tail1234.ts.net");
     expect(within(list).getByRole("button", { name: /Studio/ }).getAttribute("aria-pressed")).toBe("true");
-    // The code is still required.
-    expect(within(dialog).getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(true);
+    // No name field: the host is told this device's own name.
+    expect(within(dialog).queryByLabelText(/Name of this device|Show this device as/)).toBeNull();
+    mocked.discover.mockResolvedValue([]);
   });
 
-  it("pastes a link, waits for the host, and can cancel", async () => {
+  it("a found device: read-only target, no address field; the pair request sends this device's own name", async () => {
     localEnvironmentId.value = "ENV-A";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url.endsWith("/environment")) {
-          return new Response(JSON.stringify({ id: "ENV-B", name: "Studio" }), { status: 200 });
-        }
-        return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
-      }),
-    );
+    const { connections } = await import("@/state/env-registry");
+    const { EnvironmentConnection } = await import("@/state/environments");
+    const local = new EnvironmentConnection("ENV-A", "http://127.0.0.1:1/api", true);
+    local.info.value = { id: "ENV-A", name: "MacBook Air" } as never;
+    connections.value = [local];
+    const calls = stubHost();
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByTestId("connect-target").textContent).toBe("Connecting to Studio · studio.tail1234.ts.net");
+    fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
+    expect(within(dialog).queryByLabelText("Address")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await within(dialog).findByText("Waiting for Studio to allow this device…");
+    const pair = calls.find((c) => c.url.endsWith("/auth/pair"))!;
+    expect(pair.url).toBe("https://studio.tail1234.ts.net/api/auth/pair");
+    expect(pair.body).toMatchObject({ grant: "ABCD-EFGH", deviceName: "MacBook Air", clientEnvironmentId: "ENV-A" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    connections.value = [];
+  });
+
+  it("a pasted link: the target line from the link; waits for the host, and can cancel", async () => {
+    localEnvironmentId.value = "ENV-A";
+    stubHost();
     render(<ConnectEnvironmentDialog open onOpenChange={() => {}} />);
     const dialog = await screen.findByRole("dialog");
     fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: LINK } });
     expect(within(dialog).queryByLabelText("Address")).toBeNull(); // a link carries its address
+    expect(within(dialog).getByTestId("connect-target").textContent).toBe("Connecting to Studio · 192.168.1.20:4327");
     fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
     await within(dialog).findByText("Waiting for Studio to allow this device…");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await within(dialog).findByLabelText("Pairing link or code");
   });
 
+  it("Pair Again: the saved device (by this device's name for it) is the target", async () => {
+    saveEnvironments([{ id: "ENV-B", name: "Studio", alias: "Work Mac", urls: ["https://studio.tail1234.ts.net"] }]);
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} envId="ENV-B" />);
+    const dialog = await screen.findByRole("dialog", { name: "Pair Again with Work Mac" });
+    expect(within(dialog).getByTestId("connect-target").textContent).toBe("Connecting to Work Mac · studio.tail1234.ts.net");
+    fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
+    expect(within(dialog).queryByLabelText("Address")).toBeNull();
+  });
+
   it("Return in a field connects like the button", async () => {
     render(<ConnectEnvironmentDialog open onOpenChange={() => {}} />);
     const dialog = await screen.findByRole("dialog");
     fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
-    fireEvent.keyDown(within(dialog).getByLabelText("Name of this device"), { key: "Enter" });
+    fireEvent.keyDown(within(dialog).getByLabelText("Address"), { key: "Enter" });
     expect((await within(dialog).findByRole("alert")).textContent).toMatch(/address/); // submitted: asks for the address
   });
 
@@ -380,13 +432,14 @@ describe("connections (I-136)", () => {
     expect(labels(row("ENV-S"))).toEqual(["You use it", "Uses this device"]);
     expect(labels(row("ENV-P"))).toEqual(["You use it"]);
     expect(labels(row("device:d2"))).toEqual(["Uses this device"]);
-    expect(buttons(row("ENV-S"))).toEqual(["Disconnect…", "Rename", "Revoke…"]);
-    expect(buttons(row("ENV-P"))).toEqual(["Pair Again…", "Disconnect…"]);
+    expect(buttons(row("ENV-S"))).toEqual(["Rename", "Disconnect…", "Revoke…"]);
+    expect(buttons(row("ENV-P"))).toEqual(["Pair Again…", "Rename", "Disconnect…"]);
     expect(buttons(row("device:d2"))).toEqual(["Rename", "Revoke…"]);
     // Each direction's actions sit on that direction's own line.
     const line = (key: string, which: string) => [...row(key).querySelectorAll(`[data-actions="${which}"] button`)].map((b) => b.textContent);
-    expect(line("ENV-S", "uses")).toEqual(["Disconnect…"]);
-    expect(line("ENV-S", "used-by")).toEqual(["Rename", "Revoke…"]);
+    // One Rename per row (I-138): on the first line when it's two-way.
+    expect(line("ENV-S", "uses")).toEqual(["Rename", "Disconnect…"]);
+    expect(line("ENV-S", "used-by")).toEqual(["Revoke…"]);
     expect(within(row("ENV-S")).getByText("You use it").closest("[data-line]")!.querySelector('[data-actions="uses"]')).not.toBeNull();
     expect(within(row("ENV-S")).getByText("Uses this device").closest("[data-line]")!.querySelector('[data-actions="used-by"]')).not.toBeNull();
     expect(within(row("ENV-S")).getByLabelText("Connected")).toBeTruthy();
@@ -462,5 +515,34 @@ describe("connections (I-136)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Share This Device/ }));
     await screen.findByRole("dialog", { name: "Share This Device" });
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("one Rename names a two-way device on both sides; the row shows it", async () => {
+    saveEnvironments([{ id: "ENV-S", name: "Studio", urls: ["https://studio.tail.ts.net"], token: "t" }]);
+    mocked.listDevices.mockResolvedValue([device("d1", "Studio", { clientEnvironmentId: "ENV-S" })]);
+    mocked.renameDevice.mockImplementation(async (id: string, name: string) => device(id, name, { clientEnvironmentId: "ENV-S" }));
+    await renderSettings();
+    await waitFor(() => expect(labels(row("ENV-S"))).toEqual(["You use it", "Uses this device"]));
+    fireEvent.click(within(row("ENV-S")).getByRole("button", { name: "Rename" }));
+    const field = within(row("ENV-S")).getByLabelText("Device name") as HTMLInputElement;
+    fireEvent.input(field, { target: { value: "Work Mac" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(mocked.renameDevice).toHaveBeenCalledWith("d1", "Work Mac"));
+    const { environmentAlias } = await import("@/state/saved-environments");
+    await waitFor(() => expect(environmentAlias("ENV-S")).toBe("Work Mac"));
+    expect(within(row("ENV-S")).getByText("Work Mac")).toBeTruthy();
+  });
+
+  it("tailnet devices refresh while shown, with a Refresh button", async () => {
+    mocked.discover.mockResolvedValue([]);
+    await renderSettings({ transport: { id: "tailscale", available: true, https: true, serving: true, dnsName: "air.tail.ts.net", ips: [], managed: true } });
+    await screen.findByText("No other devices sharing Glade right now.");
+    const before = mocked.discover.mock.calls.length;
+    mocked.discover.mockResolvedValue([{ name: "Pro", address: "https://pro.tail.ts.net", environmentId: "ENV-P", reachable: true }]);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByRole("button", { name: "Connect…" });
+    expect(mocked.discover.mock.calls.length).toBe(before + 1);
+    expect(screen.getByText("pro.tail.ts.net · Found on your tailnet")).toBeTruthy();
+    mocked.discover.mockResolvedValue([]);
   });
 });

@@ -1,24 +1,29 @@
 /**
- * "Connect to a Device…" (I-126; I-136 name, client side): paste a `glade://pair?…` link (or the whole QR
- * text), or type the host's code and address; name this device; then wait for the host to
- * press Allow. The flow itself is `state/pairing.ts` (portable); this is its desktop dialog.
+ * "Connect to a Device…" (I-126; I-136 name, client side): paste a `glade://pair?…` link (or the
+ * whole QR text), or type the host's code; then wait for the host to press Allow. The flow itself
+ * is `state/pairing.ts` (portable); this is its desktop dialog.
  *
- * I-127: Glade hosts found on this device's tailnet (`GET /api/auth/discover`, local environment
- * only) are listed as "Found on your tailnet"; picking one fills in the address. The code from
- * the host is still required: finding a host establishes no trust.
+ * I-138: when the target is known (a device found on the tailnet, a pasted or `/pair?link=`
+ * link, Pair Again) the dialog shows a read-only "Connecting to <name> · <host>" line and no
+ * address field. A typed code needs the address: then the address field shows, with the devices
+ * found on the tailnet (I-127/I-137, `use-discovery.ts`) as quick picks. The code is always
+ * required: finding a host establishes no trust. There's no name field: the host is told this
+ * device's own environment name, and names it as it likes afterwards.
  *
- * `envId` = "Pair again" for an environment whose token stopped working: the address is filled
- * in and the answering host must be that same environment.
+ * `envId` = "Pair again" for an environment whose token stopped working: the answering host must
+ * be that same environment.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Check, Monitor } from "lucide-preact";
-import type { DiscoveredEnvironment } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
+import { Check, Monitor, RefreshCw } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { parsePairInput, parsePairingLink } from "@/lib/pairing-link";
+import { connectionName } from "@/state/connections";
+import { connectionFor, localEnvironmentId } from "@/state/env-registry";
 import { remoteMaster, setRemoteMaster } from "@/state/remote-master";
+import { adoptDeviceName } from "@/state/remote-host";
 import { defaultDeviceName, runPairing, savedEnvironment, type PairState } from "@/state/pairing";
 import { Button, Dialog, Spinner, TextField } from "@/ui";
+import { useDiscovery } from "./use-discovery";
 
 export interface ConnectEnvironmentDialogProps {
   open: boolean;
@@ -27,48 +32,46 @@ export interface ConnectEnvironmentDialogProps {
   initialLink?: string;
   /** Prefilled address (a computer found on the tailnet, I-132). */
   initialAddress?: string;
+  /** Its name, shown in the read-only target line (I-138). */
+  initialName?: string;
   /** Pair again with this saved environment. */
   envId?: string;
 }
 
-export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, initialAddress, envId }: ConnectEnvironmentDialogProps) {
+export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, initialAddress, initialName, envId }: ConnectEnvironmentDialogProps) {
   const again = envId ? savedEnvironment(envId) : undefined;
+  const againName = again ? (connectionFor(again.id)?.name.value ?? connectionName({ alias: again.alias, fallback: again.name })) : undefined;
   const [input, setInput] = useState("");
   const [address, setAddress] = useState("");
-  const [deviceName, setDeviceName] = useState("");
   const [state, setState] = useState<PairState | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const codeField = useRef<HTMLInputElement>(null);
-  const [found, setFound] = useState<DiscoveredEnvironment[]>([]);
-
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setFound([]);
-    // Only this device's own server can look around its tailnet; elsewhere (no local server) it's empty.
-    Promise.resolve()
-      .then(() => hostAuth.discover())
-      .then(
-      (list) => live && Array.isArray(list) && setFound(list.filter((d) => d.reachable)),
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [open]);
+  // Only this device's own server can look around its tailnet; elsewhere (no local server) it's empty.
+  const discovery = useDiscovery(open);
+  const own = localEnvironmentId.value;
+  const found = discovery.found.filter((d) => d.environmentId !== own);
 
   useEffect(() => {
     if (!open) return;
     setInput(initialLink ?? "");
     setAddress(again?.urls[0] ?? initialAddress ?? "");
-    setDeviceName(defaultDeviceName());
     setState(null);
     setFormError(null);
   }, [open, initialLink, initialAddress, envId]);
   useEffect(() => () => abort.current?.abort(), []);
 
   const isLink = /glade:|\/pair\b/i.test(input);
+  const link = isLink ? parsePairingLink(input) : null;
+  /** The known target (read-only line, no address field), or null: a typed code needs an address. */
+  const target: { name: string; address: string } | null = link
+    ? { name: link.name || hostOf(link.urls[0] ?? ""), address: link.urls[0] ?? "" }
+    : again
+      ? { name: againName!, address: again.urls[0] ?? "" }
+      : initialAddress
+        ? { name: initialName || hostOf(initialAddress), address: initialAddress }
+        : null;
+  const needsAddress = !target && !isLink && input.trim() !== "";
   const busy = state?.step === "connecting" || state?.step === "waiting";
 
   const submit = async (e?: Event) => {
@@ -88,9 +91,10 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
-    const result = await runPairing(target, { deviceName, deviceKind: "mac", signal: controller.signal, onState: setState });
+    const result = await runPairing(target, { deviceName: defaultDeviceName(), deviceKind: "mac", signal: controller.signal, onState: setState });
     if (abort.current !== controller) return;
     if (result.step === "paired") {
+      adoptDeviceName(result.environment.id);
       // Pairing means using remote access (I-132: the master switch).
       if (!remoteMaster.value) void setRemoteMaster(true);
       onOpenChange(false);
@@ -104,7 +108,7 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
     else onOpenChange(false);
   };
 
-  const title = again ? `Pair Again with ${again.name}` : "Connect to a Device";
+  const title = again ? `Pair Again with ${againName}` : "Connect to a Device";
   return (
     <Dialog
       open={open}
@@ -118,8 +122,10 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
       title={title}
       description={
         again
-          ? `${again.name} no longer accepts this device. On ${again.name}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
-          : "On the other computer, open Settings → Remote Access → Share This Device…, then paste the link here or type its code and address."
+          ? `${againName} no longer accepts this device. On ${againName}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
+          : target
+            ? `On ${target.name}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
+            : "On the other computer, open Settings → Remote Access → Share This Device…, then paste the link here or type its code."
       }
       width={460}
       footer={
@@ -153,36 +159,14 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
           }}
           class="flex flex-col gap-3"
         >
-          {found.length > 0 && (
-            <div class="flex flex-col gap-1">
-              <span class="text-[0.92rem] text-fg-muted">Found on your tailnet</span>
-              <ul aria-label="Found on your tailnet" class="divide-y divide-separator overflow-hidden rounded-[7px] shadow-[0_0_0_0.5px_var(--pi-separator)]">
-                {found.map((d) => {
-                  const selected = !isLink && address === d.address;
-                  return (
-                    <li key={d.address}>
-                      <button
-                        type="button"
-                        aria-pressed={selected}
-                        class={cn("flex w-full items-center gap-2 px-2.5 py-1.5 text-left", selected ? "bg-selected" : "hover:bg-hover")}
-                        onClick={() => {
-                          if (isLink) setInput("");
-                          setAddress(d.address);
-                          setFormError(null);
-                          codeField.current?.focus();
-                        }}
-                      >
-                        <Monitor size={14} class="shrink-0 text-fg-muted" />
-                        <span class="min-w-0 flex-1 truncate text-fg">{d.name}</span>
-                        <span class="min-w-0 truncate font-mono text-[0.85rem] text-fg-muted">{new URL(d.address).host}</span>
-                        {d.environmentId && savedEnvironment(d.environmentId) && <span class="shrink-0 text-[0.85rem] text-fg-muted">Paired</span>}
-                        <Check size={13} class={cn("shrink-0 text-accent", !selected && "invisible")} />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+          {target && (
+            <p class="flex min-w-0 items-center gap-2 text-fg" data-testid="connect-target">
+              <Monitor size={14} class="shrink-0 text-fg-muted" />
+              <span class="min-w-0 truncate">
+                Connecting to <span class="font-medium">{target.name}</span>
+                {target.address && <span class="text-fg-muted"> · {hostOf(target.address)}</span>}
+              </span>
+            </p>
           )}
           <label class="flex flex-col gap-1">
             <span class="text-[0.92rem] text-fg-muted">Pairing link or code</span>
@@ -199,16 +183,50 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
               }}
             />
           </label>
-          {!isLink && (
-            <label class="flex flex-col gap-1">
-              <span class="text-[0.92rem] text-fg-muted">Address</span>
-              <TextField aria-label="Address" placeholder="https://mac-studio.tail1234.ts.net" mono value={address} onInput={(e) => setAddress(e.currentTarget.value)} />
-            </label>
+          {needsAddress && (
+            <>
+              <label class="flex flex-col gap-1">
+                <span class="text-[0.92rem] text-fg-muted">Address</span>
+                <TextField aria-label="Address" placeholder="https://mac-studio.tail1234.ts.net" mono value={address} onInput={(e) => setAddress(e.currentTarget.value)} />
+                <span class="text-[0.85rem] text-fg-muted">The address shown on the other device under Share This Device.</span>
+              </label>
+              {found.length > 0 && (
+                <div class="flex flex-col gap-1">
+                  <span class="flex items-center justify-between gap-2">
+                    <span class="text-[0.92rem] text-fg-muted">Found on your tailnet</span>
+                    <Button size="sm" variant="ghost" aria-label="Refresh" disabled={discovery.refreshing} onClick={discovery.refresh}>
+                      {discovery.refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
+                      Refresh
+                    </Button>
+                  </span>
+                  <ul aria-label="Found on your tailnet" class="divide-y divide-separator overflow-hidden rounded-[7px] shadow-[0_0_0_0.5px_var(--pi-separator)]">
+                    {found.map((d) => {
+                      const selected = address === d.address;
+                      return (
+                        <li key={d.address}>
+                          <button
+                            type="button"
+                            aria-pressed={selected}
+                            class={cn("flex w-full items-center gap-2 px-2.5 py-1.5 text-left", selected ? "bg-selected" : "hover:bg-hover")}
+                            onClick={() => {
+                              setAddress(d.address);
+                              setFormError(null);
+                            }}
+                          >
+                            <Monitor size={14} class="shrink-0 text-fg-muted" />
+                            <span class="min-w-0 flex-1 truncate text-fg">{d.name}</span>
+                            <span class="min-w-0 truncate font-mono text-[0.85rem] text-fg-muted">{hostOf(d.address)}</span>
+                            {d.environmentId && savedEnvironment(d.environmentId) && <span class="shrink-0 text-[0.85rem] text-fg-muted">Paired</span>}
+                            <Check size={13} class={cn("shrink-0 text-accent", !selected && "invisible")} />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
-          <label class="flex flex-col gap-1">
-            <span class="text-[0.92rem] text-fg-muted">Name of this device</span>
-            <TextField aria-label="Name of this device" value={deviceName} onInput={(e) => setDeviceName(e.currentTarget.value)} />
-          </label>
           {(formError || state?.step === "error") && (
             <p role="alert" class="text-[0.92rem] text-danger">
               {formError ?? (state?.step === "error" ? state.message : null)}
@@ -218,4 +236,12 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
       )}
     </Dialog>
   );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }

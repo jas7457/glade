@@ -36,6 +36,11 @@ export interface SavedEnvironment {
    * turned off on <Mac>" even when it becomes unreachable (its Tailscale Serve was removed).
    */
   remoteDisabled?: boolean;
+  /**
+   * What this device calls it (I-138: each device names its connections itself). Unset: the
+   * other device's own environment name. Never sent anywhere.
+   */
+  alias?: string;
 }
 
 const KEY_SAVED = "glade.environments";
@@ -185,6 +190,21 @@ export function setRemoteDisabled(id: string, on: boolean): void {
   if (!entry || !!entry.remoteDisabled === on) return;
   const { remoteDisabled: _, ...rest } = entry;
   upsertSavedEnvironment(on ? { ...rest, remoteDisabled: true } : rest);
+}
+
+/** Set (or clear, with null / an empty name) this device's own name for an environment (I-138). */
+export function setEnvironmentAlias(id: string, alias: string | null): void {
+  const entry = savedEnvironments.value.find((e) => e.id === id);
+  if (!entry) return;
+  const next = alias?.trim() || undefined;
+  if (entry.alias === next) return;
+  const { alias: _, ...rest } = entry;
+  upsertSavedEnvironment(next ? { ...rest, alias: next } : rest);
+}
+
+/** This device's name for an environment, if it gave one (I-138). */
+export function environmentAlias(id: string): string | undefined {
+  return savedEnvironments.value.find((e) => e.id === id)?.alias;
 }
 
 /** The device token for an environment (null: not paired). */

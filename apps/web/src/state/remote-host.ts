@@ -8,6 +8,8 @@ import { signal } from "@preact/signals";
 import type { PairedDevice, PendingPairing, RemoteAccessState, ServerMessage } from "@glade/protocol";
 import { hostAuth } from "@/lib/api-auth";
 import { socket as localSocket, type Socket } from "@/lib/socket";
+import type { Connection } from "./connections";
+import { environmentAlias, savedEnvironments, setEnvironmentAlias } from "./saved-environments";
 
 /** `GET /api/auth/remote`; `null` until loaded (or on servers without auth). Its `master` is the I-132 master switch (`state/remote-master.ts`). */
 export const hostRemote = signal<RemoteAccessState | null>(null);
@@ -64,6 +66,31 @@ export async function loadDevices(): Promise<void> {
 export async function renameDevice(id: string, name: string): Promise<void> {
   const device = await hostAuth.renameDevice(id, name);
   pairedDevices.value = (pairedDevices.value ?? []).map((d) => (d.id === id ? device : d));
+}
+
+/**
+ * Rename another device (I-138): one name for both directions. A device that uses this one gets
+ * its host-side name (server), a device this one uses gets a local alias; a device in both
+ * directions gets both, so every place shows the same name. `ownName` is the environment's own
+ * name: renaming it back to that clears the alias.
+ */
+export async function renameConnection(connection: Connection, name: string, ownName?: string | null): Promise<void> {
+  const next = name.trim();
+  if (!next) return;
+  const { environment: env, device } = connection;
+  if (device && device.name !== next) await renameDevice(device.id, next);
+  if (env) setEnvironmentAlias(env.id, next === (ownName ?? env.name) ? null : next);
+}
+
+/**
+ * Just paired with an environment that already uses this device (I-138): keep the name this
+ * device gave it on the host side, so the row's name doesn't change when it becomes two-way.
+ */
+export function adoptDeviceName(envId: string): void {
+  if (environmentAlias(envId)) return;
+  const env = savedEnvironments.value.find((e) => e.id === envId);
+  const device = (pairedDevices.value ?? []).filter((d) => d.clientEnvironmentId === envId).sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (env && device && device.name.trim() && device.name !== env.name) setEnvironmentAlias(envId, device.name);
 }
 
 export async function revokeDevice(id: string): Promise<void> {

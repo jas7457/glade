@@ -8,6 +8,10 @@
  * A paired device is the same machine as a saved environment when its `clientEnvironmentId` (sent
  * when it paired) is that environment's id; then it's one entry with both directions.
  *
+ * Names (I-138): each device names its connections itself, one name per other device, used for
+ * the whole row, the remote badge, pickers and notifications ({@link connectionName}; the
+ * environment connections' `name` uses it too).
+ *
  * Portable client core (F-022): pure, no layout.
  */
 import type { PairedDevice } from "@glade/protocol";
@@ -37,4 +41,30 @@ export function mergeConnections(saved: readonly SavedEnvironment[], devices: re
   });
   for (const device of devices) if (!used.has(device.id)) out.push({ key: `device:${device.id}`, device });
   return out;
+}
+
+export interface NameParts {
+  /** This device's own name for it (a saved environment's alias). */
+  alias?: string | null;
+  /** The other device's own environment name (live `GET /api/environment`). */
+  ownName?: string | null;
+  /** The name this host keeps for a paired device (its Rename, server side). */
+  deviceName?: string | null;
+  /** Last resort (the name saved when paired, or the address). */
+  fallback: string;
+}
+
+/**
+ * The one name this device shows for another device (I-138): its alias, else the other device's
+ * own name, else (a device that only uses this one) the host-side device name, else `fallback`.
+ */
+export function connectionName({ alias, ownName, deviceName, fallback }: NameParts): string {
+  return alias?.trim() || ownName?.trim() || deviceName?.trim() || fallback;
+}
+
+/** A Connections row's name; `ownName` is the environment's live name when it's connected. */
+export function nameOfConnection(connection: Connection, ownName?: string | null): string {
+  const { environment: env, device } = connection;
+  if (env) return connectionName({ alias: env.alias, ownName, fallback: env.name });
+  return connectionName({ deviceName: device?.name, fallback: "Device" });
 }
