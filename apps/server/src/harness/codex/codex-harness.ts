@@ -11,14 +11,17 @@
  * - Titles and side questions: none of Codex's own (a one-shot run would spend the user's Codex
  *   usage), so titles fall back to the first message (`canGenerateTitles` is false).
  * - Glade's sub-agent and chat tools: dynamic tools on the thread (`glade-tools.ts`).
+ * - Slash commands (I-178): Codex's skills for the folder (`skills/list`) and `/review`
+ *   (`commands.ts`); `!cmd` / `!!cmd` run with `command/exec` (`codex-session.ts`).
  * - Transcripts are Glade's (the store, I-121); nothing is imported from Codex's rollout files.
  */
-import { CODEX_COMMAND, CODEX_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type UsageLimits } from "@glade/protocol";
+import { CODEX_COMMAND, CODEX_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand, type UsageLimits } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
 import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 import { CodexAppServer } from "./app-server.js";
 import { CodexSession, type CodexSessionOptions } from "./codex-session.js";
+import { codexSlashCommands } from "./commands.js";
 import { NOT_INSTALLED, codexUsageLimits } from "./errors.js";
 import { codexGladeTools } from "./glade-tools.js";
 import { CODEX_PROVIDER, defaultLevel, findCodexModel, translateCodexModels } from "./models.js";
@@ -32,9 +35,9 @@ export const CODEX_CAPABILITIES: HarnessCapabilities = {
   steering: true,
   uiRequests: true,
   usageLimits: true,
-  commands: false,
+  commands: true,
   subagents: true,
-  shell: false,
+  shell: true,
   sideQuestions: false,
   models: true,
   permissionModes: true,
@@ -114,6 +117,12 @@ export class CodexHarness implements AgentHarness {
     return { model: { provider: CODEX_PROVIDER, id: model.id }, thinkingLevel: defaultLevel(model, config?.model === model.id ? config.model_reasoning_effort : null) };
   }
 
+  /** Codex's commands and the folder's skills (the new-chat composer's `/` menu). */
+  async listFolderCommands(cwd: string): Promise<SlashCommand[]> {
+    if (!this.isInstalled()) return [];
+    return codexSlashCommands(await this.server.skills(cwd).catch(() => []));
+  }
+
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
     const env = options.env ?? {};
     const session = new CodexSession({
@@ -124,6 +133,7 @@ export class CodexHarness implements AgentHarness {
       thinkingLevel: options.thinkingLevel ?? null,
       permissionMode: options.permissionMode ?? null,
       ...(options.appendSystemPrompt ? { developerInstructions: options.appendSystemPrompt } : {}),
+      ...(childShell(this.options.env ?? process.env) ? { shell: childShell(this.options.env ?? process.env)! } : {}),
       gladeTools: () => codexGladeTools({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, ...(this.options.fetch ? { fetch: this.options.fetch } : {}) }),
       ...this.options.session,
       log: this.options.log,
@@ -147,4 +157,9 @@ export class CodexHarness implements AgentHarness {
   async dispose(): Promise<void> {
     await this.server.dispose();
   }
+}
+
+/** The user's login shell for `!cmd`. */
+function childShell(env: NodeJS.ProcessEnv): string | undefined {
+  return env.SHELL || undefined;
 }
