@@ -117,6 +117,9 @@ xcrun simctl shutdown booted                                      # when done
   `xcrun simctl spawn $SIM log show --last 1m --style compact --predicate 'process == "<name>"'`
   (WebKit logs page loads and JS errors there). Crashes: `~/Library/Logs/DiagnosticReports`.
 - Screenshots are 1206×2622 px: shrink before reading (`sips -Z 700 in.png --out small.png`).
+- **Read a screenshot only after the command that writes it has finished**, never in the same
+  parallel tool batch: batched calls start together, so the read fails ("no such file") or sees an
+  older file with the same name. That, not a lagging simulator, explained the "stale" screenshots.
 
 ### 3.3 Tap, swipe, type: Xcode's MCP server
 
