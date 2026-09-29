@@ -8,8 +8,9 @@ import { toasts } from "@glade/app-core/state/toasts";
 import { makeSession } from "@glade/app-core/test/fixtures";
 import { pendingJump, requestJump } from "./jump-to-message";
 import { Transcript } from "./Transcript";
+import { api } from "@glade/app-core/lib/api";
 
-vi.mock("@glade/app-core/lib/api", () => ({ api: { getSession: vi.fn(() => new Promise(() => {})) } }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { getSession: vi.fn(() => new Promise(() => {})), getTranscriptPage: vi.fn() } }));
 vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const scrollTo = vi.fn();
@@ -59,6 +60,24 @@ describe("Transcript: jump to a search hit (I-093)", () => {
     setup();
     await waitFor(() => expect(toasts.value.map((t) => t.message)).toEqual(["Message not in loaded history"]));
     expect(document.querySelector(".pi-jump-highlight")).toBeNull();
+  });
+
+  it("loads earlier turns when the message is before the loaded ones (I-169)", async () => {
+    vi.mocked(api.getTranscriptPage).mockResolvedValueOnce({ messages: messages.slice(0, 4), toolResults: {}, start: 0, total: 6 });
+    const store = getChatSession("c1");
+    store.status.value = "ready";
+    store.transcript.value = { messages: messages.slice(4), toolResults: {} };
+    store.start.value = 4;
+    requestJump("c1", { role: "assistant", timestamp: 1003 });
+    render(
+      <TooltipProvider>
+        <Transcript chatId="c1" />
+      </TooltipProvider>,
+    );
+    const answer = await screen.findByText("answer 3");
+    await waitFor(() => expect(answer.closest(".pi-jump-highlight")).toBeTruthy());
+    expect(api.getTranscriptPage).toHaveBeenCalledWith("c1", 4, 200);
+    expect(toasts.value).toEqual([]);
   });
 
   it("ignores requests for another chat", async () => {

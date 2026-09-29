@@ -78,9 +78,21 @@ export interface ChatSyncHooks {
   seed(sessionId: string, seq: number | null): void;
   /** Subscribe from scratch (a patch didn't fit). */
   restart(sessionId: string): void;
+  /**
+   * Load the chat from a sync snapshot (the newest turns, I-169) instead of the whole transcript
+   * over HTTP. False when the connection can't (not open yet, an older server): load over HTTP.
+   */
+  snapshot(sessionId: string): boolean;
 }
 
-let syncHooks: ChatSyncHooks = { retain: () => () => {}, seed: () => {}, restart: () => {} };
+let syncHooks: ChatSyncHooks = { retain: () => () => {}, seed: () => {}, restart: () => {}, snapshot: () => false };
+
+/** Sessions whose detail is loading over HTTP (sync waits for it and continues from its seq). */
+const httpLoads = new Set<string>();
+
+export function isLoadingOverHttp(sessionId: string): boolean {
+  return httpLoads.has(sessionId);
+}
 
 export function setChatSyncHooks(hooks: ChatSyncHooks): void {
   syncHooks = hooks;
@@ -197,13 +209,27 @@ export async function loadEarlierMessages(sessionId: string, turns = 50): Promis
   }
 }
 
+/**
+ * Load (or reload) a chat. With a live sync connection it comes as a snapshot of the newest turns
+ * (I-169; older ones via `loadEarlierMessages`), arriving once the chat is subscribed (mounted);
+ * otherwise the whole transcript over HTTP.
+ */
 export async function loadChatSession(sessionId: string): Promise<void> {
   const store = getChatSession(sessionId);
   if (store.status.value === "loading") return;
+  if (syncHooks.snapshot(sessionId)) {
+    // A loaded chat keeps showing until the snapshot replaces it.
+    if (store.status.value !== "ready") store.status.value = "loading";
+    return;
+  }
   store.status.value = "loading";
+  httpLoads.add(sessionId);
   try {
-    applySessionDetail(await resolver.api(sessionId).getSession(sessionId));
+    const detail = await resolver.api(sessionId).getSession(sessionId);
+    httpLoads.delete(sessionId);
+    applySessionDetail(detail);
   } catch (err) {
+    httpLoads.delete(sessionId);
     store.status.value = "error";
     store.error.value = (err as Error).message;
     // The sync subscription (I-122) retries with a snapshot once the server is back.
@@ -325,4 +351,5 @@ export async function runAction(fn: () => Promise<unknown>, errorPrefix: string)
 export function resetChatSessions(): void {
   sessions.clear();
   commandLoads.clear();
+  httpLoads.clear();
 }

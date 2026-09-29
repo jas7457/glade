@@ -19,7 +19,7 @@ import { Fragment } from "preact";
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
-import { subagentSessionsOf, type AgentColor, type NoticeMessage } from "@glade/protocol";
+import { subagentSessionsOf, type AgentColor, type MessageAnchor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { loadChatSession, loadEarlierMessages, useChatSession } from "@glade/app-core/state/chat-session";
 import { envIdOfSession, sessions, sessionsById, workspacesById } from "@glade/app-core/state/store";
@@ -45,6 +45,7 @@ import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
 import { useSmoothText } from "./smooth-text";
 import { useStickToBottom } from "./useStickToBottom";
+import { useLoadEarlier } from "./useLoadEarlier";
 import { findJumpTarget, flashElement, jumpElement, pendingJump, takeJump } from "./jump-to-message";
 import { notify } from "@glade/app-core/state/toasts";
 import { workingStatus, type WorkingLabel } from "./working";
@@ -101,6 +102,8 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { atBottom, scrollToBottom, scrollToElement } = useStickToBottom(scrollRef, contentRef);
+  // Opened with the newest turns (I-169): scrolling up loads earlier ones.
+  useLoadEarlier(scrollRef, store, transcript.messages);
 
   // Jump to the bottom when the user sends a message or runs a command, and when switching chats.
   const lastUserId = useMemo(() => {
@@ -113,18 +116,34 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   useEffect(() => scrollToBottom(), [lastUserId, chatId, status === "ready"]);
 
   // Opened from a search hit (I-093): center the matched message and flash it. Runs after the
-  // jump to the bottom above, so it wins for this open; stays at the bottom if it isn't loaded.
+  // jump to the bottom above, so it wins for this open. A message before the loaded turns loads
+  // earlier ones until it's there (I-169); stays at the bottom if it can't be found.
   const jump = pendingJump.value;
+  const [jumpAnchor, setJumpAnchor] = useState<MessageAnchor | null>(null);
+  /** `start` when this jump last loaded earlier turns (unchanged afterwards: the load failed). */
+  const jumpLoadedFrom = useRef<number | null>(null);
   useEffect(() => {
     if (status !== "ready" || !jump || jump.sessionId !== chatId) return;
     const anchor = takeJump(chatId);
-    if (!anchor) return;
-    const target = findJumpTarget(transcript.messages, items, anchor);
+    jumpLoadedFrom.current = null;
+    if (anchor) setJumpAnchor(anchor);
+  }, [jump, chatId, status]);
+  const start = store.start.value;
+  const loadingEarlier = store.loadingEarlier.value;
+  useEffect(() => {
+    if (!jumpAnchor || loadingEarlier) return;
+    const target = findJumpTarget(transcript.messages, items, jumpAnchor);
+    if (!target && start > 0 && jumpLoadedFrom.current !== start) {
+      jumpLoadedFrom.current = start;
+      void loadEarlierMessages(chatId, 200);
+      return;
+    }
+    setJumpAnchor(null);
     const el = target && contentRef.current ? jumpElement(contentRef.current, target) : null;
     if (!el) return notify("info", "Message not in loaded history");
     scrollToElement(el);
     flashElement(el);
-  }, [jump, chatId, status]);
+  }, [jumpAnchor, items, start, loadingEarlier]);
 
   const working = workingStatus(transcript, state);
 

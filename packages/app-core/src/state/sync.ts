@@ -169,6 +169,24 @@ export class SyncController {
     this.subscribeSession(sessionId, true);
   }
 
+  /**
+   * Load a chat from a snapshot of its newest turns (I-169) rather than over HTTP: true when the
+   * connection is open and sequenced. The snapshot follows once the chat is retained (mounted).
+   */
+  snapshot(sessionId: string): boolean {
+    if (!this.open || !this.sequenced) return false;
+    let scope = this.sessions.get(sessionId);
+    if (!scope) {
+      scope = { last: null, phase: "idle", refs: 0 };
+      this.sessions.set(sessionId, scope);
+    }
+    // Already asking for one (retained before this load): don't ask twice.
+    if (scope.phase === "subscribing" && scope.last === null) return true;
+    this.subscribeSession(sessionId, true);
+    if (scope.refs <= 0) scope.last = null;
+    return true;
+  }
+
   /** Shell pushes are live changes now (after `live`; old servers without replay: while open). */
   shellLive(): boolean {
     return this.open && (this.sequenced ? this.shell.phase === "live" : this.everConnected);
@@ -312,6 +330,7 @@ function installChatHooks(): void {
     retain: (id) => controllerForSession(id)?.retain(id) ?? (() => {}),
     seed: (id, seq) => controllerForSession(id)?.seed(id, seq),
     restart: (id) => controllerForSession(id)?.restart(id),
+    snapshot: (id) => controllerForSession(id)?.snapshot(id) ?? false,
   });
 }
 
@@ -336,7 +355,7 @@ export function attachSync(socket: SyncSocket, envId: string | undefined, onStat
     applySessionLive: chat.applySessionLive,
     applyTranscriptPatch: chat.applyTranscriptPatch,
     applySessionError: chat.applySessionError,
-    canSubscribe: (id) => chat.getChatSession(id).status.value !== "loading",
+    canSubscribe: (id) => !chat.isLoadingOverHttp(id),
     legacyReload: () => {
       void store.loadAll(envId);
       void chat.reloadOpenChatSessions((id) => envId === undefined || store.envIdOfSession(id) === envId);

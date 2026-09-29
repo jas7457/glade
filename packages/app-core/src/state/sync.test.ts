@@ -12,6 +12,8 @@ import {
   type ServerMessage,
   type ShellSnapshot,
 } from "@glade/protocol";
+import { h } from "preact";
+import { render } from "@testing-library/preact";
 import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 
 // A fake socket for the startSync test (the controller tests don't use it).
@@ -47,6 +49,14 @@ vi.mock("./harnesses", async () => ({ harnesses: (await import("@preact/signals"
 const { SyncController, startSync, syncStatus } = await import("./sync");
 const { api } = await import("@glade/app-core/lib/api");
 const store = await import("./store");
+const chat = await import("./chat-session");
+
+/** A mounted chat (loads it and keeps it subscribed until unmounted). */
+function mountChat(id: string): () => void {
+  const Probe = () => (chat.useChatSession(id, { markViewing: false }), null);
+  const view = render(h(Probe, {}));
+  return () => view.unmount();
+}
 
 function recorder() {
   const log: Array<[string, ...unknown[]]> = [];
@@ -213,6 +223,35 @@ describe("SyncController", () => {
     expect(r.target.legacyReload).not.toHaveBeenCalled();
   });
 
+  it("loads a chat from a snapshot when the connection is live, asking once (I-169)", () => {
+    const r = recorder();
+    const sync = new SyncController(r.target);
+    expect(sync.snapshot("s")).toBe(false); // not connected: over HTTP
+    sync.onOpen();
+    sync.receive(hello);
+    r.sent.length = 0;
+    // Opening a chat: the load asks for a snapshot, then mounting subscribes (once).
+    expect(sync.snapshot("s")).toBe(true);
+    expect(r.sent).toEqual([]);
+    sync.retain("s");
+    expect(r.sent).toEqual([{ type: "subscribe", scope: "session", sessionId: "s" }]);
+    expect(sync.snapshot("s")).toBe(true);
+    expect(r.sent).toHaveLength(1);
+    sync.receive({ type: "snapshot", scope: "session", sessionId: "s", seq: 4, page: { messages: [], toolResults: {}, start: 10, total: 30 }, ...live });
+    sync.receive({ type: "live", scope: "session", sessionId: "s", seq: 4, ...live });
+    // A reload of a shown chat: a fresh snapshot.
+    expect(sync.snapshot("s")).toBe(true);
+    expect(r.sent.at(-1)).toEqual({ type: "subscribe", scope: "session", sessionId: "s" });
+  });
+
+  it("an older server (no sequenced sync) loads chats over HTTP", () => {
+    const r = recorder();
+    const sync = new SyncController(r.target);
+    sync.onOpen();
+    sync.receive({ type: "hello", version: "old" });
+    expect(sync.snapshot("s")).toBe(false);
+  });
+
   it("falls back to a full reload with a server that has no sequenced sync", () => {
     const r = recorder();
     const sync = new SyncController(r.target);
@@ -274,5 +313,25 @@ describe("startSync (I-122)", () => {
     // No full reload: the lists were fetched once, at startup.
     expect(api.listProjects).toHaveBeenCalledTimes(1);
     expect(api.listWorkspaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a chat with the newest turns from a snapshot, not the whole transcript over HTTP (I-169)", async () => {
+    startSync();
+    const emit = (m: ServerMessage) => fake.handlers.message.forEach((h) => h(m));
+    fake.handlers.open.forEach((h) => h());
+    emit(hello);
+    fake.sent.length = 0;
+    const release = mountChat("s9");
+    expect(api.getSession).not.toHaveBeenCalled();
+    expect(chat.getChatSession("s9").status.value).toBe("loading");
+    expect(fake.sent).toEqual([{ type: "subscribe", scope: "session", sessionId: "s9" }]);
+    const message = { id: "m60", role: "user" as const, content: [{ type: "text" as const, text: "hi" }], timestamp: 1 };
+    emit({ type: "snapshot", scope: "session", sessionId: "s9", seq: 3, page: { messages: [message], toolResults: {}, start: 60, total: 61 }, ...live });
+    emit({ type: "live", scope: "session", sessionId: "s9", seq: 3, ...live });
+    const loaded = chat.getChatSession("s9");
+    expect(loaded.status.value).toBe("ready");
+    expect(loaded.start.value).toBe(60);
+    expect(loaded.transcript.value.messages.map((m) => m.id)).toEqual(["m60"]);
+    release();
   });
 });
