@@ -1,0 +1,16 @@
+/* The iPhone app's styles: the shared design tokens + utilities from the web app, plus phone rules. */
+@import "../../web/src/styles.css";
+@source "../../web/src";
+@source "./";
+
+html,
+body,
+#app {
+  height: 100%;
+}
+body {
+  /* No rubber-band scrolling of the whole page and no long-press callouts on chrome. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}

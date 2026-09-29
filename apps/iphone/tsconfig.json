@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../web/src/*"],
+      "~/*": ["src/*"],
+      "react": ["../web/node_modules/preact/compat/"],
+      "react/jsx-runtime": ["../web/node_modules/preact/jsx-runtime"],
+      "react-dom": ["../web/node_modules/preact/compat/"],
+      "react-dom/*": ["../web/node_modules/preact/compat/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+}

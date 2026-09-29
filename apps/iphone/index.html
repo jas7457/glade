@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-iphone>
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover: draw under the status bar / home indicator; the layout pads with safe-area insets. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Glade</title>
+    <script>
+      // Tells the shared web core it's the iPhone app, not the Mac app (lib/desktop.ts isDesktop()).
+      window.__GLADE_IPHONE__ = true;
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

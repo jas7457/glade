@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "The app's only window: the bundled phone UI. It may use the Keychain commands (secret_*).",
+  "windows": ["main"],
+  "permissions": ["core:default", "allow-secret-get", "allow-secret-set", "allow-secret-delete"]
+}
