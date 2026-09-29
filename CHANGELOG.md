@@ -176,6 +176,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Tool rows show file paths relative to the chat's folder (e.g. "Edited packages/protocol/src/api.ts");
+  paths elsewhere are shortened with ~, and hovering shows the full path.
 - Settings are simpler: General opens with your Glade version and Update Now, then the theme;
   the About and Appearance pages and the Text size setting are gone. Agents lists only pi and
   Claude Code, and an agent that isn't installed can't be switched on (it says what Glade looked
