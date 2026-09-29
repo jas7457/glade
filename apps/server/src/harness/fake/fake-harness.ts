@@ -244,7 +244,7 @@ export class FakeHarness implements AgentHarness {
   /** A canned answer, streamed word by word (I-140). */
   async answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
     this.sideQuestions.push(call);
-    const question = /Side question: ([\s\S]*)$/.exec(call.prompt)?.[1]?.trim() ?? "";
+    const question = /(?:Side|Follow-up side) question: ([\s\S]*)$/.exec(call.prompt)?.[1]?.trim() ?? "";
     if (this.sideAnswerError) return { answer: "", error: this.sideAnswerError };
     const words = fakeSideAnswer(question).split(/(?<= )/);
     const delay = this.sideAnswerDelayMs ?? this.eventDelayMs;

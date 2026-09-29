@@ -1,5 +1,5 @@
 import type { AgentEvent } from "./events.js";
-import type { SideQuestionMessage } from "./side-questions.js";
+import type { SideQuestionMessage, SideQuestionTurn } from "./side-questions.js";
 import type { AssistantMessage, ChatMessage, ContentBlock, ShellMessage, Transcript } from "./transcript.js";
 
 /**
@@ -107,24 +107,32 @@ export function applyAgentEvent(t: Transcript, event: AgentEvent): Transcript {
 
     case "side_start": {
       if (t.messages.some((m) => m.id === event.id)) return t;
-      const message: SideQuestionMessage = {
+      const turn: SideQuestionTurn = {
         id: event.id,
-        role: "side",
         question: event.question,
         answer: "",
         status: "streaming",
         timestamp: event.at ?? Date.now(),
         ...(event.model ? { model: event.model } : {}),
+        ...(event.partialContext ? { partialContext: true } : {}),
       };
+      if (event.parentId) {
+        // A follow-up in an existing card (I-156).
+        const parentId = event.parentId;
+        return updateSide(t, parentId, (m) =>
+          m.id !== parentId || m.followUps?.some((f) => f.id === event.id) ? m : { ...m, followUps: [...(m.followUps ?? []), turn] },
+        );
+      }
+      const message: SideQuestionMessage = { ...turn, role: "side" };
       return { ...t, messages: [...t.messages, message] };
     }
 
     case "side_delta":
-      return updateSide(t, event.id, (m) => (m.status === "streaming" && event.delta ? { ...m, answer: m.answer + event.delta } : m));
+      return updateSideTurn(t, event.id, (m) => (m.status === "streaming" && event.delta ? { ...m, answer: m.answer + event.delta } : m));
 
     case "side_end":
-      return updateSide(t, event.id, (m) => {
-        const next: SideQuestionMessage = { ...m, status: event.status, answer: event.answer ?? m.answer };
+      return updateSideTurn(t, event.id, (m) => {
+        const next = { ...m, status: event.status, answer: event.answer ?? m.answer };
         delete next.error;
         if (event.error) next.error = event.error;
         if (event.at !== undefined) next.endedAt = event.at;
@@ -178,15 +186,28 @@ function updateShell(t: Transcript, id: string, fn: (m: ShellMessage) => ShellMe
   return t;
 }
 
+/** Update the side question card `id`, or the card holding the follow-up `id` (I-156). */
 function updateSide(t: Transcript, id: string, fn: (m: SideQuestionMessage) => SideQuestionMessage): Transcript {
   for (let i = t.messages.length - 1; i >= 0; i--) {
     const m = t.messages[i]!;
-    if (m.id !== id) continue;
+    if (m.id !== id && !(m.role === "side" && m.followUps?.some((f) => f.id === id))) continue;
     if (m.role !== "side") return t;
     const next = fn(m);
     return next === m ? t : { ...t, messages: replaceAt(t.messages, i, next) };
   }
   return t;
+}
+
+/** Update one question of a side question card: its first (`id` = the card's) or a follow-up. */
+function updateSideTurn(t: Transcript, id: string, fn: <T extends SideQuestionTurn>(turn: T) => T): Transcript {
+  return updateSide(t, id, (m) => {
+    if (m.id === id) return fn(m);
+    const followUps = m.followUps ?? [];
+    const i = followUps.findIndex((f) => f.id === id);
+    if (i === -1) return m;
+    const next = fn(followUps[i]!);
+    return next === followUps[i] ? m : { ...m, followUps: followUps.map((f, j) => (j === i ? next : f)) };
+  });
 }
 
 function appendDelta(block: ContentBlock, delta: string): ContentBlock {

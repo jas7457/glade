@@ -247,6 +247,57 @@ describe("SideQuestionCard (I-140)", () => {
   });
 });
 
+describe("side question threads (I-156)", () => {
+  const reply = () => screen.getByRole("textbox", { name: "Reply to the side question" }) as HTMLInputElement;
+
+  it("Reply asks a follow-up in the same card (↩ sends); restores the text when it fails", async () => {
+    readyChat("c1", true);
+    renderCard(card());
+    fireEvent.input(reply(), { target: { value: " and the lexer? " } });
+    fireEvent.keyDown(reply(), { key: "Enter" });
+    await waitFor(() => expect(api.askSideQuestion).toHaveBeenCalledWith("c1", "and the lexer?", "side-1"));
+    expect(reply().value).toBe("");
+    expect(api.prompt).not.toHaveBeenCalled();
+    vi.mocked(api.askSideQuestion).mockRejectedValueOnce(new Error("nope"));
+    fireEvent.input(reply(), { target: { value: "again" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send follow-up (↩)" }));
+    await waitFor(() => expect(reply().value).toBe("again"));
+  });
+
+  it("shows the thread in order; while a follow-up streams: Stop stops it, Reply can't send, no hand-offs", () => {
+    readyChat("c1", true);
+    const { container } = renderCard(
+      card({ followUps: [{ id: "side-2", question: "And the lexer?", answer: "", status: "streaming", timestamp: 2, model: "p/fast" }] }),
+    );
+    expect([...container.querySelectorAll("[data-turn]")].map((e) => e.getAttribute("data-turn"))).toEqual(["side-1", "side-2"]);
+    expect(container.textContent).toContain("src/parser.ts");
+    expect(screen.getByText("And the lexer?")).toBeTruthy();
+    expect(screen.getByText("Thinking about it…")).toBeTruthy();
+    expect(screen.getByText("p/fast")).toBeTruthy();
+    fireEvent.input(reply(), { target: { value: "next one" } });
+    fireEvent.keyDown(reply(), { key: "Enter" });
+    expect(api.askSideQuestion).not.toHaveBeenCalled();
+    expect(reply().value).toBe("next one");
+    expect((screen.getByRole("button", { name: "Send follow-up (↩)" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Tell the Agent" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(api.stopSideQuestion).toHaveBeenCalledWith("c1", "side-2");
+    expect(api.stopSideQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  it("Add to Queue passes on the whole thread; a cut context is labelled", async () => {
+    readyChat("c1", false);
+    renderCard(card({ partialContext: true, followUps: [{ id: "side-2", question: "And the lexer?", answer: "`src/lexer.ts`.", status: "done", timestamp: 2 }] }));
+    expect(screen.getAllByText("(only saw part of the chat)")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Add to Queue" }));
+    await waitFor(() =>
+      expect(api.prompt).toHaveBeenCalledWith("c1", {
+        text: "About my side questions:\n\n**Q:** Which file holds the parser?\n\nIt's in `src/parser.ts`.\n\n**Q:** And the lexer?\n\n`src/lexer.ts`.",
+      }),
+    );
+  });
+});
+
 describe("Tell the Agent prefills the composer (I-140)", () => {
   it("adds the note after what's typed and focuses the box", async () => {
     readyChat("c1", true);
