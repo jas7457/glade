@@ -166,6 +166,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Settings lists Agents before Models, since the agents decide which models there are.
 - Images (screenshots, pasted pictures) are stored as files next to the database instead of
   inside it, so the database stays small (yours: about 60 MB → 13 MB). Existing images are moved
   once on first start, and images no chat uses any more are cleaned up.

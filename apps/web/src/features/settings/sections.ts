@@ -19,7 +19,7 @@ export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof
  * switcher at the top of that group (I-155) picks whose settings they show; another device's are
  * view only.
  */
-export const HOST_SECTIONS: readonly SettingsSection[] = ["models", "agent", "commands", "prompts"];
+export const HOST_SECTIONS: readonly SettingsSection[] = ["agent", "models", "commands", "prompts"];
 
 export interface SettingsGroup {
   title: string;
@@ -29,5 +29,5 @@ export interface SettingsGroup {
 /** Sidebar categories in order. Every section must appear in exactly one group. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   { title: "App", sections: ["general", "appearance", "remote", "about"] },
-  { title: "AI", sections: ["models", "agent", "commands", "prompts"] },
+  { title: "AI", sections: ["agent", "models", "commands", "prompts"] },
 ];
