@@ -396,7 +396,8 @@ export class CodexSession implements HarnessSession {
           cwd: this.options.cwd,
           disableTimeout: true,
           outputBytesCap: SHELL_OUTPUT_CAP,
-          sandboxPolicy: turnPermissions(this.mode()).sandboxPolicy,
+          // The user typed it: unsandboxed, like `!` in Codex's own TUI and in pi (I-178).
+          sandboxPolicy: { type: "dangerFullAccess" },
         },
         (delta) => {
           if (delta.capReached) truncated = true;

@@ -667,7 +667,7 @@ describe("Codex slash commands and ! commands (I-178)", () => {
       cwd,
       streamStdoutStderr: true,
       disableTimeout: true,
-      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      sandboxPolicy: { type: "dangerFullAccess" }, // unsandboxed like Codex's own `!`, even in Read only
     });
     expect(events.filter((e) => e.type.startsWith("shell_")).map((e) => e.type)).toEqual(["shell_start", "shell_update", "shell_update", "shell_end"]);
     const shell = transcript().messages.find((m) => m.role === "shell")!;
