@@ -19,6 +19,14 @@
  * - **WebSocket tickets** (single use, 60 s) are per server, in memory.
  * - **Multi-server:** a 1 s watch notices changes made by another server on the same data folder
  *   (a revoke, the switch, a new pending pairing) and applies them to this server's sockets.
+ * - **Code-free pairing on your own tailnet (I-143):** `startTailnetPair` takes a request without a
+ *   code only when hosting is on, it came through Tailscale Serve (the route passes the
+ *   `Tailscale-User-Login` serve set, loopback peer only) with the host's own Tailscale login, no
+ *   other code-free request is waiting (`invite_id` = 'tailnet'), it's not within 60 s of a Deny
+ *   (`meta.tailnet_pair_cooldown_until`) and the address isn't rate-limited (the route). The
+ *   host's nonce, the number and the client nonce's hash live in `meta.tailnet_pair` (no schema
+ *   change: a schema-4 server on the data folder still reads the pending row). The client waits
+ *   with `waitTailnetPair` (its nonce proves it's the same client); Allow gives the usual token.
  * - **Audit:** pairing, revocation, the switch and failures (`auth_audit`, newest 2000 kept).
  */
 import type {
@@ -32,10 +40,15 @@ import type {
   PendingPairing,
   RemoteAccessState,
   ServerMessage,
+  TailnetPairRefusal,
+  TailnetPairRequest,
+  TailnetPairStart,
+  TailnetPairWait,
 } from "@glade/protocol";
+import { pairingNumber } from "@glade/protocol";
 import { getMeta, setMeta, transaction, type Db } from "../../store/db/database.js";
 import { ulid } from "../../store/db/ids.js";
-import { newPairingCode, normalizePairingCode, randomSecret, sha256 } from "./secrets.js";
+import { newPairingCode, normalizePairingCode, randomSecret, safeEqual, sha256 } from "./secrets.js";
 
 export const REMOTE_ACCESS_KEY = "remote_access";
 /** The "Remote access" master switch (I-132). */
@@ -53,6 +66,12 @@ export const PAIR_RATE_GLOBAL = 30;
 const TOUCH_INTERVAL_MS = 60 * 1000;
 const AUDIT_KEEP = 2000;
 export const MAX_DEVICE_NAME = 100;
+/** Code-free pairing (I-143): the pending row's `invite_id`, its details and the cooldown after a Deny. */
+export const TAILNET_INVITE_ID = "tailnet";
+export const TAILNET_PAIR_KEY = "tailnet_pair";
+export const TAILNET_COOLDOWN_KEY = "tailnet_pair_cooldown_until";
+export const TAILNET_COOLDOWN_MS = 60 * 1000;
+const NONCE_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const DEVICE_KINDS: readonly DeviceKind[] = ["mac", "phone", "browser", "other"];
 
 /** WebSocket close codes for remote sockets the host cut off. */
@@ -74,6 +93,8 @@ export interface AuthServiceOptions {
   pairTimeoutMs?: number;
   /** How often a waiting pairing checks for the answer (ms). */
   pairPollMs?: number;
+  /** The Tailscale account this machine is signed in to, read fresh (I-143); null when unknown. */
+  tailscaleLogin?: () => Promise<string | null>;
 }
 
 /** Who a request or socket is (set by the security middleware). */
@@ -139,6 +160,13 @@ export class AuthError extends Error {
 export interface RequestMeta {
   address: string | null;
   tailscaleLogin: string | null;
+}
+
+/** `meta.tailnet_pair`: the code-free request in flight (I-143). */
+interface TailnetPairMeta {
+  id: string;
+  number: string;
+  clientNonceHash: string;
 }
 
 export class AuthService {
@@ -367,7 +395,11 @@ export class AuthService {
     if (outcome === "invalid") throw new AuthError(400, "invalid_grant", "That code or link isn't valid. Check it, or create a new invite on the host.");
     if (outcome === "expired") return { status: "expired" };
     this.pushPending();
+    return this.awaitAnswer(pendingId, deviceName, meta, signal);
+  }
 
+  /** Wait for the host's answer to a pending pairing (or its timeout, or `signal`). */
+  private async awaitAnswer(pendingId: string, deviceName: string, meta: RequestMeta, signal?: AbortSignal): Promise<PairResponse> {
     try {
       for (;;) {
         const row = this.db.prepare("SELECT * FROM pairing_pending WHERE id = ?").get(pendingId) as PendingRow | undefined;
@@ -380,7 +412,7 @@ export class AuthService {
           return { status: "timeout" };
         }
         if (signal?.aborted) {
-          this.setPendingStatus(pendingId, "cancelled", "pending");
+          if (this.setPendingStatus(pendingId, "cancelled", "pending")) this.audit("pair_failed", { deviceName, remoteAddress: meta.address, detail: "cancelled by the device" });
           return { status: "expired" };
         }
         await sleep(this.pairPollMs, signal);
@@ -390,12 +422,101 @@ export class AuthService {
     }
   }
 
+  // Code-free pairing on your own tailnet (I-143) ---------------------------------------------
+
+  /**
+   * A code-free request. `servedLogin` is the `Tailscale-User-Login` Tailscale Serve set (the
+   * route passes null unless the request came through serve). Refusals are answers, not errors,
+   * so the client can fall back to the code field with a reason; all of them are audited.
+   */
+  async startTailnetPair(req: Partial<TailnetPairRequest>, meta: RequestMeta, servedLogin: string | null): Promise<TailnetPairStart> {
+    const clientNonce = typeof req.clientNonce === "string" ? req.clientNonce : "";
+    if (!NONCE_RE.test(clientNonce)) throw new AuthError(400, "invalid_request", "clientNonce must be 16-128 characters of [A-Za-z0-9_-]");
+    const deviceName = typeof req.deviceName === "string" ? req.deviceName.trim().slice(0, MAX_DEVICE_NAME) : "";
+    if (!deviceName) throw new AuthError(400, "invalid_request", "deviceName is required");
+    const deviceKind: DeviceKind = req.deviceKind && DEVICE_KINDS.includes(req.deviceKind) ? req.deviceKind : "other";
+    const clientEnvironmentId = typeof req.clientEnvironmentId === "string" ? req.clientEnvironmentId.slice(0, 64) : null;
+
+    const refuse = (reason: TailnetPairRefusal, detail: string): TailnetPairStart => {
+      this.audit("pair_failed", { deviceName, remoteAddress: meta.address, detail: `code-free refused: ${detail}` });
+      return { status: "refused", reason };
+    };
+    if (!this.isRemoteEnabled()) return refuse("unavailable", "sharing is off");
+    if (!servedLogin) return refuse("no_identity", "no Tailscale identity (not through Tailscale Serve, or a tagged device)");
+    const hostLogin = (await this.options.tailscaleLogin?.().catch(() => null)) ?? null;
+    if (!hostLogin) return refuse("unavailable", "this host's Tailscale account is unknown");
+    if (servedLogin.toLowerCase() !== hostLogin.toLowerCase()) return refuse("other_account", `other Tailscale account (${servedLogin})`);
+
+    const now = this.now();
+    const id = ulid();
+    const hostNonce = randomSecret(16);
+    const number = pairingNumber(clientNonce, hostNonce);
+    const expiresAt = now + this.pairTimeoutMs;
+    const outcome = transaction(this.db, (): TailnetPairRefusal | "ok" => {
+      if (!this.isRemoteEnabled()) return "unavailable";
+      if (Number(getMeta(this.db, TAILNET_COOLDOWN_KEY) ?? 0) > now) return "cooldown";
+      const waiting = this.db
+        .prepare("SELECT 1 FROM pairing_pending WHERE invite_id = ? AND status IN ('pending', 'allowed') AND expires_at > ? LIMIT 1")
+        .get(TAILNET_INVITE_ID, now);
+      if (waiting) return "busy";
+      const details: TailnetPairMeta = { id, number, clientNonceHash: sha256(clientNonce) };
+      setMeta(this.db, TAILNET_PAIR_KEY, JSON.stringify(details));
+      this.db
+        .prepare(
+          `INSERT INTO pairing_pending (id, invite_id, device_name, device_kind, client_environment_id, remote_address, tailscale_login, requested_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, TAILNET_INVITE_ID, deviceName, deviceKind, clientEnvironmentId, meta.address, servedLogin, now, expiresAt);
+      this.audit("pair_requested", { deviceName, remoteAddress: meta.address, detail: `code-free, tailscale: ${servedLogin}, number ${number}` });
+      return "ok";
+    });
+    if (outcome !== "ok") {
+      const why: Record<TailnetPairRefusal, string> = {
+        cooldown: "denied less than a minute ago",
+        busy: "another code-free request is waiting",
+        unavailable: "sharing is off",
+        no_identity: "no Tailscale identity",
+        other_account: "other Tailscale account",
+      };
+      return refuse(outcome, why[outcome]);
+    }
+    this.pushPending();
+    return { status: "confirm", requestId: id, hostNonce, expiresAt };
+  }
+
+  /** The code-free client waits for Allow/Deny: same client (nonce) and same Tailscale login as the request. */
+  async waitTailnetPair(req: Partial<TailnetPairWait>, meta: RequestMeta, servedLogin: string | null, signal?: AbortSignal): Promise<PairResponse> {
+    const requestId = typeof req.requestId === "string" ? req.requestId : "";
+    const clientNonce = typeof req.clientNonce === "string" ? req.clientNonce : "";
+    if (!requestId || !NONCE_RE.test(clientNonce)) throw new AuthError(400, "invalid_request", "requestId and clientNonce are required");
+    const details = this.tailnetPairMeta();
+    const row = this.db.prepare("SELECT * FROM pairing_pending WHERE id = ? AND invite_id = ?").get(requestId, TAILNET_INVITE_ID) as PendingRow | undefined;
+    const sameClient = !!row && details?.id === requestId && safeEqual(sha256(clientNonce), details.clientNonceHash);
+    const sameLogin = !!row && !!servedLogin && servedLogin.toLowerCase() === (row.tailscale_login ?? "").toLowerCase();
+    if (!row || !sameClient || !sameLogin) {
+      this.audit("pair_failed", { deviceName: row?.device_name ?? null, remoteAddress: meta.address, detail: !row ? "code-free wait: unknown request" : !sameClient ? "code-free wait: wrong client" : "code-free wait: other Tailscale identity" });
+      throw new AuthError(404, "not_found", "That request is no longer waiting.");
+    }
+    return this.awaitAnswer(row.id, row.device_name, meta, signal);
+  }
+
+  private tailnetPairMeta(): TailnetPairMeta | null {
+    try {
+      const v = JSON.parse(getMeta(this.db, TAILNET_PAIR_KEY) ?? "null") as TailnetPairMeta | null;
+      return v && typeof v.id === "string" && typeof v.number === "string" && typeof v.clientNonceHash === "string" ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** The host answers a pending pairing; false when it's not (or no longer) waiting. */
   answerPending(id: string, allow: boolean): boolean {
     const row = this.db.prepare("SELECT * FROM pairing_pending WHERE id = ?").get(id) as PendingRow | undefined;
     if (!row || row.status !== "pending" || row.expires_at <= this.now()) return false;
     if (!this.setPendingStatus(id, allow ? "allowed" : "denied", "pending")) return false;
-    this.audit(allow ? "pair_allowed" : "pair_denied", { deviceName: row.device_name, remoteAddress: row.remote_address });
+    const codeFree = row.invite_id === TAILNET_INVITE_ID;
+    if (codeFree && !allow) setMeta(this.db, TAILNET_COOLDOWN_KEY, String(this.now() + TAILNET_COOLDOWN_MS));
+    this.audit(allow ? "pair_allowed" : "pair_denied", { deviceName: row.device_name, remoteAddress: row.remote_address, detail: codeFree ? "code-free" : null });
     this.pushPending();
     return true;
   }
@@ -404,7 +525,9 @@ export class AuthService {
     const rows = this.db
       .prepare("SELECT * FROM pairing_pending WHERE status = 'pending' AND expires_at > ? ORDER BY requested_at")
       .all(this.now()) as unknown as PendingRow[];
+    const tailnet = rows.some((r) => r.invite_id === TAILNET_INVITE_ID) ? this.tailnetPairMeta() : null;
     return rows.map((r) => ({
+      ...(r.invite_id === TAILNET_INVITE_ID && tailnet?.id === r.id ? { number: tailnet.number } : {}),
       id: r.id,
       deviceName: r.device_name,
       deviceKind: r.device_kind,

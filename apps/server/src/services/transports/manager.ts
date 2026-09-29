@@ -171,6 +171,12 @@ export class RemoteTransport {
     });
   }
 
+  /** The Tailscale account this machine is signed in to, read fresh (I-143 code-free pairing); null when unknown. */
+  async ownLogin(): Promise<string | null> {
+    const status = await this.refresh().catch(() => this.cached);
+    return status?.login ?? null;
+  }
+
   /** Glade hosts on the network (local owner only). */
   async discover(): Promise<DiscoveredEnvironment[]> {
     return (await this.options.transport.discover?.()) ?? [];

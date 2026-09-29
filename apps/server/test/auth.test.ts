@@ -9,13 +9,13 @@ import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import type { AuditAction, PairingInvite, PairResponse, ServerMessage } from "@glade/protocol";
+import { pairingNumber, type AuditAction, type PairingInvite, type PairResponse, type PendingPairing, type ServerMessage, type TailnetPairStart } from "@glade/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { createApp } from "../src/http/app.js";
 import { hasProxyHeaders, isLoopbackAddress, isOwnOrigin } from "../src/http/security.js";
 import { AppService } from "../src/services/app-service.js";
-import { AuthService, CLOSE_REMOTE_DISABLED, CLOSE_REVOKED, MAX_CODE_ATTEMPTS, REMOTE_ACCESS_KEY, REMOTE_HOST_KEY, REMOTE_MASTER_KEY } from "../src/services/auth/auth-service.js";
+import { AuthService, CLOSE_REMOTE_DISABLED, CLOSE_REVOKED, MAX_CODE_ATTEMPTS, REMOTE_ACCESS_KEY, REMOTE_HOST_KEY, REMOTE_MASTER_KEY, TAILNET_COOLDOWN_MS } from "../src/services/auth/auth-service.js";
 import { getMeta, setMeta } from "../src/store/db/database.js";
 import { normalizePairingCode } from "../src/services/auth/secrets.js";
 import { Store } from "../src/store/store.js";
@@ -31,7 +31,7 @@ const HOST = "127.0.0.1:4317";
 /** Another Glade's web view: a loopback origin that isn't this server's. */
 const OTHER = "http://127.0.0.1:4400";
 
-function start(opts: { addresses?: string[]; pairTimeoutMs?: number } = {}) {
+function start(opts: { addresses?: string[]; pairTimeoutMs?: number; tailscaleLogin?: string | null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "glade-auth-"));
   const store = new Store(join(dir, "data"), 0);
   const service = new AppService({ store, harnesses: new HarnessRegistry([new FakeHarness()]), scratchDir: join(dir, "scratch"), sync: { batchMs: 10_000 } });
@@ -45,6 +45,7 @@ function start(opts: { addresses?: string[]; pairTimeoutMs?: number } = {}) {
     watchMs: 0,
     pairTimeoutMs: opts.pairTimeoutMs ?? 5000,
     pairPollMs: 5,
+    tailscaleLogin: async () => (opts.tailscaleLogin === undefined ? "me@example.com" : opts.tailscaleLogin),
   });
   const { app, injectWebSocket } = createApp({ service, auth, ownPorts: () => [4317, 5317] });
   cleanups.push(async () => {
@@ -394,6 +395,118 @@ describe("pairing", () => {
     expect(pushes.length).toBeGreaterThanOrEqual(2);
     expect(pushes[0]!.pending).toMatchObject([{ deviceName: "Laptop", deviceKind: "mac", remoteAddress: "127.0.0.1" }]);
     expect(pushes.at(-1)!.pending).toEqual([]);
+  });
+});
+
+describe("code-free pairing on your own tailnet (I-143)", () => {
+  const NONCE = "client-nonce-0123456789abcdef";
+  /** A request through Tailscale Serve: loopback peer, the tailnet peer's IP and its login. */
+  const viaServe = (t: ReturnType<typeof start>, path: string, body: unknown, o: { login?: string | null; from?: string; peer?: string } = {}) =>
+    t.call("POST", path, {
+      body,
+      peer: o.peer,
+      headers: {
+        origin: "http://127.0.0.1:4400",
+        "x-forwarded-for": o.from ?? "100.64.0.2",
+        ...(o.login === null ? {} : { "tailscale-user-login": o.login ?? "me@example.com", "tailscale-user-name": "Me" }),
+      },
+    });
+  const startPair = async (t: ReturnType<typeof start>, o: { login?: string | null; from?: string; peer?: string; nonce?: string } = {}) => {
+    const r = await viaServe(t, "/api/auth/pair", { mode: "tailnet", clientNonce: o.nonce ?? NONCE, deviceName: "MacBook Air", deviceKind: "mac", clientEnvironmentId: "ENV-A" }, o);
+    return { status: r.status, body: (await r.json()) as TailnetPairStart & { code?: string } };
+  };
+  const wait = async (t: ReturnType<typeof start>, requestId: string, o: { nonce?: string; login?: string | null } = {}) => {
+    const r = await viaServe(t, "/api/auth/pair/wait", { requestId, clientNonce: o.nonce ?? NONCE }, o);
+    return { status: r.status, body: (await r.json()) as PairResponse & { code?: string } };
+  };
+  const pending = async (t: ReturnType<typeof start>) => (await (await t.local("GET", "/api/auth/pending")).json()) as PendingPairing[];
+  const details = async (t: ReturnType<typeof start>) =>
+    ((await (await t.local("GET", "/api/auth/audit?limit=100")).json()) as { action: AuditAction; detail: string | null }[]).map((a) => `${a.action}: ${a.detail ?? ""}`);
+
+  it("same account: the host shows the number the client derives; Allow gives a working token", async () => {
+    const t = start();
+    await t.enable();
+    const started = await startPair(t);
+    expect(started.status).toBe(200);
+    if (started.body.status !== "confirm") throw new Error(JSON.stringify(started.body));
+    const { requestId, hostNonce } = started.body;
+    expect(hostNonce).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    const number = pairingNumber(NONCE, hostNonce);
+    expect(number).toMatch(/^\d{4}$/);
+    const [p] = await pending(t);
+    expect(p).toMatchObject({ id: requestId, deviceName: "MacBook Air", tailscaleLogin: "me@example.com", remoteAddress: "100.64.0.2", number });
+    const waiting = wait(t, requestId);
+    expect(t.auth.listPending()).toHaveLength(1);
+    expect((await t.local("POST", `/api/auth/pending/${requestId}`, { allow: true })).status).toBe(204);
+    const r = await waiting;
+    expect(r.body.status).toBe("paired");
+    const token = (r.body as Extract<PairResponse, { status: "paired" }>).token;
+    expect((await t.remote("GET", "/api/auth/me", { token })).status).toBe(200);
+    const log = await details(t);
+    expect(log.some((l) => l.startsWith("pair_requested: code-free, tailscale: me@example.com, number " + number))).toBe(true);
+    expect(log).toContain("pair_allowed: code-free");
+  });
+
+  it("refuses other accounts, missing identity, non-loopback peers and an unknown host login; sharing off is 403", async () => {
+    const t = start();
+    // Sharing off: refused before the route (no prompt on the host).
+    expect((await startPair(t)).status).toBe(403);
+    await t.enable();
+    expect((await startPair(t, { login: "someone@else.com" })).body).toEqual({ status: "refused", reason: "other_account" });
+    expect((await startPair(t, { login: "ME@example.com" })).body.status).toBe("confirm"); // logins compare case-insensitively
+    expect(t.auth.listPending()).toHaveLength(1);
+
+    const u = start();
+    await u.enable();
+    expect((await startPair(u, { login: null })).body).toEqual({ status: "refused", reason: "no_identity" });
+    // The header only counts when serve (a loopback peer) set it.
+    expect((await startPair(u, { peer: "100.64.0.9" })).body).toEqual({ status: "refused", reason: "no_identity" });
+    expect(u.auth.listPending()).toEqual([]);
+    expect((await details(u)).filter((l) => l.startsWith("pair_failed: code-free refused")).length).toBe(2);
+
+    const v = start({ tailscaleLogin: null });
+    await v.enable();
+    expect((await startPair(v)).body).toEqual({ status: "refused", reason: "unavailable" });
+    // Bad nonces are rejected outright.
+    expect((await startPair(v, { nonce: "short" })).status).toBe(400);
+  });
+
+  it("one pending at a time; a 60 s cooldown after Deny; rate limits per address", async () => {
+    const t = start();
+    await t.enable();
+    const first = await startPair(t);
+    if (first.body.status !== "confirm") throw new Error("not started");
+    expect((await startPair(t, { from: "100.64.0.3" })).body).toEqual({ status: "refused", reason: "busy" });
+    const waiting = wait(t, first.body.requestId);
+    await t.local("POST", `/api/auth/pending/${first.body.requestId}`, { allow: false });
+    expect((await waiting).body).toEqual({ status: "denied" });
+    expect((await startPair(t, { from: "100.64.0.4" })).body).toEqual({ status: "refused", reason: "cooldown" });
+    t.clock.offset = TAILNET_COOLDOWN_MS + 1;
+    expect((await startPair(t, { from: "100.64.0.5" })).body.status).toBe("confirm");
+    // Per peer address: 5 a minute (busy answers count too), then 429.
+    for (let i = 0; i < 5; i++) expect((await startPair(t, { from: "100.64.0.6" })).body).toEqual({ status: "refused", reason: "busy" });
+    const limited = await startPair(t, { from: "100.64.0.6" });
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe("rate_limited");
+    expect(await t.audit()).toContain("pair_denied");
+  });
+
+  it("the wait needs the same client nonce and Tailscale login; unanswered requests time out", async () => {
+    const t = start({ pairTimeoutMs: 80 });
+    await t.enable();
+    const s = await startPair(t);
+    if (s.body.status !== "confirm") throw new Error("not started");
+    expect((await wait(t, s.body.requestId, { nonce: "another-nonce-0123456789" })).status).toBe(404);
+    expect((await wait(t, s.body.requestId, { login: "someone@else.com" })).status).toBe(404);
+    expect((await wait(t, "nope")).status).toBe(404);
+    expect((await wait(t, s.body.requestId)).body).toEqual({ status: "timeout" });
+    expect(await pending(t)).toEqual([]);
+    const log = await details(t);
+    expect(log).toContain("pair_failed: code-free wait: wrong client");
+    expect(log).toContain("pair_failed: code-free wait: other Tailscale identity");
+    expect(log).toContain("pair_failed: no answer in time");
+    // Timed out: a new request is accepted (no cooldown without a Deny).
+    expect((await startPair(t, { from: "100.64.0.7" })).body.status).toBe("confirm");
   });
 });
 

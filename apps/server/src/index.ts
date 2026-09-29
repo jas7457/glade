@@ -191,6 +191,8 @@ const auth = new AuthService({
     return viaTransport.length ? viaTransport : listeningUrl ? [listeningUrl] : [];
   },
   hostnames: () => remote?.hostnames() ?? [],
+  // I-143: code-free pairing only for requests from the host's own Tailscale account.
+  tailscaleLogin: async () => (remote ? remote.ownLogin() : null),
 });
 const { app, injectWebSocket } = createApp({
   service,

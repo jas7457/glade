@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Pair your own devices without typing a code: click Connect on a device found on your tailnet,
+  check that both screens show the same number, and press Allow on the other device. Works when
+  both are signed in to the same Tailscale account; otherwise Glade asks for the code as before.
 - Ask a side question while the agent works: type `/btw …`, or type while it's busy and press
   Ask Aside (⌥↩). The answer appears right away in a card the agent never sees, with buttons
   to tell the agent or queue it. An optional cheaper model for these is in Settings → Models.

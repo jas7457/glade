@@ -5,7 +5,7 @@
  * - **CLI:** `GLADE_TAILSCALE_CLI`, else `/usr/local/bin/tailscale` (Settings → CLI integration),
  *   `/opt/homebrew/bin/tailscale`, or the app's binary with `TAILSCALE_BE_CLI=1`.
  * - **Status:** `tailscale status --json` (BackendState, Self.DNSName, TailscaleIPs, CertDomains,
- *   peers) and `tailscale serve status --json`, parsed defensively.
+ *   peers, and this machine's login `User[Self.UserID].LoginName` for code-free pairing, I-143) and `tailscale serve status --json`, parsed defensively.
  * - **HTTPS is required** (user decision): without CertDomains for this machine there's no
  *   plain-HTTP `100.x` fallback; Settings links to the admin console's DNS page.
  * - **On:** `tailscale serve --bg --https=443 http://127.0.0.1:<port>` (tailnet only). **Never
@@ -68,6 +68,8 @@ export interface TailscaleState {
   ips: string[];
   certDomains: string[];
   peers: TailscaleNode[];
+  /** The account this machine is signed in to (`User[Self.UserID].LoginName`, I-143). */
+  selfLogin?: string;
 }
 
 const obj = (v: unknown): Record<string, unknown> | null => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -88,7 +90,10 @@ export function parseTailscaleStatus(json: unknown): TailscaleState {
   const peers = Object.values(obj(s.Peer) ?? {})
     .map(parseNode)
     .filter((p): p is TailscaleNode => p !== null);
+  const userId = obj(s.Self)?.UserID;
+  const selfLogin = typeof userId === "number" || typeof userId === "string" ? str(obj(obj(s.User)?.[String(userId)])?.LoginName) : undefined;
   return {
+    ...(selfLogin ? { selfLogin } : {}),
     backendState: str(s.BackendState) ?? "Unknown",
     self,
     ips: strings(s.TailscaleIPs).length ? strings(s.TailscaleIPs) : (self?.ips ?? []),
@@ -171,7 +176,7 @@ export function problemStatus(problem: TransportProblem, managed: boolean, reaso
 
 /** Status from parsed state (pure: the tests' fixtures go through here). */
 export function evaluateTailscale({ state, serve, gladePorts, managed }: EvaluateInput): Evaluation {
-  const base = { id: "tailscale" as const, managed, dnsName: state.self?.dnsName, ips: state.ips.length ? state.ips : undefined };
+  const base = { id: "tailscale" as const, managed, dnsName: state.self?.dnsName, ips: state.ips.length ? state.ips : undefined, ...(state.selfLogin ? { login: state.selfLogin } : {}) };
   const fail = (problem: TransportProblem, reason?: string, https = false): Evaluation => ({
     status: { ...problemStatus(problem, managed, reason), ...base, https },
     servingPort: null,

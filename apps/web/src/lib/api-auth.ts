@@ -5,6 +5,7 @@
  *   remote switch (with the transport's status), invites, pending confirmations, devices, audit
  *   log, tailnet discovery.
  * - {@link pairRequest}: the client side (no token yet): `POST /api/auth/pair`, long-polling.
+ * - {@link tailnetPairStart} / {@link tailnetPairWait}: code-free pairing on your own tailnet (I-143).
  *
  * Portable client core (F-022).
  */
@@ -17,6 +18,9 @@ import type {
   PairingInvite,
   PendingPairing,
   RemoteAccessState,
+  TailnetPairRequest,
+  TailnetPairStart,
+  TailnetPairWait,
   TailnetPeer,
 } from "@glade/protocol";
 import { request as localRequest, requestAt, type RequestFn } from "./api";
@@ -51,4 +55,14 @@ export const hostAuth: HostAuthApi = hostAuthApi();
 /** Ask a host to pair (answers when the host user allows/denies, or on timeout). */
 export function pairRequest(apiBase: string, body: PairRequest, signal?: AbortSignal): Promise<PairResponse> {
   return requestAt<PairResponse>(apiBase, "POST", "/auth/pair", body, undefined, { signal });
+}
+
+/** Code-free pairing (I-143): ask; the host answers at once (confirm with its nonce, or refused). */
+export function tailnetPairStart(apiBase: string, body: TailnetPairRequest, signal?: AbortSignal): Promise<TailnetPairStart> {
+  return requestAt<TailnetPairStart>(apiBase, "POST", "/auth/pair", body, undefined, { signal });
+}
+
+/** Code-free pairing (I-143): wait for Allow/Deny (long-polls up to ~2 min). */
+export function tailnetPairWait(apiBase: string, body: TailnetPairWait, signal?: AbortSignal): Promise<PairResponse> {
+  return requestAt<PairResponse>(apiBase, "POST", "/auth/pair/wait", body, undefined, { signal });
 }

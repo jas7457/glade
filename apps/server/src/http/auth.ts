@@ -2,14 +2,14 @@
  * `/api/auth/*` (I-125/I-126; contract: packages/protocol/src/auth.ts). The host's own endpoints
  * (remote switch, invites, pending pairings, devices, audit) are local-owner only; `pair` is for
  * clients without a token (remote access on, rate-limited); `me` and `ws-ticket` need a device
- * token. All behaviour lives in {@link AuthService}; its `AuthError`s become `{ code, error }` in
+ * token; `pair/wait` is the code-free client waiting (I-143). All behaviour lives in {@link AuthService}; its `AuthError`s become `{ code, error }` in
  * app.ts's error handler.
  */
 import { Hono, type Context } from "hono";
-import type { PairRequest } from "@glade/protocol";
+import type { PairRequest, TailnetPairRequest, TailnetPairWait } from "@glade/protocol";
 import { AuthError, type AuthService } from "../services/auth/auth-service.js";
 import type { RemoteTransport } from "../services/transports/manager.js";
-import { localOnly, requestMeta } from "./security.js";
+import { localOnly, requestMeta, servedTailscaleLogin } from "./security.js";
 
 /** `remote`: the transport (I-127); without one the switch is just the database flag (tests). */
 export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
@@ -35,8 +35,15 @@ export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
   api.post("/pair", async (c) => {
     const meta = requestMeta(c);
     auth.checkPairRate(meta.address);
-    const body = await readBody<PairRequest>(c);
+    const body = await readBody<PairRequest & TailnetPairRequest>(c);
+    // I-143: code-free on your own tailnet (answers at once; the client then waits on /pair/wait).
+    if (body.mode === "tailnet") return c.json(await auth.startTailnetPair(body, meta, servedTailscaleLogin(c)));
     return c.json(await auth.pair(body, meta, c.req.raw.signal));
+  });
+  // Not rate-limited: it needs the request id and the client's nonce (a 128-bit+ secret).
+  api.post("/pair/wait", async (c) => {
+    const body = await readBody<TailnetPairWait>(c);
+    return c.json(await auth.waitTailnetPair(body, requestMeta(c), servedTailscaleLogin(c), c.req.raw.signal));
   });
 
   // The host itself -----------------------------------------------------------------------------

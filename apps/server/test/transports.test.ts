@@ -101,8 +101,17 @@ describe("parsing", () => {
       ["iphone.tail1234.ts.net", true],
       ["old-pc.tail1234.ts.net", false],
     ]);
+    expect(s.selfLogin).toBeUndefined(); // the fixture has no users
     expect(parseTailscaleStatus(null)).toMatchObject({ backendState: "Unknown", self: null, peers: [], certDomains: [] });
     expect(parseTailscaleStatus({ BackendState: 5, Self: "x", Peer: [1], CertDomains: "a" })).toMatchObject({ backendState: "Unknown", self: null, peers: [] });
+  });
+
+  it("reads this machine's login (User[Self.UserID].LoginName) into the status (I-143)", () => {
+    const json = { ...(fixture("status-running.json") as object), Self: { ...((fixture("status-running.json") as { Self: object }).Self), UserID: 42 }, User: { "42": { ID: 42, LoginName: "me@example.com" }, "7": { ID: 7, LoginName: "other@example.com" } } };
+    const state = parseTailscaleStatus(json);
+    expect(state.selfLogin).toBe("me@example.com");
+    expect(evaluateTailscale({ state, serve: null, gladePorts: [], managed: false }).status.login).toBe("me@example.com");
+    expect(parseTailscaleStatus({ ...json, User: { "42": { LoginName: 3 } } }).selfLogin).toBeUndefined();
   });
 
   it("reads serve status for <machine>:443 (foreground sessions too) and loopback targets", () => {

@@ -149,6 +149,17 @@ describe("pending pairing confirm", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("a code-free request (I-143) says who wants in and shows the number to compare", async () => {
+    render(<PendingPairingHost />);
+    receiveHostMessage({ type: "pairing_pending", pending: [{ ...pending("p1", "MacBook Air", 1), number: "0729" }] });
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("“MacBook Air” wants to use this device")).toBeTruthy();
+    expect(within(dialog).getByTestId("pair-number").textContent).toBe("0729");
+    expect(within(dialog).getByText(/Allow only if MacBook Air shows the same number/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
+    expect(mocked.answerPending).toHaveBeenCalledWith("p1", true);
+  });
+
   it("closes when another window answered (the list shrank)", async () => {
     render(<PendingPairingHost />);
     receiveHostMessage({ type: "pairing_pending", pending: [pending("p1", "Air", 1)] });
@@ -260,14 +271,21 @@ describe("connect dialog", () => {
     { name: "Studio", address: "https://studio.tail1234.ts.net", environmentId: "ENV-B", reachable: true, os: "macOS" },
     { name: "iPhone", address: "https://iphone.tail1234.ts.net", reachable: false, os: "iOS" },
   ];
-  /** Answers GET /environment as Studio; the pair request waits (or answers with `pair`). */
-  const stubHost = (pair?: object) => {
+  /**
+   * Answers GET /environment as Studio; the pair request waits (or answers with `pair`). A
+   * code-free request (I-143) gets `tailnet` (default: refused, other account) and its wait `wait`.
+   */
+  const stubHost = (pair?: object, tailnet: object = { status: "refused", reason: "other_account" }, wait?: object) => {
     const calls: Array<{ url: string; body?: unknown }> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
         if (url.endsWith("/environment")) return new Response(JSON.stringify({ id: "ENV-B", name: "Studio" }), { status: 200 });
+        const body = init?.body ? (JSON.parse(String(init.body)) as { mode?: string }) : {};
+        if (url.endsWith("/auth/pair") && body.mode === "tailnet") return new Response(JSON.stringify(tailnet), { status: 200 });
+        if (url.endsWith("/auth/pair/wait") && wait) return new Response(JSON.stringify(wait), { status: 200 });
+        if (url.endsWith("/auth/pair/wait")) return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
         if (pair) return new Response(JSON.stringify(pair), { status: 200 });
         return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
       }),
@@ -300,7 +318,7 @@ describe("connect dialog", () => {
     mocked.discover.mockResolvedValue([]);
   });
 
-  it("a found device: read-only target, no address field; the pair request sends this device's own name", async () => {
+  it("a found device on another Tailscale account: falls back to the code with a reason; the pair request sends this device's own name", async () => {
     localEnvironmentId.value = "ENV-A";
     const { connections } = await import("@/state/env-registry");
     const { EnvironmentConnection } = await import("@/state/environments");
@@ -310,16 +328,95 @@ describe("connect dialog", () => {
     const calls = stubHost();
     render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
     const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByTestId("code-reason")).textContent).toBe("Studio uses a different Tailscale account, so it needs a code.");
     expect(within(dialog).getByTestId("connect-target").textContent).toBe("Connecting to Studio · studio.tail1234.ts.net");
+    // The code is required now.
+    expect(within(dialog).getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(true);
     fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
     expect(within(dialog).queryByLabelText("Address")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
     await within(dialog).findByText("Waiting for Studio to allow this device…");
-    const pair = calls.find((c) => c.url.endsWith("/auth/pair"))!;
+    const pair = calls.find((c) => c.url.endsWith("/auth/pair") && !(c.body as { mode?: string }).mode)!;
     expect(pair.url).toBe("https://studio.tail1234.ts.net/api/auth/pair");
     expect(pair.body).toMatchObject({ grant: "ABCD-EFGH", deviceName: "MacBook Air", clientEnvironmentId: "ENV-A" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     connections.value = [];
+  });
+
+  it("a found device on your own tailnet (I-143): no code; shows the number the host shows; Allow pairs", async () => {
+    localEnvironmentId.value = "ENV-A";
+    const { pairingNumber } = await import("@glade/protocol");
+    const paired = { status: "paired", token: "TOKEN", environmentId: "ENV-B", device: { id: "D1", name: "MacBook Air", kind: "mac", createdAt: 1, lastSeenAt: 1, lastAddress: null, tailscaleLogin: "me@example.com", scopes: ["full"], connected: false } };
+    const calls = stubHost(undefined, { status: "confirm", requestId: "R1", hostNonce: "host-nonce-0123456789", expiresAt: Date.now() + 120_000 }, paired);
+    // Hold the wait until the number was checked.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const inner = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/auth/pair/wait")) await gate;
+      return inner(url, init);
+    });
+    const onOpenChange = vi.fn();
+    render(<ConnectEnvironmentDialog open onOpenChange={onOpenChange} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Check that Studio shows");
+    const start = calls.find((c) => c.url.endsWith("/auth/pair"))!.body as { mode: string; clientNonce: string; deviceName: string };
+    expect(start).toMatchObject({ mode: "tailnet", clientEnvironmentId: "ENV-A" });
+    expect(start.clientNonce).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(within(dialog).getByTestId("pair-number").textContent).toBe(pairingNumber(start.clientNonce, "host-nonce-0123456789"));
+    expect(within(dialog).queryByLabelText("Pairing link or code")).toBeNull();
+    release();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(calls.find((c) => c.url.endsWith("/auth/pair/wait"))!.body).toEqual({ requestId: "R1", clientNonce: start.clientNonce });
+    saveEnvironments([]);
+  });
+
+  it("code-free: Deny shows a clear message; Try Again asks again; Cancel falls back to the code field", async () => {
+    stubHost(undefined, { status: "confirm", requestId: "R1", hostNonce: "host-nonce-0123456789", expiresAt: Date.now() + 120_000 }, { status: "denied" });
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByRole("alert")).textContent).toBe("Studio didn't allow this device.");
+    cleanup();
+    stubHost(undefined, { status: "confirm", requestId: "R1", hostNonce: "host-nonce-0123456789", expiresAt: Date.now() + 120_000 }, { status: "timeout" });
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    const d2 = await screen.findByRole("dialog");
+    expect((await within(d2).findByRole("alert")).textContent).toMatch(/Nobody answered on Studio in time/);
+    cleanup();
+    // Waiting forever: Cancel shows the code field; Connect with it empty asks without a code again.
+    stubHost(undefined, { status: "confirm", requestId: "R1", hostNonce: "host-nonce-0123456789", expiresAt: Date.now() + 120_000 });
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    const d3 = await screen.findByRole("dialog");
+    await within(d3).findByTestId("pair-number");
+    fireEvent.click(within(d3).getByRole("button", { name: "Cancel" }));
+    await within(d3).findByLabelText("Pairing link or code");
+    expect(within(d3).queryByTestId("code-reason")).toBeNull();
+    fireEvent.click(within(d3).getByRole("button", { name: "Connect" }));
+    await within(d3).findByTestId("pair-number");
+    fireEvent.click(within(d3).getByRole("button", { name: "Cancel" }));
+  });
+
+  it("code-free: sharing off or no Tailscale identity falls back to the code with a reason; Pair Again on a LAN address goes straight to the code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/environment")) return new Response(JSON.stringify({ id: "ENV-B", name: "Studio" }), { status: 200 });
+        return new Response(JSON.stringify({ code: "remote_disabled", error: "off" }), { status: 403 });
+      }),
+    );
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    expect((await screen.findByTestId("code-reason")).textContent).toMatch(/Studio isn't sharing right now/);
+    cleanup();
+    stubHost(undefined, { status: "refused", reason: "no_identity" });
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} initialAddress="https://studio.tail1234.ts.net" initialName="Studio" />);
+    expect((await screen.findByTestId("code-reason")).textContent).toBe("Studio can't see your Tailscale account on this connection, so it needs a code.");
+    cleanup();
+    const calls = stubHost();
+    saveEnvironments([{ id: "ENV-B", name: "Studio", urls: ["http://192.168.1.20:4327"] }]);
+    render(<ConnectEnvironmentDialog open onOpenChange={() => {}} envId="ENV-B" />);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Pairing link or code")).toBeTruthy();
+    expect(within(dialog).queryByTestId("code-reason")).toBeNull();
+    expect(calls).toEqual([]);
   });
 
   it("a pasted link: the target line from the link; waits for the host, and can cancel", async () => {
@@ -338,8 +435,12 @@ describe("connect dialog", () => {
 
   it("Pair Again: the saved device (by this device's name for it) is the target", async () => {
     saveEnvironments([{ id: "ENV-B", name: "Studio", alias: "Work Mac", urls: ["https://studio.tail1234.ts.net"] }]);
+    // A Tailscale address: it asks without a code first (I-143); refused here, so the code it is.
+    const calls = stubHost();
     render(<ConnectEnvironmentDialog open onOpenChange={() => {}} envId="ENV-B" />);
     const dialog = await screen.findByRole("dialog", { name: "Pair Again with Work Mac" });
+    expect((await within(dialog).findByTestId("code-reason")).textContent).toBe("Work Mac uses a different Tailscale account, so it needs a code.");
+    expect(calls.find((c) => c.url.endsWith("/auth/pair"))!.body).toMatchObject({ mode: "tailnet" });
     expect(within(dialog).getByTestId("connect-target").textContent).toBe("Connecting to Work Mac · studio.tail1234.ts.net");
     fireEvent.input(within(dialog).getByLabelText("Pairing link or code"), { target: { value: "ABCD-EFGH" } });
     expect(within(dialog).queryByLabelText("Address")).toBeNull();

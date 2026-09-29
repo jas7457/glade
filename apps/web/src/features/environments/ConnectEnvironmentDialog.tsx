@@ -10,6 +10,13 @@
  * required: finding a host establishes no trust. There's no name field: the host is told this
  * device's own environment name, and names it as it likes afterwards.
  *
+ * I-143: when that known target is a device found on the tailnet (or Pair Again with a Tailscale address),
+ * opening the dialog pairs without a code: this device asks, both show the same 4-digit number
+ * ("Check that Studio shows 4729") and the host presses Allow. If the host can't take a code-free
+ * request (another Tailscale account, no Tailscale identity, sharing off, busy…), the dialog shows
+ * the code field with a one-line reason. Cancel also falls back to the code field; with the field
+ * empty, Connect (or Try Again) asks without a code again.
+ *
  * `envId` = "Pair again" for an environment whose token stopped working: the answering host must
  * be that same environment.
  */
@@ -21,7 +28,7 @@ import { connectionName } from "@/state/connections";
 import { connectionFor, localEnvironmentId } from "@/state/env-registry";
 import { remoteMaster, setRemoteMaster } from "@/state/remote-master";
 import { adoptDeviceName } from "@/state/remote-host";
-import { defaultDeviceName, runPairing, savedEnvironment, type PairState } from "@/state/pairing";
+import { defaultDeviceName, isTailnetAddress, runPairing, runTailnetPairing, savedEnvironment, type PairState } from "@/state/pairing";
 import { Button, Dialog, Spinner, TextField } from "@/ui";
 import { useDiscovery } from "./use-discovery";
 
@@ -45,6 +52,10 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
   const [address, setAddress] = useState("");
   const [state, setState] = useState<PairState | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  /** Why code-free pairing isn't possible with this host (I-143): the code field is required. */
+  const [codeReason, setCodeReason] = useState<string | null>(null);
+  /** The running (or last) attempt is code-free. */
+  const [viaTailnet, setViaTailnet] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const codeField = useRef<HTMLInputElement>(null);
   // Only this device's own server can look around its tailnet; elsewhere (no local server) it's empty.
@@ -52,12 +63,16 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
   const own = localEnvironmentId.value;
   const found = discovery.found.filter((d) => d.environmentId !== own);
 
+  // I-143: a known Tailscale target (no link) pairs without a code.
+  const tailnetUrl = !initialLink ? (again ? again.urls.find(isTailnetAddress) : initialAddress || undefined) : undefined;
   useEffect(() => {
     if (!open) return;
     setInput(initialLink ?? "");
     setAddress(again?.urls[0] ?? initialAddress ?? "");
     setState(null);
     setFormError(null);
+    setCodeReason(null);
+    if (tailnetUrl) void connectWithoutCode();
   }, [open, initialLink, initialAddress, envId]);
   useEffect(() => () => abort.current?.abort(), []);
 
@@ -72,10 +87,42 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
         ? { name: initialName || hostOf(initialAddress), address: initialAddress }
         : null;
   const needsAddress = !target && !isLink && input.trim() !== "";
-  const busy = state?.step === "connecting" || state?.step === "waiting";
+  const busy = state?.step === "connecting" || state?.step === "waiting" || state?.step === "confirm";
+  /** Connect with an empty code field asks without a code (I-143). */
+  const codeFree = !!tailnetUrl && !codeReason && !input.trim();
+
+  const paired = (result: PairState) => {
+    if (result.step !== "paired") return;
+    adoptDeviceName(result.environment.id);
+    // Pairing means using remote access (I-132: the master switch).
+    if (!remoteMaster.value) void setRemoteMaster(true);
+    onOpenChange(false);
+  };
+
+  async function connectWithoutCode() {
+    if (!tailnetUrl) return;
+    setFormError(null);
+    setViaTailnet(true);
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
+    const result = await runTailnetPairing(
+      { url: tailnetUrl, name: again ? againName : initialName || undefined, environmentId: again?.id },
+      { deviceName: defaultDeviceName(), deviceKind: "mac", signal: controller.signal, onState: setState },
+    );
+    if (abort.current !== controller) return;
+    if (result.step === "error" && result.kind === "needs-code") {
+      setCodeReason(result.message);
+      setState(null);
+      queueMicrotask(() => codeField.current?.focus());
+    }
+    paired(result);
+  }
 
   const submit = async (e?: Event) => {
     e?.preventDefault();
+    if (codeFree) return void connectWithoutCode();
+    setViaTailnet(false);
     const parsed = parsePairInput(input, address);
     if (!parsed.ok) {
       setFormError(parsed.error);
@@ -93,12 +140,7 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
     abort.current = controller;
     const result = await runPairing(target, { deviceName: defaultDeviceName(), deviceKind: "mac", signal: controller.signal, onState: setState });
     if (abort.current !== controller) return;
-    if (result.step === "paired") {
-      adoptDeviceName(result.environment.id);
-      // Pairing means using remote access (I-132: the master switch).
-      if (!remoteMaster.value) void setRemoteMaster(true);
-      onOpenChange(false);
-    }
+    paired(result);
   };
 
   const cancel = () => {
@@ -121,7 +163,9 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
       }}
       title={title}
       description={
-        again
+        busy && viaTailnet
+          ? `No code needed: ${target?.name ?? "the other device"} checks that it's your Tailscale account and asks there.`
+          : again
           ? `${againName} no longer accepts this device. On ${againName}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
           : target
             ? `On ${target.name}, open Settings → Remote Access → Share This Device…, then paste the link or type the code here.`
@@ -136,14 +180,25 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
             <Button type="button" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={!input.trim()} onClick={() => void submit()}>
+            <Button variant="primary" disabled={!input.trim() && !codeFree} onClick={() => void submit()}>
               {state?.step === "error" ? "Try Again" : "Connect"}
             </Button>
           </>
         )
       }
     >
-      {busy ? (
+      {state?.step === "confirm" ? (
+        <div class="flex flex-col items-center gap-1.5 py-2 text-center" role="status">
+          <span class="text-fg">Check that {state.hostName} shows</span>
+          <span class="selectable font-mono text-[2rem] leading-tight font-semibold tracking-[0.25em] text-fg" data-testid="pair-number" aria-label={`Number ${state.number.split("").join(" ")}`}>
+            {state.number}
+          </span>
+          <span class="flex items-center gap-2 text-[0.92rem] text-fg-muted">
+            <Spinner size={12} />
+            Then press Allow there. If the numbers differ, press Deny.
+          </span>
+        </div>
+      ) : busy ? (
         <div class="flex items-center gap-3 py-2" role="status">
           <Spinner />
           <span class="text-fg">{state.step === "waiting" ? `Waiting for ${state.hostName} to allow this device…` : "Connecting…"}</span>
@@ -166,6 +221,11 @@ export function ConnectEnvironmentDialog({ open, onOpenChange, initialLink, init
                 Connecting to <span class="font-medium">{target.name}</span>
                 {target.address && <span class="text-fg-muted"> · {hostOf(target.address)}</span>}
               </span>
+            </p>
+          )}
+          {codeReason && (
+            <p class="text-[0.92rem] text-fg-muted" data-testid="code-reason">
+              {codeReason}
             </p>
           )}
           <label class="flex flex-col gap-1">

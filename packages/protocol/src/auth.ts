@@ -34,12 +34,16 @@
  *   GET    /api/auth/peers                     → TailnetPeer[] (this Mac's tailnet peers, online or not, I-132)
  * Client side (no token yet, remote access must be on, rate-limited):
  *   POST   /api/auth/pair PairRequest          → PairResponse  (long-polls up to ~2 min for the host's answer)
+ *   POST   /api/auth/pair TailnetPairRequest   → TailnetPairStart (I-143 code-free, answers at once)
+ *   POST   /api/auth/pair/wait TailnetPairWait → PairResponse  (long-polls like the above; not rate-limited)
  * Any paired device (bearer):
  *   GET    /api/auth/me                        → PairedDevice (who am I; also refreshes last seen)
  *   POST   /api/auth/ws-ticket                 → { ticket: string; expiresAt: number }
  */
 
 /** Host-side remote access state (Settings → Remote Access, "Let other devices use this device"). */
+import { sha256Bytes } from "./sha256.js";
+
 export interface RemoteAccessState {
   /** Remote clients are accepted at all (the host switch, and the master switch is on). Off by default. */
   enabled: boolean;
@@ -89,6 +93,8 @@ export interface TransportStatus {
   managed: boolean;
   /** The last serve change that failed, if any. */
   error?: string;
+  /** The Tailscale account this machine is signed in to (`tailscale status --json`, I-143). */
+  login?: string;
 }
 
 /** A Glade host found on the tailnet (`GET /api/auth/discover`). Pairing still needs its code. */
@@ -151,6 +157,61 @@ export interface PairRequest {
   clientEnvironmentId?: string;
 }
 
+/**
+ * Code-free pairing on your own tailnet (I-143), numeric comparison as in Bluetooth:
+ *
+ * 1. The client sends `TailnetPairRequest` (a fresh random `clientNonce`) to the host's
+ *    `https://<machine>.<tailnet>.ts.net` address.
+ * 2. The host accepts it only when sharing is on, the request came through Tailscale Serve with a
+ *    `Tailscale-User-Login` equal to the host's own Tailscale login, no other code-free request is
+ *    waiting, it's not in the 60 s cooldown after a Deny and the address isn't rate-limited.
+ *    Otherwise it answers `refused` (the client falls back to the code field).
+ * 3. Accepted: the host answers `confirm` with its own random `hostNonce` and shows "<name> wants to
+ *    use this device" with `pairingNumber(clientNonce, hostNonce)`; the client derives the same
+ *    number itself and shows "Check that <host> shows 4729" while it long-polls
+ *    `/api/auth/pair/wait` (the `clientNonce` proves it's the same client).
+ * 4. Allow → `paired` (the same token as the code flow); Deny → `denied`; ~2 min → `timeout`.
+ */
+export interface TailnetPairRequest {
+  mode: "tailnet";
+  /** Random, 16–128 characters of base64url/hex (the client keeps it for the wait call). */
+  clientNonce: string;
+  deviceName: string;
+  deviceKind: DeviceKind;
+  clientEnvironmentId?: string;
+}
+
+/** Why a host won't take a code-free request (the client shows a one-line reason and the code field). */
+export type TailnetPairRefusal =
+  /** The request didn't come through Tailscale Serve with a user identity (e.g. a tagged device, the LAN). */
+  | "no_identity"
+  /** A different Tailscale account than the host's. */
+  | "other_account"
+  /** The host can't tell its own Tailscale account right now. */
+  | "unavailable"
+  /** Another code-free request is waiting for an answer. */
+  | "busy"
+  /** The host denied one less than a minute ago. */
+  | "cooldown";
+
+export type TailnetPairStart =
+  | { status: "confirm"; requestId: string; hostNonce: string; expiresAt: number }
+  | { status: "refused"; reason: TailnetPairRefusal };
+
+export interface TailnetPairWait {
+  requestId: string;
+  clientNonce: string;
+}
+
+/** The 4-digit number both sides show (I-143): SHA-256(clientNonce + ":" + hostNonce) mod 10000, zero-padded. */
+export function pairingNumber(clientNonce: string, hostNonce: string): string {
+  const hash = sha256Bytes(`${clientNonce}:${hostNonce}`);
+  // The first 6 bytes as a number (well within 2^53), mod 10000: bias ≈ 10000 / 2^48, nil.
+  let n = 0;
+  for (let i = 0; i < 6; i++) n = n * 256 + hash[i]!;
+  return String(n % 10000).padStart(4, "0");
+}
+
 export type PairResponse =
   | { status: "paired"; token: string; device: PairedDevice; environmentId: string }
   | { status: "denied" }
@@ -166,6 +227,8 @@ export interface PendingPairing {
   remoteAddress: string | null;
   tailscaleLogin: string | null;
   requestedAt: number;
+  /** Code-free request (I-143): the 4-digit number the requesting device shows too. */
+  number?: string;
 }
 
 export interface PairedDevice {

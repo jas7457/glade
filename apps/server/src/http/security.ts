@@ -11,7 +11,7 @@
  *   In-process requests (tests: no socket) count as loopback peers.
  * - Everyone else is remote: refused with 403 `remote_disabled` unless the host turned remote
  *   access on, then needs a device token (`Authorization: Bearer`, or a one-time `?ticket=` on
- *   `/ws`), else 401 `unauthorized`. Without a token they may only `POST /api/auth/pair`,
+ *   `/ws`), else 401 `unauthorized`. Without a token they may only `POST /api/auth/pair` (and `/pair/wait`, I-143),
  *   `GET /api/environment` (identity only) and load the web app's static files.
  *
  * `Host` allow-list (DNS rebinding): loopback plus the hostnames of the host's addresses
@@ -128,6 +128,20 @@ export function requestMeta(c: Context): RequestMeta {
   };
 }
 
+/**
+ * The Tailscale login Tailscale Serve vouches for (I-143), or null. Serve proxies from loopback
+ * and replaces any `Tailscale-User-Login` the client sent, so the header counts only when the TCP
+ * peer is loopback (in-process test requests count as loopback, as in {@link isLocalOwner}).
+ * Tagged devices get no login. Anyone who can already run code on this host could forge it, but
+ * they're the local owner anyway.
+ */
+export function servedTailscaleLogin(c: Context): string | null {
+  const peer = peerAddress(c);
+  if (peer !== null && !isLoopbackAddress(peer)) return null;
+  const login = c.req.header("tailscale-user-login")?.trim();
+  return login && !/[\s,]/.test(login) ? login : null;
+}
+
 /** Is this request the local owner? (See the header comment.) */
 export function isLocalOwner(c: Context, ownPorts: number[]): boolean {
   const peer = peerAddress(c);
@@ -211,7 +225,7 @@ export function securityMiddleware({ auth, ownPorts = defaultOwnPorts }: Securit
       // Without a token: pairing, the environment's identity (id, name, version, protocol: what
       // a pairing client checks the link against; the route trims the rest) and static files.
       const unauthenticated =
-        (path === "/api/auth/pair" && c.req.method === "POST") || (path === "/api/environment" && isGet) || (!isApiPath(path) && isGet);
+        ((path === "/api/auth/pair" || path === "/api/auth/pair/wait") && c.req.method === "POST") || (path === "/api/environment" && isGet) || (!isApiPath(path) && isGet);
       let device = null;
       // A token, when sent, is always checked (a bad one is 401 even where none is needed).
       if (!unauthenticated || (path !== "/ws" && bearer(c) !== null)) {
