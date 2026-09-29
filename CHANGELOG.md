@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Claude Code chats ask for permission the way the CLI does (Yes / Yes, and don't ask again for … /
+  No, and tell Claude what to do differently; keys 1–3 and Esc), and have permission modes
+  (Default, Accept edits, Plan, Auto, Bypass) in a pill next to the model, switched with
+  Shift+Tab; each chat keeps its own mode.
 - Claude Code as an agent: if `claude` is installed, it shows up on the Agents page and in the
   agent picker, using your own Claude Code install and login. Chats stream text, thinking and tool
   calls (with diffs and a plan card), with Claude's models and thinking levels, its permission
@@ -192,6 +196,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The model picker shows Claude Code's models with their version and a short description
+  ("Opus 5.5 — Best for everyday, complex tasks") under a "Claude Code" header.
 - Long chats open faster on the Mac and iPhone: they start with the latest messages and load older
   ones as you scroll up.
 - iPhone: when a Mac can't be reached, the phone says what to check (awake with Glade open,
