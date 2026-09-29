@@ -309,7 +309,7 @@ process.stdin.on("data", (d) => {
         .map((l) => JSON.parse(l) as { args: string[]; env: Record<string, string> });
     const harness = (subagents: boolean) =>
       new PiHarness({
-        config: () => ({ piPath: join(dir, "pi"), extraArgs: [], autoCompaction: true, autoRetry: true }),
+        command: join(dir, "pi"),
         utilityCwd: dir,
         subagents: () => subagents,
         extensionPath: () => "/ext/glade-tools.ts",

@@ -72,7 +72,7 @@ try {
 console.log(`[install] installed ${target}`);
 console.log(
   running(target)
-    ? "[install] Glade is running: restart it to use the new version (Settings → About → Restart Glade, or menu bar → Quit Glade Completely and reopen it)."
+    ? "[install] Glade is running: restart it to use the new version (Settings → General → Restart Glade, or menu bar → Quit Glade Completely and reopen it)."
     : "[install] Open Glade to use the new version.",
 );
 

@@ -2,7 +2,7 @@
  * Build stamp and "is this app behind?" routes (I-149, contract: @glade/protocol version.ts).
  *
  *   GET  /version                → VersionStatus (the last check; never waits for git)
- *   POST /version/check          → VersionStatus after a check (Settings → About's Check Now)
+ *   POST /version/check          → VersionStatus after a check (Settings → General's Check Now)
  *   GET  /version/compare?commit → BuildComparison (Connections: another device's build vs. ours)
  *
  * Update Now (I-154), local owner only (`localOnly` on `/api/version/update*` in app.ts):

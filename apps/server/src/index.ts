@@ -114,7 +114,8 @@ if (store.jsonImport?.files.length) {
 // ACP agents the user added in Settings (I-119) are harnesses too, read from the settings on use;
 // none by default, and an agent's process only starts with a chat's first prompt.
 const acpResume = new Map<string, AcpResumeState>(); // until a new chat's record has its ref
-// I-155: plus the well-known ACP agents (Claude Code, Gemini CLI, Codex) found on the PATH.
+// I-155: plus the well-known ACP agents (Claude Code since I-159) found on the PATH. The user's
+// own ones stay harnesses (their chats readable) but are never offered (I-159).
 const which = cachedWhich();
 const acp = new AcpHarnessProvider(() => acpAgentConfigs(store.getSettings().harnesses.acp?.agents, which), {
   resume: {
@@ -137,7 +138,6 @@ harnesses.register(
   config.harness === "fake"
     ? new FakeHarness(undefined, 30)
     : new PiHarness({
-        config: () => store.getSettings().harnesses.pi,
         utilityCwd: config.scratchDir,
         subagents: () => store.getSettings().agent.subagents,
         log: env("DEBUG") ? log : undefined,

@@ -1,6 +1,6 @@
 /**
  * Applies settings.appearance to <html>: `data-theme` (light/dark, following the OS live when
- * set to "system") and `data-font-size`. styles.css keys all tokens off these attributes.
+ * set to "system"). styles.css keys all tokens off it. (Text size was removed in I-161.)
  * In the desktop app the native window theme follows too.
  */
 import { effect, signal } from "@preact/signals";
@@ -22,9 +22,7 @@ export function startAppearanceSync(root: HTMLElement = document.documentElement
   const prefersDark = signal(media.matches);
   media.addEventListener?.("change", (e) => (prefersDark.value = e.matches));
   effect(() => {
-    const { theme, fontSize } = settings.value.appearance;
-    root.dataset.theme = resolveTheme(theme, prefersDark.value);
-    root.dataset.fontSize = fontSize;
+    root.dataset.theme = resolveTheme(settings.value.appearance.theme, prefersDark.value);
   });
   // Desktop app: native chrome (traffic lights, sidebar vibrancy) follows the chosen theme.
   effect(() => {

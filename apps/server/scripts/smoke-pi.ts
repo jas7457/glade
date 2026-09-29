@@ -16,7 +16,7 @@ import { generateTitleWith } from "../src/harness/title.js";
 
 const dir = mkdtempSync(join(tmpdir(), "glade-smoke-"));
 const harness = new PiHarness({
-  config: () => ({ piPath: process.env.PI_PATH ?? "pi", extraArgs: [], autoCompaction: true, autoRetry: true }),
+  command: process.env.PI_PATH,
   utilityCwd: dir,
   log: (m) => console.error(`  [log] ${m.slice(0, 200)}`),
 });

@@ -114,7 +114,7 @@ export function Sidebar() {
               class="min-w-0 flex-1"
               icon={<SettingsIcon />}
               label="Settings"
-              // I-149: a quiet dot when a newer Glade is on main (Settings → About says more).
+              // I-149: a quiet dot when a newer Glade is on main (Settings → General says more).
               badge={updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
               onSelect={() => navigate(routes.settings())}
               trailing={<Kbd keys="⌘," class="border-0 bg-transparent" />}

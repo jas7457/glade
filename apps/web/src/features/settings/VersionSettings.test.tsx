@@ -1,4 +1,4 @@
-/** I-149: Settings → About (build line, each check state, Check Now, the update command) and the Settings dots. */
+/** I-149/I-160: the "Glade" group at the top of Settings → General (build line, each check state, Check Now, the update command) and the Settings dots. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import type { BuildInfo, VersionStatus } from "@glade/protocol";
@@ -20,7 +20,7 @@ import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@/ui";
 import { SettingsNav } from "./SettingsNav";
 import { versionStatus } from "@/state/version";
-import { AboutSettings } from "./AboutSettings";
+import { VersionSettings } from "./VersionSettings";
 
 const BUILD: BuildInfo = { commit: "1f00e8a".padEnd(40, "0"), shortCommit: "1f00e8a", builtAt: "2026-09-27T10:00:00.000Z", dirty: true, repoPath: "/src/glade", kind: "release" };
 const at = "2026-09-27T12:00:00.000Z";
@@ -29,7 +29,7 @@ const status = (check: VersionStatus["check"]): VersionStatus => ({ build: BUILD
 function renderAbout() {
   return render(
     <TooltipProvider>
-      <AboutSettings />
+      <VersionSettings />
     </TooltipProvider>,
   );
 }
@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("About", () => {
+describe("General → Glade", () => {
   it("shows the build, local changes, the update command and the quit hint", async () => {
     server.status = status({ state: "up-to-date", checkedAt: at });
     renderAbout();
@@ -85,7 +85,7 @@ describe("About", () => {
 });
 
 describe("Settings nav dot", () => {
-  it("marks About only when a newer Glade is on main", () => {
+  it("marks General only when a newer Glade is on main (I-160)", () => {
     versionStatus.value = status({ state: "up-to-date", checkedAt: at });
     const { rerender } = render(
       <MemoryRouter>
@@ -99,6 +99,6 @@ describe("Settings nav dot", () => {
         <SettingsNav />
       </MemoryRouter>,
     );
-    expect(screen.getByLabelText("Update available").closest("button")!.textContent).toContain("About");
+    expect(screen.getByLabelText("Update available").closest("button")!.textContent).toContain("General");
   });
 });

@@ -11,6 +11,7 @@ import { isAgentEnabled, type AgentCatalogEntry, type PairingInvite, type PairRe
 import { AcpHarnessProvider } from "../src/harness/acp/acp-harness.js";
 import { acpAgentConfigs, buildAgentCatalog } from "../src/harness/agent-catalog.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
+import { PiHarness } from "../src/harness/pi/pi-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { cachedWhich, findExecutable } from "../src/harness/which.js";
 import { createApp } from "../src/http/app.js";
@@ -49,15 +50,25 @@ describe("detection (PATH lookup, nothing started)", () => {
     expect(calls).toBe(2);
   });
 
-  it("known ACP agents become harnesses when installed; a user's agent with the same command replaces one", () => {
-    const installed = new Set(["claude-code-acp", "gemini"]);
+  it("only Claude Code is a known ACP agent (I-159); the user's agents follow it and can't take its id", () => {
+    const installed = new Set(["claude-code-acp", "gemini", "codex-acp"]);
     const which = (c: string) => installed.has(c);
-    expect(acpAgentConfigs([], which).map((a) => [a.id, a.command, a.args.join(" ")])).toEqual([
-      ["claude-code", "claude-code-acp", ""],
-      ["gemini-cli", "gemini", "--experimental-acp"],
+    expect(acpAgentConfigs([], which).map((a) => [a.id, a.command, a.args.join(" ")])).toEqual([["claude-code", "claude-code-acp", ""]]);
+    const custom = [
+      { id: "my-gemini", name: "My Gemini", command: "/opt/bin/gemini", args: ["--acp"], env: {} },
+      { id: "claude-code", name: "Mine", command: "mine", args: [], env: {} },
+    ];
+    expect(acpAgentConfigs(custom, which).map((a) => [a.id, a.command])).toEqual([
+      ["claude-code", "claude-code-acp"],
+      ["my-gemini", "/opt/bin/gemini"],
     ]);
-    const custom = [{ id: "my-gemini", name: "My Gemini", command: "/opt/bin/gemini", args: ["--acp"], env: {} }];
-    expect(acpAgentConfigs(custom, which).map((a) => a.id)).toEqual(["my-gemini", "claude-code"]);
+  });
+
+  it("pi is always `pi` on the PATH (I-159: no executable setting)", () => {
+    const asked: string[] = [];
+    const pi = new PiHarness({ utilityCwd: tmpdir(), which: (c) => (asked.push(c), false) });
+    expect(pi.isInstalled()).toBe(false);
+    expect(asked).toEqual(["pi"]);
   });
 });
 
@@ -127,25 +138,47 @@ describe("offered agents", () => {
     expect(open).toHaveBeenCalled();
   });
 
-  it("the catalog lists every agent: installed or not, enabled, offered, install links", () => {
-    const { store, registry, service } = setup({ gemini: true });
-    service.updateSettings({ agents: { "acp-gemini-cli": { enabled: false } } });
+  it("the catalog lists only the built-in agents and Claude Code, with what it looked for; no install advice (I-159)", () => {
+    const { store, registry } = setup({ gemini: true, "codex-acp": true });
     const catalog = buildAgentCatalog({ harnesses: registry, settings: store().getSettings() as Settings });
     const byId = new Map(catalog.map((e) => [e.id, e] as [string, AgentCatalogEntry]));
-    expect([...byId.keys()]).toEqual(["alpha", "beta", "acp-gemini-cli", "acp-claude-code", "acp-codex"]);
-    expect(byId.get("alpha")).toMatchObject({ kind: "builtin", installed: true, enabled: true, offered: true, isDefault: true });
-    expect(byId.get("acp-gemini-cli")).toMatchObject({ kind: "known", installed: true, enabled: false, offered: false, command: "gemini --experimental-acp" });
-    expect(byId.get("acp-claude-code")).toMatchObject({ kind: "known", installed: false, offered: false });
-    expect(byId.get("acp-claude-code")!.installUrl).toMatch(/^https:\/\//);
+    expect([...byId.keys()]).toEqual(["alpha", "beta", "acp-claude-code"]);
+    expect(byId.get("alpha")).toMatchObject({ kind: "builtin", installed: true, enabled: true, offered: true, isDefault: true, lookedFor: [] });
+    expect(byId.get("acp-claude-code")).toEqual({
+      id: "acp-claude-code",
+      label: "Claude Code",
+      kind: "known",
+      command: "claude-agent-acp",
+      lookedFor: ["claude-agent-acp", "claude-code-acp"],
+      installed: false,
+      enabled: true,
+      offered: false,
+      isDefault: false,
+    });
+  });
+
+  it("Claude Code: not found → not offered; found later → offered with the stored preference", () => {
+    const installed: Record<string, boolean> = {};
+    const { store, registry, service } = setup(installed);
+    const catalog = () => buildAgentCatalog({ harnesses: registry, settings: store().getSettings() as Settings }).find((e) => e.id === "acp-claude-code")!;
+    expect(catalog()).toMatchObject({ installed: false, offered: false });
+    installed["claude-agent-acp"] = true;
+    expect(catalog()).toMatchObject({ installed: true, enabled: true, offered: true, command: "claude-agent-acp" });
+    expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta", "acp-claude-code"]);
+    service.updateSettings({ agents: { "acp-claude-code": { enabled: false } } });
+    expect(catalog()).toMatchObject({ installed: true, enabled: false, offered: false });
     expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta"]);
   });
 
-  it("custom ACP agents that aren't installed are listed but not offered", () => {
-    const { service } = setup();
-    service.updateSettings({ harnesses: { acp: { agents: [{ id: "mine", name: "Mine", command: "mine-acp", args: [], env: {} }] } } });
+  it("custom ACP agents are kept in the settings but never listed or offered, even when installed or turned on (I-159)", () => {
+    const { service, registry } = setup({ "mine-acp": true });
+    const mine = { id: "mine", name: "Mine", command: "mine-acp", args: [], env: {} };
+    service.updateSettings({ harnesses: { acp: { agents: [mine] } }, agents: { "acp-mine": { enabled: true } } });
     expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta"]);
-    const mine = service.agentCatalog().find((e) => e.id === "acp-mine");
-    expect(mine).toMatchObject({ kind: "custom", installed: false, offered: false, command: "mine-acp" });
+    expect(service.agentCatalog().map((e) => e.id)).toEqual(["alpha", "beta", "acp-claude-code"]);
+    expect(service.getSettings().harnesses.acp.agents).toEqual([mine]);
+    expect(registry.get("acp-mine")).toBeDefined(); // its old chats stay readable
+    expect(isAgentEnabled(service.getSettings(), "acp-mine")).toBe(false);
   });
 
   it("models are tagged with the harness that lists them", async () => {
@@ -231,6 +264,10 @@ describe("settings are changed on the device only (HTTP)", () => {
       expect(await res.json()).toMatchObject({ code: "local_only", error: expect.stringContaining("Change this on") });
     }
     expect(service.getSettings().agents).toEqual({});
+    // The look is the exception (I-155), which is now only the theme (I-161).
+    expect((await call("PATCH", "/api/settings", { token, remote: true, body: { appearance: { theme: "dark" } } })).status).toBe(200);
+    expect(service.getSettings().appearance).toEqual({ theme: "dark" });
+    expect((await call("PATCH", "/api/settings", { token, remote: true, body: { appearance: { theme: "light" }, general: { generateTitles: false } } })).status).toBe(403);
     // The host itself can.
     expect((await call("PATCH", "/api/settings", { body: { agents: { fake: { enabled: false } } } })).status).toBe(200);
     expect(service.getSettings().agents).toEqual({ fake: { enabled: false } });

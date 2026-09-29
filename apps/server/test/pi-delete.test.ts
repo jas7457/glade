@@ -13,7 +13,6 @@ describe("PiHarness.deleteSession", () => {
     const file = join(dir, "session.jsonl");
     writeFileSync(file, "{}\n");
     const harness = new PiHarness({
-      config: () => ({ piPath: "pi", extraArgs: [], autoCompaction: true, autoRetry: true }),
       utilityCwd: root,
     });
     await harness.deleteSession(file);

@@ -240,9 +240,6 @@
 [data-agent-color="violet"] { --pi-agent: var(--pi-agent-violet); }
 [data-agent-color="pink"] { --pi-agent: var(--pi-agent-pink); }
 
-[data-font-size="small"] { --pi-font-size: 12px; }
-[data-font-size="large"] { --pi-font-size: 14px; }
-
 @layer base {
   html,
   body,

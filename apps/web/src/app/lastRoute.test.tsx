@@ -22,7 +22,7 @@ describe("restorableRoute", () => {
     expect(restorableRoute("/projects/p/chats/w?tab=s2", data())).toBe("/projects/p/chats/w?tab=s2");
     expect(restorableRoute("/chats/solo", data())).toBe("/chats/solo");
     expect(restorableRoute("/projects/p", data())).toBe("/projects/p");
-    expect(restorableRoute("/settings/appearance", data())).toBe("/settings/appearance");
+    expect(restorableRoute("/settings/remote", data())).toBe("/settings/remote");
   });
   it("drops deleted chats/projects, unknown pages, home and garbage", () => {
     expect(restorableRoute("/projects/p/chats/gone?tab=x", data())).toBeNull();

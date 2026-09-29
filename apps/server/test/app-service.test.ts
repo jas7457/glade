@@ -200,10 +200,11 @@ describe("workspaces (single session)", () => {
   });
 
   it("reopens a persisted session with its transcript", async () => {
+    // Crash-free close: evict everything with an idle limit of 0 and finishing another run.
+    await env.cleanup();
+    env = createTestEnv({ maxIdleProcesses: 0 });
     const detail = await newChat(env, { projectId: null, prompt: "remember me" });
     await flush();
-    // Crash-free close: evict everything by setting the limit to 0 and finishing another run.
-    env.service.updateSettings({ agent: { maxIdleProcesses: 0 } });
     const other = await newChat(env, { projectId: null, prompt: "other" });
     await flush();
     const ref = detail.session.sessionRef;
@@ -241,8 +242,22 @@ describe("workspaces (single session)", () => {
 });
 
 describe("session pool", () => {
-  it("evicts least recently used idle sessions beyond maxIdleProcesses", async () => {
-    env.service.updateSettings({ agent: { maxIdleProcesses: 1 } });
+  it("keeps at most 5 idle agent processes, with no setting for it (I-159)", async () => {
+    const chats = [];
+    for (let i = 0; i < 7; i++) chats.push(await newChat(env, { projectId: null }));
+    await env.service.prompt(chats.at(-1)!.sid, { text: "go" });
+    await flush();
+    expect(env.service.liveCount).toBe(5);
+    // An old stored value is ignored.
+    env.service.updateSettings({ agent: { maxIdleProcesses: 1 } } as never);
+    await env.service.prompt(chats.at(-1)!.sid, { text: "again" });
+    await flush();
+    expect(env.service.liveCount).toBe(5);
+  });
+
+  it("evicts least recently used idle sessions beyond the limit", async () => {
+    await env.cleanup();
+    env = createTestEnv({ maxIdleProcesses: 1 });
     const a = await newChat(env, { projectId: null });
     const b = await newChat(env, { projectId: null });
     const c = await newChat(env, { projectId: null });
@@ -258,7 +273,8 @@ describe("session pool", () => {
   });
 
   it("never evicts running or viewed sessions", async () => {
-    env.service.updateSettings({ agent: { maxIdleProcesses: 0 } });
+    await env.cleanup();
+    env = createTestEnv({ maxIdleProcesses: 0 });
     env.harness.eventDelayMs = 5;
     const a = await newChat(env, { projectId: null });
     env.service.setViewing(a.sid, true);
@@ -301,7 +317,7 @@ describe("models + settings", () => {
 
   it("merges and broadcasts settings", () => {
     const s = env.service.updateSettings({ appearance: { theme: "dark" } });
-    expect(s.appearance).toEqual({ theme: "dark", fontSize: "medium" });
+    expect(s.appearance).toEqual({ theme: "dark" });
     expect(env.messages).toContainEqual({ type: "settings", settings: s });
   });
 });

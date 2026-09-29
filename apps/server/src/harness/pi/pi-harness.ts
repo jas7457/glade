@@ -11,7 +11,7 @@ import {
   type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
-  type PiHarnessSettings,
+  PI_COMMAND,
   type PromptRequest,
   type SessionState,
   type ShellResult,
@@ -45,8 +45,11 @@ import {
 } from "./translate.js";
 
 export interface PiHarnessOptions {
-  /** `Settings.harnesses.pi`, resolved lazily so changes apply to newly spawned processes. */
-  config: () => PiHarnessSettings;
+  /**
+   * The pi executable. Default `pi` found on the PATH (I-159: not a setting); tests point it at a
+   * stub. pi always runs with auto-compaction and auto-retry on (`PiSession.init`).
+   */
+  command?: string;
   /** Folder used for the model-listing utility process. */
   utilityCwd: string;
   log?: (msg: string) => void;
@@ -76,9 +79,13 @@ export class PiHarness implements AgentHarness {
 
   constructor(private readonly options: PiHarnessOptions) {}
 
-  /** The pi executable (`piPath`) is on the PATH / exists (I-155). */
+  /** The pi executable is on the PATH (I-155). */
   isInstalled(): boolean {
-    return (this.options.which ?? defaultWhich)(this.options.config().piPath || "pi");
+    return (this.options.which ?? defaultWhich)(this.command);
+  }
+
+  private get command(): string {
+    return this.options.command ?? PI_COMMAND;
   }
 
   async listModels(force = false): Promise<ModelInfo[]> {
@@ -151,7 +158,7 @@ export class PiHarness implements AgentHarness {
     const proc = this.spawn(options.cwd, args, { ...extension.env, ...options.env });
     const session = new PiSession(proc, this.options.log, options.cwd);
     try {
-      await session.init(this.options.config());
+      await session.init();
     } catch (err) {
       void proc.kill();
       const stderr = proc.recentStderr;
@@ -173,21 +180,18 @@ export class PiHarness implements AgentHarness {
 
   /** `pi -p` in the utility folder (or `cwd`); titles build on this (`harness/title.ts`). */
   complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
-    const { piPath } = this.options.config();
-    return piOneShot({ piPath, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, log: this.options.log });
+    return piOneShot({ piPath: this.command, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, log: this.options.log });
   }
 
   /** A throwaway `pi -p --mode json` without tools or session (I-140, `side-question.ts`). */
   answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
-    const { piPath, extraArgs } = this.options.config();
-    return piSideQuestion({ ...call, piPath, extraArgs, log: this.options.log });
+    return piSideQuestion({ ...call, piPath: this.command, log: this.options.log });
   }
 
   async dispose(): Promise<void> {}
 
   private spawn(cwd: string, args: string[], env?: Record<string, string>): PiRpcProcess {
-    const { piPath, extraArgs } = this.options.config();
-    const proc = new PiRpcProcess({ command: piPath, args: ["--mode", "rpc", ...args, ...extraArgs], cwd, env: piChildEnv(process.env, env) });
+    const proc = new PiRpcProcess({ command: this.command, args: ["--mode", "rpc", ...args], cwd, env: piChildEnv(process.env, env) });
     proc.on("stderr", (text) => this.options.log?.(`[pi ${cwd}] ${text.trimEnd()}`));
     proc.start();
     return proc;
@@ -252,11 +256,12 @@ export class PiSession implements HarnessSession {
     return this.ref;
   }
 
-  async init(config: { autoCompaction: boolean; autoRetry: boolean }): Promise<void> {
+  /** Initial state; auto-compaction and auto-retry are always on (I-159: no settings for them). */
+  async init(): Promise<void> {
     await this.refreshState();
     await Promise.all([
-      this.proc.request({ type: "set_auto_compaction", enabled: config.autoCompaction }),
-      this.proc.request({ type: "set_auto_retry", enabled: config.autoRetry }),
+      this.proc.request({ type: "set_auto_compaction", enabled: true }),
+      this.proc.request({ type: "set_auto_retry", enabled: true }),
       // Part of the initial state, so the context meter is right as soon as the chat opens.
       this.fetchStats().catch((err: Error) => this.log?.(`get_session_stats failed: ${err.message}`)),
     ]);

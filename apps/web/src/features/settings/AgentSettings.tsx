@@ -1,21 +1,19 @@
 /**
- * Settings → Agents (`/settings/agent`, I-155): harness-independent settings (the agent new chats
- * use, sub-agents on/off, idle processes), then one card per agent this device knows about: pi,
- * the well-known ACP agents (Claude Code, Gemini CLI, Codex) and the ACP agents the user added.
- * Each card says whether the agent is installed here, has its Enable switch (only enabled +
- * installed agents are offered, to this device and to every device using it), its own settings
- * (pi's options, an ACP agent's command), and an install link when it's missing.
+ * Settings → Agents (`/settings/agent`, I-155, I-159): harness-independent settings (the agent new
+ * chats use, sub-agents on/off), then one card per agent this device can run: pi and Claude Code.
+ * Each card says whether the agent was found here and has its Enable switch (only enabled +
+ * installed agents are offered, to this device and to every device using it). When the agent's
+ * command isn't on the PATH, the switch is off and disabled, with the commands looked for.
+ * No install advice, no per-agent options (pi is always `pi` on the PATH, I-159).
  *
  * The list comes from `GET /api/agent-catalog`; until it loads (or on an older server) it's
- * derived from the harness list and the ACP settings.
+ * derived from the harness list.
  */
-import { useEffect, useState } from "preact/hooks";
-import { Pencil, Trash2 } from "lucide-preact";
-import { acpHarnessId, isAgentEnabled, type AgentCatalogEntry, type Settings } from "@glade/protocol";
-import { FormGroup, FormRow, IconButton, Select, StatusDot, Switch } from "@/ui";
+import { useEffect } from "preact/hooks";
+import { PI_COMMAND, isCustomAcpHarness, knownAcpAgentFor, type AgentCatalogEntry } from "@glade/protocol";
+import { FormGroup, FormRow, Select, StatusDot, Switch } from "@/ui";
 import {
   hostDefaultHarness as defaultHarness,
-  hostDeviceName,
   hostEnvId,
   hostHarnesses as harnesses,
   hostSettings as settings,
@@ -24,36 +22,40 @@ import {
 } from "@/state/host-settings";
 import { agentCatalogOf, loadAgentCatalog } from "@/state/agent-catalog";
 import { agentSettingsKey } from "@/state/store";
-import { AcpAgentDialog, AcpSettings, acpAgentConfig, joinArgs, removeAcpAgent } from "./AcpSettings";
-import { CommitField } from "./CommitField";
-import { PI_SETTINGS_FOOTER, PiSettingsRows } from "./PiSettings";
 
-export { parseArgs } from "./PiSettings";
-
-/** The catalog before `GET /api/agent-catalog` answers: the offered harnesses plus the user's ACP agents. */
-export function fallbackCatalog(s: Settings, offered: readonly { id: string; label: string; isDefault: boolean }[] | null): AgentCatalogEntry[] {
-  const out: AgentCatalogEntry[] = (offered ?? [{ id: "pi", label: "pi", isDefault: true }]).map((h) => ({
-    id: h.id,
-    label: h.label,
-    kind: h.id.startsWith("acp-") ? "custom" : "builtin",
-    command: h.id === "pi" ? s.harnesses.pi.piPath : null,
-    installed: true,
-    enabled: true,
-    offered: true,
-    isDefault: h.isDefault,
-  }));
-  for (const a of s.harnesses.acp?.agents ?? []) {
-    const id = acpHarnessId(a.id);
-    const known = out.find((e) => e.id === id);
-    const entry = { kind: "custom" as const, command: joinArgs([a.command, ...a.args]), label: a.name };
-    if (known) Object.assign(known, entry);
-    else out.push({ id, ...entry, installed: true, enabled: isAgentEnabled(s, id), offered: isAgentEnabled(s, id), isDefault: false });
-  }
-  return out;
+/** The catalog before `GET /api/agent-catalog` answers: the offered harnesses (never the user's own ACP agents). */
+export function fallbackCatalog(offered: readonly { id: string; label: string; isDefault: boolean }[] | null): AgentCatalogEntry[] {
+  return (offered ?? [{ id: "pi", label: "pi", isDefault: true }])
+    .filter((h) => !isCustomAcpHarness(h.id))
+    .map((h) => {
+      const known = knownAcpAgentFor(h.id);
+      const pi = h.id === "pi";
+      return {
+        id: h.id,
+        label: h.label,
+        kind: known ? "known" : "builtin",
+        command: pi ? PI_COMMAND : null,
+        lookedFor: known ? [...known.commands] : pi ? [PI_COMMAND] : [],
+        installed: true,
+        enabled: true,
+        offered: true,
+        isDefault: h.isDefault,
+      };
+    });
 }
 
-function statusOf(entry: AgentCatalogEntry, device: string): { tone: "on" | "off" | "error"; text: string } {
-  if (!entry.installed) return { tone: "error", text: `Not found on ${device}` };
+/** "`a`", "`a` or `b`", "`a`, `b` or `c`". */
+function commandList(commands: readonly string[]) {
+  const code = (c: string) => (
+    <code key={c} class="font-mono text-[0.9rem]">
+      {c}
+    </code>
+  );
+  return commands.flatMap((c, i) => (i === 0 ? [code(c)] : [i === commands.length - 1 ? " or " : ", ", code(c)]));
+}
+
+function statusOf(entry: AgentCatalogEntry): { tone: "on" | "off" | "error"; text: string } {
+  if (!entry.installed) return { tone: "error", text: "Not available" };
   if (!entry.enabled) return { tone: "off", text: "Installed, turned off" };
   return { tone: "on", text: entry.isDefault ? "Installed, used for new chats" : "Installed" };
 }
@@ -66,9 +68,7 @@ export function AgentSettings() {
   const key = agentSettingsKey(s);
   useEffect(() => void loadAgentCatalog(envId), [envId, key]);
   const loaded = agentCatalogOf(envId);
-  const catalog = loaded?.length ? loaded : fallbackCatalog(s, offered);
-  const [editing, setEditing] = useState<string | "new" | null>(null);
-  const device = hostDeviceName.value;
+  const catalog = loaded?.length ? loaded : fallbackCatalog(offered);
   const several = (offered?.length ?? 0) > 1;
 
   const setEnabled = async (id: string, enabled: boolean) => {
@@ -96,63 +96,34 @@ export function AgentSettings() {
         >
           <Switch aria-label="Use sub-agents" checked={a.subagents} onCheckedChange={(subagents) => void updateSettings({ agent: { subagents } })} />
         </FormRow>
-        <FormRow label="Idle agents kept running" description="Idle chats beyond this are stopped; running chats never are." htmlFor="agent-idle">
-          <CommitField
-            id="agent-idle"
-            type="number"
-            class="w-[72px] text-right"
-            value={String(a.maxIdleProcesses)}
-            validate={(v) => (/^\d+$/.test(v.trim()) && Number(v) <= 64 ? null : "Enter a number from 0 to 64")}
-            onCommit={(v) => void updateSettings({ agent: { maxIdleProcesses: Number(v) } })}
-          />
-        </FormRow>
       </FormGroup>
 
       {catalog.map((entry) => (
-        <AgentCard key={entry.id} entry={entry} device={device} onEnable={(on) => void setEnabled(entry.id, on)} onEdit={() => setEditing(entry.id.slice("acp-".length))} />
+        <AgentCard key={entry.id} entry={entry} onEnable={(on) => void setEnabled(entry.id, on)} />
       ))}
-
-      <AcpSettings onAdd={() => setEditing("new")} count={s.harnesses.acp?.agents.length ?? 0} />
-      <AcpAgentDialog
-        open={editing !== null}
-        agent={editing === "new" || editing === null ? null : (acpAgentConfig(editing) ?? null)}
-        onOpenChange={(open) => !open && setEditing(null)}
-      />
     </>
   );
 }
 
 interface AgentCardProps {
   entry: AgentCatalogEntry;
-  device: string;
   onEnable: (enabled: boolean) => void;
-  onEdit: () => void;
 }
 
-/** One agent: status, Enable switch, its settings, install link when missing. */
-function AgentCard({ entry, device, onEnable, onEdit }: AgentCardProps) {
-  const status = statusOf(entry, device);
-  const custom = entry.kind === "custom";
-  const pi = entry.id === "pi";
+/** One agent: status and Enable switch (off and disabled when its command isn't found). */
+function AgentCard({ entry, onEnable }: AgentCardProps) {
+  const status = statusOf(entry);
+  const description = !entry.installed ? (
+    entry.lookedFor.length ? (
+      <>Not found: looked for {commandList(entry.lookedFor)} on this device's PATH</>
+    ) : (
+      "Not found on this device"
+    )
+  ) : entry.command ? (
+    <span class="font-mono text-[0.9rem] [overflow-wrap:anywhere]">{entry.command}</span>
+  ) : undefined;
   return (
-    <FormGroup
-      title={entry.label}
-      footer={pi ? PI_SETTINGS_FOOTER : undefined}
-      actions={
-        <>
-          {custom && (
-            <>
-              <IconButton size="sm" label={`Edit ${entry.label}`} onClick={onEdit}>
-                <Pencil size={13} />
-              </IconButton>
-              <IconButton size="sm" label={`Remove ${entry.label}`} onClick={() => void removeAcpAgent(entry.id.slice("acp-".length))}>
-                <Trash2 size={13} />
-              </IconButton>
-            </>
-          )}
-        </>
-      }
-    >
+    <FormGroup title={entry.label}>
       <FormRow
         label={
           <span class="inline-flex items-center gap-1.5">
@@ -160,23 +131,10 @@ function AgentCard({ entry, device, onEnable, onEdit }: AgentCardProps) {
             {status.text}
           </span>
         }
-        description={entry.command && !pi ? <span class="font-mono text-[0.9rem] [overflow-wrap:anywhere]">{entry.command}</span> : undefined}
+        description={description}
       >
-        <Switch aria-label={`Enable ${entry.label}`} checked={entry.enabled} onCheckedChange={onEnable} />
+        <Switch aria-label={`Enable ${entry.label}`} checked={entry.installed && entry.enabled} disabled={!entry.installed} onCheckedChange={onEnable} />
       </FormRow>
-      {!entry.installed && (entry.installUrl || entry.installHint) && (
-        <FormRow
-          label="Install"
-          description={entry.installHint ? <span class="font-mono text-[0.9rem] [overflow-wrap:anywhere]">{entry.installHint}</span> : undefined}
-        >
-          {entry.installUrl && (
-            <a href={entry.installUrl} target="_blank" rel="noreferrer" class="text-accent hover:underline">
-              Install instructions
-            </a>
-          )}
-        </FormRow>
-      )}
-      {pi && <PiSettingsRows />}
     </FormGroup>
   );
 }

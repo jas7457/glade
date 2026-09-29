@@ -17,21 +17,17 @@ import { cn } from "@/lib/cn";
 import { connectionFor, settingsEnvironmentId } from "@/state/env-registry";
 import { GeneralSettings } from "./GeneralSettings";
 import { ModelSettings } from "./ModelSettings";
-import { AppearanceSettings } from "./AppearanceSettings";
 import { AgentSettings } from "./AgentSettings";
 import { CommandSettings } from "./CommandSettings";
 import { PromptSettings } from "./PromptSettings";
-import { AboutSettings } from "./AboutSettings";
 
 const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   general: GeneralSettings,
   models: ModelSettings,
-  appearance: AppearanceSettings,
   agent: AgentSettings,
   commands: CommandSettings,
   prompts: PromptSettings,
   remote: RemoteAccessSettings,
-  about: AboutSettings,
 };
 
 export function isSettingsSection(value: string | undefined): value is SettingsSection {
@@ -74,7 +70,7 @@ export function SettingsView({ section }: { section: SettingsSection }) {
   );
 }
 
-/** Route element for `/settings/:section`. */
+/** Route element for `/settings/:section`. Unknown and removed sections (`about`, `appearance`: I-160/I-161) open General. */
 export function SettingsRoute() {
   const { section } = useParams();
   if (!isSettingsSection(section)) return <Navigate to={routes.settings("general")} replace />;

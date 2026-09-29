@@ -1,5 +1,5 @@
 /**
- * I-154: Settings → About's Update Now (the Mac app): the button when behind, the steps while it
+ * I-154: Settings → General's Update Now (I-160) (the Mac app): the button when behind, the steps while it
  * runs, Cancel, the reason when refused, the log tail when it failed, and restarting (at once when
  * idle; asked when chats are working: when they finish / now). Also the restart decision helpers.
  */
@@ -31,7 +31,7 @@ import { TooltipProvider } from "@/ui";
 import { sessions } from "@/state/store";
 import { versionStatus } from "@/state/version";
 import { busyLocalChats, cancelRestartWait, restartChoice, restartWaiting, restartWhenIdle, updateJob, whenIdle } from "@/state/update";
-import { AboutSettings } from "./AboutSettings";
+import { VersionSettings } from "./VersionSettings";
 
 const at = "2026-09-27T12:00:00.000Z";
 const VERSION: VersionStatus = {
@@ -58,7 +58,7 @@ function session(id: string, status: SessionSummary["status"], extra: Partial<Se
 function renderAbout() {
   return render(
     <TooltipProvider>
-      <AboutSettings />
+      <VersionSettings />
     </TooltipProvider>,
   );
 }
@@ -94,7 +94,10 @@ describe("Update Now", () => {
     server.version = { ...VERSION, check: { state: "up-to-date", checkedAt: at } };
     server.job = job("idle");
     renderAbout();
-    await screen.findByText("Glade is up to date.");
+    await waitFor(() => expect(screen.getByTestId("version-status").textContent).toBe("Up to date"));
+    // The status row says it; no second "up to date" line and no copyable command (I-160).
+    expect(screen.queryByText("Glade is up to date.")).toBeNull();
+    expect(screen.queryByTestId("update-command")).toBeNull();
     expect(screen.queryByRole("button", { name: "Update Now" })).toBeNull();
   });
 

@@ -40,7 +40,7 @@ describe("updateSettings", () => {
     const done = updateSettings({ appearance: { theme: "dark" } });
     expect(settings.value.appearance.theme).toBe("dark");
     expect(mocked.updateSettings).toHaveBeenCalledWith({ appearance: { theme: "dark" } });
-    const server = mergeSettings(defaultSettings(), { appearance: { theme: "dark", fontSize: "large" } });
+    const server = mergeSettings(defaultSettings(), { appearance: { theme: "dark" }, general: { generateTitles: false } });
     resolve(server);
     expect(await done).toBe(true);
     expect(settings.value).toEqual(server);

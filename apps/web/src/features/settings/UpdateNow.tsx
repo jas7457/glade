@@ -1,5 +1,5 @@
 /**
- * Settings → About → Updating in the Mac app (I-154): Update Now when a newer Glade is on main,
+ * Settings → General → Glade in the Mac app (I-154, I-160): Update Now when a newer Glade is on main,
  * the job's steps with their live state, Cancel (before the install step), a collapsible log and
  * the reason when it refused or failed. Once installed: "Restart Glade to finish", which asks
  * first when chats are working ("Restart When Chats Finish" / "Restart Now").
@@ -36,7 +36,8 @@ export function UpdateNow({ job, behind }: { job: UpdateJobStatus; behind: boole
             Cancel
           </Button>
         </FormRow>
-      ) : (
+      ) : !behind && !started ? null : (
+        // Up to date and nothing ran: the status row above already says so.
         <FormRow
           label={behind ? "A newer Glade is on main." : "Glade is up to date."}
           description={behind ? "Pulls main, installs dependencies and builds the app in the repo folder. It takes a few minutes." : undefined}

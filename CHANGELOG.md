@@ -166,6 +166,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Settings are simpler: General opens with your Glade version and Update Now, then the theme;
+  the About and Appearance pages and the Text size setting are gone. Agents lists only pi and
+  Claude Code, and an agent that isn't installed can't be switched on (it says what Glade looked
+  for). The pi path, extra arguments, auto-compaction, auto-retry and idle-agent settings are gone
+  (compaction and retry are always on).
 - Settings lists Agents before Models, since the agents decide which models there are.
 - Images (screenshots, pasted pictures) are stored as files next to the database instead of
   inside it, so the database stays small (yours: about 60 MB → 13 MB). Existing images are moved

@@ -46,7 +46,12 @@ export interface AppServiceOptions {
   leaseScanMs?: number;
   /** Attached files (I-090). Default: `<dataDir>/attachments`. */
   attachments?: AttachmentStore;
+  /** Idle agent processes kept alive (I-159: not a setting; default {@link MAX_IDLE_PROCESSES}; tests lower it). */
+  maxIdleProcesses?: number;
 }
+
+/** The live pool keeps at most this many idle agent processes (I-159); working ones are never stopped. */
+export const MAX_IDLE_PROCESSES = 5;
 
 export interface LiveSession {
   /** The harness running it (`Session.harness`). */

@@ -253,12 +253,11 @@ export interface Settings {
   };
   appearance: {
     theme: "system" | "light" | "dark";
-    fontSize: "small" | "medium" | "large";
+    // `fontSize` (Text size) was removed in I-161: the app uses the default size.
   };
   /** Harness-independent agent settings. */
   agent: {
-    /** Maximum number of idle agent processes kept alive. Running ones are never killed. */
-    maxIdleProcesses: number;
+    // `maxIdleProcesses` was removed in I-159: the live pool keeps at most 5 idle agent processes.
     /**
      * Harness id new chats use (I-064). `null` (or an id that isn't installed) = the server's
      * default harness (`GLADE_HARNESS`, else pi).
@@ -276,10 +275,16 @@ export interface Settings {
    * then not offered to new chats, sub-agents or other devices). Absent = on when installed.
    */
   agents: import("./agent-catalog.js").AgentSwitches;
-  /** Per-harness settings (I-066), keyed by harness id. Before I-066 pi's lived in `agent`. */
+  /**
+   * Per-harness settings (I-066), keyed by harness id. pi's (`piPath`, `extraArgs`,
+   * `autoCompaction`, `autoRetry`) were removed in I-159: pi is always `pi` on the PATH, started
+   * with auto-compaction and auto-retry on.
+   */
   harnesses: {
-    pi: PiHarnessSettings;
-    /** ACP agents the user added (I-119); each is its own harness (`acp-<id>`). */
+    /**
+     * ACP agents the user added (I-119). Since I-159 they are kept here but hidden and never
+     * offered (F-026 may bring them back); their old chats stay readable.
+     */
     acp: import("./acp.js").AcpHarnessSettings;
   };
   /** Slash menu (I-048). */
@@ -304,18 +309,6 @@ export interface Settings {
   };
 }
 
-/** Settings of the pi harness (`Settings.harnesses.pi`, I-066). */
-export interface PiHarnessSettings {
-  /** Path to the pi executable (or just "pi" to use PATH). */
-  piPath: string;
-  /** Extra CLI arguments passed to every pi process. */
-  extraArgs: string[];
-  /** Compact the context automatically when it fills up. */
-  autoCompaction: boolean;
-  /** Retry after transient provider errors. */
-  autoRetry: boolean;
-}
-
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
 
 export function defaultSettings(): Settings {
@@ -335,21 +328,13 @@ export function defaultSettings(): Settings {
     },
     appearance: {
       theme: "system",
-      fontSize: "medium",
     },
     agent: {
-      maxIdleProcesses: 4,
       defaultHarness: null,
       subagents: true,
     },
     agents: {},
     harnesses: {
-      pi: {
-        piPath: "pi",
-        extraArgs: [],
-        autoCompaction: true,
-        autoRetry: true,
-      },
       // No ACP agent by default: nothing is started until the user adds one (I-119).
       acp: { agents: [] },
     },

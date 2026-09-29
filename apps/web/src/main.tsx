@@ -14,7 +14,7 @@ void startEnvironments();
 startAttentionSync();
 // System notifications for chats needing input / finished / failed (I-135).
 startNotifications();
-// Is this Glade behind origin's main? (I-149: Settings → About, a dot on Settings)
+// Is this Glade behind origin's main? (I-149/I-160: top of Settings → General, a dot on Settings)
 startVersionSync();
 // Links to other sites open in the default browser, never inside the app (I-129).
 installExternalLinks();

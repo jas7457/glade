@@ -25,7 +25,7 @@ class StubProc extends EventEmitter {
 async function started(state: Record<string, unknown>) {
   const proc = new StubProc({ sessionFile: "/s.jsonl", ...state });
   const session = new PiSession(proc as unknown as PiRpcProcess, undefined, "/project", () => "/exports");
-  await session.init({ autoCompaction: true, autoRetry: true });
+  await session.init();
   return { proc, session };
 }
 
@@ -42,5 +42,15 @@ describe("PiSession.setTitle", () => {
     await session.setTitle("Planning work");
     await session.setTitle("Renamed");
     expect(proc.names()).toEqual(["Planning work", "Renamed"]);
+  });
+});
+
+describe("PiSession.init (I-159)", () => {
+  it("always turns auto-compaction and auto-retry on (no settings for them)", async () => {
+    const { proc } = await started({});
+    expect(proc.calls.filter((c) => c.type === "set_auto_compaction" || c.type === "set_auto_retry")).toEqual([
+      { type: "set_auto_compaction", enabled: true },
+      { type: "set_auto_retry", enabled: true },
+    ]);
   });
 });

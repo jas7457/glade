@@ -38,7 +38,7 @@ export function SettingsNav() {
                   key={section}
                   icon={<Icon />}
                   label={label}
-                  badge={section === "about" && updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
+                  badge={section === "general" && updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
                   selected={pathname === routes.settings(section)}
                   onSelect={() => navigate(routes.settings(section))}
                 />

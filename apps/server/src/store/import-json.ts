@@ -147,7 +147,7 @@ export function readLegacyData(dataDir: string): LegacyData {
 
 /** Stored-settings upgrades. Returns the same object when nothing changes. */
 export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  return migrateSmallModel(migratePiSettings(dropRemovedGeneral(stored)));
+  return migrateSmallModel(dropRemovedAgentSettings(dropRemovedAppearance(dropRemovedGeneral(stored))));
 }
 
 /**
@@ -180,25 +180,43 @@ export function dropRemovedGeneral(stored: DeepPartial<Settings>): DeepPartial<S
   return { ...stored, general: rest } as DeepPartial<Settings>;
 }
 
-/** pi's settings kept in `agent` before I-066. */
-const LEGACY_PI_KEYS = ["piPath", "extraArgs", "autoCompaction", "autoRetry"] as const;
+/** `appearance.fontSize` (Text size) was removed in I-161; dropped on read and on write like I-153. */
+export function dropRemovedAppearance(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+  const appearance = (stored as { appearance?: Record<string, unknown> }).appearance;
+  if (!appearance || !("fontSize" in appearance)) return stored;
+  const { fontSize: _removed, ...rest } = appearance;
+  return { ...stored, appearance: rest } as DeepPartial<Settings>;
+}
 
 /**
- * I-066: pi's settings moved from `agent` to `harnesses.pi`. Values already under
- * `harnesses.pi` win (e.g. written by a newer server while an older one still wrote `agent`).
+ * `agent` settings that no longer exist (I-159): `maxIdleProcesses` (fixed at 5), and pi's
+ * `piPath`, `extraArgs`, `autoCompaction`, `autoRetry`, kept here before I-066 moved them to
+ * `harnesses.pi`.
  */
-function migratePiSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+const REMOVED_AGENT_KEYS = ["maxIdleProcesses", "piPath", "extraArgs", "autoCompaction", "autoRetry"] as const;
+
+/**
+ * I-159: drop the removed agent settings (see above) and pi's settings (`harnesses.pi`: pi is
+ * always `pi` on the PATH, with auto-compaction and auto-retry on). Applied on read and to the
+ * stored overrides before each write, like {@link dropRemovedGeneral}.
+ */
+export function dropRemovedAgentSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
   const agent = (stored as { agent?: Record<string, unknown> }).agent;
-  if (!agent || !LEGACY_PI_KEYS.some((k) => k in agent)) return stored;
-  const rest: Record<string, unknown> = { ...agent };
-  const moved: Record<string, unknown> = {};
-  for (const key of LEGACY_PI_KEYS) {
-    if (key in rest) moved[key] = rest[key];
-    delete rest[key];
+  const harnesses = (stored as { harnesses?: Record<string, unknown> }).harnesses;
+  const agentHit = !!agent && REMOVED_AGENT_KEYS.some((k) => k in agent);
+  const piHit = !!harnesses && "pi" in harnesses;
+  if (!agentHit && !piHit) return stored;
+  const next: Record<string, unknown> = { ...stored };
+  if (agentHit) {
+    const rest: Record<string, unknown> = { ...agent };
+    for (const key of REMOVED_AGENT_KEYS) delete rest[key];
+    next.agent = rest;
   }
-  const harnesses = (stored as { harnesses?: Record<string, Record<string, unknown>> }).harnesses ?? {};
-  const pi = { ...moved, ...harnesses.pi };
-  return { ...stored, agent: rest, harnesses: { ...harnesses, pi } } as DeepPartial<Settings>;
+  if (piHit) {
+    const { pi: _removed, ...rest } = harnesses!;
+    next.harnesses = rest;
+  }
+  return next as DeepPartial<Settings>;
 }
 
 /**

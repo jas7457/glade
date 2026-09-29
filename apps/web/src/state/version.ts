@@ -1,7 +1,7 @@
 /**
  * "Is this Glade behind?" (I-149): the local server's build stamp and its last behind check
  * (`GET /api/version`, checked by the server at startup and every few hours), shown in
- * Settings → About and as a quiet dot on the sidebar's Settings row. Also compares other
+ * the top of Settings → General (I-160) and as a quiet dot on the sidebar's Settings row. Also compares other
  * devices' builds with ours for Connections.
  *
  * Portable client core (F-022): the text helpers are pure.
@@ -86,7 +86,7 @@ export function buildLine(build: BuildInfo, locale?: string): string {
 
 export type VersionTone = "on" | "pending" | "off" | "error";
 
-/** The About page's status line. */
+/** The status line at the top of Settings → General. */
 export function checkText(status: VersionStatus | null): { text: string; tone: VersionTone; detail?: string } {
   const check = status?.check;
   if (!status?.build) return { text: "Unknown build", tone: "off", detail: "This app doesn't know which commit it was built from." };

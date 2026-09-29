@@ -22,7 +22,6 @@ export type SpawnFn = (command: string, args: string[], options: { cwd: string; 
 
 export interface PiSideQuestionOptions extends SideQuestionCall {
   piPath: string;
-  extraArgs?: string[];
   /** Injectable for tests (default: `child_process.spawn`). */
   spawn?: SpawnFn;
   /** Overall limit (default 3 minutes). */
@@ -30,11 +29,11 @@ export interface PiSideQuestionOptions extends SideQuestionCall {
   log?: (msg: string) => void;
 }
 
-export function sideQuestionArgs(systemPrompt: string, model: SideQuestionCall["model"], extraArgs: string[] = []): string[] {
+export function sideQuestionArgs(systemPrompt: string, model: SideQuestionCall["model"]): string[] {
   const args = ["-p", "--mode", "json", "--no-session", "--no-tools", "--no-skills", "--no-context-files", "--no-prompt-templates"];
   args.push("--system-prompt", systemPrompt);
   if (model) args.push("--model", modelKey(model), "--thinking", "off");
-  return [...args, ...extraArgs];
+  return args;
 }
 
 interface PiJsonEvent {
@@ -53,7 +52,7 @@ function finalText(content: unknown): string | null {
 
 /** Run one side question. Never rejects: failures resolve with `error`, a stop with the partial answer. */
 export function piSideQuestion(options: PiSideQuestionOptions): Promise<SideQuestionResult> {
-  const { piPath, extraArgs, prompt, systemPrompt, model, cwd, signal, onDelta, log } = options;
+  const { piPath, prompt, systemPrompt, model, cwd, signal, onDelta, log } = options;
   const spawn = options.spawn ?? (nodeSpawn as unknown as SpawnFn);
   return new Promise<SideQuestionResult>((resolve) => {
     let answer = "";
@@ -79,7 +78,7 @@ export function piSideQuestion(options: PiSideQuestionOptions): Promise<SideQues
     }, options.timeoutMs ?? 180_000);
     timer.unref();
     try {
-      child = spawn(piPath, sideQuestionArgs(systemPrompt, model, extraArgs), { cwd, env: piChildEnv() });
+      child = spawn(piPath, sideQuestionArgs(systemPrompt, model), { cwd, env: piChildEnv() });
     } catch (err) {
       finish({ answer: "", error: `Could not start pi: ${(err as Error).message}` });
       return;

@@ -157,7 +157,7 @@ describe("importing the JSON files (first start)", () => {
     expect(store.listProjects()).toEqual([{ id: "p1", name: "Proj", path: "/p", createdAt: 1, lastActivityAt: 5, sortOrder: 0, environmentId: store.environmentId }]); // I-123: stamped on import
     expect(store.getWorkspace("w1")?.pinOrder).toBe(0); // I-019 upgrade applied on import
     expect(store.listSessions().map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
-    expect(store.getSettings().harnesses.pi.piPath).toBe("/opt/pi"); // I-066 upgrade applied
+    expect(store.getSettings().harnesses).not.toHaveProperty("pi"); // I-159: pi's settings are gone
     expect(store.getSettingsOverrides().general).toEqual({}); // I-153: the old sendKey is dropped
     expect(store.getAgent("s3")?.systemPrompt).toBe("role");
     expect(store.getSummary("s1")?.text).toBe("Fixing things.");

@@ -130,7 +130,7 @@ process.stdin.on("data", (d) => {
   it("reports pi's default model/thinking level and lists commands per folder", async () => {
     const piPath = fakePi();
     const harness = new PiHarness({
-      config: () => ({ piPath, extraArgs: [], autoCompaction: true, autoRetry: true }),
+      command: piPath,
       utilityCwd: tmp,
     });
     expect(await harness.getDefaults()).toEqual<HarnessDefaults>({ model: { provider: "anthropic", id: "claude-opus-5-5" }, thinkingLevel: "low" });

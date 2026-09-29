@@ -236,9 +236,9 @@ export async function loadModels(refresh = false, envId?: string): Promise<void>
   await defaults;
 }
 
-/** The settings that change which harnesses an environment offers (I-119, I-155). */
+/** The settings that change which harnesses an environment offers (I-155, I-159). */
 export function agentSettingsKey(s: Settings): string {
-  return JSON.stringify([s.harnesses?.acp, s.agents ?? {}, s.agent?.defaultHarness ?? null, s.harnesses?.pi?.piPath]);
+  return JSON.stringify([s.agents ?? {}, s.agent?.defaultHarness ?? null]);
 }
 
 export function upsert<T extends { id: string }>(list: T[], item: T): T[] {

@@ -1,17 +1,15 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
-import { BookText, Cpu, Globe, Info, Palette, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
+import { BookText, Cpu, Globe, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
 import type { SettingsSection } from "@/app/routes";
 
 export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Cpu }> = {
   general: { label: "General", Icon: Settings2 },
   models: { label: "Models", Icon: Cpu },
-  appearance: { label: "Appearance", Icon: Palette },
   // Always "Agents" (I-155): the page lists every agent the device can run.
   agent: { label: "Agents", Icon: SquareTerminal },
   commands: { label: "Slash Commands", Icon: SlashSquare },
   prompts: { label: "Prompts", Icon: BookText },
   remote: { label: "Remote Access", Icon: Globe },
-  about: { label: "About", Icon: Info },
 };
 
 /**
@@ -28,6 +26,6 @@ export interface SettingsGroup {
 
 /** Sidebar categories in order. Every section must appear in exactly one group. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
-  { title: "App", sections: ["general", "appearance", "remote", "about"] },
+  { title: "App", sections: ["general", "remote"] },
   { title: "AI", sections: ["agent", "models", "commands", "prompts"] },
 ];

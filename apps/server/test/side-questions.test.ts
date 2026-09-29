@@ -235,7 +235,6 @@ describe("piSideQuestion", () => {
     const done = piSideQuestion({
       piPath: "/bin/pi",
       spawn: stub.spawn,
-      extraArgs: ["--offline"],
       prompt: "<conversation>…</conversation>\n\nSide question: why?",
       systemPrompt: "SYS",
       model: { provider: "anthropic", id: "claude-haiku-4-5" },
@@ -262,7 +261,6 @@ describe("piSideQuestion", () => {
         "anthropic/claude-haiku-4-5",
         "--thinking",
         "off",
-        "--offline",
       ],
     });
     child.line({ type: "session", version: 3 });

@@ -118,7 +118,22 @@ describe("settings migration", () => {
     expect(store.getSettingsOverrides().general).toEqual({ generateTitles: false });
   });
 
-  it("moves pi's settings from agent to harnesses.pi (I-066)", () => {
+  it("drops the removed Text size (appearance.fontSize) on read and on write (I-161)", () => {
+    const dir = tempDir();
+    new Store(dir, 0).flush();
+    const db = openDatabase(join(dir, DB_FILE));
+    db.prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, 1) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json").run(
+      JSON.stringify({ appearance: { theme: "dark", fontSize: "large" } }),
+    );
+    db.close();
+    const store = new Store(dir, 0);
+    expect(store.getSettings().appearance).toEqual({ theme: "dark" });
+    store.updateSettings({ appearance: { theme: "light", fontSize: "small" } } as never);
+    expect(store.getSettingsOverrides()).toEqual({ appearance: { theme: "light" } });
+    expect(store.getSettings().appearance).toEqual({ theme: "light" });
+  });
+
+  it("drops pi's settings (old agent.* and harnesses.pi) and the idle limit from an old JSON import (I-159)", () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
     writeFileSync(
       join(dir, "settings.json"),
@@ -126,20 +141,35 @@ describe("settings migration", () => {
     );
     const store = new Store(dir, 0);
     const settings = store.getSettings();
-    expect(settings.agent).toEqual({ maxIdleProcesses: 2, defaultHarness: null, subagents: true });
-    expect(settings.harnesses.pi).toEqual({ piPath: "/opt/pi", extraArgs: ["--x"], autoCompaction: true, autoRetry: false });
-    expect(store.getSettingsOverrides()).toEqual({
-      agent: { maxIdleProcesses: 2 },
-      harnesses: { pi: { piPath: "/opt/pi", extraArgs: ["--x"], autoRetry: false } },
-      general: { generateTitles: false },
-    });
+    expect(settings.agent).toEqual({ defaultHarness: null, subagents: true });
+    expect(settings.harnesses).toEqual({ acp: { agents: [] } });
+    expect(store.getSettingsOverrides()).toEqual({ agent: {}, general: { generateTitles: false } });
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("keeps values already under harnesses.pi and leaves migrated files alone", () => {
-    const migrated = migrateSettings({ agent: { piPath: "old" } as never, harnesses: { pi: { piPath: "new" } } });
-    expect(migrated).toEqual({ agent: {}, harnesses: { pi: { piPath: "new" } } });
-    const current = { agent: { maxIdleProcesses: 1 }, harnesses: { pi: { autoRetry: false } } };
+  it("ignores removed agent settings in the database and drops them on write; keeps custom ACP agents (I-159)", () => {
+    const dir = tempDir();
+    new Store(dir, 0).flush();
+    const mine = { id: "mine", name: "Mine", command: "mine-acp", args: [], env: {} };
+    const db = openDatabase(join(dir, DB_FILE));
+    db.prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, 1) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json").run(
+      JSON.stringify({
+        agent: { maxIdleProcesses: 9, subagents: false },
+        harnesses: { pi: { piPath: "/opt/pi", extraArgs: ["--x"], autoCompaction: false, autoRetry: false }, acp: { agents: [mine] } },
+      }),
+    );
+    db.close();
+    const store = new Store(dir, 0);
+    expect(store.getSettings().agent).toEqual({ defaultHarness: null, subagents: false });
+    expect(store.getSettings().harnesses).toEqual({ acp: { agents: [mine] } });
+    store.updateSettings({ models: { hiddenModels: ["a/b"] } });
+    expect(store.getSettingsOverrides()).toEqual({ agent: { subagents: false }, harnesses: { acp: { agents: [mine] } }, models: { hiddenModels: ["a/b"] } });
+    // An older client's patch doesn't bring them back either.
+    store.updateSettings({ agent: { maxIdleProcesses: 2 }, harnesses: { pi: { piPath: "x" } } } as never);
+    expect(store.getSettingsOverrides()).toMatchObject({ agent: { subagents: false }, harnesses: { acp: { agents: [mine] } } });
+    expect(store.getSettingsOverrides().harnesses).not.toHaveProperty("pi");
+    expect(store.getSettingsOverrides().agent).not.toHaveProperty("maxIdleProcesses");
+    const current = { agent: { subagents: true }, harnesses: { acp: { agents: [] } } };
     expect(migrateSettings(current)).toBe(current);
   });
 

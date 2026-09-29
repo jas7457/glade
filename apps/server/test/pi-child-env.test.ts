@@ -110,7 +110,7 @@ describe("PiHarness child environment", () => {
 
   const harness = () =>
     new PiHarness({
-      config: () => ({ piPath: join(dir, "pi"), extraArgs: [], autoCompaction: true, autoRetry: true }),
+      command: join(dir, "pi"),
       utilityCwd: dir,
     });
   const recorded = (name: string) => JSON.parse(readFileSync(join(dir, `env-${name}.json`), "utf8")) as string[];

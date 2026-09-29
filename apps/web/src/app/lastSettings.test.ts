@@ -16,10 +16,14 @@ describe("resolveLastSettings", () => {
   it("falls back to General when the section no longer exists", () => {
     expect(resolveLastSettings(JSON.stringify({ section: "agent-gone", envId: "mini" }), connected)).toEqual({ section: "general", envId: null });
   });
+  it("falls back to General for the removed About and Appearance pages (I-160, I-161)", () => {
+    expect(resolveLastSettings(JSON.stringify({ section: "about", envId: null }))).toEqual({ section: "general", envId: null });
+    expect(resolveLastSettings(JSON.stringify({ section: "appearance", envId: null }))).toEqual({ section: "general", envId: null });
+  });
   it("keeps the section, and its environment only while connected", () => {
     expect(resolveLastSettings(JSON.stringify({ section: "prompts", envId: "mini" }), connected)).toEqual({ section: "prompts", envId: "mini" });
     expect(resolveLastSettings(JSON.stringify({ section: "prompts", envId: "gone" }), connected)).toEqual({ section: "prompts", envId: null });
-    expect(resolveLastSettings(JSON.stringify({ section: "appearance", envId: null }), connected)).toEqual({ section: "appearance", envId: null });
+    expect(resolveLastSettings(JSON.stringify({ section: "remote", envId: null }), connected)).toEqual({ section: "remote", envId: null });
   });
 });
 

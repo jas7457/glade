@@ -18,7 +18,7 @@ import {
 import type { AgentHarness, HarnessSession } from "../../harness/types.js";
 import { exitedText } from "../agents.js";
 import { externalizeImages } from "../../store/images.js";
-import type { AppContext, LiveSession } from "./context.js";
+import { MAX_IDLE_PROCESSES, type AppContext, type LiveSession } from "./context.js";
 import { ActiveElsewhereError } from "./errors.js";
 import type { Records } from "./records.js";
 import { isFlushPoint, MessageIds, TranscriptWriter } from "./transcript-writer.js";
@@ -389,9 +389,9 @@ export class LivePool {
     for (const live of this.ctx.live.values()) live.writer.flush();
   }
 
-  /** Keep at most `maxIdleProcesses` idle sessions alive (least recently used go first). */
+  /** Keep at most {@link MAX_IDLE_PROCESSES} (5) idle sessions alive (least recently used go first). */
   private evictIdle(keepId?: string): void {
-    const max = this.ctx.store.getSettings().agent.maxIdleProcesses;
+    const max = this.ctx.options.maxIdleProcesses ?? MAX_IDLE_PROCESSES;
     const idle = [...this.ctx.live.entries()]
       .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && l.sideQuestions.size === 0 && !this.ctx.viewers.has(id))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);

@@ -42,7 +42,8 @@ export const routes = {
   settings: (section?: SettingsSection) => (section ? `/settings/${section}` : "/settings"),
 };
 
-export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent", "commands", "prompts", "remote", "about"] as const;
+// `about` and `appearance` were folded into General (I-160, I-161); their old links open General.
+export const SETTINGS_SECTIONS = ["general", "models", "agent", "commands", "prompts", "remote"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**

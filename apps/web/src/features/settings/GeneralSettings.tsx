@@ -1,15 +1,21 @@
+/** Settings → General: Glade's version and updates, the theme, then chats, notifications and the app. */
 import { Button, FormGroup, FormRow, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
 import { hasLocalEnvironment } from "@/state/env-registry";
 import { isDesktop } from "@/lib/desktop";
 import { DesktopAppSettings, KeepAwakeSettings } from "./DesktopAppSettings";
+import { ThemeSettings, VersionSettings } from "./VersionSettings";
 import { notificationPermission, notificationPrefs, requestNotificationPermission, updateNotificationPrefs, type NotificationPrefs } from "@/state/notifications";
 
 export function GeneralSettings() {
   const g = settings.value.general;
   return (
     <>
+      {/* I-160/I-161: the version check first, then the theme (the About and Appearance pages are gone). */}
+      <VersionSettings />
+      <ThemeSettings />
+
       <FormGroup title="Chats">
         <FormRow label="Generate chat titles" description="Name new chats with a model after the first message.">
           <Switch

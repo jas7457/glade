@@ -13,7 +13,6 @@ import { models, settings, workspaces } from "@/state/store";
 import { harnesses } from "@/state/harnesses";
 import { makeWorkspace } from "@/test/fixtures";
 import { SettingsIndexRoute, SettingsRoute } from "./SettingsView";
-import { parseArgs } from "./AgentSettings";
 import { groupModels } from "./ModelSettings";
 import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_GROUPS } from "./sections";
@@ -83,10 +82,29 @@ describe("settings", () => {
     expect(screen.queryByRole("radio", { name: "Follow-up" })).toBeNull();
   });
 
-  it("Appearance: theme", () => {
-    renderAt("/settings/appearance");
+  it("General: the theme switcher (I-161), and no Text size", () => {
+    renderAt("/settings/general");
+    expect(screen.getByText("Follows your macOS appearance.")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: /Dark/ }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ appearance: { theme: "dark" } });
+    expect(screen.queryByText("Text size")).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Text size" })).toBeNull();
+  });
+
+  it("General: the Glade version group comes first, then the theme (I-160, I-161)", () => {
+    const { container } = renderAt("/settings/general");
+    const titles = [...container.querySelectorAll("h2")].map((h) => h.textContent);
+    expect(titles[0]).toBe("Glade");
+    const glade = screen.getByRole("heading", { name: "Glade" });
+    const theme = screen.getByRole("radiogroup", { name: "Theme" });
+    const chats = screen.getByRole("heading", { name: "Chats" });
+    expect(glade.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(theme.compareDocumentPosition(chats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(["about", "appearance"])("the removed /settings/%s opens General (I-160, I-161)", (section) => {
+    renderAt(`/settings/${section}`);
+    expect(screen.getByRole("heading", { level: 1, name: "General" })).toBeTruthy();
   });
 
   it("Agent: 'Use sub-agents' is on by default and saves when toggled (I-116)", () => {
@@ -98,16 +116,15 @@ describe("settings", () => {
     expect(settings.value.agent.subagents).toBe(false);
   });
 
-  it("Agent: extra args are split on whitespace when committed", () => {
+  it("Agent: no pi executable, extra arguments, auto-compaction, auto-retry or idle settings (I-159)", () => {
     renderAt("/settings/agent");
-    const field = screen.getByLabelText("Extra arguments") as HTMLInputElement;
-    fireEvent.input(field, { target: { value: " --foo  bar " } });
-    expect(mocked.updateSettings).not.toHaveBeenCalled();
-    leave(field);
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ harnesses: { pi: { extraArgs: ["--foo", "bar"] } } });
+    for (const label of ["pi executable", "Extra arguments", "Auto-compaction", "Auto-retry", "Idle agents kept running"]) {
+      expect(screen.queryByLabelText(label), label).toBeNull();
+      expect(screen.queryByText(label), label).toBeNull();
+    }
   });
 
-  it("Agent: titled after the harness; pi's settings only when pi is installed (I-066)", () => {
+  it("Agent: a card per harness, titled after it (I-066)", () => {
     const { unmount } = renderAt("/settings/agent");
     expect(screen.getByRole("heading", { name: "pi" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Agent for new chats" })).toBeNull();
@@ -115,8 +132,6 @@ describe("settings", () => {
     harnesses.value = [harness("fake", "Fake agent", { isDefault: true })];
     renderAt("/settings/agent");
     expect(screen.getByRole("heading", { name: "Fake agent" })).toBeTruthy();
-    expect(screen.queryByLabelText("pi executable")).toBeNull();
-    expect(screen.getByLabelText("Idle agents kept running")).toBeTruthy();
   });
 
   it("Agent: with several harnesses, pick the one for new chats and see each one's settings", () => {
@@ -125,14 +140,6 @@ describe("settings", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "pi" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agent for new chats" }).textContent).toContain("pi");
-  });
-
-  it("Agent: invalid idle count is not saved", () => {
-    renderAt("/settings/agent");
-    const field = screen.getByLabelText("Idle agents kept running") as HTMLInputElement;
-    fireEvent.input(field, { target: { value: "abc" } });
-    leave(field);
-    expect(mocked.updateSettings).not.toHaveBeenCalled();
   });
 
   it("Models: hiding a model", () => {
@@ -183,10 +190,6 @@ describe("settings", () => {
 });
 
 describe("helpers", () => {
-  it("parseArgs", () => {
-    expect(parseArgs("  -a   b ")).toEqual(["-a", "b"]);
-    expect(parseArgs("")).toEqual([]);
-  });
   it("groupModels sorts providers and models", () => {
     const g = groupModels([
       { provider: "z", id: "1", name: "B", thinkingLevels: ["off"], input: ["text"] },
@@ -218,7 +221,9 @@ describe("settings navigation", () => {
     const app = screen.getByRole("group", { name: "App" });
     const ai = screen.getByRole("group", { name: "AI" });
     expect(app.textContent).toContain("General");
-    expect(app.textContent).toContain("Appearance");
+    // About and Appearance were folded into General (I-160, I-161).
+    expect(app.textContent).not.toContain("Appearance");
+    expect(app.textContent).not.toContain("About");
     expect(ai.textContent).toContain("Models");
     // Always "Agents" (I-155), not the harness's name.
     expect(ai.textContent).toContain("Agents");
@@ -266,16 +271,22 @@ describe("settings reopens the last section (I-133)", () => {
 
   it("a deep link to a section still wins (and becomes the remembered one)", async () => {
     localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "prompts", envId: null }));
-    const router = renderRouter("/settings/appearance");
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Appearance" })).toBeTruthy());
+    const router = renderRouter("/settings/remote");
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Remote Access" })).toBeTruthy());
     await act(() => router.navigate("/settings"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/appearance"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/remote"));
   });
 
   it("falls back to General when the remembered section is gone, and to this machine when its environment is", async () => {
     localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "nope", envId: null }));
     const router = renderRouter("/settings");
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
+    // The removed About / Appearance pages (I-160, I-161).
+    for (const section of ["about", "appearance"]) {
+      localStorage.setItem("glade.lastSettings", JSON.stringify({ section, envId: null }));
+      await act(() => router.navigate("/settings"));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
+    }
     localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "models", envId: "gone" }));
     settingsEnvironmentId.value = "stale";
     await act(() => router.navigate("/settings"));

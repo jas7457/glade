@@ -4,8 +4,8 @@
  * sections (Models, Agents, …) also the environment picked in its switcher. Opening Settings
  * without a section (`/settings`: ⌘,, the sidebar button, the palette, `/settings` in the
  * composer) goes back there; a link to a specific section always wins. A remembered section that
- * no longer exists falls back to General; a remembered environment that isn't connected falls
- * back to this machine.
+ * no longer exists (About, Appearance: folded into General by I-160/I-161) falls back to General;
+ * a remembered environment that isn't connected falls back to this machine.
  */
 import { SETTINGS_SECTIONS, type SettingsSection } from "./routes";
 import { readStored, writeStored } from "@/state/ui";
