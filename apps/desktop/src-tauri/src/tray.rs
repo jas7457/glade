@@ -1,4 +1,4 @@
-//! The menu bar icon (I-150): a template image showing working / needs you / sharing, and a menu:
+//! The menu bar icon (I-150): Glade's leaf as a template image (one icon, no status badges), and a menu:
 //!
 //!   N chats working            (opens one)        ← from the server (`shell_state.rs`)
 //!   N chats need you           (opens one)
@@ -7,12 +7,13 @@
 //!   ─────
 //!   Open Glade                                    (the window, at the screen it was on)
 //!   New Chat
+//!   Settings…
 //!   ─────
 //!   Keeping this Mac awake: 2 chats are working   (I-147, info only)
 //!   ─────
 //!   Quit Glade Completely                         (with the running-chats check)
 //!
-//! `menu_model` and `icon_name` are pure (tested); `refresh` rebuilds the native menu from them.
+//! `menu_model` is pure (tested); `refresh` rebuilds the native menu from them.
 //! Clicks arrive through the app-wide menu handler (`menu::handle` → `handle`, ids `tray-*`).
 
 use std::time::Duration;
@@ -32,6 +33,7 @@ pub const NEEDS_YOU: &str = "tray-needs-you";
 pub const SHARING: &str = "tray-sharing";
 pub const OPEN: &str = "tray-open";
 pub const NEW_CHAT: &str = "tray-new-chat";
+pub const SETTINGS: &str = "tray-settings";
 pub const AWAKE: &str = "tray-awake";
 pub const QUIT: &str = "tray-quit";
 
@@ -84,6 +86,7 @@ pub fn menu_model(state: Option<&ShellState>) -> Vec<TrayItem> {
     }
     items.push(TrayItem::Action { id: OPEN, label: "Open Glade".into(), enabled: true });
     items.push(TrayItem::Action { id: NEW_CHAT, label: "New Chat".into(), enabled: true });
+    items.push(TrayItem::Action { id: SETTINGS, label: "Settings…".into(), enabled: true });
     if let Some(s) = state.filter(|s| s.held && !s.awake_text.is_empty()) {
         items.push(TrayItem::Separator);
         items.push(TrayItem::Action { id: AWAKE, label: format!("Keeping this Mac awake: {}", s.awake_text), enabled: false });
@@ -93,28 +96,9 @@ pub fn menu_model(state: Option<&ShellState>) -> Vec<TrayItem> {
     items
 }
 
-/// Icon file stem (icons/tray/tray-<name>.png): needs you > working > idle, plus sharing arcs.
-pub fn icon_name(state: Option<&ShellState>) -> &'static str {
-    let Some(s) = state else { return "idle" };
-    match (s.sharing_on, s.needs_you > 0, s.working > 0) {
-        (false, true, _) => "needs",
-        (false, false, true) => "working",
-        (false, false, false) => "idle",
-        (true, true, _) => "sharing-needs",
-        (true, false, true) => "sharing-working",
-        (true, false, false) => "sharing",
-    }
-}
-
-fn icon(name: &str) -> Image<'static> {
-    match name {
-        "needs" => tauri::include_image!("icons/tray/tray-needs.png"),
-        "working" => tauri::include_image!("icons/tray/tray-working.png"),
-        "sharing" => tauri::include_image!("icons/tray/tray-sharing.png"),
-        "sharing-needs" => tauri::include_image!("icons/tray/tray-sharing-needs.png"),
-        "sharing-working" => tauri::include_image!("icons/tray/tray-sharing-working.png"),
-        _ => tauri::include_image!("icons/tray/tray-idle.png"),
-    }
+/// The menu bar icon: Glade's leaf (a template image, so macOS tints it for light/dark menu bars).
+fn icon() -> Image<'static> {
+    tauri::include_image!("icons/tray/tray-idle.png")
 }
 
 fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::Wry>> {
@@ -133,7 +117,7 @@ fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app, &menu_model(None))?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon("idle"))
+        .icon(icon())
         .icon_as_template(true)
         .tooltip("Glade")
         .menu(&menu)
@@ -148,8 +132,6 @@ pub fn refresh(app: &AppHandle) {
     let _ = app.run_on_main_thread(move || {
         let Some(tray) = handle.tray_by_id(TRAY_ID) else { return };
         let state = shell_state::current();
-        let _ = tray.set_icon(Some(icon(icon_name(state.as_ref()))));
-        let _ = tray.set_icon_as_template(true);
         if let Ok(menu) = build_menu(&handle, &menu_model(state.as_ref())) {
             let _ = tray.set_menu(Some(menu));
         }
@@ -168,6 +150,7 @@ pub fn handle(app: &AppHandle, id: &str) -> bool {
         NEEDS_YOU => open_with(app, "show-needs-you"),
         OPEN => focus_main(app),
         NEW_CHAT => open_with(app, "new-chat"),
+        SETTINGS => open_with(app, "settings"),
         SHARING => toggle_sharing(app),
         QUIT => crate::quit::quit_completely(app),
         AWAKE => {}
@@ -227,7 +210,7 @@ mod tests {
 
     #[test]
     fn menu_before_the_server_answers() {
-        assert_eq!(labels(&menu_model(None)), ["Open Glade", "New Chat", "—", "Quit Glade Completely"]);
+        assert_eq!(labels(&menu_model(None)), ["Open Glade", "New Chat", "Settings…", "—", "Quit Glade Completely"]);
     }
 
     #[test]
@@ -235,7 +218,7 @@ mod tests {
         let idle = state(0, 0, false, &[], false, "");
         assert_eq!(
             labels(&menu_model(Some(&idle))),
-            ["No chats working (disabled)", "—", "Sharing: off", "—", "Open Glade", "New Chat", "—", "Quit Glade Completely"]
+            ["No chats working (disabled)", "—", "Sharing: off", "—", "Open Glade", "New Chat", "Settings…", "—", "Quit Glade Completely"]
         );
         let busy = state(2, 1, true, &["iPhone"], true, "2 chats are working · iPhone is connected");
         assert_eq!(
@@ -248,6 +231,7 @@ mod tests {
                 "—",
                 "Open Glade",
                 "New Chat",
+                "Settings…",
                 "—",
                 "Keeping this Mac awake: 2 chats are working · iPhone is connected (disabled)",
                 "—",
@@ -259,16 +243,5 @@ mod tests {
         assert_eq!(l[0], "1 chat working");
         assert_eq!(l[2], "✓ Sharing: on · iPad and 2 others connected");
         assert!(!l.iter().any(|s| s.starts_with("Keeping")), "not held: no awake line");
-    }
-
-    #[test]
-    fn icon_states() {
-        assert_eq!(icon_name(None), "idle");
-        assert_eq!(icon_name(Some(&state(0, 0, false, &[], false, ""))), "idle");
-        assert_eq!(icon_name(Some(&state(1, 0, false, &[], false, ""))), "working");
-        assert_eq!(icon_name(Some(&state(1, 1, false, &[], false, ""))), "needs");
-        assert_eq!(icon_name(Some(&state(0, 0, true, &[], false, ""))), "sharing");
-        assert_eq!(icon_name(Some(&state(3, 0, true, &[], false, ""))), "sharing-working");
-        assert_eq!(icon_name(Some(&state(0, 2, true, &[], false, ""))), "sharing-needs");
     }
 }

@@ -101,7 +101,6 @@ func write(_ image: CGImage, _ name: String) {
 }
 
 try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
-for (badge, name) in [(Badge.none, "idle"), (.working, "working"), (.needs, "needs")] {
-    write(draw(badge: badge, sharing: false), name)
-    write(draw(badge: badge, sharing: true), name == "idle" ? "sharing" : "sharing-\(name)")
-}
+// Only the plain leaf is used (the user preferred it to status badges); the badge drawing stays
+// in case status icons come back.
+write(draw(badge: .none, sharing: false), "idle")
