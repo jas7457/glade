@@ -41,18 +41,51 @@ separate future app (F-025) on the same shared core.
 | Node / pnpm | Node 24.20.0, pnpm 12.3.4 |
 | Tauri | CLI `@tauri-apps/cli ^2.11.5` (in `apps/desktop`; `tauri ios init|dev|build` available), crate `tauri = "2"` |
 | Signing | No Apple ID is set up in Xcode yet. The simulator needs no signing; a real iPhone does (see §7). |
+| Xcode MCP (`xcrun mcpbridge`) | Xcode 27's built-in MCP server (53 tools: build, tests, docs search, **simulator tap/swipe/type + screenshot + UI hierarchy**). Registered for pi as server `xcode` in `~/.config/mcp/mcp.json` (loaded when a pi session starts). The user approved it in Xcode on 2026-09-28. Wrapped for scripts by `scripts/ios-sim.mjs`. |
+| Tauri iOS build | Verified 2026-09-28 end to end: `tauri ios init` → `tauri ios build --target aarch64-sim --debug` (about 55 s cold) → `simctl install/launch` → Xcode tap on a WebView button → screenshot. The fixes it needs are in §3.1. |
 
 Tauri 2 iOS prerequisites (from v2.tauri.app/start/prerequisites):
 - the full Xcode, launched once;
 - `rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim`;
 - Homebrew and `brew install cocoapods`.
 
-## 3. How to see and screenshot the iPhone app (no user needed)
+## 3. How agents build, run, see and drive the iPhone app (no user needed)
 
-This is how the lead ran the feasibility demo. Everything below works unattended.
+All of this was verified on 2026-09-28 with a throwaway Tauri iOS app, and it works unattended. The
+loop is: **edit → build (Tauri CLI) → install + launch (`simctl`) → look and tap (Xcode MCP /
+`scripts/ios-sim.mjs`) → fix → repeat.** Use the chrome-devtools MCP at phone size for fast layout
+work on the web code, and the simulator to confirm the real app.
+
+### 3.1 Build the app (Tauri CLI, not Xcode)
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer   # unless xcode-select was switched
+. "$HOME/.cargo/env"; export LANG=en_US.UTF-8     # rustup + CocoaPods' locale warning
+cd apps/iphone
+pnpm tauri ios build --target aarch64-sim --debug --ci > /tmp/glade-iphone-build.log 2>&1
+#   → src-tauri/gen/apple/build/arm64-sim/<productName>.app   (about 55 s cold, faster after)
+grep -nE 'error(\[|:)|BUILD (SUCC|FAIL)' /tmp/glade-iphone-build.log   # read the log, not the whole output
+```
+
+Gotchas found in the trial (bake these into `apps/iphone` once):
+
+- **iOS deployment target:** Tauri's template says 14.0, and Xcode 27 rejects anything below 15.0.
+  Set `"bundle": { "iOS": { "minimumSystemVersion": "17.0" } }` in `tauri.conf.json` **before**
+  `tauri ios init` (or re-init: `rm -rf src-tauri/gen && pnpm tauri ios init --ci`).
+- **`pnpm-native`:** with pnpm 12, `tauri ios init` writes `pnpm-native tauri ios xcode-script …`
+  into the Xcode "Build Rust Code" phase, and that command doesn't exist. After every init, run
+  `sed -i '' 's/pnpm-native tauri/pnpm tauri/' src-tauri/gen/apple/project.yml src-tauri/gen/apple/app.xcodeproj/project.pbxproj`.
+  Commit `src-tauri/gen/apple` (it's meant to be committed) so this happens once.
+- **Run the CLI through the package's `tauri` script** (`pnpm tauri …` inside a package that
+  has `@tauri-apps/cli` and `"tauri": "tauri"`). Calling the binary by path writes `node tauri`
+  into the Xcode project, which breaks the build.
+- **Don't build from inside Xcode** (`BuildProject`, `DeviceInteractionInstallAndRun`, Cmd+R). Xcode
+  launched from the Dock doesn't have the nvm Node/pnpm PATH, so the Rust phase fails with "Launch
+  session has not been found". Build with the CLI and install with `simctl` instead.
+- `cargo`/`xcodebuild` output is huge: always redirect to a log file and grep it.
+
+### 3.2 Install, launch, screenshot (`simctl`)
+
+```bash
 SIM=D589342D-F5C7-422A-B92E-0B938D999EFD                          # iPhone 18 Pro
 
 xcrun simctl boot $SIM                      # boot (ignore "already booted")
@@ -73,14 +106,76 @@ xcrun simctl shutdown booted                                      # when done
   (it prints `Web:` and `API:` URLs; the fake harness is the default). Pair the iPhone app with the
   sandbox like a remote device. **Never** use the user's servers (:4317, :5317, the installed app on
   :4327) or their data folder, and never the user's tailnet for writes.
-- **Typing and tapping** in the simulator: `simctl` can't tap. Options: (a) drive the web layer
-  through the WebView inspector: Safari's Web Inspector attaches to simulator WebViews when the app
-  enables `isInspectable` (debug builds), or use the chrome-devtools MCP against the same web
-  bundle served in desktop Chrome with a phone viewport (390×844, DPR 3) for most layout work;
-  (b) use deep links / URL routes to reach each screen; (c) add a debug-only "demo mode" query
-  param that seeds state. Prefer (a) for layout work, then confirm with simulator screenshots.
+- **Typing and tapping** in the simulator: `simctl` can't tap, but Xcode's MCP can (§3.3).
+  Deep links / URL routes and a debug-only "demo mode" query param that seeds state are still
+  handy for jumping straight to a screen.
 - The chrome-devtools MCP can't write files to `/tmp` (workspace-roots restriction); screenshots it
   returns inline can be viewed but not saved. `simctl io … screenshot` can save anywhere.
+- **First launch after a boot** often stays behind the home screen: `simctl launch` again (with
+  `--terminate-running-process`), or let `scripts/ios-sim.mjs --app <bundle id>` activate it.
+- **Is it running?** `xcrun simctl spawn $SIM launchctl list | grep <bundle id>`. App logs:
+  `xcrun simctl spawn $SIM log show --last 1m --style compact --predicate 'process == "<name>"'`
+  (WebKit logs page loads and JS errors there). Crashes: `~/Library/Logs/DiagnosticReports`.
+- Screenshots are 1206×2622 px: shrink before reading (`sips -Z 700 in.png --out small.png`).
+
+### 3.3 Tap, swipe, type: Xcode's MCP server
+
+`simctl` can't tap. Xcode 27 can: its MCP server (`xcrun mcpbridge`) has
+`DeviceInteractionSynthesize`, which sends touches/keys to the simulator and returns a screenshot +
+UI hierarchy. Requirements: **Xcode is running** (`open -a Xcode`), and the agent was approved once
+in Xcode (done 2026-09-28; if a call says "This agent isn't approved to use Xcode's tools yet", the
+user must open a project through `XcodeOpenWorkspace` and click Allow in Xcode: that needs the user).
+
+**The easy way: `scripts/ios-sim.mjs`** (one session per run, works from any agent or sub-agent):
+
+```bash
+node scripts/ios-sim.mjs --app io.github.jas7457.glade.iphone ""                 # capture only
+node scripts/ios-sim.mjs --app io.github.jas7457.glade.iphone "t 201 498" ""     # tap, then capture
+node scripts/ios-sim.mjs "t 200 600 f 200 200 0.3"                             # swipe up (scroll)
+node scripts/ios-sim.mjs "t 100 300" "sender keyboard kbd hello\u{000A}"       # focus a field, type + return
+#   → /tmp/glade-ios-sim/step-N.png (screenshot) and step-N.txt (UI hierarchy); paths are printed
+```
+
+- Options: `--app <bundle id>` (activates the app first), `--device "iPhone 18 Pro"`,
+  `--out <dir>`, `--settle <s>` (default 0.6: wait after each event, then capture again, because
+  the capture right after a tap can come before the page repaints).
+- **Coordinates are points**: 402×874 on the iPhone 18 Pro, which equals CSS px in a full-screen
+  WebView (the page starts under the status bar only if it uses `viewport-fit=cover`). Measure a
+  target from the screenshot (px ÷ 3) or from the DOM (`getBoundingClientRect()` in Chrome at
+  402×874). In the trial, a centered button in a `100vh` page was at y≈498, not 437.
+- **Web content is opaque to the hierarchy**: inside a WKWebView it's a `RemotePlaceholder`
+  (`isRemoteLeafPlaceholder: true`), so the `hitPoint` tricks from Xcode's skill don't apply to our
+  UI. Use the screenshot or the DOM for positions. Native things (keyboard, alerts, permission
+  prompts, the share sheet) do appear in the hierarchy with hitPoints.
+- Session names can't be reused right after use (the script makes unique ones). Xcode deletes the
+  screenshots when a session ends (the script copies them first).
+- The full command syntax (tap/hold, double tap, swipe, drag, multi-touch, `b h` home, `kbd`,
+  `w` wait, `orientation …`) is in Xcode's `device-interaction` skill:
+  `xcrun mcpbridge run-agent skills export /tmp/xcode-skills` → `/tmp/xcode-skills/device-interaction/SKILL.md`.
+
+**From pi directly:** new pi sessions have the `xcode` MCP server (`mcp({ server: "xcode" })`):
+`DeviceInteractionStartSession { deviceIdentifier: "iPhone 18 Pro", sessionIdentifier }` →
+`DeviceInteractionSynthesize { interactSessionKey, interactionCommand, activationBundleId? }` →
+`DeviceInteractionEndSession { interactionSessionKey }` (always end it; sessions are expensive).
+Xcode's reply tells you to "spawn a SUBAGENT with the device-interaction skill": that's advice for
+Xcode's own agent. Here you can drive it yourself or give a sub-agent `scripts/ios-sim.mjs`. Other
+useful tools: `DocumentationSearch` (Apple docs), `GetBuildLog`, `GetConsoleOutput`.
+
+### 3.4 Fast iteration on the web code
+
+- Most phone-layout work is web code: run it in Chrome with the chrome-devtools MCP (`emulate`
+  viewport `402x874x3,mobile,touch`) against a sandbox, then confirm in the simulator.
+- Not verified yet: `pnpm tauri ios dev` (the WebView loads Vite's dev server, so edits reload
+  without a rebuild). Try it once `apps/iphone` exists; fall back to rebuild + reinstall.
+- Pointing the app at a sandbox: the simulator shares the Mac's network, so the app can call
+  `http://127.0.0.1:<sandbox API port>` (ATS allows localhost). Check CORS for the app's origin
+  (§4.3).
+
+### 3.5 Clean up after every session
+
+`pnpm dev:agent --name <agent> --stop`, `xcrun simctl terminate`/`uninstall` any throwaway apps,
+`xcrun simctl shutdown $SIM`, and close any workspace you opened in Xcode (`XcodeCloseWorkspace`).
+Leave Xcode itself running if another agent may need it.
 
 ## 4. Architecture
 
@@ -187,7 +282,8 @@ command palette, keyboard shortcuts.
 ## 6. Work plan (suggested order; each step ends with `pnpm check` green + screenshots)
 
 1. **Toolchain check:** the iOS Rust targets and CocoaPods exist (§8; if not, stop and ask the
-   user). `DEVELOPER_DIR` set. `xcrun simctl list` works.
+   user). `xcrun simctl list` works. Xcode is running and `node scripts/ios-sim.mjs ""` captures
+   a screenshot (if it says the agent isn't approved, stop: that needs the user).
 2. **Scaffold `apps/iphone`:** a Vite + Preact entry, a Tauri iOS project
    (`pnpm tauri ios init` in `apps/iphone`), a bundle id, app icon (reuse the leaf), and a workspace
    entry in `pnpm-workspace.yaml`. Build for the simulator
@@ -242,7 +338,12 @@ in doubt.
 - Work from the Inbox item (I-164) and this doc; tick sub-steps in PLAN.md with dates and outcomes;
   add CHANGELOG entries when something user-visible lands.
 - Test only against `pnpm dev:agent` sandboxes; stop them afterwards (`--stop`). Kill any
-  simulators/Chrome you start (`xcrun simctl shutdown booted`).
+  simulators/Chrome you start (`xcrun simctl shutdown booted`), and follow §3.5.
+- **Verify every UI step in the simulator**, not just in Chrome: build (§3.1), install + launch
+  (§3.2), tap through the flow with `scripts/ios-sim.mjs` (§3.3), and look at the screenshots.
+  Put the key screenshots' paths (or a short description) in the step's `Outcome:` in PLAN.md.
+- Never click Allow on Xcode's agent prompts, sign in to accounts, or change signing: those are
+  the user's.
 - Never run real models/agents, never `tailscale serve/up/down/set`, never touch the user's
   servers, data folder or Keychain service, and don't install the Mac app unless the user asks.
 - Don't do the `packages/app-core` split while other workers edit `apps/web`.
