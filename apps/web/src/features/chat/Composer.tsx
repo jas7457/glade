@@ -26,11 +26,16 @@
  * shell command in the chat's folder instead of being sent (`!cmd` shares the output with the
  * agent for its next prompt, `!!cmd` doesn't); the box gets the shell tone and a hint, and the
  * slash/`@` menus are off.
+ *
+ * Ask Aside (I-140, harnesses with the `sideQuestions` capability): while the agent is running and
+ * there's text, a button next to Stop/Send (and ⌥↩) asks the text as a side question instead of
+ * queueing it: answered now in a card, never seen by the agent. Its slot is always reserved so
+ * nothing shifts when the chat goes idle; otherwise it's invisible. `/btw <question>` works anytime.
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { ArrowUp, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
+import { ArrowUp, MessageCircleQuestionMark, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
   MAX_ATTACHMENT_BYTES,
@@ -81,6 +86,8 @@ import { findSavedPrompt, savedPromptCommands, withSavedPrompts } from "./slash/
 import { applyMention, findMention } from "./mentions/parse";
 import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
 import { useFileSearch } from "./mentions/useFileSearch";
+import { composerPrefill, withPrefill } from "./composer-prefill";
+import { askSideQuestion } from "./side-question-actions";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -137,6 +144,11 @@ export interface ComposerBoxProps {
   envId?: string | null;
   /** Enables shell mode (`!cmd` / `!!cmd`, I-076). `run` resolves true when the command started. */
   shell?: { run: (input: ShellInput) => Promise<boolean> };
+  /**
+   * Enables Ask Aside (I-140): ask the text as a side question while the agent runs. Resolves true
+   * when it was asked.
+   */
+  askAside?: (question: string) => Promise<boolean>;
   class?: string;
 }
 
@@ -199,6 +211,17 @@ export function ComposerBox(props: ComposerBoxProps) {
     if (typingName === null) setMenuDismissed(false);
   }, [typingName === null]);
 
+  // "Tell the Agent" on a side question card (I-140): add its text to this draft and focus.
+  const prefill = composerPrefill.value;
+  useEffect(() => {
+    if (!prefill || prefill.draftKey !== draftKey) return;
+    composerPrefill.value = null;
+    const next = withPrefill(drafts.get(draftKey) ?? "", prefill.text);
+    updateText(next);
+    pendingCaret.current = next.length;
+    textareaRef.current?.focus();
+  }, [prefill, draftKey]);
+
   // Switch drafts when the composer is reused for another chat.
   useEffect(() => {
     setText(drafts.get(draftKey) ?? "");
@@ -247,6 +270,19 @@ export function ComposerBox(props: ComposerBoxProps) {
   };
 
   const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0);
+  // Ask Aside (I-140): only while the agent works and there's a question typed.
+  const canAskAside = !!props.askAside && isRunning && !busy && !shellInput && text.trim().length > 0;
+
+  /** Ask the typed text as a side question (a typed `/btw ` prefix is dropped); attachments stay. */
+  const askAside = async () => {
+    if (!canAskAside || !props.askAside) return;
+    const typed = text;
+    const cmd = parseSlash(typed.trim());
+    const question = cmd?.name === "btw" ? cmd.args : typed.trim();
+    if (!question.trim()) return;
+    updateText("");
+    if (!(await props.askAside(question))) updateText(typed);
+  };
 
   /** Replace the text with a saved prompt's (I-098; never sent here), caret at the end. */
   const insertPrompt = (body: string) => {
@@ -412,6 +448,11 @@ export function ComposerBox(props: ComposerBoxProps) {
         return;
       }
     }
+    if (e.key === "Enter" && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !composing && canAskAside) {
+      e.preventDefault();
+      void askAside();
+      return;
+    }
     if (isSendKey(e, sendKey)) {
       e.preventDefault();
       void send();
@@ -509,7 +550,9 @@ export function ComposerBox(props: ComposerBoxProps) {
           rows={1}
           value={text}
           disabled={busy}
-          placeholder={lockedReason ?? props.placeholder ?? (isRunning ? "Queue a message…" : "Ask anything…")}
+          placeholder={
+            lockedReason ?? props.placeholder ?? (isRunning ? (props.askAside ? "Queue a message, or ⌥↩ to ask aside" : "Queue a message…") : "Ask anything…")
+          }
           aria-label="Message"
           aria-autocomplete={slash || props.mentions ? "list" : undefined}
           aria-expanded={slash || props.mentions ? menuOpen || mentionOpen : undefined}
@@ -579,6 +622,24 @@ export function ComposerBox(props: ComposerBoxProps) {
           {props.toolbarExtra}
           <div class="flex-1" />
           {loading && <Spinner size={14} class="mr-1" />}
+          {props.askAside && (
+            // The slot is always there (no layout shift, I-140); the button only shows while it applies.
+            <span class={cn("flex", !canAskAside && "invisible")} data-testid="ask-aside-slot">
+              <Tooltip content="Ask aside (⌥↩): answered now, the agent won't see it">
+                <button
+                  type="button"
+                  aria-label="Ask aside"
+                  aria-hidden={canAskAside ? undefined : true}
+                  tabIndex={canAskAside ? undefined : -1}
+                  disabled={!canAskAside}
+                  onClick={() => void askAside()}
+                  class="flex size-7 items-center justify-center rounded-full bg-accent/15 text-accent hover:bg-accent/25"
+                >
+                  <MessageCircleQuestionMark size={15} strokeWidth={2.25} />
+                </button>
+              </Tooltip>
+            </span>
+          )}
           {isRunning && props.onStop && (
             <Tooltip content="Stop (Esc)">
               <button
@@ -780,6 +841,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       slash={{ commands: slashCommands, chatId, projectId, navigate }}
       mentions={{ projectId, envId }}
       shell={capabilities.shell ? { run: runShell } : undefined}
+      askAside={capabilities.sideQuestions === true && !lockedReason ? (question) => askSideQuestion(chatId, question) : undefined}
       class={className}
     />
   );

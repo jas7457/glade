@@ -1,4 +1,5 @@
 import type { AgentEvent } from "./events.js";
+import type { SideQuestionMessage } from "./side-questions.js";
 import type { AssistantMessage, ChatMessage, ContentBlock, ShellMessage, Transcript } from "./transcript.js";
 
 /**
@@ -104,6 +105,35 @@ export function applyAgentEvent(t: Transcript, event: AgentEvent): Transcript {
         return next;
       });
 
+    case "side_start": {
+      if (t.messages.some((m) => m.id === event.id)) return t;
+      const message: SideQuestionMessage = {
+        id: event.id,
+        role: "side",
+        question: event.question,
+        answer: "",
+        status: "streaming",
+        timestamp: event.at ?? Date.now(),
+        ...(event.model ? { model: event.model } : {}),
+      };
+      return { ...t, messages: [...t.messages, message] };
+    }
+
+    case "side_delta":
+      return updateSide(t, event.id, (m) => (m.status === "streaming" && event.delta ? { ...m, answer: m.answer + event.delta } : m));
+
+    case "side_end":
+      return updateSide(t, event.id, (m) => {
+        const next: SideQuestionMessage = { ...m, status: event.status, answer: event.answer ?? m.answer };
+        delete next.error;
+        if (event.error) next.error = event.error;
+        if (event.at !== undefined) next.endedAt = event.at;
+        return next;
+      });
+
+    case "side_dismiss":
+      return updateSide(t, event.id, (m) => (m.dismissed ? m : { ...m, dismissed: true }));
+
     case "run_end": {
       // Safety net: nothing can still be streaming once the run is over.
       let changed = false;
@@ -142,6 +172,17 @@ function updateShell(t: Transcript, id: string, fn: (m: ShellMessage) => ShellMe
     const m = t.messages[i]!;
     if (m.id !== id) continue;
     if (m.role !== "shell") return t;
+    const next = fn(m);
+    return next === m ? t : { ...t, messages: replaceAt(t.messages, i, next) };
+  }
+  return t;
+}
+
+function updateSide(t: Transcript, id: string, fn: (m: SideQuestionMessage) => SideQuestionMessage): Transcript {
+  for (let i = t.messages.length - 1; i >= 0; i--) {
+    const m = t.messages[i]!;
+    if (m.id !== id) continue;
+    if (m.role !== "side") return t;
     const next = fn(m);
     return next === m ? t : { ...t, messages: replaceAt(t.messages, i, next) };
   }

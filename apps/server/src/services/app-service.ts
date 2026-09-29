@@ -28,6 +28,8 @@ import type {
   TranscriptPage,
   ShellRequest,
   ShellResponse,
+  SideQuestionRequest,
+  SideQuestionResponse,
   SlashCommand,
   SpawnAgentRequest,
   SpawnAgentResponse,
@@ -51,6 +53,7 @@ import { Projects } from "./app/projects.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
+import { SideQuestions } from "./app/side-questions.js";
 import { Transcripts, type ImportSummary } from "./app/transcripts.js";
 import { Sessions, type NewSessionKind } from "./app/sessions.js";
 import { DEFAULT_SMALL_MODEL, Titles } from "./app/titles.js";
@@ -86,6 +89,7 @@ export class AppService {
   private readonly leaseSync: LeaseSync;
   private readonly titles: Titles;
   private readonly actions: SessionActions;
+  private readonly sideQuestions: SideQuestions;
   private readonly sessions: Sessions;
   private readonly workspaces: Workspaces;
   private readonly projects: Projects;
@@ -133,6 +137,7 @@ export class AppService {
     this.leaseSync = new LeaseSync(ctx, this.records, this.pool);
     this.titles = new Titles(ctx, this.records, this.transcripts, { updateWorkspace: (id, req) => this.workspaces.updateWorkspace(id, req) });
     this.actions = new SessionActions(ctx, this.records, this.pool, this.leaseSync, this.titles);
+    this.sideQuestions = new SideQuestions(ctx, this.records, this.pool, this.leaseSync);
     this.sessions = new Sessions(ctx, this.records, this.pool, this.leaseSync, this.actions, this.transcripts, {
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
     });
@@ -416,6 +421,19 @@ export class AppService {
 
   abortShell(id: string): Promise<void> {
     return this.actions.abortShell(id);
+  }
+
+  /** `/btw` / Ask Aside (I-140): answered by a separate model call; the agent never sees it. */
+  askSideQuestion(id: string, req: SideQuestionRequest): Promise<SideQuestionResponse> {
+    return this.sideQuestions.ask(id, req);
+  }
+
+  stopSideQuestion(id: string, questionId: string): void {
+    this.sideQuestions.stop(id, questionId);
+  }
+
+  dismissSideQuestion(id: string, questionId: string): void {
+    this.sideQuestions.dismiss(id, questionId);
   }
 
   setModel(id: string, model: ModelRef): Promise<void> {

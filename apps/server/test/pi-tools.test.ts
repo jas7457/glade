@@ -42,6 +42,13 @@ const FIXTURES: Array<{ name: string; args: Json; kind: string; input: unknown }
   // ext-kit agent-teams: spawn_agent is a task (I-084); the rest stay other.
   { name: "spawn_agent", args: { name: "reviewer", task: "\n  Review the diff.  \nDetails…" }, kind: "task", input: { agentName: "reviewer", description: "Review the diff." } },
   { name: "spawn_agent", args: {}, kind: "task", input: {} },
+  // With an agent definition, and reached through an MCP namespace (I-145).
+  { name: "spawn_agent", args: { name: "t3", task: "Go", agent: "worker" }, kind: "task", input: { agentName: "t3", description: "Go", agentDefinition: "worker" } },
+  { name: "mcp__pi__spawn_agent", args: { name: "t3", task: "Go" }, kind: "task", input: { agentName: "t3", description: "Go" } },
+  { name: "mcp__pi__message_agent", args: { to: "x", text: "y" }, kind: "agent", input: { agentAction: "message", agentName: "x", description: "y" } },
+  { name: "mcp__pi__close_agent", args: { name: "x" }, kind: "agent", input: { agentAction: "close", agentName: "x" } },
+  { name: "mcp__pi__find_chats", args: { query: "q" }, kind: "chat", input: { chatAction: "find", query: "q" } },
+  { name: "mcp__pi__read", args: { path: "x" }, kind: "mcp", input: { server: "pi--read" } },
   // The other agent-teams tools and MCP (I-089).
   { name: "message_agent", args: { to: "x", text: "y\nmore" }, kind: "agent", input: { agentAction: "message", agentName: "x", description: "y" } },
   { name: "close_agent", args: { name: "x" }, kind: "agent", input: { agentAction: "close", agentName: "x" } },

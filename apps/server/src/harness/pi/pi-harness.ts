@@ -22,11 +22,12 @@ import {
 } from "@glade/protocol";
 import { fetchAnthropicUsageLimits } from "../../services/providers/anthropic-usage.js";
 import { SessionEvents } from "../session-events.js";
-import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
+import type { AgentHarness, CompletionRequest, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest, SideQuestionCall, SideQuestionResult } from "../types.js";
 import { readPiAnthropicAuth } from "./anthropic-auth.js";
 import { piChildEnv } from "./child-env.js";
 import { gladeExtensionLaunch, gladeExtensionPath } from "./extension-path.js";
 import { piOneShot } from "./one-shot.js";
+import { piSideQuestion } from "./side-question.js";
 import { PiRpcProcess } from "./rpc-process.js";
 import { piSessionReader } from "./session-reader.js";
 import { readPiTranscript } from "./transcript-file.js";
@@ -58,7 +59,7 @@ export class PiHarness implements AgentHarness {
   readonly id = "pi";
   readonly info: HarnessDescription = {
     label: "pi",
-    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true },
+    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true, sideQuestions: true },
   };
   /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
   getUsageLimits = () => fetchAnthropicUsageLimits({ token: () => readPiAnthropicAuth() });
@@ -164,6 +165,12 @@ export class PiHarness implements AgentHarness {
   complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
     const { piPath } = this.options.config();
     return piOneShot({ piPath, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, log: this.options.log });
+  }
+
+  /** A throwaway `pi -p --mode json` without tools or session (I-140, `side-question.ts`). */
+  answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
+    const { piPath, extraArgs } = this.options.config();
+    return piSideQuestion({ ...call, piPath, extraArgs, log: this.options.log });
   }
 
   async dispose(): Promise<void> {}

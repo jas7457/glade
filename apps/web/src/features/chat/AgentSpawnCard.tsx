@@ -6,6 +6,10 @@
  * same rendering as `AgentMessageCard`). "Open" shows it in the right-hand pane while it exists.
  * The agent's later messages to this chat are folded into the card (the transcript hides them).
  *
+ * While the spawn call runs (no agent yet), the same card shows as a placeholder at once (I-145):
+ * spinner, the functional name and agent definition from the call, "Starting an agent…". It
+ * turns into the agent's card in place when the spawn returns.
+ *
  * Task calls without a matching agent (other harnesses' tasks, failed spawns) fall back to the
  * generic tool row.
  *
@@ -21,7 +25,7 @@ import { AgentStatusMarker } from "@/features/workspace/SubagentStrip";
 import { formatDuration, useNow } from "./duration";
 import { isActiveStatus, type ToolCallPart } from "./grouping";
 import { useAgentLinks } from "./agent-links";
-import { spawnCardState, type SpawnCardState, type SpawnLink } from "./agent-spawns";
+import { spawnCardState, spawnedAgentName, type SpawnCardState, type SpawnLink } from "./agent-spawns";
 import { useSpawnLinks } from "./spawn-context";
 import { Markdown } from "./Markdown";
 import { ToolCallRow } from "./tools/ToolViews";
@@ -29,9 +33,34 @@ import { ToolCallRow } from "./tools/ToolViews";
 export function AgentSpawnCard({ part }: { part: ToolCallPart }) {
   const ctx = useSpawnLinks();
   const link = ctx?.links.byCall.get(part.call.id);
-  if (!ctx || !link) return <ToolCallRow part={part} />;
+  if (!ctx || !link) {
+    const name = spawnedAgentName(part.call);
+    return name && isActiveStatus(part.status) ? <PendingSpawnCard name={name} definition={part.call.input?.agentDefinition?.trim() || null} /> : <ToolCallRow part={part} />;
+  }
   const session = ctx.subagents.find((s) => s.id === link.ref.sessionId);
   return session ? <LiveSpawnCard part={part} link={link} session={session} /> : <SpawnCard part={part} link={link} session={undefined} transcript={null} />;
+}
+
+const cardClass = "my-2 overflow-hidden rounded-[10px] border-[0.5px] border-separator bg-surface shadow-[inset_3px_0_0_var(--pi-agent)]";
+
+/** The spawn call is still running: no agent (fun name, colour) yet (I-145). Same frame as the card. */
+function PendingSpawnCard({ name, definition }: { name: string; definition: string | null }) {
+  return (
+    <div data-role="agent-spawn" data-agent-color="" data-kind="starting" class={cardClass}>
+      <div
+        role="status"
+        aria-label={`Starting an agent: ${name}${definition ? ` (${definition})` : ""}`}
+        class="flex h-8 min-w-0 items-center gap-2 pr-1.5 pl-2.5 select-none"
+      >
+        <span class="flex size-3.5 shrink-0 items-center justify-center">
+          <AgentStatusMarker kind="working" />
+        </span>
+        <span class="shrink-0 font-medium text-fg">{name}</span>
+        {definition && <span class="shrink-0 text-fg-subtle">· {definition}</span>}
+        <span class="min-w-0 flex-1 truncate text-fg-muted">Starting an agent…</span>
+      </div>
+    </div>
+  );
 }
 
 /** While its session exists: its transcript feeds the live activity. */
@@ -57,7 +86,7 @@ function SpawnCard({ part, link, session, transcript }: { part: ToolCallPart; li
       data-kind={state.kind}
       data-attention={state.attention ?? undefined}
       class={cn(
-        "my-2 overflow-hidden rounded-[10px] border-[0.5px] border-separator bg-surface shadow-[inset_3px_0_0_var(--pi-agent)]",
+        cardClass,
         state.attention === "warning" && "bg-warning-tint",
         state.attention === "danger" && "bg-danger-tint",
       )}

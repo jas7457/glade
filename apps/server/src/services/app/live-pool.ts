@@ -134,6 +134,7 @@ export class LivePool {
       lastPromptAt: 0,
       awaitingRun: false,
       shells: new Set(),
+      sideQuestions: new Set(),
       ids: new MessageIds(),
       writer,
       unsubscribe: () => {},
@@ -203,6 +204,11 @@ export class LivePool {
       live.shells.delete(event.id);
       live.lastUsedAt = Date.now();
     }
+    if (event.type === "side_start") live.sideQuestions.add(event.id);
+    if (event.type === "side_end") {
+      live.sideQuestions.delete(event.id);
+      live.lastUsedAt = Date.now();
+    }
     if (event.type === "ui_request") this.addPendingUi(id, live, event.request);
     if (event.type === "ui_request_closed") this.removePendingUi(live, event.id);
 
@@ -244,6 +250,17 @@ export class LivePool {
       const modelChanged = next.model !== session.model && !sameModel(next.model, session.model);
       if (modelChanged || next.thinkingLevel !== session.thinkingLevel) this.records.saveSession(next);
     }
+  }
+
+  /**
+   * Fold an event Glade produced itself (side questions, I-140) into a live session as if its
+   * harness had sent it: transcript, store and clients. `false` when no process runs it here.
+   */
+  inject(id: string, event: AgentEvent): boolean {
+    const live = this.ctx.live.get(id);
+    if (!live) return false;
+    this.handleEvent(id, live, event);
+    return true;
   }
 
   private addPendingUi(sessionId: string, live: LiveSession, request: UiRequest): void {
@@ -374,7 +391,7 @@ export class LivePool {
   private evictIdle(keepId?: string): void {
     const max = this.ctx.store.getSettings().agent.maxIdleProcesses;
     const idle = [...this.ctx.live.entries()]
-      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && !this.ctx.viewers.has(id))
+      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && l.sideQuestions.size === 0 && !this.ctx.viewers.has(id))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
     const excess = idle.length - max;
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);
@@ -389,6 +406,8 @@ function stampEvent(event: AgentEvent): AgentEvent {
     case "tool_end":
     case "shell_start": // I-076
     case "shell_end":
+    case "side_start": // I-140
+    case "side_end":
       return event.at === undefined ? { ...event, at: Date.now() } : event;
     default:
       return event;

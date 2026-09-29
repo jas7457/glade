@@ -48,7 +48,11 @@ export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
       : i.query !== undefined || i.description === undefined
         ? { verb: verb(active, "Searched the web for", "Searching the web for"), subject: truncate(i.query ?? ""), mono: false }
         : { verb: verb(active, "Read web results", "Reading web results"), subject: truncate(i.description), mono: false },
-  task: (i, active) => ({ verb: verb(active, "Ran task", "Running task"), subject: truncate(i.description ?? ""), mono: false }),
+  // A spawned sub-agent reads by its name, not its (long) task (I-145); other harnesses' tasks by their description.
+  task: (i, active) =>
+    i.agentName
+      ? { verb: verb(active, "Started agent", "Starting agent"), subject: i.agentName, mono: false }
+      : { verb: verb(active, "Ran task", "Running task"), subject: truncate(i.description ?? ""), mono: false },
   agent: (i, active) => {
     if (i.agentAction === "list") return { verb: verb(active, "Listed agents", "Listing agents"), subject: "", mono: false };
     if (i.agentAction === "close") return { verb: verb(active, "Closed", "Closing"), subject: i.agentName ?? "", mono: false };

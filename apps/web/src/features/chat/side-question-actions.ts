@@ -1,0 +1,39 @@
+/**
+ * What the side question UI does (I-140): ask (the `/btw` built-in and the composer's Ask Aside
+ * button), stop, dismiss, and hand an answer to the agent (prefill the composer, or queue it). The
+ * request goes to the chat's own environment (`apiForSession`), so it works on remote ones too.
+ */
+import { sideQuestionNote, type SideQuestionMessage } from "@glade/protocol";
+import { apiForSession } from "@/state/env-api";
+import { getChatSession, runAction } from "@/state/chat-session";
+import { harnessCapabilities } from "@/state/harnesses";
+import { envIdOfSession, sessionsById } from "@/state/store";
+import { prefillComposer } from "./composer-prefill";
+
+/** Ask a side question in session `chatId`; resolves false when it couldn't be asked (toast shown). */
+export function askSideQuestion(chatId: string, question: string): Promise<boolean> {
+  return runAction(() => apiForSession(chatId).askSideQuestion(chatId, question.trim()), "Could not ask the side question");
+}
+
+export function stopSideQuestion(chatId: string, id: string): Promise<boolean> {
+  return runAction(() => apiForSession(chatId).stopSideQuestion(chatId, id), "Could not stop the side question");
+}
+
+export function dismissSideQuestion(chatId: string, id: string): Promise<boolean> {
+  return runAction(() => apiForSession(chatId).dismissSideQuestion(chatId, id), "Could not dismiss the side question");
+}
+
+/** "Tell the Agent": put the question and answer into the composer to edit and send (or queue). */
+export function tellAgent(chatId: string, message: SideQuestionMessage): void {
+  prefillComposer(chatId, sideQuestionNote(message));
+}
+
+/** "Add to Queue": send the note as a follow-up (queued while the agent works, sent now when idle). */
+export function addToQueue(chatId: string, message: SideQuestionMessage): Promise<boolean> {
+  const running = getChatSession(chatId).state.value.isRunning;
+  const steering = harnessCapabilities(sessionsById.value.get(chatId)?.harness, envIdOfSession(chatId)).steering;
+  return runAction(
+    () => apiForSession(chatId).prompt(chatId, { text: sideQuestionNote(message), ...(running && steering ? { behavior: "followUp" as const } : {}) }),
+    "Could not queue the message",
+  );
+}

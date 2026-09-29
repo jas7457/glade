@@ -40,6 +40,9 @@ describe("summarizeToolCall", () => {
     expect(summary("web", { url: "https://example.com" })).toBe("Fetched https://example.com");
     expect(summary("web", { query: "preact signals" }, true)).toBe("Searching the web for preact signals");
     expect(summary("task", { description: "Review the diff" })).toBe("Ran task Review the diff");
+    // I-145: a sub-agent spawn reads by the agent's name, not its task.
+    expect(summary("task", { agentName: "t3-research", description: "Research T3" }, true)).toBe("Starting agent t3-research");
+    expect(summary("task", { agentName: "t3-research", description: "Research T3" })).toBe("Started agent t3-research");
     // I-089: web results lookups, agent-teams and MCP.
     expect(summary("web", { description: 'looking for "Source:"' })).toBe('Read web results looking for "Source:"');
     expect(summary("agent", { agentAction: "message", agentName: "reviewer", description: "Please check" })).toBe("Messaged reviewer: Please check");

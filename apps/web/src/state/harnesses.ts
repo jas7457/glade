@@ -40,6 +40,7 @@ const ALL: HarnessCapabilities = {
   commands: true,
   subagents: true,
   shell: true,
+  sideQuestions: true,
   models: true,
 };
 

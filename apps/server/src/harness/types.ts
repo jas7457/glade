@@ -97,6 +97,31 @@ export interface CompletionRequest {
   timeoutMs?: number;
 }
 
+/**
+ * A side question (I-140): one answer over a prompt Glade built from the chat's transcript, with
+ * no tools and without touching the chat's session. Capability `sideQuestions`.
+ */
+export interface SideQuestionCall {
+  /** The serialized conversation + the question (`buildSideQuestionPrompt`). */
+  prompt: string;
+  systemPrompt: string;
+  /** `null` = the harness default. */
+  model: ModelRef | null;
+  /** The chat's folder. */
+  cwd: string;
+  /** Stop: resolve with what was answered so far. */
+  signal: AbortSignal;
+  /** Called with each piece of the answer as it streams. */
+  onDelta(delta: string): void;
+}
+
+export interface SideQuestionResult {
+  /** The whole answer (the partial one when stopped or failed). */
+  answer: string;
+  /** Set when it failed. */
+  error?: string;
+}
+
 export interface AgentHarness {
   /** Stable identifier persisted on chats (e.g. "pi"). */
   readonly id: string;
@@ -138,6 +163,11 @@ export interface AgentHarness {
    * titles are generated with {@link complete} (`harness/title.ts`).
    */
   generateTitle?(options: GenerateTitleOptions): Promise<string | null>;
+  /**
+   * Answer a side question (I-140; capability `sideQuestions`). Never rejects: failures resolve
+   * with `error`, a stop (`signal`) with the partial answer.
+   */
+  answerSideQuestion?(call: SideQuestionCall): Promise<SideQuestionResult>;
   /** Subscription/plan usage limits for the harness's current account, or `null` if unavailable. */
   getUsageLimits?(): Promise<UsageLimits | null>;
   dispose(): Promise<void>;

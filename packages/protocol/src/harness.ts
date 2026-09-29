@@ -23,6 +23,11 @@ export interface HarnessCapabilities {
   /** `!cmd` / `!!cmd` in the composer: run a shell command in the chat's folder (I-076). */
   shell: boolean;
   /**
+   * Side questions (`/btw`, Ask Aside; I-140): a one-off answer over the chat's context, no tools,
+   * without touching the running session. Absent = false.
+   */
+  sideQuestions?: boolean;
+  /**
    * The model and thinking pickers apply to this harness (`GET /api/models` lists its models).
    * Absent = true. ACP agents (I-119) choose their own model, so the pickers are hidden.
    */

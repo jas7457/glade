@@ -20,3 +20,4 @@ export * from "./acp.js";
 export * from "./sync.js";
 export * from "./environments.js";
 export * from "./auth.js";
+export * from "./side-questions.js";

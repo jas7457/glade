@@ -117,6 +117,17 @@ export type AgentEvent =
   | { type: "shell_update"; id: string; delta: string }
   /** A shell command finished (or was stopped / failed to run). */
   | { type: "shell_end"; id: string; result: ShellResult; at?: number }
+  /**
+   * A side question (I-140) started; it becomes a `SideQuestionMessage` with this id. Glade's own
+   * (never from the harness's session): the agent doesn't see it. `model`: `provider/id`.
+   */
+  | { type: "side_start"; id: string; question: string; model?: string; at?: number }
+  /** More of a side question's answer (appended). */
+  | { type: "side_delta"; id: string; delta: string }
+  /** A side question finished, was stopped or failed. `answer`: the final text, when known. */
+  | { type: "side_end"; id: string; status: "done" | "stopped" | "error"; answer?: string; error?: string; at?: number }
+  /** The user dismissed a side question's card (kept in the store, hidden). */
+  | { type: "side_dismiss"; id: string }
   /** Partial session state change. */
   | { type: "state"; state: Partial<SessionState> }
   | { type: "ui_request"; request: UiRequest }

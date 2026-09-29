@@ -96,6 +96,15 @@ export function ModelSettings() {
             onChange={(key) => void updateSettings({ models: { smallModel: parseModelKey(key) } })}
           />
         </FormRow>
+        <FormRow label="Side questions model" description="Answers side questions (/btw, Ask Aside) while the agent works. A faster model answers sooner.">
+          <Select
+            aria-label="Side questions model"
+            class="w-[240px]"
+            value={s.sideQuestionModel ? modelKey(s.sideQuestionModel) : ""}
+            options={modelOptions(visible, "Same as the chat")}
+            onChange={(key) => void updateSettings({ models: { sideQuestionModel: parseModelKey(key) } })}
+          />
+        </FormRow>
       </FormGroup>
 
       <FormGroup title="Sub-agents">

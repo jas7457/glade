@@ -4,7 +4,8 @@
  * Renders the items produced by `groupTranscript` (grouping.ts): user bubbles (sub-agent reports
  * as cards, AgentMessageCard.tsx), sub-agent spawns as agent cards that also absorb the agent's
  * later messages (AgentSpawnCard.tsx, agent-spawns.ts, I-084), assistant turns (markdown, thinking, tool rows/groups,
- * errors), the user's shell commands (ShellCard.tsx), plans (PlanCard.tsx) and notices. Sticks to the bottom while
+ * errors), the user's shell commands (ShellCard.tsx), side questions (SideQuestionCard.tsx, I-140), plans (PlanCard.tsx)
+ * and notices. Sticks to the bottom while
  * streaming unless the user scrolls up, in which case a "Jump to latest" button appears.
  *
  * The "Working…" row at the bottom stays for the whole run (working.ts) and shows the run's
@@ -37,6 +38,7 @@ import { DayDivider, MessageTime } from "./MessageTime";
 import { dayDividers } from "./message-time";
 import { useImageLightbox } from "./ImageLightbox";
 import { ShellCard } from "./ShellCard";
+import { SideQuestionCard } from "./SideQuestionCard";
 import { PlanCard } from "./PlanCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
@@ -87,8 +89,8 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const subagentColor = isSubagent ? sessionAgentIdentity(session).color : null;
   const taskId = useMemo(() => (isSubagent ? taskMessageId(transcript.messages, session.agent?.task) : null), [isSubagent, transcript.messages, session?.agent?.task]);
   const delegation = useMemo<Delegation | null>(
-    () => (isSubagent ? { taskId, parentTitle, color: subagentColor } : null),
-    [isSubagent, taskId, parentTitle, subagentColor],
+    () => (isSubagent ? { taskId, parentTitle, parentId: session.parentSessionId, color: subagentColor } : null),
+    [isSubagent, taskId, parentTitle, session?.parentSessionId, subagentColor],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -99,7 +101,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const lastUserId = useMemo(() => {
     for (let i = transcript.messages.length - 1; i >= 0; i--) {
       const m = transcript.messages[i]!;
-      if (m.role === "user" || m.role === "shell") return m.id;
+      if (m.role === "user" || m.role === "shell" || m.role === "side") return m.id;
     }
     return null;
   }, [transcript.messages]);
@@ -185,6 +187,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
 interface Delegation {
   taskId: string | null;
   parentTitle: string | null;
+  parentId: string | null;
   color: AgentColor | null;
 }
 
@@ -197,7 +200,7 @@ function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: stri
     case "user": {
       const delegated = delegation ? delegatedMessage(item.message, delegation.taskId) : null;
       if (delegated) {
-        return <DelegatedCard message={delegated} timestamp={item.message.timestamp} parentTitle={delegation!.parentTitle} color={delegation!.color} />;
+        return <DelegatedCard message={delegated} timestamp={item.message.timestamp} parentTitle={delegation!.parentTitle} parentId={delegation!.parentId} color={delegation!.color} />;
       }
       return <UserBubble message={item.message} />;
     }
@@ -207,6 +210,8 @@ function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: stri
       return <NoticeRow message={item.message} />;
     case "shell":
       return <ShellCard message={item.message} chatId={chatId} />;
+    case "side":
+      return <SideQuestionCard message={item.message} chatId={chatId} />;
     case "turn":
       return <TurnView parts={item.parts} timestamp={item.timestamp} />;
   }

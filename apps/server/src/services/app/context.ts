@@ -67,6 +67,8 @@ export interface LiveSession {
   awaitingRun: boolean;
   /** Ids of the user's shell commands still running (I-076): keep the process alive meanwhile. */
   shells: Set<string>;
+  /** Ids of side questions still being answered (I-140): keep the process alive meanwhile. */
+  sideQuestions: Set<string>;
   /** Harness message ids -> stable Glade ids (I-121). */
   ids: MessageIds;
   /** Writes the conversation to the store (coalesced). */

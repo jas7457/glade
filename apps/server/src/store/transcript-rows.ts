@@ -14,6 +14,7 @@ export type MessageStatus = "streaming" | "running" | "done";
 export function messageStatus(m: ChatMessage): MessageStatus {
   if (m.role === "assistant" && m.streaming) return "streaming";
   if (m.role === "shell" && m.running) return "running";
+  if (m.role === "side" && m.status === "streaming") return "streaming";
   return "done";
 }
 
@@ -55,6 +56,10 @@ export function settleTranscript(t: Transcript): Transcript {
       changed = true;
       return { ...m, running: false, cancelled: true };
     }
+    if (m.role === "side" && m.status === "streaming") {
+      changed = true;
+      return { ...m, status: "stopped" as const };
+    }
     return m;
   });
   const toolResults: Record<string, ToolResult> = {};
@@ -82,6 +87,9 @@ function baseKey(m: ChatMessage): string {
       return `shell:${m.command}`;
     case "notice":
       return m.kind === "compaction" ? "notice:compaction" : `notice:${m.kind}:${m.text}`;
+    case "side":
+      // Glade's own (I-140): never in a harness's file, so it never matches an imported message.
+      return `side:${m.id}`;
   }
 }
 

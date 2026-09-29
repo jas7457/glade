@@ -4,6 +4,7 @@
  * Every harness adapter translates its native messages into these shapes, so the UI never
  * depends on a specific agent's wire format.
  */
+import type { SideQuestionMessage } from "./side-questions.js";
 
 export interface TextBlock {
   type: "text";
@@ -73,6 +74,8 @@ export interface ToolInput {
   description?: string;
   /** task: the spawned agent's name (links the call to its sub-agent session, I-084); agent: the agent addressed. */
   agentName?: string;
+  /** task: the agent definition the sub-agent runs as (e.g. "worker"), when given (I-145). */
+  agentDefinition?: string;
   /** agent: what was done (I-089). */
   agentAction?: "message" | "close" | "list";
   /** mcp: the MCP server (I-089). */
@@ -198,7 +201,7 @@ export interface ShellMessage extends ShellResult {
   endedAt?: number;
 }
 
-export type ChatMessage = UserMessage | AssistantMessage | NoticeMessage | ShellMessage;
+export type ChatMessage = UserMessage | AssistantMessage | NoticeMessage | ShellMessage | SideQuestionMessage;
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -244,6 +247,7 @@ export function emptyTranscript(): Transcript {
 export function messageText(message: ChatMessage): string {
   if (message.role === "notice") return message.text;
   if (message.role === "shell") return `$ ${message.command}\n${message.output}`;
+  if (message.role === "side") return `${message.question}\n\n${message.answer}`;
   const blocks: ContentBlock[] = message.content;
   return blocks
     .filter((b): b is TextBlock => b.type === "text")

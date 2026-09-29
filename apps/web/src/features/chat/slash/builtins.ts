@@ -15,6 +15,7 @@ import { envIdOfSession, sessionsById, workspacesById } from "@/state/store";
 import { dismissToast, notify, showToast } from "@/state/toasts";
 import { describeStats } from "../context-meter";
 import { thinkingLabel } from "../composer-utils";
+import { askSideQuestion } from "../side-question-actions";
 
 /** What a built-in can do. Provided by the composer. */
 export interface SlashContext {
@@ -82,6 +83,21 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
         },
       );
       return true;
+    },
+  },
+  {
+    name: "btw",
+    source: "builtin",
+    description: "Ask a side question: answered now, the agent keeps working and doesn't see it",
+    argsHint: "<question>",
+    needsChat: true,
+    requires: "sideQuestions",
+    run: (args, ctx) => {
+      if (!args.trim()) {
+        notify("warning", "Type your question after /btw.");
+        return false;
+      }
+      return askSideQuestion(requireChat(ctx), args);
     },
   },
   {
@@ -235,12 +251,17 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
  * all).
  */
 export function builtinCommands(hasChat: boolean, capabilities?: HarnessCapabilities): SlashCommand[] {
-  return BUILTIN_COMMANDS.filter((c) => (hasChat || !c.needsChat) && (!c.requires || !capabilities || capabilities[c.requires] !== false)).map(({ name, description, source, argsHint }) => ({
+  return BUILTIN_COMMANDS.filter((c) => (hasChat || !c.needsChat) && (!c.requires || !capabilities || hasCapability(capabilities, c.requires))).map(({ name, description, source, argsHint }) => ({
     name,
     source,
     ...(description ? { description } : {}),
     ...(argsHint ? { argsHint } : {}),
   }));
+}
+
+/** Optional capabilities default to off, except `models` (absent = true). */
+function hasCapability(capabilities: HarnessCapabilities, name: keyof HarnessCapabilities): boolean {
+  return name === "sideQuestions" ? capabilities[name] === true : capabilities[name] !== false;
 }
 
 export function findBuiltin(name: string): BuiltinCommand | undefined {

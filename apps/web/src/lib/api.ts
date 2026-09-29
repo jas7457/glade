@@ -27,6 +27,7 @@ import type {
   Settings,
   TranscriptPageResponse,
   ShellRequest,
+  SideQuestionResponse,
   ShellResponse,
   SlashCommand,
   ThinkingLevel,
@@ -271,6 +272,10 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     /** `!cmd` / `!!cmd` (I-076): run a shell command in the chat's folder; output arrives as `shell_*` events. */
     runShell: (id: string, body: ShellRequest) => command<ShellResponse>("POST", `/sessions/${id}/shell`, body),
     abortShell: (id: string) => request<void>("POST", `/sessions/${id}/shell/abort`),
+    /** `/btw` / Ask Aside (I-140): a side question; the answer arrives as `side_*` events. */
+    askSideQuestion: (id: string, question: string) => command<SideQuestionResponse>("POST", `/sessions/${id}/side-questions`, { question }),
+    stopSideQuestion: (id: string, questionId: string) => request<void>("POST", `/sessions/${id}/side-questions/${questionId}/stop`),
+    dismissSideQuestion: (id: string, questionId: string) => request<void>("POST", `/sessions/${id}/side-questions/${questionId}/dismiss`),
     setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
     setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),
     respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/sessions/${id}/ui-response`, body),

@@ -27,6 +27,7 @@ import {
   type ReorderProjectsRequest,
   type Settings,
   type ShellRequest,
+  type SideQuestionRequest,
   type ThinkingLevel,
   type UiResponse,
   type UpdateProjectRequest,
@@ -343,6 +344,20 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   });
   api.post("/sessions/:id/shell/abort", async (c) => {
     await service.abortShell(c.req.param("id"));
+    return c.body(null, 204);
+  });
+  // Side questions (`/btw`, I-140).
+  api.post("/sessions/:id/side-questions", once, async (c) => {
+    const body = await readBody<SideQuestionRequest>(c);
+    requireString(body.question, "question");
+    return c.json(await service.askSideQuestion(c.req.param("id"), { question: body.question }));
+  });
+  api.post("/sessions/:id/side-questions/:qid/stop", (c) => {
+    service.stopSideQuestion(c.req.param("id"), c.req.param("qid"));
+    return c.body(null, 204);
+  });
+  api.post("/sessions/:id/side-questions/:qid/dismiss", (c) => {
+    service.dismissSideQuestion(c.req.param("id"), c.req.param("qid"));
     return c.body(null, 204);
   });
   api.put("/sessions/:id/model", async (c) => {

@@ -15,6 +15,7 @@ import type {
   ImageBlock,
   NoticeMessage,
   ShellMessage,
+  SideQuestionMessage,
   ThinkingBlock,
   ToolCallBlock,
   ToolResult,
@@ -110,6 +111,8 @@ export type RenderItem =
   | { type: "notice"; key: string; message: NoticeMessage }
   /** A shell command the user ran (`!cmd` / `!!cmd`, I-076). */
   | { type: "shell"; key: string; message: ShellMessage }
+  /** A side question (`/btw`, I-140); dismissed ones are left out. */
+  | { type: "side"; key: string; message: SideQuestionMessage }
   /** `timestamp`: when the turn's first message started (I-111). */
   | { type: "turn"; key: string; parts: TurnPart[]; streaming: boolean; timestamp: number };
 
@@ -148,17 +151,32 @@ export function groupTranscript(
     turn = [];
   };
 
+  // Side questions asked during a turn don't split it: they show right after it (I-140).
+  let sides: SideQuestionMessage[] = [];
+  const flushSides = () => {
+    for (const side of sides) items.push({ type: "side", key: side.id, message: side });
+    sides = [];
+  };
+
   for (const message of transcript.messages) {
     if (message.role === "assistant") {
       turn.push(message);
       continue;
     }
+    if (message.role === "side") {
+      if (message.dismissed) continue;
+      if (turn.length) sides.push(message);
+      else items.push({ type: "side", key: message.id, message });
+      continue;
+    }
     flush();
+    flushSides();
     if (message.role === "user") items.push({ type: "user", key: message.id, message });
     else if (message.role === "shell") items.push({ type: "shell", key: message.id, message });
     else items.push({ type: "notice", key: message.id, message });
   }
   flush();
+  flushSides();
   return items;
 }
 

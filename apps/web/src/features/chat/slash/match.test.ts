@@ -91,7 +91,7 @@ describe("mergeCommands / builtinCommands", () => {
   });
   it("offers only chat-independent built-ins before a chat exists", () => {
     expect(builtinCommands(false).map((c) => c.name)).toEqual(["model", "thinking", "settings"]);
-    expect(builtinCommands(true).map((c) => c.name)).toEqual(["compact", "new", "name", "model", "thinking", "export", "stats", "settings"]);
+    expect(builtinCommands(true).map((c) => c.name)).toEqual(["compact", "btw", "new", "name", "model", "thinking", "export", "stats", "settings"]);
   });
 });
 

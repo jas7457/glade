@@ -247,6 +247,8 @@ export interface Settings {
     smallModel: ModelRef | null;
     /** Model for sub-agents (I-078). `null` = the parent chat's model. */
     subagentModel: ModelRef | null;
+    /** Model for side questions (`/btw`, I-140). `null` = the chat's model. */
+    sideQuestionModel: ModelRef | null;
     /** Thinking level for sub-agents (I-078). `null` = the parent chat's level. */
     subagentThinkingLevel: ThinkingLevel | null;
     /** Model keys (`provider/id`) hidden from the picker. */
@@ -318,6 +320,7 @@ export function defaultSettings(): Settings {
       defaultThinkingLevel: "medium",
       smallModel: null,
       subagentModel: null,
+      sideQuestionModel: null,
       subagentThinkingLevel: null,
       hiddenModels: [],
     },

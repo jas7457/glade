@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/preact";
+import { act, fireEvent, render, screen } from "@testing-library/preact";
 import { defaultSessionState, formatAgentMessage, type ChatMessage } from "@glade/protocol";
 import { TooltipProvider } from "@/ui";
 import { sessions } from "@/state/store";
+import { openChatRequest, requestOpenChat } from "@/state/open-chat";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
 import { makeSession } from "@/test/fixtures";
 import { stubLayout } from "@/test/layout-stub";
@@ -49,7 +50,7 @@ describe("Transcript: a sub-agent's task and its parent's messages (I-109)", () 
       ]);
       const cards = [...container.querySelectorAll('[data-role="delegated"]')];
       expect(cards.map((c) => c.getAttribute("data-kind"))).toEqual(["task", "message"]);
-      expect(cards[0]!.textContent).toContain("Task from main · Refactor the parser");
+      expect(cards[0]!.textContent).toContain("Task from main in “Refactor the parser”");
       expect(cards[0]!.getAttribute("data-agent-color")).toBe("teal");
       expect(cards[1]!.textContent).toContain("Message from main");
       expect(cards[1]!.textContent).toContain("Also check the tests");
@@ -62,6 +63,17 @@ describe("Transcript: a sub-agent's task and its parent's messages (I-109)", () 
     } finally {
       restore();
     }
+  });
+
+  it("the parent chat's title has its full text as a tooltip and opens that chat (I-146)", async () => {
+    requestOpenChat({ workspaceId: "x", sessionId: "x", sessionKind: "main" });
+    openChatRequest.value = null;
+    show("sub1", [user("t", "Do it")]);
+    const link = screen.getByRole("button", { name: "Open the chat “Refactor the parser”" });
+    act(() => link.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("From the chat “Refactor the parser” · click to open it");
+    fireEvent.click(link);
+    expect(openChatRequest.value).toEqual({ workspaceId: "w1", sessionId: "main1", sessionKind: "main" });
   });
 
   it("a main chat keeps its first prompt as a bubble", () => {

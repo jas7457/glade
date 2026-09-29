@@ -23,7 +23,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
-import type { AgentHarness, GenerateTitleOptions, HarnessDescription, HarnessSession, OpenSessionOptions, ShellRunRequest } from "../types.js";
+import type {
+  AgentHarness,
+  GenerateTitleOptions,
+  HarnessDescription,
+  HarnessSession,
+  OpenSessionOptions,
+  ShellRunRequest,
+  SideQuestionCall,
+  SideQuestionResult,
+} from "../types.js";
 
 export const FAKE_MODELS: ModelInfo[] = [
   {
@@ -125,7 +134,13 @@ export const FAKE_CAPABILITIES: HarnessCapabilities = {
   commands: true,
   subagents: false,
   shell: true,
+  sideQuestions: true,
 };
+
+/** The fake harness's side answer (I-140): canned, streamed word by word. */
+export function fakeSideAnswer(question: string): string {
+  return `Side answer to "${question}": the agent keeps working meanwhile. This reply is canned by the fake harness, streamed word by word, and **never** reaches the agent's context.`;
+}
 
 export interface FakeHarnessOptions {
   /** Harness id (default "fake"); tests register several fakes with different ids (I-064). */
@@ -144,6 +159,14 @@ export class FakeHarness implements AgentHarness {
   readonly sessions = new Map<string, StoredSession>();
   readonly openSessions = new Set<FakeSession>();
   private counter = 0;
+  /** How long a `spawn` prompt's spawn_agent call runs before the agent is started (ms, I-145). */
+  spawnDelayMs = 2000;
+  /** Side questions asked (I-140), for tests. */
+  readonly sideQuestions: SideQuestionCall[] = [];
+  /** Delay between the side answer's words (ms; default: the event delay). */
+  sideAnswerDelayMs: number | null = null;
+  /** Make the next side questions fail with this error (tests). */
+  sideAnswerError: string | null = null;
 
   constructor(
     public script: FakeScript = defaultFakeScript,
@@ -199,6 +222,23 @@ export class FakeHarness implements AgentHarness {
     // `/name` (I-074): name it after the latest text of the conversation excerpt.
     if (excerpt) return `Named: ${(excerpt.split("\n\n").at(-1) ?? "").replace(/^\w+: /, "").slice(0, 24)}`;
     return `Generated: ${firstMessage.slice(0, 20)}`;
+  }
+
+  /** A canned answer, streamed word by word (I-140). */
+  async answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
+    this.sideQuestions.push(call);
+    const question = /Side question: ([\s\S]*)$/.exec(call.prompt)?.[1]?.trim() ?? "";
+    if (this.sideAnswerError) return { answer: "", error: this.sideAnswerError };
+    const words = fakeSideAnswer(question).split(/(?<= )/);
+    const delay = this.sideAnswerDelayMs ?? this.eventDelayMs;
+    let answer = "";
+    for (const word of words) {
+      await new Promise((r) => (delay > 0 ? setTimeout(r, delay) : setImmediate(r)));
+      if (call.signal.aborted) return { answer };
+      answer += word;
+      call.onDelta(word);
+    }
+    return { answer };
   }
 
   async dispose(): Promise<void> {}
@@ -310,8 +350,28 @@ export class FakeSession implements HarnessSession {
           if (!res.ok) console.warn(`[fake] agent API ${path}: ${res.status} ${await res.text()}`);
         })
         .catch((err: Error) => console.warn(`[fake] agent API ${path}: ${err.message}`));
-    if (spawn) await call("spawn", { name: spawn[1], task: spawn[2] });
+    if (spawn) await this.spawnCall(spawn[1]!, spawn[2]!, () => call("spawn", { name: spawn[1], task: spawn[2] }));
     else if (report) await call("report-done", { summary: report[1] });
+  }
+
+  /**
+   * The parent's side of `spawn`: a `spawn_agent` tool call around the API call, slowed down by
+   * `spawnDelayMs` so the "Starting an agent…" card can be seen (I-145).
+   */
+  private async spawnCall(name: string, task: string, spawn: () => Promise<void>): Promise<void> {
+    const id = `${this.sessionRef}-${this.idCounter++}`;
+    const toolCallId = `call-${id}`;
+    const args = { name, task };
+    const block = { type: "toolCall" as const, id: toolCallId, name: "spawn_agent", kind: "task" as const, input: { agentName: name, description: task.split("\n")[0] }, args };
+    this.emit({ type: "run_start" });
+    this.emit({ type: "state", state: { isRunning: true } });
+    this.emit({ type: "message_end", message: { id, role: "assistant", content: [block], timestamp: Date.now(), stopReason: "toolUse" } });
+    this.emit({ type: "tool_start", toolCallId, toolName: "spawn_agent", args });
+    if (this.harness.spawnDelayMs > 0) await new Promise((r) => setTimeout(r, this.harness.spawnDelayMs));
+    await spawn();
+    this.emit({ type: "tool_end", toolCallId, result: { toolCallId, toolName: "spawn_agent", status: "done", output: `Spawned ${name}.` } });
+    this.emit({ type: "state", state: { isRunning: false } });
+    this.emit({ type: "run_end" });
   }
 
   private async play(events: AgentEvent[]): Promise<void> {

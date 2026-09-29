@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Ask a side question while the agent works: type `/btw …`, or type while it's busy and press
+  Ask Aside (⌥↩). The answer appears right away in a card the agent never sees, with buttons
+  to tell the agent or queue it. An optional cheaper model for these is in Settings → Models.
 - Notifications: when a chat needs your input, finishes or fails while Glade is in the background,
   macOS shows a banner ("On Mac Studio" for remote chats); clicking it opens the chat. Choose which
   in Settings → General → Notifications.
@@ -150,6 +153,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Starting a sub-agent shows its card straight away ("Starting an agent…"), and a sub-agent's
+  task card names the chat it came from, with the full title on hover and a click to open it.
 - Sub-agents draw from 316 names, and a chat doesn't reuse a name until it has used them all.
 - Remote devices show their status as a coloured dot (connected, connecting, off, needs
   attention) in Connections, the globe popover and the sidebar, and a device that turns remote

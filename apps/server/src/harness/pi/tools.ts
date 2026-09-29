@@ -7,7 +7,8 @@
  * (`agentName` + the task's first line). ext-kit's web tools are `web`, its agent-teams tools
  * `agent`, and MCP tools (`mcp`, `mcpScript`, `mcp__<server>`) `mcp` (I-089); its Glade chat tools
  * (`find_chats`, `read_chat`, `open_chat`) are `chat` (I-099). Anything else stays
- * `other` and is shown from its raw name/args. Pure; no I/O.
+ * `other` and is shown from its raw name/args. Agent-teams and chat tools reached through an MCP
+ * namespace (`mcp__pi__spawn_agent`, I-145) count as the tool itself. Pure; no I/O.
  */
 import type { DiffLine, ToolCallBlock, ToolEdit, ToolInput, ToolKind } from "@glade/protocol";
 
@@ -40,9 +41,20 @@ const KINDS = new Map<string, ToolKind>([
   ["open_chat", "chat"],
 ]);
 
+/** Kinds a namespaced `mcp__<server>__<tool>` keeps (agent-teams and chat tools, I-145). */
+const NAMESPACED_KINDS = new Set<ToolKind>(["task", "agent", "chat"]);
+
+/** The tool's own name: `mcp__pi__spawn_agent` → `spawn_agent` for agent-teams/chat tools. */
+export function piBaseToolName(name: string): string {
+  if (!name.startsWith("mcp__")) return name;
+  const base = name.slice(name.lastIndexOf("__") + 2);
+  const kind = KINDS.get(base);
+  return kind && NAMESPACED_KINDS.has(kind) ? base : name;
+}
+
 /** Canonical kind of a pi tool (by name). */
 export function piToolKind(name: string): ToolKind {
-  return KINDS.get(name) ?? (name.startsWith("mcp__") ? "mcp" : "other");
+  return KINDS.get(piBaseToolName(name)) ?? (name.startsWith("mcp__") ? "mcp" : "other");
 }
 
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);
@@ -139,7 +151,8 @@ export interface PiToolInputOptions {
 }
 
 /** Normalized input of a pi tool call; `undefined` for tools without a canonical shape. */
-export function piToolInput(name: string, args: Args | undefined, options: PiToolInputOptions = {}): ToolInput | undefined {
+export function piToolInput(rawName: string, args: Args | undefined, options: PiToolInputOptions = {}): ToolInput | undefined {
+  const name = piBaseToolName(rawName);
   const a = args ?? {};
   const full = !options.partial;
   switch (piToolKind(name)) {
@@ -156,7 +169,7 @@ export function piToolInput(name: string, args: Args | undefined, options: PiToo
     case "list":
       return compact({ path: str(a.path) });
     case "task":
-      return compact({ agentName: str(a.name), description: str(firstLine(a.task)) });
+      return compact({ agentName: str(a.name), description: str(firstLine(a.task)), agentDefinition: str(a.agent) });
     case "web":
       return webInput(name, a);
     case "agent":

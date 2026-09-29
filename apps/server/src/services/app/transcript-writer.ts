@@ -45,7 +45,15 @@ export class MessageIds {
 
 /** Events after which the store is written at once (not coalesced). */
 export function isFlushPoint(event: AgentEvent): boolean {
-  return event.type === "message_end" || event.type === "run_end" || event.type === "tool_end" || event.type === "shell_end";
+  return (
+    event.type === "message_end" ||
+    event.type === "run_end" ||
+    event.type === "tool_end" ||
+    event.type === "shell_end" ||
+    event.type === "side_start" ||
+    event.type === "side_end" ||
+    event.type === "side_dismiss"
+  );
 }
 
 export class TranscriptWriter {
