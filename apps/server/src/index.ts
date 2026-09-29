@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { env, isTemporaryDir, LEGACY_APP_DIR_NAME, loadConfig, platformDataDir, startupBanner } from "./config.js";
 import { AcpHarnessProvider } from "./harness/acp/acp-harness.js";
+import { ClaudeHarness } from "./harness/claude/claude-harness.js";
 import type { AcpResumeState } from "./harness/acp/resume-store.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
@@ -114,8 +115,8 @@ if (store.jsonImport?.files.length) {
 // ACP agents the user added in Settings (I-119) are harnesses too, read from the settings on use;
 // none by default, and an agent's process only starts with a chat's first prompt.
 const acpResume = new Map<string, AcpResumeState>(); // until a new chat's record has its ref
-// I-155: plus the well-known ACP agents (Claude Code since I-159) found on the PATH. The user's
-// own ones stay harnesses (their chats readable) but are never offered (I-159).
+// I-155: plus the well-known ACP agents found on the PATH (none since I-173). The user's own ones
+// stay harnesses (their chats readable) but are never offered (I-159).
 const which = cachedWhich();
 const acp = new AcpHarnessProvider(() => acpAgentConfigs(store.getSettings().harnesses.acp?.agents, which), {
   resume: {
@@ -142,6 +143,20 @@ harnesses.register(
         subagents: () => store.getSettings().agent.subagents,
         log: env("DEBUG") ? log : undefined,
       }),
+);
+// I-173: Claude Code, native (the Claude Agent SDK driving the user's `claude`); offered when
+// `claude` is on the PATH. Registered in fake mode too, so sandboxes can test it.
+const positive = (value: string | undefined) => (value && Number(value) > 0 ? Number(value) : undefined);
+const claudeBudget = positive(env("CLAUDE_MAX_BUDGET_USD"));
+const claudeTurns = positive(env("CLAUDE_MAX_TURNS"));
+harnesses.register(
+  new ClaudeHarness({
+    utilityCwd: config.scratchDir,
+    subagents: () => store.getSettings().agent.subagents,
+    ...(claudeBudget || claudeTurns ? { limits: { ...(claudeBudget ? { maxBudgetUsd: claudeBudget } : {}), ...(claudeTurns ? { maxTurns: claudeTurns } : {}) } } : {}),
+    ...(env("CLAUDE_TRACE") ? { session: { traceFile: env("CLAUDE_TRACE")! } } : {}),
+    log: env("DEBUG") ? log : undefined,
+  }),
 );
 
 // `search` is created right after the service; the hook refreshes its index as runs settle.

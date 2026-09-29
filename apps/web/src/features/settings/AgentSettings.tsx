@@ -1,16 +1,17 @@
 /**
  * Settings → Agents (`/settings/agent`, I-155, I-159): harness-independent settings (the agent new
- * chats use, sub-agents on/off), then one card per agent this device can run: pi and Claude Code.
+ * chats use, sub-agents on/off), then one card per agent this device can run: pi and Claude Code
+ * (native since I-173, `claude` on the PATH).
  * Each card says whether the agent was found here and has its Enable switch (only enabled +
  * installed agents are offered, to this device and to every device using it). When the agent's
  * command isn't on the PATH, the switch is off and disabled, with the commands looked for.
- * No install advice, no per-agent options (pi is always `pi` on the PATH, I-159).
+ * No install advice, no per-agent options (pi is always `pi`, Claude Code `claude`, on the PATH).
  *
  * The list comes from `GET /api/agent-catalog`; until it loads (or on an older server) it's
  * derived from the harness list.
  */
 import { useEffect } from "preact/hooks";
-import { PI_COMMAND, isCustomAcpHarness, knownAcpAgentFor, type AgentCatalogEntry } from "@glade/protocol";
+import { builtinAgentCommand, isCustomAcpHarness, knownAcpAgentFor, type AgentCatalogEntry } from "@glade/protocol";
 import { FormGroup, FormRow, Select, StatusDot, Switch } from "@glade/app-core/ui";
 import {
   hostDefaultHarness as defaultHarness,
@@ -29,13 +30,13 @@ export function fallbackCatalog(offered: readonly { id: string; label: string; i
     .filter((h) => !isCustomAcpHarness(h.id))
     .map((h) => {
       const known = knownAcpAgentFor(h.id);
-      const pi = h.id === "pi";
+      const builtin = builtinAgentCommand(h.id);
       return {
         id: h.id,
         label: h.label,
         kind: known ? "known" : "builtin",
-        command: pi ? PI_COMMAND : null,
-        lookedFor: known ? [...known.commands] : pi ? [PI_COMMAND] : [],
+        command: builtin,
+        lookedFor: known ? [...known.commands] : builtin ? [builtin] : [],
         installed: true,
         enabled: true,
         offered: true,

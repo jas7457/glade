@@ -946,7 +946,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   useEffect(() => {
     if (ready) void loadChatCommands(chatId);
   }, [chatId, ready]);
-  const models = visibleModelsOf(shell);
+  // I-173: the chat's own harness's models.
+  const models = visibleModelsOf(shell, summary?.harness);
   const uiRequests = store.uiRequests.value;
   const agentError = store.agentError.value;
   const queued = [
@@ -1076,7 +1077,6 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   // I-123: pickers follow the host (the project's environment, or the one chosen for a standalone chat).
   const envId = projectId ? envIdOfProject(projectId) : (chosenEnv ?? undefined);
   const shell = shellOf(envId);
-  const models = visibleModelsOf(shell);
   const defaults = shell.settings.value.models;
   const [pickedModel, setPickedModel] = useState<ModelRef | null>(null);
   const [pickedLevel, setPickedLevel] = useState<ThinkingLevel | null>(null);
@@ -1086,6 +1086,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   const target = newChatHarnessFor(envId);
   const otherHarness = target && !target.isDefault ? target.id : undefined;
   const usesModels = target?.capabilities.models !== false;
+  // I-173: the picked agent's models (the host's default agent's until the harness list loads).
+  const models = visibleModelsOf(shell, target?.id);
 
   // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043).
   // Those are the default harness's; another agent's commands are only known once its chat runs.
@@ -1098,13 +1100,16 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
   const harness = shell.harnessDefaults.value;
-  const harnessModel = !defaultModel && harness?.model ? harness.model : null;
+  // The host's harness default is the default agent's: not for another agent (it starts on its own default).
+  const harnessModel = !defaultModel && !otherHarness && harness?.model ? harness.model : null;
   const first = models[0];
-  const model: ModelRef | null = pickedModel ?? defaultModel ?? harnessModel ?? (first ? { provider: first.provider, id: first.id } : null);
+  // A model picked for another agent doesn't carry over (I-173).
+  const picked = pickedModel && models.some((m) => sameModel(m, pickedModel)) ? pickedModel : null;
+  const model: ModelRef | null = picked ?? defaultModel ?? harnessModel ?? (first ? { provider: first.provider, id: first.id } : null);
   // The harness's default may be hidden from the picker; still describe it correctly.
   const info = modelInfo(models, model) ?? modelInfo(shell.models.value, model);
   const levels = info?.thinkingLevels ?? ["off"];
-  const followsHarness = !pickedModel && harnessModel !== null;
+  const followsHarness = !picked && harnessModel !== null;
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
   const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaultLevel);
 

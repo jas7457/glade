@@ -390,7 +390,9 @@ export class SearchService {
   private async smallModelRef(): Promise<ModelRef | null> {
     const configured = this.options.app.getSettings().models.smallModel;
     if (configured) return configured;
-    const models = await this.options.app.listModels().catch(() => [] as ModelInfo[]);
+    const all = await this.options.app.listModels().catch(() => [] as ModelInfo[]);
+    // The default harness's models come first (I-173: other harnesses' follow, tagged).
+    const models = all.filter((m) => !m.harness || m.harness === all[0]?.harness);
     return models.some((m) => m.provider === DEFAULT_SMALL_MODEL.provider && m.id === DEFAULT_SMALL_MODEL.id) ? DEFAULT_SMALL_MODEL : null;
   }
 

@@ -40,8 +40,9 @@ export function setChatThinkingLevel(chatId: string, level: ThinkingLevel): void
 /** The model/thinking picker props for a chat; `null` when its agent picks its own model (I-119). */
 export function chatModelPickerProps(chatId: string) {
   const envId = envIdOfSession(chatId);
-  if (harnessCapabilities(sessionsById.value.get(chatId)?.harness, envId).models === false) return null;
-  const models = visibleModelsOf(shellOf(envId));
+  const harness = sessionsById.value.get(chatId)?.harness;
+  if (harnessCapabilities(harness, envId).models === false) return null;
+  const models = visibleModelsOf(shellOf(envId), harness);
   const state = getChatSession(chatId).state.value;
   return {
     model: state.model,

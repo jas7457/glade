@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isAgentEnabled, type AgentCatalogEntry, type PairingInvite, type PairResponse, type Settings } from "@glade/protocol";
 import { AcpHarnessProvider } from "../src/harness/acp/acp-harness.js";
+import { ClaudeHarness } from "../src/harness/claude/claude-harness.js";
 import { acpAgentConfigs, buildAgentCatalog } from "../src/harness/agent-catalog.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { PiHarness } from "../src/harness/pi/pi-harness.js";
@@ -18,6 +19,7 @@ import { createApp } from "../src/http/app.js";
 import { AppService } from "../src/services/app-service.js";
 import { AuthService } from "../src/services/auth/auth-service.js";
 import { Store } from "../src/store/store.js";
+import { FakeClaudeSdk } from "./fixtures/fake-claude-sdk.js";
 import { flush } from "./helpers.js";
 
 const cleanups: Array<() => unknown> = [];
@@ -50,18 +52,19 @@ describe("detection (PATH lookup, nothing started)", () => {
     expect(calls).toBe(2);
   });
 
-  it("only Claude Code is a known ACP agent (I-159); the user's agents follow it and can't take its id", () => {
+  it("no ACP agent is a known one since I-173 (Claude Code is native); the user's agents are listed as configured", () => {
     const installed = new Set(["claude-code-acp", "gemini", "codex-acp"]);
     const which = (c: string) => installed.has(c);
-    expect(acpAgentConfigs([], which).map((a) => [a.id, a.command, a.args.join(" ")])).toEqual([["claude-code", "claude-code-acp", ""]]);
-    const custom = [
-      { id: "my-gemini", name: "My Gemini", command: "/opt/bin/gemini", args: ["--acp"], env: {} },
-      { id: "claude-code", name: "Mine", command: "mine", args: [], env: {} },
-    ];
-    expect(acpAgentConfigs(custom, which).map((a) => [a.id, a.command])).toEqual([
-      ["claude-code", "claude-code-acp"],
-      ["my-gemini", "/opt/bin/gemini"],
-    ]);
+    expect(acpAgentConfigs([], which)).toEqual([]);
+    const custom = [{ id: "my-gemini", name: "My Gemini", command: "/opt/bin/gemini", args: ["--acp"], env: {} }];
+    expect(acpAgentConfigs(custom, which).map((a) => [a.id, a.command])).toEqual([["my-gemini", "/opt/bin/gemini"]]);
+  });
+
+  it("Claude Code is `claude` on the PATH (I-173)", () => {
+    const asked: string[] = [];
+    const claude = new ClaudeHarness({ sdk: new FakeClaudeSdk(), utilityCwd: tmpdir(), which: (c) => (asked.push(c), false) });
+    expect(claude.isInstalled()).toBe(false);
+    expect(asked).toEqual(["claude"]);
   });
 
   it("pi is always `pi` on the PATH (I-159: no executable setting)", () => {
@@ -80,7 +83,8 @@ describe("offered agents", () => {
     const beta = new FakeHarness(undefined, 0, { id: "beta", label: "Beta" });
     const which = (c: string) => installed[c] ?? false;
     const acp = new AcpHarnessProvider(() => acpAgentConfigs(store.getSettings().harnesses.acp.agents, which), { which });
-    const registry = new HarnessRegistry([alpha, beta], {
+    const claude = new ClaudeHarness({ sdk: new FakeClaudeSdk(), utilityCwd: dir, which });
+    const registry = new HarnessRegistry([alpha, beta, claude], {
       preferred: () => store.getSettings().agent.defaultHarness,
       dynamic: () => acp.list(),
       enabled: (id) => isAgentEnabled(store.getSettings(), id),
@@ -138,18 +142,18 @@ describe("offered agents", () => {
     expect(open).toHaveBeenCalled();
   });
 
-  it("the catalog lists only the built-in agents and Claude Code, with what it looked for; no install advice (I-159)", () => {
-    const { store, registry } = setup({ gemini: true, "codex-acp": true });
+  it("the catalog lists only the built-in agents and Claude Code, with what it looked for; no install advice (I-159, I-173)", () => {
+    const { store, registry } = setup({ gemini: true, "codex-acp": true, "claude-agent-acp": true });
     const catalog = buildAgentCatalog({ harnesses: registry, settings: store().getSettings() as Settings });
     const byId = new Map(catalog.map((e) => [e.id, e] as [string, AgentCatalogEntry]));
-    expect([...byId.keys()]).toEqual(["alpha", "beta", "acp-claude-code"]);
+    expect([...byId.keys()]).toEqual(["alpha", "beta", "claude"]);
     expect(byId.get("alpha")).toMatchObject({ kind: "builtin", installed: true, enabled: true, offered: true, isDefault: true, lookedFor: [] });
-    expect(byId.get("acp-claude-code")).toEqual({
-      id: "acp-claude-code",
+    expect(byId.get("claude")).toEqual({
+      id: "claude",
       label: "Claude Code",
-      kind: "known",
-      command: "claude-agent-acp",
-      lookedFor: ["claude-agent-acp", "claude-code-acp"],
+      kind: "builtin",
+      command: "claude",
+      lookedFor: ["claude"],
       installed: false,
       enabled: true,
       offered: false,
@@ -160,12 +164,12 @@ describe("offered agents", () => {
   it("Claude Code: not found → not offered; found later → offered with the stored preference", () => {
     const installed: Record<string, boolean> = {};
     const { store, registry, service } = setup(installed);
-    const catalog = () => buildAgentCatalog({ harnesses: registry, settings: store().getSettings() as Settings }).find((e) => e.id === "acp-claude-code")!;
+    const catalog = () => buildAgentCatalog({ harnesses: registry, settings: store().getSettings() as Settings }).find((e) => e.id === "claude")!;
     expect(catalog()).toMatchObject({ installed: false, offered: false });
-    installed["claude-agent-acp"] = true;
-    expect(catalog()).toMatchObject({ installed: true, enabled: true, offered: true, command: "claude-agent-acp" });
-    expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta", "acp-claude-code"]);
-    service.updateSettings({ agents: { "acp-claude-code": { enabled: false } } });
+    installed.claude = true;
+    expect(catalog()).toMatchObject({ installed: true, enabled: true, offered: true, command: "claude" });
+    expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta", "claude"]);
+    service.updateSettings({ agents: { claude: { enabled: false } } });
     expect(catalog()).toMatchObject({ installed: true, enabled: false, offered: false });
     expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta"]);
   });
@@ -175,17 +179,20 @@ describe("offered agents", () => {
     const mine = { id: "mine", name: "Mine", command: "mine-acp", args: [], env: {} };
     service.updateSettings({ harnesses: { acp: { agents: [mine] } }, agents: { "acp-mine": { enabled: true } } });
     expect(service.listHarnesses().map((h) => h.id)).toEqual(["alpha", "beta"]);
-    expect(service.agentCatalog().map((e) => e.id)).toEqual(["alpha", "beta", "acp-claude-code"]);
+    expect(service.agentCatalog().map((e) => e.id)).toEqual(["alpha", "beta", "claude"]);
     expect(service.getSettings().harnesses.acp.agents).toEqual([mine]);
     expect(registry.get("acp-mine")).toBeDefined(); // its old chats stay readable
     expect(isAgentEnabled(service.getSettings(), "acp-mine")).toBe(false);
   });
 
-  it("models are tagged with the harness that lists them", async () => {
+  it("models are tagged with the harness that lists them, the default agent's first", async () => {
     const { service } = setup();
     const models = await service.listModels();
     expect(models.length).toBeGreaterThan(0);
-    expect(models.every((m) => m.harness === "alpha")).toBe(true);
+    // The default agent's first, then the other offered agents' (I-173); not the uninstalled Claude Code.
+    const harnesses = [...new Set(models.map((m) => m.harness))];
+    expect(harnesses).toEqual(["alpha", "beta"]);
+    expect(models.findIndex((m) => m.harness === "beta")).toBe(models.filter((m) => m.harness === "alpha").length);
   });
 });
 

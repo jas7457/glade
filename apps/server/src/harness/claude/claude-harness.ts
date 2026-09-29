@@ -1,0 +1,243 @@
+/**
+ * Claude Code as a native harness (I-173), on the official Claude Agent SDK driving the user's own
+ * `claude` CLI (found on the PATH, `pathToClaudeCodeExecutable`), so their install, login and
+ * settings are used; Glade stores no API keys.
+ *
+ * - Sessions: `claude-session.ts` (one Claude Code process per live chat, started with its first
+ *   prompt). The session ref is Claude's session id.
+ * - Models, the default model and folder commands come from a short-lived probe process's
+ *   `initializationResult()` (no model call), cached for a minute per folder.
+ * - Titles, completions and side questions: one-shot runs (`one-shot.ts`) with Haiku, no tools.
+ * - Glade's sub-agent and chat tools: an in-process MCP server (`glade-tools.ts`).
+ * - Transcripts are Glade's (the store, I-121); nothing is imported from Claude's files.
+ */
+import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand } from "@glade/protocol";
+import { piChildEnv } from "../pi/child-env.js";
+import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
+import type {
+  AgentHarness,
+  CompletionRequest,
+  GenerateTitleOptions,
+  HarnessDescription,
+  HarnessSession,
+  OpenSessionOptions,
+  SideQuestionCall,
+  SideQuestionResult,
+} from "../types.js";
+import { cleanTitle, titlePrompt } from "../title.js";
+import { ClaudeSession, newClaudeSessionId, toSlashCommand, type ClaudeSessionOptions } from "./claude-session.js";
+import { gladeToolSpecs } from "./glade-tools.js";
+import { CLAUDE_PROVIDER, claudeModelId, findClaudeModel, translateClaudeModels } from "./models.js";
+import { claudeOneShot } from "./one-shot.js";
+import { PushQueue } from "./push-queue.js";
+import { realClaudeSdk, type ClaudeInitResult, type ClaudeModelInfo, type ClaudeSdk, type ClaudeUserInput } from "./sdk.js";
+
+export { CLAUDE_COMMAND, CLAUDE_HARNESS_ID };
+/** Cheap model for titles and completions. */
+const QUICK_MODEL = "haiku";
+
+export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
+  compact: true,
+  exportHtml: false,
+  steering: true,
+  uiRequests: true,
+  usageLimits: false,
+  commands: true,
+  subagents: true,
+  shell: false,
+  sideQuestions: true,
+  models: true,
+};
+
+export interface ClaudeHarnessOptions {
+  /** The SDK (tests inject a fake). */
+  sdk?: ClaudeSdk;
+  /** Folder for the model-listing probe. */
+  utilityCwd: string;
+  /** The "Use sub-agents" setting, read at each process start. Default on. */
+  subagents?: () => boolean;
+  /** Is a command installed? (default: a cached PATH lookup.) */
+  which?: WhichFn;
+  /** Full path of a command (default: a PATH lookup). */
+  findExecutable?: (command: string) => string | null;
+  /** Limits for every chat process (dev/testing: `GLADE_CLAUDE_MAX_BUDGET_USD`, `…_MAX_TURNS`). */
+  limits?: ClaudeSessionOptions["limits"];
+  /** Session hooks: tests (`cancelGraceMs`), debugging (`traceFile`). */
+  session?: Partial<Pick<ClaudeSessionOptions, "cancelGraceMs" | "traceFile">>;
+  /** Base environment (default: the server's). */
+  env?: NodeJS.ProcessEnv;
+  fetch?: typeof fetch;
+  log?: (msg: string) => void;
+}
+
+const defaultWhich = cachedWhich();
+const PROBE_TTL_MS = 60_000;
+
+export class ClaudeHarness implements AgentHarness {
+  readonly id = CLAUDE_HARNESS_ID;
+  readonly info: HarnessDescription = { label: "Claude Code", capabilities: { ...CLAUDE_CAPABILITIES } };
+  private readonly sdk: ClaudeSdk;
+  private readonly probes = new Map<string, { at: number; value: Promise<ClaudeInitResult> }>();
+
+  constructor(private readonly options: ClaudeHarnessOptions) {
+    this.sdk = options.sdk ?? realClaudeSdk();
+  }
+
+  isInstalled(): boolean {
+    return (this.options.which ?? defaultWhich)(CLAUDE_COMMAND);
+  }
+
+  private executable(): string | null {
+    return (this.options.findExecutable ?? ((c) => findExecutable(c)))(CLAUDE_COMMAND);
+  }
+
+  /** The Claude Code process environment: the server's minus Glade's own and nested-session variables. */
+  private childEnv(): NodeJS.ProcessEnv {
+    const env = piChildEnv(this.options.env ?? process.env);
+    delete env.CLAUDECODE;
+    delete env.CLAUDE_CODE_ENTRYPOINT;
+    return env;
+  }
+
+  // Probe (models, commands) ---------------------------------------------------------------------
+
+  /** `initializationResult()` of a short-lived Claude Code process in `cwd` (no model call). */
+  private probe(cwd: string, force = false): Promise<ClaudeInitResult> {
+    const hit = this.probes.get(cwd);
+    if (hit && !force && Date.now() - hit.at < PROBE_TTL_MS) return hit.value;
+    const value = this.runProbe(cwd);
+    this.probes.set(cwd, { at: Date.now(), value });
+    value.catch(() => this.probes.delete(cwd));
+    return value;
+  }
+
+  private async runProbe(cwd: string): Promise<ClaudeInitResult> {
+    const executable = this.executable();
+    if (!executable) throw new Error("Claude Code isn't installed: `claude` wasn't found on this device's PATH.");
+    const input = new PushQueue<ClaudeUserInput>();
+    const query = await this.sdk.query({
+      prompt: input,
+      options: { cwd, pathToClaudeCodeExecutable: executable, env: { ...this.childEnv(), CLAUDE_AGENT_SDK_CLIENT_APP: "glade" }, persistSession: false },
+    });
+    try {
+      return await withTimeout(query.initializationResult(), 30_000, "Claude Code didn't start");
+    } finally {
+      input.close();
+      query.close();
+    }
+  }
+
+  private async claudeModels(force = false): Promise<ClaudeModelInfo[]> {
+    return (await this.probe(this.options.utilityCwd, force)).models ?? [];
+  }
+
+  async listModels(force = false): Promise<ModelInfo[]> {
+    if (!this.isInstalled()) return [];
+    return translateClaudeModels(await this.claudeModels(force));
+  }
+
+  /** Claude Code's default model (its "default" entry, resolved to a listed alias when possible). */
+  async getDefaults(force = false): Promise<HarnessDefaults> {
+    if (!this.isInstalled()) return { model: null, thinkingLevel: null };
+    const models = await this.claudeModels(force).catch(() => [] as ClaudeModelInfo[]);
+    const fallback = models.find((m) => m.value === "default");
+    const resolved = fallback?.resolvedModel ? findClaudeModel(models.filter((m) => m.value !== "default"), fallback.resolvedModel) : undefined;
+    return { model: resolved ? { provider: CLAUDE_PROVIDER, id: resolved.value } : null, thinkingLevel: null };
+  }
+
+  async listFolderCommands(cwd: string): Promise<SlashCommand[]> {
+    return (await this.probe(cwd)).commands.map(toSlashCommand);
+  }
+
+  // Sessions ------------------------------------------------------------------------------------
+
+  async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
+    const env = options.env ?? {};
+    const session = new ClaudeSession({
+      sdk: this.sdk,
+      executable: () => this.executable(),
+      cwd: options.cwd,
+      sessionRef: options.sessionRef ?? newClaudeSessionId(),
+      existing: options.sessionRef !== null,
+      model: options.model ?? null,
+      thinkingLevel: options.thinkingLevel ?? null,
+      ...(options.appendSystemPrompt ? { appendSystemPrompt: options.appendSystemPrompt } : {}),
+      ...(options.tools ? { tools: options.tools } : {}),
+      env: this.childEnv(),
+      gladeTools: () => gladeToolSpecs({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, fetch: this.options.fetch }),
+      models: () => this.claudeModels(),
+      folderCommands: () => this.listFolderCommands(options.cwd),
+      ...(this.options.limits ? { limits: this.options.limits } : {}),
+      ...this.options.session,
+      log: this.options.log,
+    });
+    await session.init();
+    return session;
+  }
+
+  async deleteSession(sessionRef: string): Promise<void> {
+    // Claude Code's file of the session (searched in all its project folders).
+    await this.sdk.deleteSession(sessionRef).catch(() => {});
+  }
+
+  // One-shot runs ---------------------------------------------------------------------------------
+
+  async complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
+    const executable = this.executable();
+    if (!executable) return null;
+    const result = await claudeOneShot({
+      sdk: this.sdk,
+      executable,
+      env: this.childEnv(),
+      cwd: cwd ?? this.options.utilityCwd,
+      prompt,
+      model: claudeModelId(model) ?? QUICK_MODEL,
+      ...(timeoutMs ? { timeoutMs } : {}),
+      log: this.options.log,
+    });
+    return result.error || !result.text.trim() ? null : result.text;
+  }
+
+  /** Titles always use Haiku (whatever the chat's model): cheap and quick. */
+  async generateTitle({ firstMessage, excerpt, cwd }: GenerateTitleOptions): Promise<string | null> {
+    return cleanTitle(await this.complete({ prompt: titlePrompt(firstMessage, excerpt), model: null, cwd }));
+  }
+
+  async answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
+    const executable = this.executable();
+    if (!executable) return { answer: "", error: "Claude Code isn't installed" };
+    const result = await claudeOneShot({
+      sdk: this.sdk,
+      executable,
+      env: this.childEnv(),
+      cwd: call.cwd,
+      prompt: call.prompt,
+      systemPrompt: call.systemPrompt,
+      model: claudeModelId(call.model) ?? QUICK_MODEL,
+      signal: call.signal,
+      onDelta: call.onDelta,
+      timeoutMs: 5 * 60_000,
+      log: this.options.log,
+    });
+    return { answer: result.text, ...(result.error ? { error: result.error } : {}) };
+  }
+
+  async dispose(): Promise<void> {}
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    timer.unref?.();
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}

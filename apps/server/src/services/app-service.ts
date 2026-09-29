@@ -316,13 +316,23 @@ export class AppService {
 
   /**
    * The models of the harness with Glade's model picker (the default one, else the first offered
-   * one that has models), tagged with its id (I-155). What the model settings and new chats offer.
+   * one that has models), tagged with its id (I-155), then those of the other offered harnesses
+   * with pickers (I-173). Model settings use the first harness's; chats and new chats their own.
    */
   async listModels(force = false): Promise<ModelInfo[]> {
     const { harnesses } = this.ctx;
     const fallback = harnesses.default();
     const harness = fallback.info.capabilities.models !== false ? fallback : (harnesses.offered().find((h) => h.info.capabilities.models !== false) ?? fallback);
-    const models = (await harness.listModels(force)).map((m) => ({ ...m, harness: harness.id }));
+    // I-173: every offered harness with a model picker, each model tagged with its harness (the
+    // default's first); clients pick a chat's list by `harness`. One failing harness costs only its list.
+    const others = harnesses.offered().filter((h) => h !== harness && h.info.capabilities.models !== false);
+    const lists = await Promise.all(
+      [harness, ...others].map(async (h) => {
+        const list = h === harness ? await h.listModels(force) : await h.listModels(force).catch((err: Error) => (this.ctx.options.log?.(`${h.id}: models failed: ${err.message}`), [] as ModelInfo[]));
+        return list.map((m) => ({ ...m, harness: h.id }));
+      }),
+    );
+    const models = lists.flat();
     // A forced refresh may have changed the list; let every client know.
     if (force) this.ctx.broadcast({ type: "models", models });
     return models;

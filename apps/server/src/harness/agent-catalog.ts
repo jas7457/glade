@@ -1,18 +1,18 @@
 /**
- * The agents this device can run (I-155, I-159): pi (or the dev fake) and the well-known ACP
- * agents (`KNOWN_ACP_AGENTS`: Claude Code for now).
+ * The agents this device can run (I-155, I-159, I-173): pi (or the dev fake), Claude Code (native,
+ * `harness/claude/`) and the well-known ACP agents (`KNOWN_ACP_AGENTS`: none since I-173).
  *
  * - {@link acpAgentConfigs}: the ACP agents that become harnesses: each known agent whose command
  *   is installed (found on the PATH; nothing is started), then the ACP agents the user added. Those
  *   are hidden and never offered since I-159 (`isAgentEnabled` is false for them); they stay
  *   harnesses only so their old chats remain readable. A user's agent can't take a known agent's id.
- * - {@link buildAgentCatalog}: `GET /api/agent-catalog` for Settings → Agents: pi and the known
- *   agents with installed / enabled / offered and the commands looked for on the PATH.
+ * - {@link buildAgentCatalog}: `GET /api/agent-catalog` for Settings → Agents: pi, Claude Code and
+ *   the known agents with installed / enabled / offered and the commands looked for on the PATH.
  */
 import {
   KNOWN_ACP_AGENTS,
-  PI_COMMAND,
   acpHarnessId,
+  builtinAgentCommand,
   isAgentEnabled,
   isCustomAcpHarness,
   knownAcpAgentFor,
@@ -45,7 +45,7 @@ export interface AgentCatalogOptions {
   settings: Settings;
 }
 
-/** Settings → Agents: pi (or the fake) and the known agents, installed or not (see the header). */
+/** Settings → Agents: pi (or the fake), Claude Code and the known agents, installed or not (see the header). */
 export function buildAgentCatalog({ harnesses, settings }: AgentCatalogOptions): AgentCatalogEntry[] {
   const defaultId = harnesses.info().find((h) => h.isDefault)?.id ?? null;
   const entry = (h: AgentHarness): AgentCatalogEntry => {
@@ -53,13 +53,13 @@ export function buildAgentCatalog({ harnesses, settings }: AgentCatalogOptions):
     const enabled = isAgentEnabled(settings, h.id);
     const config = (h as { config?: AcpAgentConfig }).config;
     const known = knownAcpAgentFor(h.id);
-    const pi = h.id === "pi";
+    const builtin = builtinAgentCommand(h.id);
     return {
       id: h.id,
       label: h.info.label,
       kind: known ? "known" : "builtin",
-      command: config ? commandLine(config.command, config.args) : pi ? PI_COMMAND : null,
-      lookedFor: known ? [...known.commands] : pi ? [PI_COMMAND] : [],
+      command: config ? commandLine(config.command, config.args) : builtin,
+      lookedFor: known ? [...known.commands] : builtin ? [builtin] : [],
       installed,
       enabled,
       offered: installed && enabled,

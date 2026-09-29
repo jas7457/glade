@@ -57,10 +57,20 @@ export function shellOf(envId?: string | null): EnvShell {
   return connectionFor(envId)?.shell ?? localShell;
 }
 
-/** Models of a shell shown in pickers (hidden ones filtered out). */
-export function visibleModelsOf(shell: EnvShell): ModelInfo[] {
+/**
+ * The models of one harness (I-173: the list has every offered harness's, each tagged, the host's
+ * default model-picker harness first). Without `harness`: the first listed harness's (what the
+ * model settings offer). Untagged models (older hosts) belong to every harness.
+ */
+export function modelsForHarness(models: ModelInfo[], harness?: string | null): ModelInfo[] {
+  const id = harness ?? models[0]?.harness;
+  return id ? models.filter((m) => !m.harness || m.harness === id) : models;
+}
+
+/** Models of a shell shown in pickers for `harness` (see {@link modelsForHarness}), hidden ones filtered out. */
+export function visibleModelsOf(shell: EnvShell, harness?: string | null): ModelInfo[] {
   const hidden = new Set(shell.settings.value.models.hiddenModels);
-  return shell.models.value.filter((m) => !hidden.has(`${m.provider}/${m.id}`));
+  return modelsForHarness(shell.models.value, harness).filter((m) => !hidden.has(`${m.provider}/${m.id}`));
 }
 
 /** Models shown in pickers (hidden ones filtered out), local environment. */

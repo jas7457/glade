@@ -1,5 +1,5 @@
 /**
- * The Agents page (I-155, I-159): the agents a device can run (pi and Claude Code for now),
+ * The Agents page (I-155, I-159, I-173): the agents a device can run (pi and Claude Code for now),
  * whether each is found there, and whether the device offers it. A device offers only agents that
  * are installed *and* enabled (`Settings.agents.<harnessId>.enabled`, on unless turned off);
  * `GET /api/harnesses` lists just those, so new chats, pickers, sub-agents and other devices only
@@ -19,17 +19,22 @@ export interface KnownAcpAgent {
   args: string[];
 }
 
-export const KNOWN_ACP_AGENTS: readonly KnownAcpAgent[] = [
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    commands: ["claude-agent-acp", "claude-code-acp"],
-    args: [],
-  },
-];
+/** None since I-173 (Claude Code is a native harness now); kept for the next well-known ACP agent. */
+export const KNOWN_ACP_AGENTS: readonly KnownAcpAgent[] = [];
 
 /** The command pi is started with: always `pi` found on the PATH (I-159). */
 export const PI_COMMAND = "pi";
+
+/** Claude Code's native harness (I-173): its id, and the CLI it drives (`claude` on the PATH). */
+export const CLAUDE_HARNESS_ID = "claude";
+export const CLAUDE_COMMAND = "claude";
+
+/** The command a built-in harness runs (pi, Claude Code), `null` for others (e.g. the dev fake). */
+export function builtinAgentCommand(harnessId: string): string | null {
+  if (harnessId === "pi") return PI_COMMAND;
+  if (harnessId === CLAUDE_HARNESS_ID) return CLAUDE_COMMAND;
+  return null;
+}
 
 export function knownAcpAgentFor(harnessId: string): KnownAcpAgent | undefined {
   return KNOWN_ACP_AGENTS.find((a) => acpHarnessId(a.id) === harnessId);
@@ -53,10 +58,10 @@ export function isAgentEnabled(settings: { agents?: AgentSwitches }, harnessId: 
 }
 
 export interface AgentCatalogEntry {
-  /** Harness id ("pi", "acp-claude-code"). */
+  /** Harness id ("pi", "claude"). */
   id: string;
   label: string;
-  /** builtin: pi (or the dev fake); known: a well-known ACP agent. */
+  /** builtin: pi, Claude Code (or the dev fake); known: a well-known ACP agent. */
   kind: "builtin" | "known";
   /** The command line it runs (display), `null` when not applicable. */
   command: string | null;

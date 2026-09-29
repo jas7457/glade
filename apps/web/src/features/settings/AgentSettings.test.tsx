@@ -1,4 +1,4 @@
-/** Settings → Agents (I-155, I-159): pi and Claude Code with found/not found and Enable; no install advice; models by agent. */
+/** Settings → Agents (I-155, I-159, I-173): pi and Claude Code with found/not found and Enable; no install advice; models by agent. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -7,11 +7,11 @@ import { defaultSettings, type AgentCatalogEntry, type HarnessCapabilities, type
 const CATALOG: AgentCatalogEntry[] = [
   { id: "pi", label: "pi", kind: "builtin", command: "pi", lookedFor: ["pi"], installed: true, enabled: true, offered: true, isDefault: true },
   {
-    id: "acp-claude-code",
+    id: "claude",
     label: "Claude Code",
-    kind: "known",
-    command: "claude-agent-acp",
-    lookedFor: ["claude-agent-acp", "claude-code-acp"],
+    kind: "builtin",
+    command: "claude",
+    lookedFor: ["claude"],
     installed: false,
     enabled: true,
     offered: false,
@@ -96,7 +96,7 @@ describe("Agents page", () => {
     const toggle = within(claude).getByRole("switch", { name: "Enable Claude Code" }) as HTMLButtonElement;
     expect(toggle.getAttribute("aria-checked")).toBe("false"); // stored preference is on, but it isn't found
     expect(toggle.disabled).toBe(true);
-    expect(claude.textContent).toContain("Not found: looked for claude-agent-acp or claude-code-acp on this device's PATH");
+    expect(claude.textContent).toContain("Not found: looked for claude on this device's PATH");
   });
 
   it("turning an agent off saves settings.agents.<id>.enabled and reloads the agents", async () => {
@@ -105,16 +105,16 @@ describe("Agents page", () => {
     await waitFor(() => expect(screen.getByRole("switch", { name: "Enable Claude Code" }).getAttribute("aria-checked")).toBe("true"));
     vi.mocked(request).mockClear();
     fireEvent.click(screen.getByRole("switch", { name: "Enable Claude Code" }));
-    await waitFor(() => expect(mocked.updateSettings).toHaveBeenCalledWith({ agents: { "acp-claude-code": { enabled: false } } }));
+    await waitFor(() => expect(mocked.updateSettings).toHaveBeenCalledWith({ agents: { claude: { enabled: false } } }));
     await waitFor(() => expect(request).toHaveBeenCalledWith("GET", "/harnesses"));
     expect(request).toHaveBeenCalledWith("GET", "/agent-catalog");
   });
 
   it("falls back to the harness list (without custom ACP agents) before the catalog loads", () => {
-    const list = fallbackCatalog([PI, MINE, { id: "acp-claude-code", label: "Claude Code", isDefault: false }]);
+    const list = fallbackCatalog([PI, MINE, { id: "claude", label: "Claude Code", isDefault: false }]);
     expect(list.map((e) => [e.id, e.kind, e.command, e.lookedFor])).toEqual([
       ["pi", "builtin", "pi", ["pi"]],
-      ["acp-claude-code", "known", null, ["claude-agent-acp", "claude-code-acp"]],
+      ["claude", "builtin", "claude", ["claude"]],
     ]);
   });
 });
