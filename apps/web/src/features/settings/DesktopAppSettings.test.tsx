@@ -38,7 +38,7 @@ describe("Settings → General (Mac)", () => {
 
   it("keep awake while working: on by default, saved on the server, with the live status", async () => {
     render(<KeepAwakeSettings />);
-    const toggle = screen.getByRole("switch", { name: "Keep this Mac awake while a chat is working" });
+    const toggle = screen.getByRole("switch", { name: "Keep this device awake while a chat is working" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Keeping this device awake: a chat is working."));
     expect(request).toHaveBeenCalledWith("GET", "/power");

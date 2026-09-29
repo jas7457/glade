@@ -1,5 +1,5 @@
 /**
- * Keeping this Mac awake (I-147): the local server's `PowerStatus` (`GET /api/power`, pushed as
+ * Keeping this device awake (I-147): the local server's `PowerStatus` (`GET /api/power`, pushed as
  * `power` on the local socket). Shown as "Keeping this device awake: …" in Settings → General and
  * Remote Access. The settings themselves are `Settings.power` (server settings).
  */
@@ -46,7 +46,7 @@ export function powerStatusText(status: PowerStatus | null): string | null {
     return null;
   }
   const reason = status.text.charAt(0).toUpperCase() + status.text.slice(1);
-  if (!status.canHold) return `${reason}. Only the Glade app keeps this Mac awake, not a browser on a development server.`;
+  if (!status.canHold) return `${reason}. Only the Glade app keeps this device awake, not a browser on a development server.`;
   return `Keeping this device awake: ${status.text}.`;
 }
 

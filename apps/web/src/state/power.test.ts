@@ -19,7 +19,7 @@ describe("power status", () => {
 
   it("a web-only server only would", () => {
     expect(powerStatusText(status({ reasons: [{ kind: "working", chats: 1 }], text: "a chat is working", canHold: false }))).toMatch(
-      /^A chat is working\. Only the Glade app keeps this Mac awake/,
+      /^A chat is working\. Only the Glade app keeps this device awake/,
     );
   });
 

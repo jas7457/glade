@@ -10,7 +10,7 @@
 //!   New Chat
 //!   Settings…
 //!   ─────
-//!   Keeping this Mac awake: 2 chats are working   (I-147, info only)
+//!   Keeping this device awake: 2 chats are working   (I-147, info only)
 //!   ─────
 //!   Quit Glade Completely                         (with the running-chats check)
 //!
@@ -91,7 +91,7 @@ pub fn menu_model(state: Option<&ShellState>) -> Vec<TrayItem> {
     items.push(TrayItem::Action { id: SETTINGS, label: "Settings…".into(), enabled: true });
     if let Some(s) = state.filter(|s| s.held && !s.awake_text.is_empty()) {
         items.push(TrayItem::Separator);
-        items.push(TrayItem::Action { id: AWAKE, label: format!("Keeping this Mac awake: {}", s.awake_text), enabled: false });
+        items.push(TrayItem::Action { id: AWAKE, label: format!("Keeping this device awake: {}", s.awake_text), enabled: false });
     }
     items.push(TrayItem::Separator);
     items.push(TrayItem::Action { id: QUIT, label: "Quit Glade Completely".into(), enabled: true });
@@ -206,7 +206,7 @@ pub fn refresh(app: &AppHandle) {
             let _ = update_menu(&handle, &tray_menu, menu_model(state.as_ref()));
         }
         let tooltip = match state.as_ref().filter(|s| s.held && !s.awake_text.is_empty()) {
-            Some(s) => format!("Glade — keeping this Mac awake: {}", s.awake_text),
+            Some(s) => format!("Glade — keeping this device awake: {}", s.awake_text),
             None => "Glade".to_string(),
         };
         let _ = tray.set_tooltip(Some(tooltip));
@@ -303,7 +303,7 @@ mod tests {
                 "New Chat",
                 "Settings…",
                 "—",
-                "Keeping this Mac awake: 2 chats are working · iPhone is connected (disabled)",
+                "Keeping this device awake: 2 chats are working · iPhone is connected (disabled)",
                 "—",
                 "Quit Glade Completely",
             ]

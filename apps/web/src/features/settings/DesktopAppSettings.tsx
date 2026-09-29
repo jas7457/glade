@@ -1,6 +1,6 @@
 /**
  * Settings → General, the Mac parts (I-147/I-150):
- * - `KeepAwakeSettings`: "Keep this Mac awake while a chat is working" (`Settings.power`, on this
+ * - `KeepAwakeSettings`: "Keep this device awake while a chat is working" (`Settings.power`, on this
  *   Mac's server) with the live "Keeping this device awake: …" status (`state/power.ts`).
  * - `DesktopAppSettings` (Mac app only): Show in Dock, Open at login, "⌘Q keeps Glade in the menu
  *   bar". These are the app's own preferences (`lib/desktop.ts` → src-tauri `prefs.rs` /
@@ -20,7 +20,7 @@ export function KeepAwakeSettings() {
   const status = powerStatusText(powerStatus.value);
   return (
     <FormGroup title="Power" footer={LID_HINT}>
-      <FormRow label="Keep this Mac awake while a chat is working" description="So replies aren't cut off when the Mac would go to sleep. The display can still turn off." htmlFor="awake-working">
+      <FormRow label="Keep this device awake while a chat is working" description="So replies aren't cut off when this device would go to sleep. The display can still turn off." htmlFor="awake-working">
         <Switch id="awake-working" checked={power.whileWorking} onCheckedChange={(whileWorking) => void updateSettings({ power: { whileWorking } })} />
       </FormRow>
       {status && <FormRow label={<span role="status" class="text-fg-muted">{status}</span>} />}
