@@ -16,6 +16,7 @@
 //!   `login_item.rs`.
 //! - Device tokens for paired environments live in the Keychain (`secrets.rs`, I-134).
 //! - System notifications with click-to-open (`notifications.rs`, I-135).
+//! - Update Now's restart into the newly installed bundle, at the same screen (`relaunch.rs`, I-154).
 //! - The app always runs its own server, also while `pnpm dev` uses the same data folder: the
 //!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
@@ -28,6 +29,7 @@ mod notifications;
 mod power;
 mod prefs;
 mod quit;
+mod relaunch;
 mod secrets;
 mod server;
 mod shell_state;
@@ -113,7 +115,11 @@ fn start_server(app: AppHandle) {
         };
         match server::start(&bundle, &log_path, preferred_port) {
             Ok(running) => {
-                let url = running.url();
+                // After Update Now's restart (I-154): reopen at the screen it was on.
+                let url = match relaunch::take_route(&app) {
+                    Some(route) => format!("{}{}", running.url().trim_end_matches('/'), route),
+                    None => running.url(),
+                };
                 *app.state::<ServerState>().0.lock().unwrap() = Some(running);
                 shell_state::start(app.clone());
                 if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
@@ -173,7 +179,8 @@ pub fn run() {
             prefs::desktop_prefs_get,
             prefs::desktop_prefs_set,
             prefs::login_item_get,
-            prefs::login_item_set
+            prefs::login_item_set,
+            relaunch::relaunch
         ])
         .menu(menu::build)
         .on_menu_event(menu::handle)
@@ -184,6 +191,7 @@ pub fn run() {
             apply_vibrancy(&window);
             writing_tools::disable_affordance(&window);
             quit::install(app.handle());
+            relaunch::remember_bundle();
             notifications::install(app.handle());
             tray::install(app.handle())?;
             if !tauri::is_dev() {

@@ -1,16 +1,21 @@
 /**
  * Settings → About (I-149): which commit this Glade was built from, whether origin's main has
  * moved on ("Up to date" / "N commits behind main" / "Update available" / "Couldn't check",
- * with Check Now), and the command to update. There's no Update button (F-024).
+ * with Check Now), and updating: Update Now + restart in the Mac app (I-154, `UpdateNow.tsx`), else
+ * the command to run.
  */
 import { useEffect, useState } from "preact/hooks";
 import { Check, Copy, RefreshCw } from "lucide-preact";
 import { UPDATE_COMMAND } from "@glade/protocol";
 import { Button, FormGroup, FormRow, Spinner, StatusDot } from "@/ui";
 import { buildLine, checkText, checkVersionNow, loadVersion, versionChecking, versionError, versionStatus } from "@/state/version";
+import { canUpdateHere, updateJob, watchUpdateJob } from "@/state/update";
+import { UpdateNow } from "./UpdateNow";
 
 export function AboutSettings() {
   useEffect(() => void loadVersion(), []);
+  useEffect(() => watchUpdateJob(), []);
+  const job = updateJob.value;
   const status = versionStatus.value;
   const build = status?.build ?? null;
   const checking = versionChecking.value || !!status?.checking;
@@ -48,18 +53,24 @@ export function AboutSettings() {
         </FormRow>
       </FormGroup>
 
-      <FormGroup
-        title="Updating"
-        footer="After installing, quit Glade completely (from the menu bar: Quit Glade Completely) and open it again. Closing the window or ⌘Q keeps the old version running."
-      >
-        <FormRow
-          stacked
-          label={behind ? "A newer Glade is on main. To update, run this in the repo folder:" : "To update, run this in the repo folder:"}
-          description={status?.check?.checkedAt ? `Last checked ${new Date(status.check.checkedAt).toLocaleString()}.` : undefined}
+      {job && canUpdateHere(job) ? (
+        <FormGroup title="Updating">
+          <UpdateNow job={job} behind={behind} />
+        </FormGroup>
+      ) : (
+        <FormGroup
+          title="Updating"
+          footer="After installing, quit Glade completely (from the menu bar: Quit Glade Completely) and open it again. Closing the window or ⌘Q keeps the old version running."
         >
-          <CopyCommand command={UPDATE_COMMAND} />
-        </FormRow>
-      </FormGroup>
+          <FormRow
+            stacked
+            label={behind ? "A newer Glade is on main. To update, run this in the repo folder:" : "To update, run this in the repo folder:"}
+            description={status?.check?.checkedAt ? `Last checked ${new Date(status.check.checkedAt).toLocaleString()}.` : undefined}
+          >
+            <CopyCommand command={UPDATE_COMMAND} />
+          </FormRow>
+        </FormGroup>
+      )}
     </>
   );
 }

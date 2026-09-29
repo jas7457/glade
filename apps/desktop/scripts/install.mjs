@@ -11,19 +11,24 @@
  *
  * I-059 (renamed from pi-ui): the pre-rename `/Applications/pi-ui.app` is removed once Glade.app is
  * installed and pi-ui isn't running (its data folder stays; Glade copies it on first start).
+ *
+ * `GLADE_INSTALL_TARGET=/some/dir/Glade.app` installs somewhere else (agents testing Update Now,
+ * I-154, with a throwaway bundle; never the user's /Applications/Glade.app). The pre-rename
+ * cleanup only runs for the default target.
  */
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, renameSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoDir = join(desktopDir, "..", "..");
 const built = join(desktopDir, "src-tauri", "target", "release", "bundle", "macos", "Glade.app");
-const target = "/Applications/Glade.app";
+const defaultTarget = "/Applications/Glade.app";
+const target = process.env.GLADE_INSTALL_TARGET ? resolve(process.env.GLADE_INSTALL_TARGET) : defaultTarget;
 /** Staging copies live next to the target (same volume, so the swap is a pair of renames). */
-const incoming = "/Applications/.Glade.app.incoming";
-const outgoing = "/Applications/.Glade.app.outgoing";
+const incoming = join(dirname(target), `.${basename(target)}.incoming`);
+const outgoing = join(dirname(target), `.${basename(target)}.outgoing`);
 /** The app before the rename (I-059). */
 const legacyTarget = "/Applications/pi-ui.app";
 const lsregister =
@@ -67,12 +72,12 @@ try {
 console.log(`[install] installed ${target}`);
 console.log(
   running(target)
-    ? "[install] Glade is running: quit it completely (menu bar → Quit Glade Completely, or ⌥⌘Q) and reopen it to use the new version."
+    ? "[install] Glade is running: restart it to use the new version (Settings → About → Restart Glade, or menu bar → Quit Glade Completely and reopen it)."
     : "[install] Open Glade to use the new version.",
 );
 
 // I-059: the pre-rename app is replaced by Glade.app; its data folder is left alone (a backup).
-if (existsSync(legacyTarget) && !running(legacyTarget)) {
+if (target === defaultTarget && existsSync(legacyTarget) && !running(legacyTarget)) {
   try {
     execFileSync(lsregister, ["-u", legacyTarget], { stdio: "ignore" });
   } catch {

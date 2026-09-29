@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Update Now in Settings → About: when you're behind, Glade pulls, installs and rebuilds itself
+  with live progress, then restarts on the new version (right away, or once your chats finish).
 - Glade lives in the menu bar: ⌘Q closes the window but keeps chats, sub-agents and sharing
   running; quit for real with Quit Glade Completely (menu bar or ⌥⌘Q). The menu bar leaf (with a small badge while chats work or need you) has a menu that shows
   working chats and sharing, and opens Glade, a new chat or Settings. New options: Show in Dock

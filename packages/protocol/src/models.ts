@@ -11,6 +11,8 @@ export interface ModelRef {
 }
 
 export interface ModelInfo extends ModelRef {
+  /** Harness that lists the model (`HarnessInfo.id`, I-155; set by `GET /api/models`). */
+  harness?: string;
   /** Human readable name, e.g. "Claude Sonnet 4". */
   name: string;
   /** Supported thinking levels, in ascending order. `["off"]` for non-reasoning models. */

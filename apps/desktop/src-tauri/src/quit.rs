@@ -137,6 +137,11 @@ pub fn powering_off() -> bool {
     false
 }
 
+/// Let the next quit through without asking (Update Now's restart, `relaunch.rs`: the page asked).
+pub fn allow() {
+    QUIT_ALLOWED.store(true, Ordering::SeqCst);
+}
+
 pub fn allowed() -> bool {
     QUIT_ALLOWED.load(Ordering::SeqCst)
 }

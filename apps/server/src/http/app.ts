@@ -60,6 +60,7 @@ import { powerRoutes } from "./power.js";
 import type { PowerTracker } from "../services/power.js";
 import { versionRoutes } from "./version.js";
 import { UpdateChecker } from "../services/update-check.js";
+import { UPDATE_UNAVAILABLE_DEV, UpdateJob } from "../services/update-job.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -89,9 +90,11 @@ export interface CreateAppOptions {
   power?: PowerTracker;
   /** Build stamp + behind check (I-149). Default: one on the service's build that isn't started (tests). */
   updates?: UpdateChecker;
+  /** Update Now (I-154). Default: one that isn't available (tests, like `pnpm dev`). */
+  updateJob?: UpdateJob;
 }
 
-export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, power }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, updateJob, power }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -131,7 +134,16 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
     app.route("/api", powerRoutes(power));
   }
   // Build stamp and "is this app behind?" (I-149).
-  app.route("/api", versionRoutes(updates ?? new UpdateChecker({ build: () => service.environment.build() })));
+  // Update Now (I-154): local owner only.
+  app.use("/api/version/update", localOnly);
+  app.use("/api/version/update/*", localOnly);
+  app.route(
+    "/api",
+    versionRoutes(
+      updates ?? new UpdateChecker({ build: () => service.environment.build() }),
+      updateJob ?? new UpdateJob({ build: () => service.environment.build(), unavailableReason: UPDATE_UNAVAILABLE_DEV }),
+    ),
+  );
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
 

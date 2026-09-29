@@ -10,7 +10,14 @@
  *   POST /api/version/check             → VersionStatus (checks now, answers when done)
  *   GET  /api/version/compare?commit=…  → BuildComparison (another build's commit vs. ours)
  *
- * There is no Update button (F-024): the About page shows the command to run.
+ * Update Now (I-154): the desktop app's server runs the update for you (pull, install, rebuild)
+ * as a background job, local owner only:
+ *
+ *   GET  /api/version/update         → UpdateJobStatus (also pushed as `update` on the local socket)
+ *   POST /api/version/update         → UpdateJobStatus (starts it; 409 with `error` when it can't)
+ *   POST /api/version/update/cancel  → UpdateJobStatus (before the install step only)
+ *
+ * The Mac shell then relaunches the new bundle (the `relaunch` command, apps/web/src/lib/desktop.ts).
  */
 
 /** Which commit a server was built from. */
@@ -35,7 +42,7 @@ export interface BuildInfo {
 /** The branch the behind check compares with. */
 export const UPDATE_BRANCH = "main";
 
-/** The command the About page offers to copy (F-024 will run it for you). */
+/** The command the About page offers to copy (`pnpm dev`; the Mac app has Update Now, I-154). */
 export const UPDATE_COMMAND = "git pull && pnpm install && pnpm tauri:install";
 
 /**
@@ -82,4 +89,53 @@ export interface BuildComparison {
   commit: string;
   relation: "same" | "older" | "newer" | "diverged" | "unknown";
   count?: number;
+}
+
+// --- Update Now (I-154) ----------------------------------------------------------------------
+
+export type UpdateStepId = "pull" | "install" | "build";
+
+/** The update job's steps, in order, run in the repo folder through the user's login shell. */
+export const UPDATE_STEPS: ReadonlyArray<{ id: UpdateStepId; label: string; command: string }> = [
+  { id: "pull", label: "Pull main", command: "git pull --ff-only" },
+  { id: "install", label: "Install dependencies", command: "pnpm install --frozen-lockfile" },
+  { id: "build", label: "Build and install Glade", command: "pnpm tauri:install" },
+];
+
+export type UpdateStepState = "pending" | "running" | "done" | "failed" | "cancelled";
+
+export interface UpdateStep {
+  id: UpdateStepId;
+  label: string;
+  command: string;
+  state: UpdateStepState;
+}
+
+/**
+ * - `idle`: nothing started since this server started.
+ * - `checking`: the guards run (repo folder, clean, on main, fast-forward possible).
+ * - `running`: a step runs (see `steps`).
+ * - `refused`: a guard said no (`error` says why); nothing was changed.
+ * - `failed`: a step failed (`error`; the log tail says more).
+ * - `cancelled`: stopped by Cancel.
+ * - `installed`: the new version is in place; restart Glade to use it.
+ */
+export type UpdateJobState = "idle" | "checking" | "running" | "refused" | "failed" | "cancelled" | "installed";
+
+export interface UpdateJobStatus {
+  /** This server can update the app (the Mac app's server only; `pnpm dev` shows the command). */
+  available: boolean;
+  /** Why not, when `available` is false. */
+  unavailableReason?: string;
+  state: UpdateJobState;
+  steps: UpdateStep[];
+  /** Why it was refused / failed, in a sentence. */
+  error?: string;
+  /** The last lines of the commands' output (a ring buffer). */
+  log: string[];
+  /** Cancel is possible now (checking, or before the install step). */
+  canCancel: boolean;
+  /** ISO times of the last job. */
+  startedAt?: string;
+  endedAt?: string;
 }

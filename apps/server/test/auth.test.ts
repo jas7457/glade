@@ -279,6 +279,9 @@ describe("device tokens", () => {
       ["POST", "/api/fs/reveal", { path: "/tmp" }],
       ["POST", `/api/sessions/${session.session.session.id}/export`, { reveal: true }],
       ["GET", "/api/agents/list"],
+      ["GET", "/api/version/update"],
+      ["POST", "/api/version/update"],
+      ["POST", "/api/version/update/cancel"],
     ];
     for (const [method, path, body] of routes) {
       const res = await t.remote(method, path, { token, body });

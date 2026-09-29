@@ -271,6 +271,11 @@ export interface Settings {
      */
     subagents: boolean;
   };
+  /**
+   * Agents this device offers (I-155), keyed by harness id: `enabled: false` turns one off (it's
+   * then not offered to new chats, sub-agents or other devices). Absent = on when installed.
+   */
+  agents: import("./agent-catalog.js").AgentSwitches;
   /** Per-harness settings (I-066), keyed by harness id. Before I-066 pi's lived in `agent`. */
   harnesses: {
     pi: PiHarnessSettings;
@@ -337,6 +342,7 @@ export function defaultSettings(): Settings {
       defaultHarness: null,
       subagents: true,
     },
+    agents: {},
     harnesses: {
       pi: {
         piPath: "pi",
@@ -568,6 +574,8 @@ export type ServerMessage = (
   | { type: "pairing_pending"; pending: PendingPairing[] }
   /** Why the Mac is kept awake (I-147), after every change. Local-owner sockets only; not sequenced. */
   | { type: "power"; power: import("./power.js").PowerStatus }
+  /** The Update Now job (I-154), after every change (throttled). Local-owner sockets only; not sequenced. */
+  | { type: "update"; update: import("./version.js").UpdateJobStatus }
   // Sequenced sync (I-122) ---------------------------------------------------------------------
   /** Several pushes at once (sent every ~50 ms). */
   | { type: "batch"; messages: ServerMessage[] }

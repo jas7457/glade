@@ -30,6 +30,7 @@ import { createPowerTracker } from "./services/power.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
 import { UpdateChecker } from "./services/update-check.js";
+import { UPDATE_UNAVAILABLE_DEV, UpdateJob, throttle } from "./services/update-job.js";
 import { migrateLegacyDataDir } from "./store/migrate-data-dir.js";
 import { NewerSchemaError } from "./store/db/database.js";
 import { olderServerMessage, recordSuccessfulStart } from "./store/startup.js";
@@ -198,11 +199,15 @@ const auth = new AuthService({
 });
 // I-149: is this build behind origin's main? (read-only `git ls-remote`, at startup + every 4 h)
 const updates = new UpdateChecker({ build: () => service.environment.build(), log: env("DEBUG") ? log : undefined });
+// I-154: Update Now (pull, install, rebuild), only in the Mac app's server; pushed as `update`.
+const updateJob = new UpdateJob({ build: () => service.environment.build(), unavailableReason: serverKind === "desktop" ? null : UPDATE_UNAVAILABLE_DEV });
+updateJob.onChange(throttle((update) => auth.pushLocal({ type: "update", update })));
 // I-147/I-150: why the Mac is kept awake (only the Mac app's shell holds the assertion) + menu bar state.
 const power = createPowerTracker({ service, auth, canHold: serverKind === "desktop" });
 const { app, injectWebSocket } = createApp({
   service,
   updates,
+  updateJob,
   folderInfo,
   search,
   auth,
@@ -258,6 +263,7 @@ async function shutdown(signal: string): Promise<void> {
     power.dispose();
     remote?.dispose();
     updates.dispose();
+    updateJob.dispose();
     await service.dispose();
     registry.release();
   } catch (err) {

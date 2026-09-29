@@ -166,3 +166,14 @@ export async function setLoginItem(enabled: boolean): Promise<LoginItemStatus> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<LoginItemStatus>("login_item_set", { enabled });
 }
+
+/**
+ * Update Now (I-154): quit Glade completely (server stopped cleanly, no running-chats prompt: the
+ * page already asked) and start the newly installed bundle, which reopens at `route`
+ * (`src-tauri/src/relaunch.rs`). Resolves only if the shell refused (it throws then).
+ */
+export async function relaunchApp(route: string): Promise<void> {
+  if (!isDesktop()) throw new Error("Only the Glade app can restart itself.");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("relaunch", { route });
+}
