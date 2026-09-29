@@ -380,7 +380,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.post("/sessions/:id/side-questions", once, async (c) => {
     const body = await readBody<SideQuestionRequest>(c);
     requireString(body.question, "question");
-    return c.json(await service.askSideQuestion(c.req.param("id"), { question: body.question }));
+    const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : undefined;
+    return c.json(await service.askSideQuestion(c.req.param("id"), { question: body.question, ...(parentId ? { parentId } : {}) }));
   });
   api.post("/sessions/:id/side-questions/:qid/stop", (c) => {
     service.stopSideQuestion(c.req.param("id"), c.req.param("qid"));

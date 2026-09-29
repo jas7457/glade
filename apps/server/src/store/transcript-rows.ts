@@ -4,7 +4,7 @@
  * and merging a harness transcript (pi's JSONL) into what the store already has without
  * duplicating messages or changing their ids.
  */
-import { messageText, parseAgentMessage, type ChatMessage, type ToolResult, type Transcript } from "@glade/protocol";
+import { messageText, parseAgentMessage, sideQuestionStreaming, type ChatMessage, type SideQuestionTurn, type ToolResult, type Transcript } from "@glade/protocol";
 
 /** Version of the `payload_json` shape (the protocol's `ChatMessage` / `ToolResult`). */
 export const PAYLOAD_VERSION = 1;
@@ -14,7 +14,7 @@ export type MessageStatus = "streaming" | "running" | "done";
 export function messageStatus(m: ChatMessage): MessageStatus {
   if (m.role === "assistant" && m.streaming) return "streaming";
   if (m.role === "shell" && m.running) return "running";
-  if (m.role === "side" && m.status === "streaming") return "streaming";
+  if (m.role === "side" && sideQuestionStreaming(m)) return "streaming";
   return "done";
 }
 
@@ -56,9 +56,10 @@ export function settleTranscript(t: Transcript): Transcript {
       changed = true;
       return { ...m, running: false, cancelled: true };
     }
-    if (m.role === "side" && m.status === "streaming") {
+    if (m.role === "side" && sideQuestionStreaming(m)) {
       changed = true;
-      return { ...m, status: "stopped" as const };
+      const stop = <T extends SideQuestionTurn>(turn: T): T => (turn.status === "streaming" ? { ...turn, status: "stopped" as const } : turn);
+      return { ...stop(m), ...(m.followUps ? { followUps: m.followUps.map(stop) } : {}) };
     }
     return m;
   });

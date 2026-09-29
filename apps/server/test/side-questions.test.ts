@@ -150,6 +150,62 @@ describe("side question endpoints (FakeHarness)", () => {
     expect(env.store.loadTranscript(sid).messages.find((m) => m.id === id)).toMatchObject({ status: "done", answer: fakeSideAnswer("still there?") });
   });
 
+  it("a follow-up is answered with the card's thread and appended to the same card (I-156)", async () => {
+    const sid = await newSession("build the parser");
+    const first = await ask(sid, "what is it doing?");
+    await until(ended(sid));
+    const res = await req("POST", `/api/sessions/${sid}/side-questions`, { question: " and after that? ", parentId: first });
+    expect(res.status).toBe(200);
+    const follow = ((await res.json()) as { id: string }).id;
+    expect(follow).not.toBe(first);
+    await until(() => sideEvents(sid).filter((e) => e.type === "side_end").length === 2);
+
+    expect(sideEvents(sid).find((e) => e.type === "side_start" && e.id === follow)).toMatchObject({ parentId: first, question: "and after that?" });
+    const call = env.harness.sideQuestions[1]!;
+    expect(call.prompt).toContain("USER:\nbuild the parser");
+    expect(call.prompt).toContain(`<side_thread>`);
+    expect(call.prompt).toContain(`SIDE QUESTION: what is it doing?\nSIDE ANSWER: ${fakeSideAnswer("what is it doing?")}`);
+    expect(call.prompt.endsWith("Follow-up side question: and after that?")).toBe(true);
+
+    const cards = await sideMessages(sid);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ id: first, status: "done", followUps: [{ id: follow, question: "and after that?", answer: fakeSideAnswer("and after that?"), status: "done" }] });
+    await flush(5);
+    expect(env.store.loadTranscript(sid).messages.find((m) => m.id === first)).toMatchObject({ followUps: [{ id: follow, status: "done" }] });
+    // Still never seen by the agent.
+    expect(fakeSession().prompts.map((p) => p.text)).toEqual(["build the parser"]);
+  });
+
+  it("follow-ups: 404 for an unknown card, 409 while it's answering; Dismiss stops a running follow-up", async () => {
+    const sid = await newSession();
+    expect((await req("POST", `/api/sessions/${sid}/side-questions`, { question: "q", parentId: "side-nope" })).status).toBe(404);
+    env.harness.sideAnswerDelayMs = 30;
+    const first = await ask(sid, "slow one");
+    expect((await req("POST", `/api/sessions/${sid}/side-questions`, { question: "q", parentId: first })).status).toBe(409);
+    await until(ended(sid), 5000);
+    const res = await req("POST", `/api/sessions/${sid}/side-questions`, { question: "slow two", parentId: first });
+    const follow = ((await res.json()) as { id: string }).id;
+    await until(() => sideEvents(sid).some((e) => e.type === "side_delta" && e.id === follow));
+    expect((await req("POST", `/api/sessions/${sid}/side-questions/${first}/dismiss`)).status).toBe(204);
+    await until(() => sideEvents(sid).some((e) => e.type === "side_end" && e.id === follow));
+    const [card] = await sideMessages(sid);
+    expect(card).toMatchObject({ dismissed: true, followUps: [{ id: follow, status: "stopped" }] });
+    expect(env.service["sideQuestions"].isRunning(sid, follow)).toBe(false);
+  });
+
+  it("says when the answer only saw part of a long chat (I-156)", async () => {
+    const sid = await newSession();
+    const fake = fakeSession();
+    fake.emit({ type: "message_start", message: { id: "big", role: "assistant", content: [{ type: "text", text: "x".repeat(150_000) }], timestamp: 1 } });
+    fake.emit({ type: "message_end", message: { id: "big", role: "assistant", content: [{ type: "text", text: "x".repeat(150_000) }], timestamp: 1 } });
+    await flush();
+    await ask(sid, "what happened?");
+    await until(ended(sid));
+    expect(sideEvents(sid)[0]).toMatchObject({ type: "side_start", partialContext: true });
+    expect((await sideMessages(sid))[0]).toMatchObject({ partialContext: true });
+    expect(env.harness.sideQuestions[0]!.prompt.length).toBeLessThan(110_000);
+  });
+
   it("validates the body, 404s unknown sessions, 501s harnesses without side questions", async () => {
     const sid = await newSession();
     expect((await req("POST", `/api/sessions/${sid}/side-questions`, { question: "  " })).status).toBe(400);

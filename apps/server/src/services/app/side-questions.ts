@@ -1,6 +1,7 @@
 /**
  * Side questions (`/btw`, Ask Aside; I-140): a one-off answer over the chat's context, while the
- * agent keeps working. The prompt is built from Glade's own transcript (the live one, so a turn in
+ * agent keeps working. A follow-up (`parentId`, I-156) is asked in an existing card: its earlier
+ * questions and answers go with the chat, and it's appended to the card's `followUps`. The prompt is built from Glade's own transcript (the live one, so a turn in
  * progress is included; `buildSideQuestionPrompt`) and answered by the harness's
  * `answerSideQuestion` (pi: a throwaway `pi -p` without tools or session). The chat's own agent
  * process is never sent anything.
@@ -15,9 +16,10 @@ import { randomUUID } from "node:crypto";
 import {
   SIDE_QUESTION_SYSTEM_PROMPT,
   applyAgentEvent,
-  buildSideQuestionPrompt,
   modelKey,
   sameModel,
+  sideQuestionPrompt,
+  sideQuestionStreaming,
   type AgentEvent,
   type ModelInfo,
   type ModelRef,
@@ -35,8 +37,8 @@ import type { Records } from "./records.js";
 const MAX_QUESTION_CHARS = 20_000;
 
 export class SideQuestions {
-  /** Running side questions: `sessionId:questionId` -> stop. */
-  private readonly running = new Map<string, AbortController>();
+  /** Running side questions: `sessionId:questionId` -> stop, and the card it's in. */
+  private readonly running = new Map<string, { controller: AbortController; sessionId: string; cardId: string }>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -59,13 +61,26 @@ export class SideQuestions {
     const live = await this.pool.ensureLive(id);
     const workspace = this.records.requireWorkspace(record.workspaceId);
     const model = (await this.availableModel(harness, this.ctx.store.getSettings().models.sideQuestionModel)) ?? live.session.getState().model ?? record.model;
-    const prompt = buildSideQuestionPrompt(live.transcript, question);
+    const parentId = req.parentId || undefined;
+    if (parentId) {
+      const parent = live.transcript.messages.find((m) => m.id === parentId);
+      if (parent?.role !== "side" || parent.dismissed) throw new HttpError(404, "side question not found");
+      if (sideQuestionStreaming(parent)) throw new HttpError(409, "the side question is still being answered");
+    }
+    const { prompt, partial } = sideQuestionPrompt(live.transcript, question, parentId ? { threadId: parentId } : {});
     const qid = `side-${randomUUID()}`;
     const controller = new AbortController();
     const key = `${id}:${qid}`;
-    this.running.set(key, controller);
+    this.running.set(key, { controller, sessionId: id, cardId: parentId ?? qid });
     live.lastUsedAt = Date.now();
-    this.emit(id, { type: "side_start", id: qid, question, ...(model ? { model: modelKey(model) } : {}) });
+    this.emit(id, {
+      type: "side_start",
+      id: qid,
+      question,
+      ...(model ? { model: modelKey(model) } : {}),
+      ...(parentId ? { parentId } : {}),
+      ...(partial ? { partialContext: true } : {}),
+    });
     void harness
       .answerSideQuestion({
         prompt,
@@ -96,12 +111,13 @@ export class SideQuestions {
   /** Stop a side question that's still being answered (a no-op once it's done). */
   stop(id: string, qid: string): void {
     this.records.requireSession(id);
-    this.running.get(`${id}:${qid}`)?.abort();
+    this.running.get(`${id}:${qid}`)?.controller.abort();
   }
 
-  /** Hide a side question's card (stopping it first if it's still running). */
+  /** Hide a side question's card (stopping its questions first if any is still running). */
   dismiss(id: string, qid: string): void {
     this.stop(id, qid);
+    for (const [key, run] of this.running) if (run.sessionId === id && run.cardId === qid) this.stop(id, key.slice(id.length + 1));
     this.emit(id, { type: "side_dismiss", id: qid });
   }
 

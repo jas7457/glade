@@ -9,7 +9,7 @@
  * stdin to the message; no argv size limit). No session file is written and no tool can run.
  * Extensions stay on (they may provide the provider/auth; see `one-shot.ts`). The answer streams
  * from `message_update` `text_delta` events; the final `message_end` is authoritative. Stop =
- * SIGTERM. One model request per question: input = the context sent (up to ~15k tokens), output =
+ * SIGTERM. One model request per question: input = the context sent (up to ~25k tokens), output =
  * the answer; no prompt cache is shared with the chat.
  */
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";

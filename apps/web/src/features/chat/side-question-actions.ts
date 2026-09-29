@@ -10,9 +10,16 @@ import { harnessCapabilities } from "@/state/harnesses";
 import { envIdOfSession, sessionsById } from "@/state/store";
 import { prefillComposer } from "./composer-prefill";
 
-/** Ask a side question in session `chatId`; resolves false when it couldn't be asked (toast shown). */
-export function askSideQuestion(chatId: string, question: string): Promise<boolean> {
-  return runAction(() => apiForSession(chatId).askSideQuestion(chatId, question.trim()), "Could not ask the side question");
+/**
+ * Ask a side question in session `chatId`, or a follow-up in the card `parentId` (I-156); resolves
+ * false when it couldn't be asked (toast shown).
+ */
+export function askSideQuestion(chatId: string, question: string, parentId?: string): Promise<boolean> {
+  const api = apiForSession(chatId);
+  return runAction(
+    () => (parentId ? api.askSideQuestion(chatId, question.trim(), parentId) : api.askSideQuestion(chatId, question.trim())),
+    "Could not ask the side question",
+  );
 }
 
 export function stopSideQuestion(chatId: string, id: string): Promise<boolean> {
@@ -23,12 +30,15 @@ export function dismissSideQuestion(chatId: string, id: string): Promise<boolean
   return runAction(() => apiForSession(chatId).dismissSideQuestion(chatId, id), "Could not dismiss the side question");
 }
 
-/** "Tell the Agent": put the question and answer into the composer to edit and send (or queue). */
+/**
+ * "Tell the Agent": put the card's questions and answers (the whole thread, I-156) into the
+ * composer to edit and send (or queue).
+ */
 export function tellAgent(chatId: string, message: SideQuestionMessage): void {
   prefillComposer(chatId, sideQuestionNote(message));
 }
 
-/** "Add to Queue": send the note as a follow-up (queued while the agent works, sent now when idle). */
+/** "Add to Queue": send the note (the whole thread) as a follow-up (queued while the agent works, sent now when idle). */
 export function addToQueue(chatId: string, message: SideQuestionMessage): Promise<boolean> {
   const running = getChatSession(chatId).state.value.isRunning;
   const steering = harnessCapabilities(sessionsById.value.get(chatId)?.harness, envIdOfSession(chatId)).steering;

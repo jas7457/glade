@@ -120,8 +120,10 @@ export type AgentEvent =
   /**
    * A side question (I-140) started; it becomes a `SideQuestionMessage` with this id. Glade's own
    * (never from the harness's session): the agent doesn't see it. `model`: `provider/id`.
+   * `parentId` (I-156): a follow-up, appended to that card's `followUps` (its own `id` drives its
+   * `side_delta`/`side_end`). `partialContext`: the answer only saw part of the chat.
    */
-  | { type: "side_start"; id: string; question: string; model?: string; at?: number }
+  | { type: "side_start"; id: string; question: string; model?: string; parentId?: string; partialContext?: boolean; at?: number }
   /** More of a side question's answer (appended). */
   | { type: "side_delta"; id: string; delta: string }
   /** A side question finished, was stopped or failed. `answer`: the final text, when known. */
