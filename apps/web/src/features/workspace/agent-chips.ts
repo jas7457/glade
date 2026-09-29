@@ -4,11 +4,14 @@
  * `CHIP_TEXT_MAX`). Pure, so the rules are unit-tested; `SubagentStrip.tsx` only renders them.
  *
  * Status comes from `SessionSummary` (status + `agent`, like `agentDisplay`); activity from the
- * sub-agent's transcript when it's loaded (current tool call, else the last reply line).
+ * sub-agent's transcript when it's loaded (current tool call, else the last reply line), in words
+ * rather than raw tool names (I-148). The tooltip leads with its short generated title (I-148),
+ * else its functional name and the task's first sentence.
  */
 import type { AssistantMessage, ModelInfo, ModelRef, SessionSummary, ToolCallBlock, Transcript } from "@glade/protocol";
 import { agentPreview } from "@/features/chat/AgentMessageCard";
 import { sessionAgentIdentity, type AgentIdentityView } from "@/features/chat/agent-identity";
+import { formatDuration } from "@/features/chat/duration";
 import { summarizeToolCall } from "@/features/chat/tools/summaries";
 
 /**
@@ -41,11 +44,15 @@ export interface AgentChip {
   shortActivity: string;
   /** First line of its task. */
   task: string;
+  /** Its short title (generated from the task, or the user's rename), or null while there's none (I-148). */
+  title: string | null;
+  /** What it works on, for the tooltip: the title, else "<functional name>: <task's first sentence>". */
+  summary: string;
   /** The report_done summary (Markdown), when done. */
   result: string | null;
 }
 
-type ChipSession = Pick<SessionSummary, "id" | "title" | "agentName" | "agentDisplayName" | "agentColor" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model">;
+type ChipSession = Pick<SessionSummary, "id" | "title" | "titleSource" | "agentName" | "agentDisplayName" | "agentColor" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model">;
 
 export function chipKind(session: ChipSession): ChipKind {
   const agent = session.agent;
@@ -128,8 +135,39 @@ function messageActivity(transcript: Transcript, message: AssistantMessage): str
 }
 
 function summaryLine(call: ToolCallBlock, active: boolean): string {
+  if (call.kind === "other") return toolInWords(call.name, active);
   const s = summarizeToolCall(call, active);
+  if (call.kind === "shell" && !s.subject) return active ? "Running a command" : "Ran a command";
   return [s.verb, s.subject].filter(Boolean).join(" ");
+}
+
+/** Tools without a canonical kind, by name: [past, present] (I-148). */
+const TOOL_WORDS: Record<string, [string, string]> = {
+  report_done: ["Reported back", "Reporting back"],
+  spawn_agent: ["Started an agent", "Starting an agent"],
+  message_agent: ["Messaged an agent", "Messaging an agent"],
+  list_agents: ["Listed agents", "Listing agents"],
+  close_agent: ["Closed an agent", "Closing an agent"],
+  bash: ["Ran a command", "Running a command"],
+  todowrite: ["Updated the to-do list", "Updating the to-do list"],
+  todo_write: ["Updated the to-do list", "Updating the to-do list"],
+  ask_user: ["Asked you a question", "Asking you a question"],
+};
+
+/**
+ * A tool call in words, by the tool's name: known agent tools ("Reporting back"), else the name
+ * humanized (`mcp__pi__run_checks` / `runChecks` → "Run checks"). Raw args aren't shown.
+ */
+export function toolInWords(name: string, active: boolean): string {
+  const base = name.includes("__") ? name.slice(name.lastIndexOf("__") + 2) : name;
+  const words = TOOL_WORDS[base.toLowerCase()];
+  if (words) return active ? words[1] : words[0];
+  const human = base
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_\-\s]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return human ? human[0]!.toUpperCase() + human.slice(1) : "Using a tool";
 }
 
 function lastLine(text: string): string {
@@ -163,8 +201,41 @@ export function agentChip(session: ChipSession, transcript: Transcript | null, m
     activity,
     shortActivity: truncateText(activity, CHIP_TEXT_MAX),
     task: firstLine(agent?.task),
+    title: agentTitle(session),
+    summary: agentTitle(session) ?? taskSummary(session.agentName || session.title || "Sub-agent", agent?.task),
     result,
   };
+}
+
+/** A title other than its functional name: generated from its task, or the user's rename (I-148). */
+export function agentTitle(session: Pick<ChipSession, "title" | "agentName">): string | null {
+  const title = session.title?.trim();
+  return title && title !== session.agentName ? title : null;
+}
+
+/** Longest task sentence in the fallback summary (characters, incl. the ellipsis). */
+export const TASK_SUMMARY_MAX = 100;
+
+/** "<name>: <the first sentence of the task's first line, cut at ~100 chars>" (or just the name without a task). */
+export function taskSummary(name: string, task: string | null | undefined): string {
+  const flat = firstLine(task).replace(/\s+/g, " ");
+  const sentence = /^.+?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat;
+  return sentence ? `${name}: ${truncateText(sentence, TASK_SUMMARY_MAX)}` : name;
+}
+
+/**
+ * The chip's tooltip (I-148): "<Name> · <summary> — <status> · <time> · <model>", then what it's
+ * doing ("Now: …" while it runs, else "Latest: …"), then the click hint.
+ */
+export function chipTooltip(chip: AgentChip, selected: boolean): string {
+  const live = chip.kind === "working" || chip.kind === "blocked" || chip.kind === "closing";
+  return [
+    `${chip.identity.displayName} · ${chip.summary} — ${chip.label} · ${formatDuration(chip.elapsedMs)}${chip.model ? ` · ${chip.model}` : ""}`,
+    chip.activity && `${live ? "Now" : "Latest"}: ${chip.activity}`,
+    selected ? "Click to hide" : "Click to open",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Longest activity text on a chip (characters, incl. the ellipsis). */

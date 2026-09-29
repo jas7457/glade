@@ -39,6 +39,7 @@ import type { LivePool } from "./live-pool.js";
 import type { Records } from "./records.js";
 import type { SessionActions } from "./session-actions.js";
 import type { Sessions } from "./sessions.js";
+import type { Titles } from "./titles.js";
 
 /** Deliveries to a session busy in another server are retried this long. */
 const ELSEWHERE_RETRY_MS = 30 * 60_000;
@@ -50,6 +51,7 @@ export class AgentTeam {
     private readonly pool: LivePool,
     private readonly actions: SessionActions,
     private readonly sessions: Sessions,
+    private readonly titles: Titles,
   ) {}
 
   /** The session a token belongs to (401 for unknown, revoked or stale tokens). */
@@ -138,6 +140,10 @@ export class AgentTeam {
         },
       },
     );
+    // A short title for its tab and chip (I-148); failures only cost the title.
+    void this.titles
+      .generateAgentTitle(detail.session.id, task)
+      .catch((err: Error) => ctx.options.log?.(`sub-agent title generation failed: ${err.message}`));
     return { agent: agentInfo(ctx.agents.get(detail.session.id) ?? record!, detail.session.running) };
   }
 

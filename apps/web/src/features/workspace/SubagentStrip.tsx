@@ -2,7 +2,8 @@
  * Sub-agent chips (I-080, compact since I-084), shown just above the main chat's composer while
  * the chat has sub-agents: small chips side by side (wrapping when needed), one per agent, in
  * the agent's colour with its fun name, a tiny status marker (spinner / needs input / ✓ /
- * failed) and its latest activity truncated (full text, role and task in the tooltip). Needs
+ * failed) and its latest activity truncated (its short title, status and activity in words in the
+ * tooltip, I-148; the full task is in its Task card). Needs
  * input / failed chips are tinted amber / red. Clicking a chip opens the agent in the
  * right-hand pane (which stays closed until then); the caller hides the pane when it's the open
  * one (I-141). While any agent runs, a small "…" button at
@@ -19,9 +20,8 @@ import { apiForSession } from "@/state/env-api";
 import { runAction, useChatSession } from "@/state/chat-session";
 import { envIdOfSession, shellOf } from "@/state/store";
 import { IconButton, Menu, MenuItem, Spinner } from "@/ui";
-import { agentLabel } from "@/features/chat/agent-identity";
-import { formatDuration, useNow } from "@/features/chat/duration";
-import { agentChip, chipKind, type ChipKind } from "./agent-chips";
+import { useNow } from "@/features/chat/duration";
+import { agentChip, chipKind, chipTooltip, type ChipKind } from "./agent-chips";
 
 export interface SubagentStripProps {
   subagents: readonly SessionSummary[];
@@ -90,14 +90,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
   const kind = chipKind(session);
   const now = useNow(kind === "working" || kind === "blocked", session.createdAt);
   const chip = agentChip(session, store.status.value === "ready" ? store.transcript.value : null, shellOf(envIdOfSession(session.id)).models.value, now);
-  const tooltip = [
-    `${agentLabel(chip.identity)} — ${chip.label} · ${formatDuration(chip.elapsedMs)}${chip.model ? ` · ${chip.model}` : ""}`,
-    chip.activity,
-    chip.task && `Task: ${chip.task}`,
-    selected ? "Click to hide" : "Click to open",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const tooltip = chipTooltip(chip, selected);
   return (
     <button
       type="button"

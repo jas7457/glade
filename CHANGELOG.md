@@ -156,6 +156,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agents get a short title when they start (shown in their tab), and hovering an agent's chip
+  shows that title and what it's doing now in plain words instead of the whole prompt.
 - Starting a sub-agent shows its card straight away ("Starting an agent…"), and a sub-agent's
   task card names the chat it came from, with the full title on hover and a click to open it.
 - Sub-agents draw from 316 names, and a chat doesn't reuse a name until it has used them all.

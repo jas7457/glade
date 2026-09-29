@@ -176,13 +176,15 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     const isMax = maximized === group;
     // Sub-agents (I-054): ✓ once done, ⊘ when stopped; the tooltip has the task and result.
     const agent = agentDisplay(s);
-    // Sub-agents (I-084): fun name in its colour, role greyed, unless the user renamed the tab.
+    // Sub-agents (I-084): fun name in its colour, then its generated title (I-148) or role greyed,
+    // unless the user renamed the tab.
     const identity = s.kind === "subagent" ? sessionAgentIdentity(s) : null;
-    const renamed = !!identity && !!s.title && s.title !== s.agentName;
+    const retitled = !!identity && !!s.title && s.title !== s.agentName;
+    const renamed = retitled && s.titleSource === "user";
     return {
       id: s.id,
       title: identity && !renamed ? identity.displayName : tabTitle(s),
-      subtitle: identity && !renamed ? (identity.role ?? undefined) : undefined,
+      subtitle: identity && !renamed ? ((retitled ? s.title : identity.role) ?? undefined) : undefined,
       agentColor: identity?.color,
       status: s.status,
       failed: s.lastRunFailed,

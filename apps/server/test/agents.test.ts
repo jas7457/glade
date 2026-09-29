@@ -129,7 +129,8 @@ describe("spawn", () => {
       kind: "subagent",
       parentSessionId: chat.sid,
       agentName: "auth-scout",
-      title: "auth-scout",
+      title: "Generated: task for Auth Scout", // I-148: a short title from its task
+      titleSource: "auto",
       model: { provider: "fake", id: "fast" }, // inherited from the caller
       thinkingLevel: "off",
     });
@@ -144,6 +145,31 @@ describe("spawn", () => {
     expect(promptsTo(agent.sessionId)[0]).toMatchObject({ text: "task for Auth Scout" });
     // Rolls up into the workspace like any session.
     expect(env.service.getWorkspaceDetail(chat.wid).sessions.map((s) => s.id)).toEqual([chat.sid, agent.sessionId]);
+  });
+
+  it("titles a sub-agent from its task only when Generate titles is on, and never over a rename (I-148)", async () => {
+    const chat = await newChat(env, { prompt: "orchestrate" });
+    await settle();
+    env.service.updateSettings({ general: { generateTitles: false } });
+    const off = await spawn(chat.sid, "plain");
+    expect(env.store.getSession(off.agent.sessionId)).toMatchObject({ title: "plain", titleSource: "user" });
+
+    env.service.updateSettings({ general: { generateTitles: true } });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const generate = env.harness.generateTitle.bind(env.harness);
+    env.harness.generateTitle = async (options) => (await gate, generate(options));
+    const renamed = await spawn(chat.sid, "renamed");
+    await env.service.updateSession(renamed.agent.sessionId, { title: "Mine" });
+    release();
+    await settle();
+    expect(env.store.getSession(renamed.agent.sessionId)).toMatchObject({ title: "Mine", titleSource: "user" });
+
+    env.harness.generateTitle = async () => {
+      throw new Error("model down");
+    };
+    const failed = await spawn(chat.sid, "failed");
+    expect(env.store.getSession(failed.agent.sessionId)).toMatchObject({ title: "failed", titleSource: "user" });
   });
 
   it("resolves model names and validates thinking levels", async () => {

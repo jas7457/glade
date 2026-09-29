@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { ContentBlock, ModelInfo, SessionAgentState, ToolResult, Transcript } from "@glade/protocol";
 import { makeSession } from "@/test/fixtures";
-import { agentChip, CHIP_TEXT_MAX, chipKind, latestActivity, shortModelName, truncateText } from "./agent-chips";
+import { agentChip, CHIP_TEXT_MAX, chipKind, chipTooltip, latestActivity, shortModelName, taskSummary, toolInWords, truncateText } from "./agent-chips";
 
 const agent = (over: Partial<SessionAgentState> = {}): SessionAgentState => ({
   status: "working",
@@ -105,6 +105,57 @@ describe("chip identity and text", () => {
     expect(chip.activity).toBe(long);
     expect(chip.shortActivity.length).toBeLessThanOrEqual(CHIP_TEXT_MAX);
     expect(chip.shortActivity.endsWith("…")).toBe(true);
+  });
+});
+
+describe("activity in words (I-148)", () => {
+  const call = (name: string) => ({ type: "toolCall" as const, id: "t1", name, kind: "other" as const, args: { summary: "All done" } });
+  it("names agent tools in words and humanizes unknown ones, without raw args", () => {
+    expect(latestActivity(transcript([call("report_done")], { t1: result("running") }))).toBe("Reporting back");
+    expect(latestActivity(transcript([call("mcp__pi__report_done")], { t1: result("done") }))).toBe("Reported back");
+    expect(toolInWords("spawn_agent", true)).toBe("Starting an agent");
+    expect(toolInWords("bash", true)).toBe("Running a command");
+    expect(toolInWords("run_checks", true)).toBe("Run checks");
+    expect(toolInWords("mcp__server__fetchIssueList", false)).toBe("Fetch issue list");
+  });
+
+  it("keeps known kinds' wording: commands, files", () => {
+    const read = { type: "toolCall" as const, id: "t1", name: "read", kind: "read" as const, input: { path: "src/app.ts" }, args: {} };
+    const edit = { ...read, name: "edit", kind: "edit" as const };
+    expect(latestActivity(transcript([read], { t1: result("running") }))).toBe("Reading src/app.ts");
+    expect(latestActivity(transcript([edit], { t1: result("running") }))).toBe("Editing src/app.ts");
+    expect(latestActivity(transcript([{ ...bash, input: {} }], { t1: result("running") }))).toBe("Running a command");
+  });
+});
+
+describe("chip title and tooltip (I-148)", () => {
+  const long = "Review the login flow for session fixation, CSRF and every other thing that could go wrong in there, thoroughly. Then report.";
+
+  it("leads with the generated title", () => {
+    const t = transcript([{ type: "toolCall", id: "t1", name: "report_done", kind: "other", args: {} }], { t1: result("running") });
+    const chip = agentChip(sub({ id: "a", status: "working", title: "Login flow security review", titleSource: "auto", agentDisplayName: "Maya", model: { provider: "anthropic", id: "claude-sonnet-4-5" } }), t, models, 66_000);
+    expect(chip.title).toBe("Login flow security review");
+    expect(chipTooltip(chip, false)).toBe("Maya · Login flow security review — Working · 1m 5s · Sonnet 4.5\nNow: Reporting back\nClick to open");
+    expect(chipTooltip(chip, true).split("\n").at(-1)).toBe("Click to hide");
+    expect(chipTooltip(chip, false)).not.toContain("Task:");
+  });
+
+  it("falls back to the functional name and the task's first sentence (cut at ~100 chars)", () => {
+    const pending = agentChip(sub({ id: "a", status: "working", title: "reviewer", agentDisplayName: "Maya" }), null, [], 2_000);
+    expect(pending.title).toBeNull();
+    expect(pending.summary).toBe("reviewer: Review the login flow");
+    expect(chipTooltip(pending, false).split("\n")[0]).toMatch(/^Maya · reviewer: Review the login flow — Working · /);
+    const cut = taskSummary("reviewer", long);
+    expect(cut.startsWith("reviewer: Review the login flow for session fixation")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual("reviewer: ".length + 100);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(taskSummary("reviewer", "Fix it. Then test.")).toBe("reviewer: Fix it.");
+    expect(taskSummary("reviewer", "")).toBe("reviewer");
+  });
+
+  it("says Latest instead of Now once it's done", () => {
+    const done = agentChip(sub({ id: "a", status: "idle", agent: agent({ status: "done", doneAt: 31_000, result: "Looks good." }) }), null, [], 99_000);
+    expect(chipTooltip(done, false).split("\n")[1]).toBe("Latest: Looks good.");
   });
 });
 

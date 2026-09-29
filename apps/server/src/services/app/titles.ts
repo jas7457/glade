@@ -70,6 +70,25 @@ export class Titles {
   }
 
   /**
+   * A spawned sub-agent's short title from its task (I-148), with the chats' generator and
+   * "Generate titles" setting. Stored as its session title with `titleSource: "auto"` (the tab
+   * and chip show it next to the fun name); skipped when the user renamed it meanwhile.
+   */
+  async generateAgentTitle(id: string, task: string): Promise<void> {
+    const settings = this.ctx.store.getSettings();
+    const session = this.ctx.store.getSession(id);
+    const harness = session && this.ctx.harnesses.get(session.harness);
+    if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
+    const workspace = this.ctx.store.getWorkspace(session.workspaceId);
+    if (!workspace) return;
+    const title = await generateTitleWith(harness, { firstMessage: task, cwd: workspace.cwd, model: await this.smallModelFor(harness, session) });
+    const current = this.ctx.store.getSession(id);
+    if (!title || !current || current.titleSource !== "user" || current.title !== current.agentName) return;
+    this.records.saveSession({ ...current, title, titleSource: "auto" });
+    await this.ctx.live.get(id)?.session.setTitle(title).catch(() => {});
+  }
+
+  /**
    * `/name` without a title (I-074): name the session from its conversation (first user message +
    * the latest few texts) with the small model, applied like a rename (`titleSource: "user"`;
    * while it's the workspace's only main tab the workspace is renamed with it).

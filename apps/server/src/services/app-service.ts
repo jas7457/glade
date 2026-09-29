@@ -143,7 +143,7 @@ export class AppService {
     });
     this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions);
     this.projects = new Projects(ctx, this.records, this.workspaces);
-    this.team = new AgentTeam(ctx, this.records, this.pool, this.actions, this.sessions);
+    this.team = new AgentTeam(ctx, this.records, this.pool, this.actions, this.sessions, this.titles);
 
     if (ctx.leases) {
       this.unwatch.push(ctx.store.onExternalChange((change) => this.leaseSync.applyExternalChange(change)));

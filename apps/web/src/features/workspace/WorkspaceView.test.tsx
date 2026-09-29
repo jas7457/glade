@@ -254,6 +254,14 @@ describe("WorkspaceView", () => {
     return waitFor(() => expect(within(subTablist()!).getAllByRole("tab").map((t) => t.textContent)).toEqual(["tests"]));
   });
 
+  it("a sub-agent tab shows its generated title next to its fun name; a rename replaces both (I-148)", () => {
+    sessions.value = sessions.value.map((s) =>
+      s.id === "a1" ? { ...s, agentDisplayName: "Maya", title: "Login flow review", titleSource: "auto" as const } : s.id === "a2" ? { ...s, agentDisplayName: "Theo", title: "My tests", titleSource: "user" as const } : s,
+    );
+    renderAt("/projects/p/chats/w");
+    expect(within(subTablist()!).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Maya · Login flow review", "My tests"]);
+  });
+
   describe("sub-agent chips, spawn cards and pane (I-080, I-084)", () => {
     const strip = () => screen.getByRole("region", { name: "Sub-agents" });
     const closedPane = () => {
