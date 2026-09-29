@@ -3,12 +3,12 @@
 //
 //   pnpm --filter @glade/iphone sim [--no-build] [--device <udid|booted>] [-- <launch args>]
 //
-// Output of the build goes to /tmp/glade-iphone-build.log (only errors are printed). Then use
+// Output of the build goes to /tmp/glade-iphone-build[-<worktree>].log (only errors are printed). Then use
 // `node scripts/ios-sim.mjs --app io.github.jas7457.glade.iphone …` (repo root) to tap and screenshot.
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, openSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BUNDLE_ID = "io.github.jas7457.glade.iphone";
@@ -20,7 +20,9 @@ const device = di >= 0 ? argv[di + 1] : "booted";
 const dd = argv.indexOf("--");
 const launchArgs = dd >= 0 ? argv.slice(dd + 1) : [];
 const app = join(root, "src-tauri/gen/apple/build/arm64-sim/Glade.app");
-const log = "/tmp/glade-iphone-build.log";
+// One log per checkout (worktrees build in parallel).
+const checkout = basename(join(root, "../.."));
+const log = checkout === "glade" ? "/tmp/glade-iphone-build.log" : `/tmp/glade-iphone-build-${checkout}.log`;
 
 if (!noBuild) {
   const env = { ...process.env, LANG: "en_US.UTF-8", PATH: `${join(homedir(), ".cargo/bin")}:${process.env.PATH}` };
@@ -34,6 +36,6 @@ if (!noBuild) {
   if (r.status !== 0) process.exit(1);
 }
 if (!existsSync(app)) throw new Error(`no build at ${app}`);
-spawnSync("xcrun", ["simctl", "boot", device === "booted" ? "iPhone 18 Pro" : device], { stdio: "ignore" });
+if (device !== "booted") spawnSync("xcrun", ["simctl", "boot", device], { stdio: "ignore" });
 execFileSync("xcrun", ["simctl", "install", device, app], { stdio: "inherit" });
 execFileSync("xcrun", ["simctl", "launch", "--terminate-running-process", device, BUNDLE_ID, ...launchArgs], { stdio: "inherit" });
