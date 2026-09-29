@@ -183,6 +183,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- On the iPhone: the text box is a slim pill until you tap it, then grows full width; model and
+  thinking level share one button that opens one sheet; no more ↑ ↓ ✓ bar over the keyboard.
 - Tool rows show file paths relative to the chat's folder (e.g. "Edited packages/protocol/src/api.ts");
   paths elsewhere are shortened with ~, and hovering shows the full path.
 - Settings are simpler: General opens with your Glade version and Update Now, then the theme;

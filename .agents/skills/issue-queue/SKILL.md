@@ -53,8 +53,10 @@ If they name ids, only those; otherwise all open Inbox items without open questi
 1. **Plan the split.** Group items into workstreams by *file ownership* so sub-agents never edit
    the same files in parallel. Usual owners:
    - `apps/server/**` (server, pi-adapter)
-   - `apps/web/src/features/chat/**`
-   - `apps/web/src/{app,ui,features/sidebar,features/projects,features/settings}/**`
+   - `packages/app-core/src/features/chat/**` (shared chat: transcript, composer, tools)
+   - `packages/app-core/src/{ui,state,lib}/**` (shared core; coordinate, many owners read it)
+   - `apps/web/src/{app,features/sidebar,features/projects,features/settings,…}/**` (desktop layout)
+   - `apps/iphone/src/**` (iPhone layout; Tauri iOS shell in `apps/iphone/src-tauri`)
    - `packages/protocol/**` is shared: make protocol changes **yourself first**, then spawn.
    Use one agent per workstream; do trivial one-liners yourself. Tell the user the split in a
    few lines, then spawn immediately (don't wait for approval unless something is ambiguous).
