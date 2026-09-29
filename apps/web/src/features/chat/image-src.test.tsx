@@ -8,8 +8,10 @@ import { resetBlobUrlCache } from "./image-src";
 import { ImageThumb } from "./UserBubble";
 import { ToolCallRow } from "./tools/ToolViews";
 
+const SID = "5f0c2a9e-1b2c-4d5e-8f90-123456789abc";
+const PATH = `${SID}/0123456789abcdef`;
+const ref: ImageBlock = { type: "image", mimeType: "image/png", blob: PATH, width: 10, height: 10 };
 const HASH = "ab".repeat(32);
-const ref: ImageBlock = { type: "image", mimeType: "image/png", blob: `sha256:${HASH}`, width: 10, height: 10 };
 
 function remoteEnv(token: string | null): EnvHandle {
   return { id: "remote-1", baseUrl: "https://studio.tail.ts.net/api", isLocal: false, token } as unknown as EnvHandle;
@@ -21,7 +23,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("image blob refs (I-157)", () => {
+describe("image refs (I-157/I-163)", () => {
   it("inline images stay data: URLs", () => {
     const { container } = render(<ImageThumb image={{ type: "image", mimeType: "image/png", data: "AAAA" }} />);
     expect(container.querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,AAAA");
@@ -29,7 +31,17 @@ describe("image blob refs (I-157)", () => {
 
   it("local chats load the blob straight from this server's API", () => {
     const { container } = render(<ImageThumb image={ref} />);
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(`${localBaseUrl()}/blobs/${PATH}`);
+  });
+
+  it("legacy sha256 refs still load by hash", () => {
+    const { container } = render(<ImageThumb image={{ ...ref, blob: `sha256:${HASH}` }} />);
     expect(container.querySelector("img")!.getAttribute("src")).toBe(`${localBaseUrl()}/blobs/${HASH}`);
+  });
+
+  it("malformed refs have no source", () => {
+    const { container } = render(<ImageThumb image={{ ...ref, blob: "../glade.db" }} />);
+    expect(container.querySelector("img")?.getAttribute("src") ?? null).toBeNull();
   });
 
   it("a remote environment without a token (loopback) is loaded by URL too", () => {
@@ -39,7 +51,7 @@ describe("image blob refs (I-157)", () => {
         <ImageThumb image={ref} />
       </ChatEnvContext.Provider>,
     );
-    expect(container.querySelector("img")!.getAttribute("src")).toBe(`https://studio.tail.ts.net/api/blobs/${HASH}`);
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(`https://studio.tail.ts.net/api/blobs/${PATH}`);
   });
 
   it("paired remote chats fetch the blob with the device token and show an object URL", async () => {
@@ -58,7 +70,7 @@ describe("image blob refs (I-157)", () => {
     await waitFor(() => expect(container.querySelector("img")!.getAttribute("src")).toBe("blob:glade/1"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`https://studio.tail.ts.net/api/blobs/${HASH}`);
+    expect(url).toBe(`https://studio.tail.ts.net/api/blobs/${PATH}`);
     expect(init.headers).toEqual({ authorization: "Bearer tok-123" });
     // Cached: a second render doesn't fetch again.
     render(
@@ -77,7 +89,7 @@ describe("image blob refs (I-157)", () => {
         defaultOpen
       />,
     );
-    const img = container.querySelector(`img[src$="/blobs/${HASH}"]`);
+    const img = container.querySelector(`img[src$="/blobs/${PATH}"]`);
     expect(img).not.toBeNull();
   });
 });

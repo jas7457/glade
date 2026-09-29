@@ -1,6 +1,7 @@
 /**
- * Where a transcript image is shown from (I-157). Inline images (`data`) are `data:` URLs. Blob
- * references (`blob: "sha256:…"`) live on the chat's environment at `GET /api/blobs/<hex>`:
+ * Where a transcript image is shown from (I-157/I-163). Inline images (`data`) are `data:` URLs.
+ * File references (`blob: "<sessionId>/<name>"`, or a legacy `"sha256:…"`) live on the chat's
+ * environment at `GET /api/blobs/<sessionId>/<name>` (legacy: `/api/blobs/<hex>`):
  *
  * - **No device token** (this machine, or a loopback environment connected before pairing): the
  *   plain URL goes straight into `<img src>` (the browser caches it; the server says immutable).
@@ -10,7 +11,7 @@
  *   `null`; `blobUrlsVersion` changes when one arrives, so components re-render.
  */
 import { signal } from "@preact/signals";
-import { blobHash, type ImageBlock } from "@glade/protocol";
+import { blobUrlPath, type ImageBlock } from "@glade/protocol";
 import { authHeaders, localBaseUrl } from "@/lib/api";
 import { connectionFor, type EnvHandle } from "@/state/env-registry";
 import { useChatEnv } from "./chat-env";
@@ -29,22 +30,22 @@ function tokenOf(conn: EnvHandle | undefined): string | null {
   return typeof token === "string" && token ? token : null;
 }
 
-/** The blob's URL on an environment's API base. */
-export function blobUrl(baseUrl: string, hash: string): string {
-  return `${baseUrl}/blobs/${hash}`;
+/** A file's URL on an environment's API base (`path` from `blobUrlPath`). */
+export function blobUrl(baseUrl: string, path: string): string {
+  return `${baseUrl}/blobs/${path}`;
 }
 
 /** An image's `src` in environment `envId` (`null` = unknown/local), or `null` while it loads. */
 export function imageSrcIn(image: ImageLike, envId: string | null): string | null {
   if (image.data) return `data:${image.mimeType};base64,${image.data}`;
-  const hash = blobHash(image.blob);
-  if (!hash) return null;
+  const path = blobUrlPath(image.blob);
+  if (!path) return null;
   const conn = connectionFor(envId);
   const base = conn?.baseUrl ?? localBaseUrl();
-  const url = blobUrl(base, hash);
+  const url = blobUrl(base, path);
   const token = tokenOf(conn);
   if (!token) return url;
-  const key = `${base}|${hash}`;
+  const key = `${base}|${path}`;
   const ready = objectUrls.get(key);
   if (ready) return ready;
   if (!pending.has(key) && !failed.has(key)) {

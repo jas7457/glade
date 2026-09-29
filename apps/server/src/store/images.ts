@@ -1,12 +1,13 @@
 /**
- * Images out of JSON (I-157): `externalizeImages` walks any protocol value (a message, a tool
- * result, an agent event, a whole transcript) and replaces every inline image
- * (`{ type: "image", mimeType, data }`) with a blob reference (`{ type: "image", mimeType, blob,
- * width?, height? }`), writing the bytes to the {@link BlobStore}. Unchanged branches keep their
- * identity, and a value without inline images comes back as the same object (callers compare by
- * identity). `resolvePromptImages` does the reverse for what a harness is fed.
+ * Images out of JSON (I-157, per chat since I-163): `externalizeImages` walks any protocol value
+ * (a message, a tool result, an agent event, a whole transcript) of one chat and makes every
+ * image a reference to a file in that chat's folder: inline images (`{ type: "image", mimeType,
+ * data }`) are written there, and references to another chat's file or to a legacy shared
+ * `sha256:` file are copied there (no sharing: deleting a chat deletes all its images). Unchanged
+ * branches keep their identity, and a value with nothing to change comes back as the same object
+ * (callers compare by identity). `resolvePromptImages` does the reverse for what a harness is fed.
  */
-import { blobHash, type ImageBlock, type PromptImage } from "@glade/protocol";
+import { parseBlobRef, type ImageBlock, type PromptImage } from "@glade/protocol";
 import type { BlobStore } from "./blobs.js";
 
 type Json = Record<string, unknown>;
@@ -15,16 +16,24 @@ function isInlineImage(v: Json): v is Json & { type: "image"; mimeType: string; 
   return v.type === "image" && typeof v.data === "string" && v.data.length > 0 && typeof v.mimeType === "string" && v.mimeType.startsWith("image/");
 }
 
-/** Replace inline images anywhere in `value` with blob references. `count.n` counts replacements. */
-export function externalizeImages<T>(value: T, blobs: BlobStore, count?: { n: number }): T {
-  return walk(value, blobs, count) as T;
+function isRefImage(v: Json): v is Json & { type: "image"; mimeType: string; blob: string } {
+  return v.type === "image" && typeof v.blob === "string" && typeof v.mimeType === "string" && !v.data;
 }
 
-function walk(value: unknown, blobs: BlobStore, count?: { n: number }): unknown {
+/**
+ * Make every image in `value` a reference to a file of chat `sessionId`. `count.n` counts the
+ * images written or copied; `count.missing` counts foreign references whose file is gone (left
+ * as they are).
+ */
+export function externalizeImages<T>(value: T, blobs: BlobStore, sessionId: string, count?: { n: number; missing?: number }): T {
+  return walk(value, blobs, sessionId, `${sessionId}/`, count) as T;
+}
+
+function walk(value: unknown, blobs: BlobStore, sessionId: string, own: string, count?: { n: number; missing?: number }): unknown {
   if (Array.isArray(value)) {
     let out: unknown[] | null = null;
     for (let i = 0; i < value.length; i++) {
-      const next = walk(value[i], blobs, count);
+      const next = walk(value[i], blobs, sessionId, own, count);
       if (next !== value[i]) {
         out ??= value.slice();
         out[i] = next;
@@ -36,17 +45,28 @@ function walk(value: unknown, blobs: BlobStore, count?: { n: number }): unknown 
   const obj = value as Json;
   if (isInlineImage(obj)) {
     const bytes = Buffer.from(obj.data, "base64");
-    const blob = blobs.put(bytes, obj.mimeType);
+    const blob = blobs.put(sessionId, bytes, obj.mimeType);
     const { data: _data, ...rest } = obj;
     const size = imageSize(bytes);
     if (count) count.n++;
     return { ...rest, blob: blob.ref, ...(size && rest.width === undefined ? size : {}) } satisfies Json;
   }
+  if (isRefImage(obj)) {
+    if (obj.blob.startsWith(own) || !parseBlobRef(obj.blob)) return value;
+    // Another chat's (or the legacy shared) file: this chat gets its own copy.
+    const bytes = blobs.read(obj.blob);
+    if (!bytes) {
+      if (count) count.missing = (count.missing ?? 0) + 1;
+      return value;
+    }
+    if (count) count.n++;
+    return { ...obj, blob: blobs.put(sessionId, bytes, obj.mimeType).ref } satisfies Json;
+  }
   let out: Json | null = null;
   for (const key of Object.keys(obj)) {
     const v = obj[key];
     if (v === null || typeof v !== "object") continue;
-    const next = walk(v, blobs, count);
+    const next = walk(v, blobs, sessionId, own, count);
     if (next !== v) {
       out ??= { ...obj };
       out[key] = next;
@@ -60,8 +80,8 @@ export function mayHaveInlineImage(json: string): boolean {
   return json.includes('"image"') && json.includes('"data"');
 }
 
-/** Every blob hash referenced in a JSON text. */
-export function blobRefsIn(json: string, into: Set<string> = new Set()): Set<string> {
+/** Every legacy (`sha256:`) hash referenced in a JSON text. */
+export function legacyBlobRefsIn(json: string, into: Set<string> = new Set()): Set<string> {
   for (const m of json.matchAll(/"blob":"sha256:([0-9a-f]{64})"/g)) into.add(m[1]!);
   return into;
 }
@@ -89,7 +109,7 @@ export function inlineImage(image: ImageBlock, blobs: BlobStore): ImageBlock {
 
 export class BlobMissingError extends Error {
   constructor(readonly ref: string) {
-    super(`Image ${blobHash(ref)?.slice(0, 12) ?? ref} is no longer available`);
+    super(`Image ${ref} is no longer available`);
   }
 }
 

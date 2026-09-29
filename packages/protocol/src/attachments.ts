@@ -1,7 +1,7 @@
 /**
  * Files attached by reference (I-090). Images go inline with the prompt; any other file is
  * uploaded to the server (`POST /api/sessions/:id/attachments?name=`, raw bytes), saved under
- * `<dataDir>/attachments/<sessionId>/`, and the prompt text gets one trailing line per file:
+ * `<dataDir>/chats/<sessionId>/files/` (I-163), and the prompt text gets one trailing line per file:
  *
  *   Attached file: /abs/path/report.pdf
  *

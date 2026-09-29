@@ -189,8 +189,9 @@ export class LivePool {
   }
 
   private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
-    // Inline images become blob references (I-157) before anything folds, pushes or stores them.
-    const event = externalizeImages(live.ids.rewrite(stampEvent(rawEvent)), this.ctx.store.blobs);
+    // Inline images become references to this chat's files (I-157/I-163; a sub-agent's go to its
+    // own folder) before anything folds, pushes or stores them.
+    const event = externalizeImages(live.ids.rewrite(stampEvent(rawEvent)), this.ctx.store.blobs, id);
     live.transcript = applyAgentEvent(live.transcript, event);
     if (event.type === "run_start") {
       live.running = true;

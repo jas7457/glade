@@ -1,26 +1,39 @@
 /**
- * Image files (I-157), mounted under `/api` by `createApp`:
+ * Image files (I-157, per chat since I-163), mounted under `/api` by `createApp`:
  *
- *   GET /blobs/:hash   → the blob's bytes (`:hash` = the hex SHA-256, or `sha256:<hex>`)
+ *   GET /blobs/:sessionId/:name   → a chat's image (ref `<sessionId>/<name>`)
+ *   GET /blobs/:hash              → a legacy shared file (`:hash` = hex SHA-256 or `sha256:<hex>`),
+ *                                   until the store has moved it into the chats' folders
  *
- * Content-addressed, so a response never changes: cached for a year (`immutable`, `private`:
- * it's behind auth) with the hash as ETag. Auth is the security middleware's, like every API
- * read: the local owner, or a paired device's bearer token.
+ * A file never changes (its name comes from its bytes), so responses are cached for a year
+ * (`immutable`, `private`: it's behind auth) with an ETag. Both segments are checked against a
+ * strict pattern (no separators, no leading dot), so nothing outside the image folders can be
+ * reached. Auth is the security middleware's, like every API read: the local owner, or a paired
+ * device's bearer token.
  */
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { Hono } from "hono";
-import { blobHash } from "@glade/protocol";
+import { Hono, type Context } from "hono";
+import { chatBlobRef, parseBlobRef } from "@glade/protocol";
 import type { BlobStore } from "../store/blobs.js";
+
+/** A path segment decoded once more (encoded refs); malformed escapes stay as they are (then 400). */
+function decode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
 
 export function blobRoutes(blobs: BlobStore): Hono {
   const api = new Hono();
-  api.get("/blobs/:hash", (c) => {
-    const hash = blobHash(decodeURIComponent(c.req.param("hash")));
-    if (!hash) return c.json({ error: "Not a blob hash" }, 400);
-    const found = blobs.find(hash);
+  const serve = (c: Context, ref: string) => {
+    const parsed = parseBlobRef(ref);
+    if (!parsed) return c.json({ error: "Not an image reference" }, 400);
+    const found = blobs.find(ref);
     if (!found) return c.json({ error: "Not found" }, 404);
-    const etag = `"${hash}"`;
+    const etag = `"${parsed.kind === "hash" ? parsed.hash : `${parsed.sessionId}-${parsed.name}`}"`;
     c.header("Cache-Control", "private, max-age=31536000, immutable");
     c.header("ETag", etag);
     c.header("X-Content-Type-Options", "nosniff");
@@ -30,6 +43,8 @@ export function blobRoutes(blobs: BlobStore): Hono {
     c.header("Content-Type", found.mimeType);
     c.header("Content-Length", String(found.size));
     return c.body(Readable.toWeb(createReadStream(found.path)) as ReadableStream);
-  });
+  };
+  api.get("/blobs/:sessionId/:name", (c) => serve(c, chatBlobRef(decode(c.req.param("sessionId")), decode(c.req.param("name")))));
+  api.get("/blobs/:hash", (c) => serve(c, decode(c.req.param("hash"))));
   return api;
 }

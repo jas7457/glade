@@ -1,13 +1,16 @@
 /**
- * I-157 end to end: `GET /api/blobs/:hash` (local owner, paired device, unauthenticated), a live
- * run whose tool result has an image (stored, pushed and replayed as a blob reference), and the
- * harness being fed real image data for prompts sent inline or by reference.
+ * I-157/I-163 end to end: `GET /api/blobs/<sessionId>/<name>` and legacy `/api/blobs/<hash>`
+ * (local owner, paired device, unauthenticated, path traversal), a live run whose tool result has
+ * an image (stored in the chat's folder, pushed and replayed as a reference), the harness being
+ * fed real image data for prompts sent inline or by reference, and deleting a chat, a sub-agent
+ * or a project deleting the images.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyAgentEvent, blobHash, emptyTranscript, type PairingInvite, type PairResponse, type ServerMessage, type Transcript } from "@glade/protocol";
+import { applyAgentEvent, blobUrlPath, emptyTranscript, type PairingInvite, type PairResponse, type ServerMessage, type Transcript } from "@glade/protocol";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { fakePng } from "../src/harness/fake/fake-image.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
@@ -96,26 +99,41 @@ class TestSocket implements SyncSocket {
   close(): void {}
 }
 
-describe("GET /api/blobs/:hash (I-157)", () => {
-  it("serves blobs immutably to the local owner and paired devices; others get 401", async () => {
+describe("GET /api/blobs/... (I-157/I-163)", () => {
+  it("serves chat images immutably to the local owner and paired devices; others get 401; no traversal", async () => {
     const { store, call, remote, pairDevice } = start();
     const png = fakePng(3, 12, 8);
-    const { hash, ref } = store.blobs.put(png, "image/png");
+    const { ref } = store.blobs.put("chat-1", png, "image/png");
+    const path = `/api/blobs/${blobUrlPath(ref)}`;
+    expect(path).toMatch(/^\/api\/blobs\/chat-1\/[0-9a-f]{16}$/);
 
-    const res = await call("GET", `/api/blobs/${hash}`);
+    const res = await call("GET", path);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("cache-control")).toContain("immutable");
     expect(Buffer.from(await res.arrayBuffer()).equals(png)).toBe(true);
     expect((await call("GET", `/api/blobs/${encodeURIComponent(ref)}`)).status).toBe(200);
-    expect((await call("GET", `/api/blobs/${hash}`, { headers: { "if-none-match": `"${hash}"` } })).status).toBe(304);
-    expect((await call("GET", `/api/blobs/${"a".repeat(64)}`)).status).toBe(404);
+    expect((await call("GET", path, { headers: { "if-none-match": res.headers.get("etag")! } })).status).toBe(304);
+    expect((await call("GET", "/api/blobs/chat-1/0000000000000000")).status).toBe(404);
+    expect((await call("GET", "/api/blobs/chat-2/0000000000000000")).status).toBe(404);
+    for (const bad of ["..%2F..%2Fglade.db", "chat-1/..%2F..%2Fglade.db", "..%2F/glade.db", "chat-1/.hidden", "%2E%2E/glade.db", "chat-1/%E0%A4%A"]) {
+      // 400 (malformed ref), or 404 when the URL itself resolved the dots away.
+      expect([400, 404], bad).toContain((await call("GET", `/api/blobs/${bad}`)).status);
+    }
+
     expect((await call("GET", "/api/blobs/..%2F..%2Fglade.db")).status).toBe(400);
 
+    // A legacy shared file (until the migration moved it) is still served by hash.
+    const hash = createHash("sha256").update(png).digest("hex");
+    mkdirSync(`${store.blobs.legacyDir}/${hash.slice(0, 2)}`, { recursive: true });
+    writeFileSync(`${store.blobs.legacyDir}/${hash.slice(0, 2)}/${hash}.png`, png);
+    expect((await call("GET", `/api/blobs/${hash}`)).status).toBe(200);
+    expect((await call("GET", `/api/blobs/${"a".repeat(64)}`)).status).toBe(404);
+
     const token = await pairDevice();
-    expect((await remote("GET", `/api/blobs/${hash}`)).status).toBe(401);
-    expect((await remote("GET", `/api/blobs/${hash}`, { token: "not-a-token" })).status).toBe(401);
-    const paired = await remote("GET", `/api/blobs/${hash}`, { token });
+    expect((await remote("GET", path)).status).toBe(401);
+    expect((await remote("GET", path, { token: "not-a-token" })).status).toBe(401);
+    const paired = await remote("GET", path, { token });
     expect(paired.status).toBe(200);
     expect(Buffer.from(await paired.arrayBuffer()).equals(png)).toBe(true);
   });
@@ -139,8 +157,8 @@ describe("live runs store and push references (I-157)", () => {
     const image = Object.values(stored.toolResults).find((r) => r.images?.length)!.images![0]!;
     expect(image).toMatchObject({ type: "image", mimeType: "image/png", width: 320, height: 200 });
     expect(image.data).toBeUndefined();
-    const hash = blobHash(image.blob)!;
-    expect(store.blobs.find(hash)).not.toBeNull();
+    expect(image.blob!.startsWith(`${sid}/`)).toBe(true);
+    expect(store.blobs.find(image.blob!)).not.toBeNull();
 
     // Nothing pushed or logged carries the bytes.
     expect(JSON.stringify(socket.sent)).not.toMatch(/"data":"iVBOR/);
@@ -160,7 +178,7 @@ describe("live runs store and push references (I-157)", () => {
     service.sync.tick();
     const snap = again.sent.find((m) => m.type === "snapshot" && m.scope === "session") as Extract<ServerMessage, { type: "snapshot"; scope: "session" }>;
     expect(JSON.stringify(snap.page)).toContain(image.blob!);
-    expect((await call("GET", `/api/blobs/${hash}`)).status).toBe(200);
+    expect((await call("GET", `/api/blobs/${blobUrlPath(image.blob)}`)).status).toBe(200);
     client.dispose();
   });
 
@@ -176,7 +194,7 @@ describe("live runs store and push references (I-157)", () => {
     expect(session.prompts[0]!.images).toEqual([{ mimeType: "image/png", data: png }]);
     const user = store.loadTranscript(sid).messages.find((m) => m.role === "user")!;
     const block = (user as Extract<typeof user, { role: "user" }>).content.find((b) => b.type === "image")!;
-    expect(block).toMatchObject({ type: "image", blob: expect.stringMatching(/^sha256:/) });
+    expect(block).toMatchObject({ type: "image", blob: expect.stringMatching(new RegExp(`^${sid}/`)) });
     expect("data" in block).toBe(false);
 
     // Re-sending that image by reference: the harness still receives the bytes.
@@ -184,5 +202,52 @@ describe("live runs store and push references (I-157)", () => {
     await until(() => session.prompts.length === 2);
     expect(session.prompts[1]!.images).toEqual([{ mimeType: "image/png", data: png }]);
     await expect(service.prompt(sid, { text: "gone", images: [{ mimeType: "image/png", data: "", blob: `sha256:${"b".repeat(64)}` }] })).rejects.toThrow(/no longer available/);
+    await expect(service.prompt(sid, { text: "gone", images: [{ mimeType: "image/png", data: "", blob: `${sid}/0000000000000000` }] })).rejects.toThrow(/no longer available/);
+
+    // Another chat sending that image by reference gets its own copy (no sharing).
+    const other = (await service.createWorkspace({ projectId: null })).session.session.id;
+    await service.prompt(other, { text: "look", images: [{ mimeType: "image/png", data: "", blob: (block as { blob: string }).blob }] });
+    await until(() => store.loadTranscript(other).messages.some((m) => m.role === "assistant" && JSON.stringify(m.content).includes("You said: look")), 4000);
+    expect(JSON.stringify(store.loadTranscript(other).messages)).toMatch(new RegExp(`"blob":"${other}/`));
+    expect(existsSync(`${store.blobs.dir}/${other}`)).toBe(true);
+    expect(existsSync(`${store.blobs.dir}/${sid}`)).toBe(true);
+  });
+});
+
+describe("deleting chats deletes their images (I-163)", () => {
+  const screenshot = async (service: AppService, store: Store, sid: string) => {
+    await service.prompt(sid, { text: "screenshot" });
+    await until(() => Object.values(store.loadTranscript(sid).toolResults).some((r) => r.images?.length) && !service.listSessions().find((s) => s.id === sid)?.running, 4000);
+    expect(existsSync(`${store.blobs.dir}/${sid}`)).toBe(true);
+  };
+
+  it("closing a tab, closing a sub-agent, and deleting a project remove the folders", async () => {
+    const { store, service } = start();
+    service.setServerUrl("http://127.0.0.1:4999");
+    const dir = mkdtempSync(join(tmpdir(), "glade-blobs-project-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const project = service.createProject({ path: dir });
+    const created = await service.createWorkspace({ projectId: project.id });
+    const main = created.session.session.id;
+    await screenshot(service, store, main);
+
+    // A second tab: closing it removes its folder, the first one's stays.
+    const tab = (await service.createSession(created.workspace.id, {})).session.id;
+    await screenshot(service, store, tab);
+    await service.deleteSession(tab);
+    expect(existsSync(`${store.blobs.dir}/${tab}`)).toBe(false);
+    expect(existsSync(`${store.blobs.dir}/${main}`)).toBe(true);
+
+    // A sub-agent's images go to its own folder, and go when it's closed.
+    const { agent } = await service.spawnAgent(main, { name: "scout", task: "look" });
+    await until(() => !service.listSessions().find((s) => s.id === agent.sessionId)?.running, 4000);
+    await screenshot(service, store, agent.sessionId);
+    expect(JSON.stringify(store.loadTranscript(agent.sessionId).toolResults)).toContain(`"blob":"${agent.sessionId}/`);
+    expect((await service.closeAgent(main, "scout")).closed).toBe(true);
+    await until(() => !existsSync(`${store.blobs.dir}/${agent.sessionId}`));
+
+    // Deleting the project deletes its chats' folders.
+    await service.deleteProject(project.id);
+    expect(existsSync(`${store.blobs.dir}/${main}`)).toBe(false);
   });
 });

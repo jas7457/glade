@@ -1,13 +1,15 @@
 /**
- * Files attached by reference (I-090): saved under `<dataDir>/attachments/<sessionId>/` with a
- * sanitized, unique name; the prompt then points the agent at the absolute path (see
- * `@glade/protocol` attachments.ts). Nothing is written outside that folder: session ids and
- * names are validated/sanitized, and the final path is checked to be inside it. Uploads larger
- * than the cap are aborted while streaming and the partial file removed.
+ * Files attached by reference (I-090): saved in the chat's folder, `<dataDir>/chats/<sessionId>/
+ * files/` (I-163; deleted with the chat), with a sanitized, unique name; the prompt then points
+ * the agent at the absolute path (see `@glade/protocol` attachments.ts). Nothing is written
+ * outside that folder: session ids and names are validated/sanitized, and the final path is
+ * checked to be inside it. Uploads larger than the cap are aborted while streaming and the
+ * partial file removed. Paths from before I-163 (`<dataDir>/attachments/<sessionId>/…`, moved by
+ * `store/migrate-images.ts`) are mapped to their new place (`current`).
  */
 import { mkdirSync } from "node:fs";
 import { open, rm, stat, unlink } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { extname, join, relative, resolve, sep } from "node:path";
 import { MAX_ATTACHMENT_BYTES, type AttachmentUploadResponse } from "@glade/protocol";
 
 export class AttachmentError extends Error {
@@ -56,30 +58,51 @@ export interface SaveAttachmentOptions {
   maxBytes?: number;
 }
 
-export class AttachmentStore {
-  readonly root: string;
+/** A chat folder's subfolder for attached files. */
+export const FILES_DIR = "files";
 
-  constructor(root: string) {
+export class AttachmentStore {
+  /** The chats folder (`<dataDir>/chats`); a session's files are in `<root>/<id>/files/`. */
+  readonly root: string;
+  /** Where attachments were before I-163 (`<dataDir>/attachments`), for old paths. */
+  readonly legacyRoot: string | null;
+
+  constructor(root: string, legacyRoot?: string) {
     this.root = resolve(root);
+    this.legacyRoot = legacyRoot ? resolve(legacyRoot) : null;
   }
 
   /** The folder of one session's attachments (validated: never outside {@link root}). */
   dirFor(sessionId: string): string {
     if (!SESSION_ID.test(sessionId)) throw new AttachmentError(400, "Invalid session id");
-    const dir = resolve(this.root, sessionId);
-    if (!this.isInside(dir)) throw new AttachmentError(400, "Invalid session id");
+    const dir = resolve(this.root, sessionId, FILES_DIR);
+    if (!this.isInside(join(dir, "x"))) throw new AttachmentError(400, "Invalid session id");
     return dir;
   }
 
-  /** Whether `path` is inside the attachments folder (not the folder itself). */
+  /** Whether `path` is inside some session's attachments folder (not the folder itself). */
   isInside(path: string): boolean {
-    return resolve(path).startsWith(this.root + sep);
+    const abs = resolve(path);
+    if (!abs.startsWith(this.root + sep)) return false;
+    const parts = relative(this.root, abs).split(sep);
+    return parts.length >= 3 && SESSION_ID.test(parts[0]!) && parts[1] === FILES_DIR && !parts.includes("..");
   }
 
-  /** Whether `path` is an existing attachment file. */
+  /** Where an attachment path is now: an old `<dataDir>/attachments/<id>/…` path is mapped. */
+  current(path: string): string {
+    if (!this.legacyRoot) return path;
+    const abs = resolve(path);
+    if (!abs.startsWith(this.legacyRoot + sep)) return path;
+    const [sessionId, ...rest] = relative(this.legacyRoot, abs).split(sep);
+    if (!sessionId || !SESSION_ID.test(sessionId) || !rest.length) return path;
+    return join(this.root, sessionId, FILES_DIR, ...rest);
+  }
+
+  /** Whether `path` (or where an old path moved to) is an existing attachment file. */
   async isAttachment(path: string): Promise<boolean> {
-    if (!this.isInside(path)) return false;
-    return stat(path).then(
+    const now = this.current(path);
+    if (!this.isInside(now)) return false;
+    return stat(now).then(
       (s) => s.isFile(),
       () => false,
     );
@@ -130,7 +153,7 @@ export class AttachmentStore {
     return { path, name: finalName, size };
   }
 
-  /** Remove a session's attachments (when the session is deleted). */
+  /** Remove a session's attachments (the session is deleted; the store removes its whole folder too). */
   async removeSession(sessionId: string): Promise<void> {
     let dir: string;
     try {

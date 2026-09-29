@@ -14,9 +14,9 @@
  * On first open the JSON files of older versions are imported once (`import-json.ts`) and left
  * untouched; `store/startup.ts` deletes them after the migration is confirmed.
  *
- * Images live in files (`blobs`, I-157): every message/tool result is written with blob
- * references instead of inline base64 (`externalizeImages`), older rows are moved out once
- * (`migrate-images.ts`), and unreferenced blobs are collected (`collectBlobs`).
+ * Images live in files, one folder per chat (`blobs`, I-157/I-163): every message/tool result is
+ * written with references to its chat's files instead of inline base64 (`externalizeImages`),
+ * older rows are moved once (`migrate-images.ts`), and deleting a chat deletes its folder.
  */
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -41,9 +41,9 @@ import type { SessionTextMessage } from "../harness/types.js";
 import { DB_FILE, getMeta, getMetaJson, inTransaction, openDatabase, setMeta, setMetaJson, transaction, type Db } from "./db/database.js";
 import { ENVIRONMENT_ID_KEY, ensureEnvironmentId } from "./db/migrations/003-environment.js";
 import { ulid } from "./db/ids.js";
-import { BLOB_GC_GRACE_MS, BlobStore, type BlobGcResult } from "./blobs.js";
-import { blobRefsIn, externalizeImages } from "./images.js";
-import { migrateInlineImages, type ImageMigrationResult } from "./migrate-images.js";
+import { BlobStore, CHATS_DIR, LEGACY_BLOBS_DIR } from "./blobs.js";
+import { externalizeImages } from "./images.js";
+import { migrateImagesPerChat, moveAttachmentsIntoChats, type ImageMigrationResult } from "./migrate-images.js";
 import { dropRemovedAgentSettings, dropRemovedAppearance, dropRemovedGeneral, migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
 import {
   agentMessageMeta,
@@ -137,10 +137,8 @@ export interface StoreOptions {
   pollMs?: number;
   /** Import the older JSON files on first open (default true). */
   importJson?: boolean;
-  /** Move inline images of older rows to blobs on open (I-157; default true). */
+  /** Move images of older rows into per-chat folders on open (I-157/I-163; default true). */
   migrateImages?: boolean;
-  /** How often `watch()` collects unreferenced blobs (ms; default 6 h; 0 = never). */
-  blobGcMs?: number;
 }
 
 /** Events older than this are pruned (and never needed by other servers after a few seconds). */
@@ -161,12 +159,10 @@ export class Store {
   readonly environmentId: string;
   /** The JSON import this open performed (null when the database already had one). */
   readonly jsonImport: JsonImportRecord | null = null;
-  /** Image files (I-157): `<dataDir>/blobs`. */
+  /** Each chat's folder (I-163): `<dataDir>/chats/<sessionId>/` (images, attached files). */
   readonly blobs: BlobStore;
-  /** What moving inline images out did on this open (null: not run). */
+  /** What moving images into per-chat folders did on this open (null: failed). */
   readonly imageMigration: ImageMigrationResult | null = null;
-  private gcTimer: NodeJS.Timeout | null = null;
-  private gcSoon: NodeJS.Timeout | null = null;
   private readonly projects = new Map<string, Project>();
   private readonly workspaces = new Map<string, Workspace>();
   private readonly sessions = new Map<string, Session>();
@@ -189,7 +185,7 @@ export class Store {
   ) {
     this.serverId = options.serverId ?? ulid();
     this.db = openDatabase(join(dataDir, DB_FILE));
-    this.blobs = new BlobStore(join(dataDir, "blobs"));
+    this.blobs = new BlobStore(join(dataDir, CHATS_DIR), join(dataDir, LEGACY_BLOBS_DIR));
     this.environmentId = getMeta(this.db, ENVIRONMENT_ID_KEY) ?? transaction(this.db, () => ensureEnvironmentId(this.db));
     if (options.importJson !== false) this.jsonImport = this.importJsonOnce();
     this.loadAll();
@@ -201,76 +197,36 @@ export class Store {
 
   // Sharing with other servers (I-062) -------------------------------------------------------
 
-  /** Start polling the event log for other servers' changes (and collecting unused blobs). */
+  /** Start polling the event log for other servers' changes. */
   watch(): void {
     if (this.timer || this.closed) return;
     this.timer = setInterval(() => this.reload(), this.options.pollMs ?? 150);
     this.timer.unref();
-    const gcMs = this.options.blobGcMs ?? 6 * 3600_000;
-    if (gcMs > 0) {
-      this.gcTimer = setInterval(() => this.collectBlobsQuietly(), gcMs);
-      this.gcTimer.unref();
-      this.scheduleBlobGc(10 * 60_000);
-    }
   }
 
-  // Image blobs (I-157) -------------------------------------------------------------------------
+  // Images (I-157, per chat since I-163) --------------------------------------------------------
 
   private moveImagesOut(): ImageMigrationResult | null {
     try {
       const started = Date.now();
-      const result = migrateInlineImages(this.db, this.blobs);
+      const result = migrateImagesPerChat(this.db, this.blobs);
       if (result.ran && result.images) {
         const rows = Object.entries(result.rows)
           .map(([t, n]) => `${n} ${t}`)
           .join(", ");
-        console.log(`[glade] store: moved ${result.images} inline images to blobs (${rows} rows, ${Date.now() - started} ms)${result.skipped ? `; ${result.skipped} rows left for the next start` : ""}`);
+        console.log(
+          `[glade] store: moved ${result.images} images into per-chat folders (${rows} rows, ${Date.now() - started} ms)${result.skipped ? `; ${result.skipped} rows left for the next start` : ""}${result.missing ? `; ${result.missing} files were already missing` : ""}`,
+        );
       }
+      if (result.legacyDeleted) console.log(`[glade] store: removed ${result.legacyDeleted} old shared image files`);
+      const moved = moveAttachmentsIntoChats(this.dataDir, new Set(this.sessions.keys()));
+      if (moved.moved || moved.removed) console.log(`[glade] store: moved the attached files of ${moved.moved} chats into their folders${moved.removed ? `; removed ${moved.removed} of deleted chats` : ""}`);
       return result;
     } catch (err) {
-      // Inline images stay readable; the next start tries again.
-      console.warn(`[glade] store: moving images to blobs failed: ${(err as Error).message}`);
+      // Old references stay readable; the next start tries again.
+      console.warn(`[glade] store: moving images into per-chat folders failed: ${(err as Error).message}`);
       return null;
     }
-  }
-
-  /** Every blob hash a stored row references (events only of sessions that still exist). */
-  referencedBlobs(): Set<string> {
-    const refs = new Set<string>();
-    const like = `%"blob":"sha256:%`;
-    for (const sql of [
-      "SELECT payload_json AS json FROM messages WHERE payload_json LIKE ?",
-      "SELECT payload_json AS json FROM tool_results WHERE payload_json LIKE ?",
-      "SELECT payload_json AS json FROM events WHERE payload_json LIKE ? AND (session_id IS NULL OR session_id IN (SELECT id FROM sessions))",
-    ]) {
-      for (const row of this.db.prepare(sql).iterate(like) as Iterable<{ json: string | null }>) if (row.json) blobRefsIn(row.json, refs);
-    }
-    return refs;
-  }
-
-  /** Delete blobs nothing references any more (older than the grace period). */
-  collectBlobs({ graceMs = BLOB_GC_GRACE_MS }: { graceMs?: number } = {}): BlobGcResult {
-    return this.blobs.gc(this.referencedBlobs(), { graceMs });
-  }
-
-  private collectBlobsQuietly(): void {
-    if (this.closed) return;
-    try {
-      const r = this.collectBlobs();
-      if (r.deleted) console.log(`[glade] store: removed ${r.deleted} unused image blobs (${Math.round(r.bytesFreed / 1024)} KB)`);
-    } catch (err) {
-      console.warn(`[glade] store: blob cleanup failed: ${(err as Error).message}`);
-    }
-  }
-
-  /** Collect blobs in `delayMs` (debounced: a chat deletion, possibly on another server). */
-  scheduleBlobGc(delayMs = 60_000): void {
-    if (this.closed || this.gcSoon || (this.options.blobGcMs ?? 1) === 0) return;
-    this.gcSoon = setTimeout(() => {
-      this.gcSoon = null;
-      this.collectBlobsQuietly();
-    }, delayMs);
-    this.gcSoon.unref();
   }
 
   /** Read other servers' new events now (tests; the poll does this on its own). */
@@ -320,8 +276,6 @@ export class Store {
       ids.add(row.entityId ?? "");
     }
     const notify = touched.size ? this.applyForeign(touched) : null;
-    // A chat deleted here or elsewhere may have left images nothing references (I-157).
-    if (events.some((r) => r.type === "session" && r.entityId && !this.sessions.has(r.entityId))) this.scheduleBlobGc();
     for (const listener of this.rowListeners) {
       try {
         listener(events);
@@ -698,6 +652,9 @@ export class Store {
     this.db.prepare("DELETE FROM tool_results WHERE session_id = ?").run(id);
     this.db.prepare("DELETE FROM transcripts WHERE session_id = ?").run(id);
     this.db.prepare("DELETE FROM session_summaries WHERE session_id = ?").run(id);
+    // Its sync log rows hold copies of its messages (I-163). The "session" event that tells
+    // clients and other servers it's gone is a shell event (no session_id), written after this.
+    this.db.prepare("DELETE FROM events WHERE session_id = ?").run(id);
   }
 
   // Projects ----------------------------------------------------------------------------------
@@ -775,9 +732,11 @@ export class Store {
   /** Removes the workspace and all of its sessions (with their conversations). */
   removeWorkspace(id: string): void {
     const doomed = [...this.sessions.values()].filter((s) => s.workspaceId === id);
+    const removed = new Set<string>();
     transaction(this.db, () => {
       const rows = this.db.prepare("SELECT id FROM sessions WHERE workspace_id = ?").all(id) as Array<{ id: string }>;
       for (const sid of new Set([...doomed.map((s) => s.id), ...rows.map((r) => r.id)])) {
+        removed.add(sid);
         this.deleteSessionRows(sid);
         this.event("session", sid, { payload: { workspaceId: id } });
       }
@@ -786,6 +745,7 @@ export class Store {
     });
     this.workspaces.delete(id);
     for (const s of doomed) this.sessions.delete(s.id);
+    for (const sid of removed) this.blobs.removeChat(sid); // their images (I-163)
     this.publish();
   }
 
@@ -819,6 +779,7 @@ export class Store {
       this.event("session", id, workspaceId ? { payload: { workspaceId } } : {});
     });
     this.sessions.delete(id);
+    this.blobs.removeChat(id); // its images (I-163)
     this.publish();
   }
 
@@ -1017,8 +978,8 @@ export class Store {
 
   private importTranscriptRows(sessionId: string, importedRaw: Transcript, { source, sig }: { source: string; sig: string | null }): MergeResult {
     const now = Date.now();
-    // Images to blobs first (I-157), so the merged transcript callers keep has references too.
-    const imported = externalizeImages(importedRaw, this.blobs);
+    // Images to files first (I-157/I-163), so the merged transcript callers keep has references too.
+    const imported = externalizeImages(importedRaw, this.blobs, sessionId);
     const stored = this.loadTranscript(sessionId);
     const storedIds = new Map(stored.messages.map((m, i) => [m.id, { index: i, message: m }]));
     const result = mergeTranscripts(stored, settleTranscript(imported), (m) => ulid(m.timestamp > 0 ? m.timestamp : now));
@@ -1106,7 +1067,7 @@ export class Store {
         now,
         messageStatus(m),
         PAYLOAD_VERSION,
-        JSON.stringify(externalizeImages(m, this.blobs)),
+        JSON.stringify(externalizeImages(m, this.blobs, sessionId)),
       );
   }
 
@@ -1116,7 +1077,7 @@ export class Store {
         `INSERT INTO tool_results (session_id, tool_call_id, status, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT (session_id, tool_call_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, payload_json = excluded.payload_json`,
       )
-      .run(sessionId, r.toolCallId, r.status, now, JSON.stringify(externalizeImages(r, this.blobs)));
+      .run(sessionId, r.toolCallId, r.status, now, JSON.stringify(externalizeImages(r, this.blobs, sessionId)));
   }
 
   private bumpTranscript(sessionId: string, source: string, now: number): void {
@@ -1176,9 +1137,6 @@ export class Store {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.gcTimer) clearInterval(this.gcTimer);
-    if (this.gcSoon) clearTimeout(this.gcSoon);
-    this.gcTimer = this.gcSoon = null;
     try {
       this.db.close();
     } catch {

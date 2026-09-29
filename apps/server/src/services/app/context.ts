@@ -10,6 +10,7 @@ import type { AgentHarness, HarnessSession } from "../../harness/types.js";
 import type { Store } from "../../store/store.js";
 import { AgentRegistry, AgentTokens } from "../agents.js";
 import { AttachmentStore } from "../attachments.js";
+import { CHATS_DIR } from "../../store/blobs.js";
 import type { LeaseManager } from "../leases.js";
 import type { OpenIn } from "../open-in.js";
 import type { RevealPath } from "../reveal.js";
@@ -44,7 +45,7 @@ export interface AppServiceOptions {
   registry?: ServerRegistry;
   /** Lease scan interval (ms; tests lower it). */
   leaseScanMs?: number;
-  /** Attached files (I-090). Default: `<dataDir>/attachments`. */
+  /** Attached files (I-090). Default: `<dataDir>/chats/<sessionId>/files` (I-163). */
   attachments?: AttachmentStore;
   /** Idle agent processes kept alive (I-159: not a setting; default {@link MAX_IDLE_PROCESSES}; tests lower it). */
   maxIdleProcesses?: number;
@@ -147,7 +148,8 @@ export interface AppContext {
 export function createAppContext(options: AppServiceOptions): AppContext {
   const listeners = new Set<Listener>();
   const agents = new AgentRegistry(options.store);
-  const attachments = options.attachments ?? new AttachmentStore(join(options.dataDir ?? options.store.dataDir, "attachments"));
+  const dataDir = options.dataDir ?? options.store.dataDir;
+  const attachments = options.attachments ?? new AttachmentStore(join(dataDir, CHATS_DIR), join(dataDir, "attachments"));
   return {
     options,
     store: options.store,

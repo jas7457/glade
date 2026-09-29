@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +33,7 @@ describe("AttachmentStore", () => {
   let store: AttachmentStore;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "glade-att-"));
-    store = new AttachmentStore(join(dir, "attachments"));
+    store = new AttachmentStore(join(dir, "chats"), join(dir, "attachments"));
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -43,7 +43,7 @@ describe("AttachmentStore", () => {
     const a = await store.save("s1", "notes.txt", bytes("one"));
     const b = await store.save("s1", "notes.txt", bytes("two"));
     const c = await store.save("s1", "../notes.txt", bytes("three"));
-    expect(a.path).toBe(join(dir, "attachments", "s1", "notes.txt"));
+    expect(a.path).toBe(join(dir, "chats", "s1", "files", "notes.txt"));
     expect(b.name).toBe("notes (2).txt");
     expect(c.name).toBe("notes (3).txt");
     expect(readFileSync(b.path, "utf8")).toBe("two");
@@ -59,7 +59,7 @@ describe("AttachmentStore", () => {
       },
     });
     await expect(store.save("s1", "big.bin", stream, { maxBytes: 8 })).rejects.toMatchObject({ status: 413 });
-    expect(existsSync(join(dir, "attachments", "s1", "big.bin"))).toBe(false);
+    expect(existsSync(join(dir, "chats", "s1", "files", "big.bin"))).toBe(false);
     const ok = await store.save("s1", "big.bin", bytes("1234"), { maxBytes: 8 });
     expect(ok.size).toBe(4);
   });
@@ -74,8 +74,18 @@ describe("AttachmentStore", () => {
   it("knows its files and removes a session's folder", async () => {
     const a = await store.save("s1", "a.txt", bytes("a"));
     expect(await store.isAttachment(a.path)).toBe(true);
-    expect(await store.isAttachment(join(dir, "attachments", "..", "outside.txt"))).toBe(false);
-    expect(await store.isAttachment(join(dir, "attachments"))).toBe(false);
+    expect(await store.isAttachment(join(dir, "chats", "..", "outside.txt"))).toBe(false);
+    expect(await store.isAttachment(join(dir, "chats"))).toBe(false);
+    expect(await store.isAttachment(join(dir, "chats", "s1", "files"))).toBe(false);
+    // Only the files folder: a chat's images aren't attachments.
+    mkdirSync(join(dir, "chats", "s1", "images"), { recursive: true });
+    writeFileSync(join(dir, "chats", "s1", "images", "x.png"), "x");
+    expect(await store.isAttachment(join(dir, "chats", "s1", "images", "x.png"))).toBe(false);
+    // An old path (before I-163) maps to where the file is now.
+    const old = join(dir, "attachments", "s1", "a.txt");
+    expect(store.current(old)).toBe(a.path);
+    expect(await store.isAttachment(old)).toBe(true);
+    expect(store.current(join(dir, "attachments", "..", "x"))).toBe(join(dir, "attachments", "..", "x"));
     await store.removeSession("s1");
     expect(existsSync(dirname(a.path))).toBe(false);
     await store.removeSession("../..");
@@ -107,7 +117,7 @@ describe("attachments API", () => {
     expect(res.status).toBe(200);
     const saved = (await res.json()) as AttachmentUploadResponse;
     expect(saved.name).toBe("report final.pdf");
-    expect(saved.path).toBe(join(env.store.dataDir, "attachments", sid, "report final.pdf"));
+    expect(saved.path).toBe(join(env.store.dataDir, "chats", sid, "files", "report final.pdf"));
     expect(readFileSync(saved.path, "utf8")).toBe("%PDF");
 
     await env.service.revealPath(saved.path);
@@ -116,6 +126,7 @@ describe("attachments API", () => {
 
     await env.service.deleteWorkspace(wid);
     expect(existsSync(dirname(saved.path))).toBe(false);
+    expect(existsSync(join(env.store.dataDir, "chats", sid))).toBe(false); // the whole chat folder
   });
 
   it("404s for unknown sessions, 400 without a name, 413 over the cap", async () => {

@@ -107,31 +107,61 @@ export interface ToolCallBlock {
 }
 
 /**
- * An image. Stored and sent as a reference to a content-addressed file (I-157): `blob` is
- * `sha256:<hex>`, fetched from the chat's environment at `GET /api/blobs/<hex>`. Inline base64
- * `data` is still read (rows written before I-157, events straight from a harness); the server
- * turns it into a `blob` before storing or sending it. Exactly one of `data` / `blob` is set.
+ * An image. Stored and sent as a reference to a file of its chat (I-163): `blob` is
+ * `<sessionId>/<name>`, fetched from the chat's environment at `GET /api/blobs/<sessionId>/<name>`.
+ * Older references (`sha256:<hex>`, I-157's shared store) are still read until the store has
+ * moved them into per-chat folders. Inline base64 `data` is still read too (rows written before
+ * I-157, events straight from a harness); the server turns it into a `blob` before storing or
+ * sending it. Exactly one of `data` / `blob` is set.
  */
 export interface ImageBlock {
   type: "image";
   mimeType: string;
   /** Base64 data (inline images; see above). */
   data?: string;
-  /** Content-addressed blob reference, `sha256:<64 hex>` (I-157). */
+  /** File reference, `<sessionId>/<name>` (I-163), or a legacy `sha256:<64 hex>` (I-157). */
   blob?: string;
   /** Pixel size, when known. */
   width?: number;
   height?: number;
 }
 
-/** Prefix of {@link ImageBlock.blob} references. */
+/** Prefix of legacy (I-157, content-addressed) {@link ImageBlock.blob} references. */
 export const BLOB_REF_PREFIX = "sha256:";
 
-/** The hex SHA-256 of a blob reference (`sha256:<hex>` or a bare hex hash), or null if malformed. */
+/** The hex SHA-256 of a legacy blob reference (`sha256:<hex>` or a bare hex hash), or null. */
 export function blobHash(ref: string | null | undefined): string | null {
   if (!ref) return null;
   const hex = ref.startsWith(BLOB_REF_PREFIX) ? ref.slice(BLOB_REF_PREFIX.length) : ref;
   return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
+}
+
+/** A path segment safe as a folder/file name: no separators, no leading dot (so never `..`). */
+const SAFE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
+
+/** What an {@link ImageBlock.blob} reference points at: a chat's file, or a legacy hash. */
+export type ParsedBlobRef = { kind: "chat"; sessionId: string; name: string } | { kind: "hash"; hash: string };
+
+/** Parse a blob reference; null when malformed (incl. anything that could leave the folder). */
+export function parseBlobRef(ref: string | null | undefined): ParsedBlobRef | null {
+  if (!ref) return null;
+  const hash = blobHash(ref);
+  if (hash) return { kind: "hash", hash };
+  const parts = ref.split("/");
+  if (parts.length !== 2 || !parts.every((p) => SAFE_SEGMENT.test(p))) return null;
+  return { kind: "chat", sessionId: parts[0]!, name: parts[1]! };
+}
+
+/** A chat blob reference, `<sessionId>/<name>`. */
+export function chatBlobRef(sessionId: string, name: string): string {
+  return `${sessionId}/${name}`;
+}
+
+/** The path under `/api/blobs/` that serves a reference, or null when it's malformed. */
+export function blobUrlPath(ref: string | null | undefined): string | null {
+  const parsed = parseBlobRef(ref);
+  if (!parsed) return null;
+  return parsed.kind === "hash" ? parsed.hash : `${parsed.sessionId}/${parsed.name}`;
 }
 
 export type ContentBlock = TextBlock | ThinkingBlock | ToolCallBlock | ImageBlock;

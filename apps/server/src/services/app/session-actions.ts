@@ -218,8 +218,10 @@ export class SessionActions {
   /** Reveal a file this server exported (arbitrary paths are refused). */
   async revealPath(path: string): Promise<void> {
     // Exported files, and files attached by reference (I-090).
-    if (!this.ctx.exported.has(path) && !(await this.ctx.attachments.isAttachment(path))) throw new HttpError(404, "Unknown file");
-    await (this.ctx.options.revealPath ?? createRevealPath())(path);
+    if (this.ctx.exported.has(path)) return (this.ctx.options.revealPath ?? createRevealPath())(path);
+    if (!(await this.ctx.attachments.isAttachment(path))) throw new HttpError(404, "Unknown file");
+    // An attachment from before I-163 is revealed where it lives now.
+    await (this.ctx.options.revealPath ?? createRevealPath())(this.ctx.attachments.current(path));
   }
 
   respondToUi(id: string, response: UiResponse): void {

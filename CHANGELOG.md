@@ -172,9 +172,9 @@ Every entry corresponds to a ticked item in PLAN.md.
   for). The pi path, extra arguments, auto-compaction, auto-retry and idle-agent settings are gone
   (compaction and retry are always on).
 - Settings lists Agents before Models, since the agents decide which models there are.
-- Images (screenshots, pasted pictures) are stored as files next to the database instead of
-  inside it, so the database stays small (yours: about 60 MB → 13 MB). Existing images are moved
-  once on first start, and images no chat uses any more are cleaned up.
+- Images (screenshots, pasted pictures) and uploaded files are stored as files next to the
+  database instead of inside it, one folder per chat, so the database stays small (yours: about
+  60 MB → 13 MB). Deleting a chat deletes its folder and everything it stored, right away.
 - Settings → Agents lists every supported agent (pi, Claude Code, Gemini CLI, Codex, your own
   ACP agents) with whether it's installed, an Enable switch, its settings and install links.
   Only enabled agents are offered, also to other devices. A "Settings for" switcher picks the

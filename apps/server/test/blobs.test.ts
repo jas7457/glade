@@ -1,18 +1,21 @@
 /**
- * I-157: images as files. The blob store (dedupe, atomic writes, GC with a grace period), turning
- * inline images into references, the store writing references, and the migration that moves
- * existing inline images out (rows rewritten, blobs exist, idempotent, a crash mid-way).
+ * I-157/I-163: images as files, one folder per chat. The blob store (per-chat atomic writes,
+ * stable names, path safety, legacy hash files), turning images into references to a chat's
+ * files (inline → written, foreign refs → copied), the store writing references and deleting a
+ * chat's folder with it, and the migration of inline images and legacy `sha256:` refs into
+ * per-chat folders (shared file copied per chat, crash mid-way, idempotent, old files removed).
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { blobHash, type ChatMessage, type ToolResult } from "@glade/protocol";
+import { parseBlobRef, type ChatMessage, type Session, type ToolResult, type Workspace } from "@glade/protocol";
 import { fakePng } from "../src/harness/fake/fake-image.js";
 import { BlobStore } from "../src/store/blobs.js";
 import { getMeta } from "../src/store/db/database.js";
-import { blobRefsIn, externalizeImages, imageSize, resolvePromptImages } from "../src/store/images.js";
-import { IMAGES_TO_BLOBS_KEY, migrateInlineImages, vacuumIfAlone } from "../src/store/migrate-images.js";
+import { externalizeImages, imageSize, resolvePromptImages } from "../src/store/images.js";
+import { IMAGES_PER_CHAT_KEY, migrateImagesPerChat, moveAttachmentsIntoChats, vacuumIfAlone } from "../src/store/migrate-images.js";
 import { Store } from "../src/store/store.js";
 
 const cleanups: Array<() => void> = [];
@@ -34,81 +37,125 @@ function openStore(dir: string, opts: { migrateImages?: boolean } = {}): Store {
 
 const PNG = fakePng(1, 40, 30);
 const PNG_B64 = PNG.toString("base64");
-const OTHER_B64 = fakePng(2, 20, 10).toString("base64");
+const OTHER = fakePng(2, 20, 10);
+const OTHER_B64 = OTHER.toString("base64");
 
 function allFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile())
-    .map((e) => join(e.parentPath, e.name));
+    .map((e) => join(e.parentPath, e.name))
+    .sort();
 }
 
-describe("BlobStore", () => {
-  it("stores content-addressed files, deduplicated, with no temp files left", () => {
+/** A file the way I-157 stored it: `<aa>/<sha256>.png`; returns its `sha256:` ref. */
+function legacyBlob(blobsDir: string, bytes: Buffer): string {
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  mkdirSync(join(blobsDir, hash.slice(0, 2)), { recursive: true });
+  writeFileSync(join(blobsDir, hash.slice(0, 2), `${hash}.png`), bytes);
+  return `sha256:${hash}`;
+}
+
+function addChat(store: Store, id: string, workspaceId = "w1"): void {
+  if (!store.getWorkspace(workspaceId)) {
+    store.upsertWorkspace({ id: workspaceId, projectId: null, title: "W", titleSource: "user", cwd: "/tmp", pinned: false, createdAt: 0, lastActivityAt: 0, layout: null } as unknown as Workspace);
+  }
+  store.upsertSession({ id, workspaceId, kind: "main", harness: "fake", sessionRef: null, title: id, titleSource: "user", createdAt: 0, lastActivityAt: 0 } as unknown as Session);
+}
+
+describe("BlobStore (per chat)", () => {
+  it("writes into the chat's folder atomically, with a stable name per content", () => {
     const blobs = new BlobStore(join(tempDir(), "blobs"));
-    const a = blobs.put(PNG, "image/png");
-    expect(a.ref).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(a.path).toBe(join(blobs.dir, a.hash.slice(0, 2), `${a.hash}.png`));
+    const a = blobs.put("chat-1", PNG, "image/png");
+    expect(a.ref).toMatch(/^chat-1\/[0-9a-f]{16}$/);
+    expect(a.path).toBe(join(blobs.dir, "chat-1", "images", `${a.ref.split("/")[1]}.png`));
     expect(readFileSync(a.path).equals(PNG)).toBe(true);
-    const b = blobs.putBase64(PNG_B64, "image/png");
-    expect(b.ref).toBe(a.ref);
+    // Saving it again in the same chat finds the file.
+    expect(blobs.putBase64("chat-1", PNG_B64, "image/png").ref).toBe(a.ref);
     expect(allFiles(blobs.dir)).toEqual([a.path]);
+    // The same picture in another chat is another file (no sharing).
+    const b = blobs.put("chat-2", PNG, "image/png");
+    expect(b.ref).not.toBe(a.ref);
+    expect(allFiles(blobs.dir)).toHaveLength(2);
     expect(blobs.find(a.ref)?.mimeType).toBe("image/png");
-    expect(blobs.find(a.hash)?.size).toBe(PNG.length);
-    expect(blobs.read(a.ref)?.equals(PNG)).toBe(true);
-    expect(blobs.find(`sha256:${"0".repeat(64)}`)).toBeNull();
-    expect(blobs.find("../../etc/passwd")).toBeNull();
+    expect(blobs.read(b.ref)?.equals(PNG)).toBe(true);
   });
 
-  it("a second put of an old blob refreshes its mtime (a concurrent GC keeps it)", () => {
+  it("rejects anything that could leave the folder", () => {
     const blobs = new BlobStore(join(tempDir(), "blobs"));
-    const a = blobs.put(PNG, "image/png");
-    const old = new Date(Date.now() - 5 * 3600_000);
-    utimesSync(a.path, old, old);
-    blobs.put(PNG, "image/png");
-    expect(Date.now() - statSync(a.path).mtimeMs).toBeLessThan(60_000);
-    expect(blobs.gc(new Set()).deleted).toBe(0);
+    for (const ref of ["../glade.db", "chat-1/../../x", "../x", "./x", "chat-1/.hidden", "a/b/c", "chat-1/", "/etc/passwd"]) {
+      expect(parseBlobRef(ref)).toBeNull();
+      expect(blobs.find(ref)).toBeNull();
+    }
+    expect(() => blobs.put("..", PNG, "image/png")).toThrow();
+    expect(() => blobs.put("a/b", PNG, "image/png")).toThrow();
   });
 
-  it("GC deletes unreferenced blobs only after the grace period, and stale temp files", () => {
+  it("removeChat deletes the chat's folder only", () => {
     const blobs = new BlobStore(join(tempDir(), "blobs"));
-    const kept = blobs.put(PNG, "image/png");
-    const young = blobs.putBase64(OTHER_B64, "image/png");
-    const old = blobs.put(Buffer.from("old"), "image/jpeg");
-    const past = new Date(Date.now() - 2 * 3600_000);
-    utimesSync(old.path, past, past);
-    const staleTmp = join(blobs.dir, kept.hash.slice(0, 2), `.${kept.hash}.1.abcd.tmp`);
-    writeFileSync(staleTmp, "partial");
-    utimesSync(staleTmp, past, past);
-    utimesSync(kept.path, past, past);
-    const result = blobs.gc(new Set([kept.hash]), { graceMs: 3600_000 });
-    expect(result).toMatchObject({ scanned: 3, deleted: 1, kept: 1 });
-    expect(existsSync(old.path)).toBe(false);
-    expect(existsSync(kept.path)).toBe(true);
-    expect(existsSync(young.path)).toBe(true);
-    expect(existsSync(staleTmp)).toBe(false);
-    // Past the grace period the young one goes too.
-    expect(blobs.gc(new Set([kept.hash]), { graceMs: 0 }).deleted).toBe(1);
+    const a = blobs.put("chat-1", PNG, "image/png");
+    const b = blobs.put("chat-2", PNG, "image/png");
+    blobs.removeChat("chat-1");
+    expect(existsSync(join(blobs.dir, "chat-1"))).toBe(false);
+    expect(blobs.find(a.ref)).toBeNull();
+    expect(blobs.find(b.ref)).not.toBeNull();
+    blobs.removeChat(".."); // ignored
+    expect(existsSync(blobs.dir)).toBe(true);
+  });
+
+  it("still reads legacy sha256 files, and removes the unreferenced ones", () => {
+    const blobs = new BlobStore(join(tempDir(), "blobs"));
+    const kept = legacyBlob(blobs.legacyDir, PNG);
+    const gone = legacyBlob(blobs.legacyDir, OTHER);
+    blobs.put("chat-1", PNG, "image/png");
+    expect(blobs.read(kept)?.equals(PNG)).toBe(true);
+    expect(blobs.find(kept.slice(7))?.mimeType).toBe("image/png");
+    expect(blobs.hasLegacy()).toBe(true);
+    expect(blobs.removeLegacy(new Set([kept.slice(7)])).deleted).toBe(1);
+    expect(blobs.find(gone)).toBeNull();
+    expect(blobs.removeLegacy(new Set()).deleted).toBe(1);
+    expect(blobs.hasLegacy()).toBe(false); // emptied folders go too
+    expect(allFiles(blobs.dir)).toHaveLength(1); // the chat's file is untouched
   });
 });
 
 describe("externalizeImages", () => {
-  it("replaces inline images anywhere with references and keeps untouched branches", () => {
+  it("writes inline images to the chat's folder and keeps untouched branches", () => {
     const blobs = new BlobStore(join(tempDir(), "blobs"));
     const text = { type: "text", text: "hi" };
     const value = { a: [text, { type: "image", mimeType: "image/png", data: PNG_B64 }], b: { nested: { type: "image", mimeType: "image/png", data: PNG_B64 } }, c: text };
     const count = { n: 0 };
-    const out = externalizeImages(value, blobs, count);
+    const out = externalizeImages(value, blobs, "s1", count);
     expect(count.n).toBe(2);
     expect(out.a[0]).toBe(text);
     expect(out.c).toBe(text);
     const ref = (out.a[1] as unknown as { blob: string }).blob;
+    expect(ref.startsWith("s1/")).toBe(true);
     expect(out.a[1]).toEqual({ type: "image", mimeType: "image/png", blob: ref, width: 40, height: 30 });
     expect(out.b.nested).toEqual(out.a[1]);
     expect(blobs.read(ref)?.equals(PNG)).toBe(true);
-    // Nothing inline: the same object back.
-    expect(externalizeImages(out, blobs)).toBe(out);
-    expect([...blobRefsIn(JSON.stringify(out))]).toEqual([blobHash(ref)]);
+    // Own refs only: the same object back.
+    expect(externalizeImages(out, blobs, "s1")).toBe(out);
+  });
+
+  it("copies another chat's or a legacy file into this chat; a missing one is left as it is", () => {
+    const blobs = new BlobStore(join(tempDir(), "blobs"));
+    const foreign = blobs.put("s1", PNG, "image/png").ref;
+    const legacy = legacyBlob(blobs.legacyDir, OTHER);
+    const value = [
+      { type: "image", mimeType: "image/png", blob: foreign },
+      { type: "image", mimeType: "image/png", blob: legacy },
+      { type: "image", mimeType: "image/png", blob: "s9/deadbeef" },
+    ];
+    const count = { n: 0, missing: 0 };
+    const out = externalizeImages(value, blobs, "s2", count);
+    expect(count).toEqual({ n: 2, missing: 1 });
+    expect(out[0]!.blob.startsWith("s2/")).toBe(true);
+    expect(out[1]!.blob.startsWith("s2/")).toBe(true);
+    expect(out[2]).toBe(value[2]);
+    expect(blobs.read(out[0]!.blob)?.equals(PNG)).toBe(true);
+    expect(blobs.read(out[1]!.blob)?.equals(OTHER)).toBe(true);
+    expect(blobs.find(foreign)).not.toBeNull(); // a copy, not a move
   });
 
   it("reads image sizes of PNG, GIF and JPEG headers", () => {
@@ -121,152 +168,249 @@ describe("externalizeImages", () => {
 
   it("resolves prompt images sent by reference back to data (what the harness is fed)", () => {
     const blobs = new BlobStore(join(tempDir(), "blobs"));
-    const { ref } = blobs.put(PNG, "image/png");
+    const { ref } = blobs.put("s1", PNG, "image/png");
+    const legacy = legacyBlob(blobs.legacyDir, OTHER);
     const inline = { mimeType: "image/png", data: OTHER_B64 };
-    const out = resolvePromptImages([inline, { mimeType: "image/png", data: "", blob: ref }], blobs)!;
+    const out = resolvePromptImages([inline, { mimeType: "image/png", data: "", blob: ref }, { mimeType: "image/png", data: "", blob: legacy }], blobs)!;
     expect(out[0]).toBe(inline);
     expect(out[1]).toEqual({ mimeType: "image/png", data: PNG_B64 });
-    expect(() => resolvePromptImages([{ mimeType: "image/png", data: "", blob: `sha256:${"1".repeat(64)}` }], blobs)).toThrow(/no longer available/);
+    expect(out[2]).toEqual({ mimeType: "image/png", data: OTHER_B64 });
+    expect(() => resolvePromptImages([{ mimeType: "image/png", data: "", blob: "s1/0000000000000000" }], blobs)).toThrow(/no longer available/);
   });
 });
 
-function userMessage(id: string, data: string): ChatMessage {
-  return { id, role: "user", content: [{ type: "image", mimeType: "image/png", data }, { type: "text", text: `msg ${id}` }], timestamp: 1_000 + id.length };
+function userMessage(id: string, image: Record<string, unknown>): ChatMessage {
+  return { id, role: "user", content: [{ type: "image", mimeType: "image/png", ...image }, { type: "text", text: `msg ${id}` }], timestamp: 1_000 + id.length } as ChatMessage;
 }
 
-function toolResult(id: string, data: string): ToolResult {
-  return { toolCallId: id, toolName: "screenshot", status: "done", output: "shot", images: [{ type: "image", mimeType: "image/png", data }] };
+function toolResult(id: string, image: Record<string, unknown>): ToolResult {
+  return { toolCallId: id, toolName: "screenshot", status: "done", output: "shot", images: [{ type: "image", mimeType: "image/png", ...image }] } as ToolResult;
 }
 
-/** Write rows with inline images the way a pre-I-157 server did (bypassing the store's conversion). */
-function writeLegacyRows(store: Store, sessionId: string, n: number): void {
+describe("the store writes per-chat references (I-163)", () => {
+  it("live changes and imports go to their chat's folder; the same image in two chats is two files", () => {
+    const store = openStore(tempDir());
+    store.saveTranscriptChanges("s1", [{ message: userMessage("u1", { data: PNG_B64 }), seq: 0 }], [toolResult("t1", { data: PNG_B64 })]);
+    const imported = store.importTranscript("s2", { messages: [userMessage("u2", { data: PNG_B64 })], toolResults: {} }, { source: "pi", sig: null });
+    const t = store.loadTranscript("s1");
+    const img = (t.messages[0] as Extract<ChatMessage, { role: "user" }>).content[0] as { blob: string };
+    expect(img).toMatchObject({ type: "image", mimeType: "image/png", blob: expect.stringMatching(/^s1\//) });
+    expect(t.toolResults.t1!.images![0]!.blob).toBe(img.blob);
+    expect(JSON.stringify(imported.transcript)).toMatch(/"blob":"s2\//);
+    expect(JSON.stringify(imported.transcript)).not.toContain('"data":"');
+    expect(allFiles(store.blobs.dir).map((f) => f.slice(store.blobs.dir.length + 1).split("/")[0])).toEqual(["s1", "s2"]);
+    // Importing the same transcript again writes nothing new.
+    store.importTranscript("s2", { messages: [userMessage("u2", { data: PNG_B64 })], toolResults: {} }, { source: "pi", sig: null });
+    expect(allFiles(store.blobs.dir)).toHaveLength(2);
+  });
+
+  it("deleting a chat, or a workspace's chats, deletes their folders right away", () => {
+    const store = openStore(tempDir());
+    for (const id of ["s1", "s2"]) addChat(store, id);
+    addChat(store, "s3", "w2");
+    for (const id of ["s1", "s2", "s3"]) store.saveTranscriptChanges(id, [{ message: userMessage(`u-${id}`, { data: PNG_B64 }), seq: 0 }], []);
+    const folder = (id: string) => join(store.blobs.dir, id);
+    expect(["s1", "s2", "s3"].every((id) => existsSync(folder(id)))).toBe(true);
+    store.removeSession("s1");
+    expect(existsSync(folder("s1"))).toBe(false);
+    expect(existsSync(folder("s2"))).toBe(true);
+    store.removeWorkspace("w1");
+    expect(existsSync(folder("s2"))).toBe(false);
+    expect(existsSync(folder("s3"))).toBe(true);
+  });
+
+  it("deleting a chat deletes its sync log rows too, but keeps the event that says it's gone", () => {
+    const store = openStore(tempDir());
+    for (const id of ["s1", "s2"]) addChat(store, id);
+    for (const id of ["s1", "s2"]) store.saveTranscriptChanges(id, [{ message: userMessage(`u-${id}`, { data: PNG_B64 }), seq: 0 }], []);
+    const count = (where: string, ...args: string[]) => Number((store.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE ${where}`).get(...args) as { n: number }).n);
+    expect(count("session_id = ?", "s1")).toBeGreaterThan(0);
+    store.removeSession("s1");
+    expect(count("session_id = ?", "s1")).toBe(0);
+    expect(count("type = 'session' AND entity_id = ?", "s1")).toBeGreaterThan(0);
+    expect(count("session_id = ?", "s2")).toBeGreaterThan(0);
+    for (const table of ["messages", "tool_results", "transcripts", "session_summaries", "sessions"]) {
+      const col = table === "sessions" ? "id" : "session_id";
+      expect(Number((store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = 's1'`).get() as { n: number }).n), table).toBe(0);
+    }
+    store.removeWorkspace("w1");
+    expect(count("session_id = ?", "s2")).toBe(0);
+  });
+});
+
+/** Rows as I-157 left them: `sha256:` refs (and a few inline images from before I-157). */
+function writeLegacyRows(store: Store, sessionId: string, n: number, refs: { png: string; other: string }): void {
   const db = store.db;
   const now = Date.now();
   for (let i = 0; i < n; i++) {
-    const m = userMessage(`m${i}`, i % 2 ? OTHER_B64 : PNG_B64);
+    const m = userMessage(`${sessionId}-m${i}`, i === 0 ? { data: PNG_B64 } : { blob: i % 2 ? refs.other : refs.png });
     db.prepare(
       "INSERT INTO messages (id, session_id, seq, role, created_at, updated_at, status, payload_version, payload_json) VALUES (?, ?, ?, 'user', ?, ?, 'done', 1, ?)",
     ).run(m.id, sessionId, i, now, now, JSON.stringify(m));
-    const r = toolResult(`t${i}`, PNG_B64);
+    const r = toolResult(`t${i}`, { blob: refs.png });
     db.prepare("INSERT INTO tool_results (session_id, tool_call_id, status, updated_at, payload_json) VALUES (?, ?, 'done', ?, ?)").run(sessionId, r.toolCallId, now, JSON.stringify(r));
   }
   db.prepare("INSERT INTO events (at, server_id, scope, session_id, type, entity_id, payload_json) VALUES (?, 'old', 'session', ?, 'session_event', ?, ?)").run(
     now,
     sessionId,
     sessionId,
-    JSON.stringify({ event: { type: "message_end", message: userMessage("m0", PNG_B64) } }),
+    JSON.stringify({ event: { type: "message_end", message: userMessage("x", { blob: refs.png }) } }),
   );
   db.prepare("INSERT INTO transcripts (session_id, source, version, message_count, updated_at) VALUES (?, 'live', 1, ?, ?)").run(sessionId, n, now);
 }
 
-function inlineRows(store: Store): number {
+function oldRows(store: Store): number {
   let n = 0;
   for (const table of ["messages", "tool_results", "events"]) {
-    n += Number((store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE payload_json LIKE '%"data":"%'`).get() as { n: number }).n);
+    n += Number((store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE payload_json LIKE '%"data":"%' OR payload_json LIKE '%"blob":"sha256:%'`).get() as { n: number }).n);
   }
   return n;
 }
 
-describe("the store writes references (I-157)", () => {
-  it("live changes and imports store blob refs, and reads come back with refs", () => {
-    const store = openStore(tempDir());
-    store.saveTranscriptChanges("s1", [{ message: userMessage("u1", PNG_B64), seq: 0 }], [toolResult("t1", PNG_B64)]);
-    const imported = store.importTranscript("s2", { messages: [userMessage("u2", OTHER_B64)], toolResults: {} }, { source: "pi", sig: null });
-    expect(inlineRows(store)).toBe(0);
+function refsIn(store: Store, sessionId: string): string[] {
+  const rows = store.db.prepare("SELECT payload_json AS j FROM messages WHERE session_id = ? UNION ALL SELECT payload_json FROM tool_results WHERE session_id = ?").all(sessionId, sessionId) as Array<{ j: string }>;
+  return rows.flatMap((r) => [...r.j.matchAll(/"blob":"([^"]+)"/g)].map((m) => m[1]!));
+}
+
+function legacySetup(dir: string, chats: string[], n: number): { store: Store; refs: { png: string; other: string } } {
+  const store = openStore(dir, { migrateImages: false });
+  const refs = { png: legacyBlob(store.blobs.legacyDir, PNG), other: legacyBlob(store.blobs.legacyDir, OTHER) };
+  for (const id of chats) {
+    addChat(store, id);
+    writeLegacyRows(store, id, n, refs);
+  }
+  return { store, refs };
+}
+
+describe("migration: images into per-chat folders (I-163)", () => {
+  it("copies a shared file into each chat, rewrites the refs, removes the old files, and is idempotent", () => {
+    const { store } = legacySetup(tempDir(), ["s1", "s2"], 4);
+    expect(oldRows(store)).toBe(2 * (4 + 4 + 1));
+    const result = migrateImagesPerChat(store.db, store.blobs, { batchSize: 2 });
+    expect(result).toMatchObject({ ran: true, skipped: 0, missing: 0, legacyDeleted: 2, rows: { messages: 8, tool_results: 8, events: 2 } });
+    expect(oldRows(store)).toBe(0);
+    expect(getMeta(store.db, IMAGES_PER_CHAT_KEY)).toBe("done");
+    // Each chat has its own copy of both images; the old shared files are gone.
+    expect(store.blobs.hasLegacy()).toBe(false);
+    const files = allFiles(store.blobs.dir).map((f) => f.slice(store.blobs.dir.length + 1));
+    expect(files.filter((f) => f.startsWith("s1/"))).toHaveLength(2);
+    expect(files.filter((f) => f.startsWith("s2/"))).toHaveLength(2);
+    expect(files).toHaveLength(4);
+    for (const id of ["s1", "s2"]) {
+      for (const ref of refsIn(store, id)) {
+        expect(ref.startsWith(`${id}/`)).toBe(true);
+        expect(store.blobs.read(ref)).not.toBeNull();
+      }
+    }
     const t = store.loadTranscript("s1");
-    const img = (t.messages[0] as Extract<ChatMessage, { role: "user" }>).content[0]!;
-    expect(img).toMatchObject({ type: "image", mimeType: "image/png", blob: expect.stringMatching(/^sha256:/) });
-    expect(t.toolResults.t1!.images![0]!.blob).toBe((img as { blob: string }).blob);
-    // The merged transcript handed back to the caller has refs too.
-    expect(JSON.stringify(imported.transcript)).not.toContain('"data":"');
-    expect(store.referencedBlobs().size).toBe(2);
-  });
-
-  it("collects the blobs of a deleted chat (after the grace period)", () => {
-    const store = openStore(tempDir());
-    store.upsertWorkspace({ id: "w1", projectId: null, title: "W", titleSource: "user", cwd: "/tmp", pinned: false, createdAt: 0, lastActivityAt: 0, layout: null } as never);
-    store.upsertSession({ id: "s1", workspaceId: "w1", kind: "main", harness: "fake", sessionRef: null, title: "x", titleSource: "user", createdAt: 0, lastActivityAt: 0 } as never);
-    store.saveTranscriptChanges("s1", [{ message: userMessage("u1", PNG_B64), seq: 0 }], []);
-    const [hash] = [...store.referencedBlobs()];
-    const file = store.blobs.find(hash!)!.path;
-    expect(store.collectBlobs({ graceMs: 0 }).deleted).toBe(0);
+    expect(t.messages).toHaveLength(4);
+    expect((t.messages[1] as Extract<ChatMessage, { role: "user" }>).content[1]).toEqual({ type: "text", text: "msg s1-m1" });
+    // Deleting one chat leaves the other's images.
     store.removeSession("s1");
-    expect(store.collectBlobs().deleted).toBe(0); // still inside the grace period
-    expect(store.collectBlobs({ graceMs: 0 }).deleted).toBe(1);
-    expect(existsSync(file)).toBe(false);
-  });
-});
-
-describe("migration: inline images to blobs (I-157)", () => {
-  it("rewrites rows to refs, writes the blobs, and is idempotent", () => {
-    const dir = tempDir();
-    const first = openStore(dir, { migrateImages: false });
-    writeLegacyRows(first, "s1", 5);
-    const before = inlineRows(first);
-    expect(before).toBe(11);
-    const result = migrateInlineImages(first.db, first.blobs, { batchSize: 2 });
-    expect(result).toMatchObject({ ran: true, images: 11, skipped: 0, rows: { messages: 5, tool_results: 5, events: 1 } });
-    expect(inlineRows(first)).toBe(0);
-    expect(getMeta(first.db, IMAGES_TO_BLOBS_KEY)).toBe("done");
-    // Two distinct images, both on disk; every ref resolves.
-    expect(allFiles(first.blobs.dir)).toHaveLength(2);
-    for (const hash of first.referencedBlobs()) expect(first.blobs.read(hash)).not.toBeNull();
-    const t = first.loadTranscript("s1");
-    expect(t.messages).toHaveLength(5);
-    expect((t.messages[1] as Extract<ChatMessage, { role: "user" }>).content[1]).toEqual({ type: "text", text: "msg m1" });
+    for (const ref of refsIn(store, "s2")) expect(store.blobs.read(ref)).not.toBeNull();
     // Again: nothing to do (flag), and even when forced nothing changes.
-    expect(migrateInlineImages(first.db, first.blobs).ran).toBe(false);
-    expect(migrateInlineImages(first.db, first.blobs, { force: true })).toMatchObject({ ran: true, images: 0 });
+    expect(migrateImagesPerChat(store.db, store.blobs).ran).toBe(false);
+    expect(migrateImagesPerChat(store.db, store.blobs, { force: true })).toMatchObject({ ran: true, images: 0 });
   });
 
-  it("runs when a store opens and survives a crash mid-way (the next run finishes)", () => {
+  it("runs when a store opens and survives a crash mid-way (the next start finishes)", () => {
     const dir = tempDir();
-    const store = openStore(dir, { migrateImages: false });
-    writeLegacyRows(store, "s1", 4);
+    const { store } = legacySetup(dir, ["s1"], 4);
     let seen = 0;
     expect(() =>
-      migrateInlineImages(store.db, store.blobs, {
+      migrateImagesPerChat(store.db, store.blobs, {
         batchSize: 1,
         afterBlobs: () => {
           if (++seen === 3) throw new Error("crash");
         },
       }),
     ).toThrow("crash");
-    // The first two batches are done; the rest is still inline and readable; no flag yet.
-    expect(inlineRows(store)).toBe(9 - 2); // 4 messages + 4 tool results + 1 event, minus the 2 rewritten
-    expect(getMeta(store.db, IMAGES_TO_BLOBS_KEY)).toBeNull();
+    // Two rows done; the rest still has old refs that still resolve; no flag; old files kept.
+    expect(oldRows(store)).toBe(9 - 2);
+    expect(getMeta(store.db, IMAGES_PER_CHAT_KEY)).toBeNull();
+    expect(store.blobs.hasLegacy()).toBe(true);
+    for (const ref of refsIn(store, "s1")) expect(store.blobs.read(ref)).not.toBeNull();
     store.dispose();
-    // The next start finishes the job.
     const reopened = openStore(dir);
     expect(reopened.imageMigration?.ran).toBe(true);
-    expect(inlineRows(reopened)).toBe(0);
-    expect(getMeta(reopened.db, IMAGES_TO_BLOBS_KEY)).toBe("done");
+    expect(oldRows(reopened)).toBe(0);
+    expect(getMeta(reopened.db, IMAGES_PER_CHAT_KEY)).toBe("done");
+    expect(reopened.blobs.hasLegacy()).toBe(false);
+    // The copy written before the crash was found again, not duplicated.
+    expect(allFiles(reopened.blobs.dir)).toHaveLength(2);
     expect(reopened.loadTranscript("s1").messages).toHaveLength(4);
   });
 
-  it("leaves a row another server changed meanwhile for the next pass", () => {
-    const dir = tempDir();
-    const store = openStore(dir, { migrateImages: false });
-    writeLegacyRows(store, "s1", 1);
-    const result = migrateInlineImages(store.db, store.blobs, {
+  it("leaves a row another server changed meanwhile for the next pass (and keeps the old files until then)", () => {
+    const { store } = legacySetup(tempDir(), ["s1"], 1);
+    const result = migrateImagesPerChat(store.db, store.blobs, {
       afterBlobs: (table) => {
         if (table === "tool_results") store.db.prepare("UPDATE tool_results SET payload_json = replace(payload_json, 'shot', 'shot2')").run();
       },
     });
     expect(result.skipped).toBe(1);
-    expect(getMeta(store.db, IMAGES_TO_BLOBS_KEY)).toBeNull();
-    expect(migrateInlineImages(store.db, store.blobs).skipped).toBe(0);
-    expect(inlineRows(store)).toBe(0);
+    expect(getMeta(store.db, IMAGES_PER_CHAT_KEY)).toBeNull();
+    expect(store.blobs.hasLegacy()).toBe(true);
+    expect(migrateImagesPerChat(store.db, store.blobs).skipped).toBe(0);
+    expect(oldRows(store)).toBe(0);
+    expect(store.blobs.hasLegacy()).toBe(false);
   });
 
   it("VACUUMs once afterwards, only when no other server uses the folder", () => {
     const store = openStore(tempDir(), { migrateImages: false });
-    writeLegacyRows(store, "s1", 2);
-    migrateInlineImages(store.db, store.blobs);
+    addChat(store, "s1");
+    const now = Date.now();
+    for (let i = 0; i < 4; i++) {
+      store.db
+        .prepare("INSERT INTO tool_results (session_id, tool_call_id, status, updated_at, payload_json) VALUES ('s1', ?, 'done', ?, ?)")
+        .run(`t${i}`, now, JSON.stringify(toolResult(`t${i}`, { data: randomBytes(400_000).toString("base64") })));
+    }
+    migrateImagesPerChat(store.db, store.blobs);
     expect(vacuumIfAlone(store.db, () => false)).toBe(false);
     expect(getMeta(store.db, "vacuum_pending")).toBe("1");
     expect(vacuumIfAlone(store.db, () => true)).toBe(true);
     expect(getMeta(store.db, "vacuum_pending")).toBe("0");
     expect(vacuumIfAlone(store.db, () => true)).toBe(false);
+  });
+});
+
+describe("migration: attached files into the chat folders (I-163)", () => {
+  it("moves each chat's attachments into chats/<id>/files, drops deleted chats', and is idempotent", () => {
+    const data = join(tempDir(), "data");
+    const old = (id: string, name: string, text: string) => {
+      mkdirSync(join(data, "attachments", id), { recursive: true });
+      writeFileSync(join(data, "attachments", id, name), text);
+    };
+    old("s1", "a.txt", "a");
+    old("s1", "b.txt", "b");
+    old("s2", "c.txt", "c");
+    old("gone", "d.txt", "d");
+    // s2 already has a files folder (a crash mid-way, or an upload since): merged, names kept free.
+    mkdirSync(join(data, "chats", "s2", "files"), { recursive: true });
+    writeFileSync(join(data, "chats", "s2", "files", "c.txt"), "new");
+    const result = moveAttachmentsIntoChats(data, new Set(["s1", "s2"]));
+    expect(result).toEqual({ moved: 2, removed: 1 });
+    expect(readFileSync(join(data, "chats", "s1", "files", "a.txt"), "utf8")).toBe("a");
+    expect(readFileSync(join(data, "chats", "s1", "files", "b.txt"), "utf8")).toBe("b");
+    expect(readFileSync(join(data, "chats", "s2", "files", "c.txt"), "utf8")).toBe("new");
+    expect(readFileSync(join(data, "chats", "s2", "files", "c (2).txt"), "utf8")).toBe("c");
+    expect(existsSync(join(data, "attachments"))).toBe(false);
+    expect(existsSync(join(data, "chats", "gone"))).toBe(false);
+    expect(moveAttachmentsIntoChats(data, new Set(["s1", "s2"]))).toEqual({ moved: 0, removed: 0 });
+  });
+
+  it("runs when a store opens", () => {
+    const dir = tempDir();
+    const store = openStore(dir, { migrateImages: false });
+    addChat(store, "s1");
+    store.dispose();
+    mkdirSync(join(dir, "data", "attachments", "s1"), { recursive: true });
+    writeFileSync(join(dir, "data", "attachments", "s1", "a.txt"), "a");
+    const reopened = openStore(dir);
+    expect(readFileSync(join(reopened.blobs.dir, "s1", "files", "a.txt"), "utf8")).toBe("a");
+    // Deleting the chat deletes its files with its images: one folder.
+    reopened.saveTranscriptChanges("s1", [{ message: userMessage("u1", { data: PNG_B64 }), seq: 0 }], []);
+    reopened.removeSession("s1");
+    expect(existsSync(join(reopened.blobs.dir, "s1"))).toBe(false);
   });
 });
