@@ -106,11 +106,32 @@ export interface ToolCallBlock {
   argsText?: string;
 }
 
+/**
+ * An image. Stored and sent as a reference to a content-addressed file (I-157): `blob` is
+ * `sha256:<hex>`, fetched from the chat's environment at `GET /api/blobs/<hex>`. Inline base64
+ * `data` is still read (rows written before I-157, events straight from a harness); the server
+ * turns it into a `blob` before storing or sending it. Exactly one of `data` / `blob` is set.
+ */
 export interface ImageBlock {
   type: "image";
   mimeType: string;
-  /** Base64 data. */
-  data: string;
+  /** Base64 data (inline images; see above). */
+  data?: string;
+  /** Content-addressed blob reference, `sha256:<64 hex>` (I-157). */
+  blob?: string;
+  /** Pixel size, when known. */
+  width?: number;
+  height?: number;
+}
+
+/** Prefix of {@link ImageBlock.blob} references. */
+export const BLOB_REF_PREFIX = "sha256:";
+
+/** The hex SHA-256 of a blob reference (`sha256:<hex>` or a bare hex hash), or null if malformed. */
+export function blobHash(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const hex = ref.startsWith(BLOB_REF_PREFIX) ? ref.slice(BLOB_REF_PREFIX.length) : ref;
+  return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
 }
 
 export type ContentBlock = TextBlock | ThinkingBlock | ToolCallBlock | ImageBlock;

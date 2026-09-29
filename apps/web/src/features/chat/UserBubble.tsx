@@ -33,7 +33,8 @@ import { notify } from "@/state/toasts";
 import { Chip, Clamp } from "@/ui";
 import { AgentMessageCard } from "./AgentMessageCard";
 import { splitMentions } from "./mentions/parse";
-import { useImageLightbox, imageSrc } from "./ImageLightbox";
+import { useImageLightbox } from "./ImageLightbox";
+import { useImageSrc } from "./image-src";
 import { MessageTime } from "./MessageTime";
 
 const EXTENSION_ICONS: Array<[RegExp, LucideIcon]> = [
@@ -138,7 +139,14 @@ export const LONG_BUBBLE_LINES = 15;
 /** A transcript image; with `onOpen` it's a button that opens it large (I-110). Never wider than its container (I-131). */
 export function ImageThumb({ image, class: className, onOpen }: { image: ImageBlock; class?: string; onOpen?: () => void }) {
   // Wide images scale down to the column instead of spilling out of it (I-131).
-  const img = <img src={imageSrc(image)} alt="" class={cn("h-auto min-w-0 max-w-full rounded-[10px] border-[0.5px] border-separator object-contain", className)} />;
+  const src = useImageSrc(image);
+  const img = (
+    <img
+      src={src ?? undefined}
+      alt=""
+      class={cn("h-auto min-w-0 max-w-full rounded-[10px] border-[0.5px] border-separator object-contain", !src && "bg-control", className)}
+    />
+  );
   if (!onOpen) return img;
   return (
     <button

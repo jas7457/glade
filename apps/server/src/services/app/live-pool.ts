@@ -17,6 +17,7 @@ import {
 } from "@glade/protocol";
 import type { AgentHarness, HarnessSession } from "../../harness/types.js";
 import { exitedText } from "../agents.js";
+import { externalizeImages } from "../../store/images.js";
 import type { AppContext, LiveSession } from "./context.js";
 import { ActiveElsewhereError } from "./errors.js";
 import type { Records } from "./records.js";
@@ -188,7 +189,8 @@ export class LivePool {
   }
 
   private handleEvent(id: string, live: LiveSession, rawEvent: AgentEvent): void {
-    const event = live.ids.rewrite(stampEvent(rawEvent));
+    // Inline images become blob references (I-157) before anything folds, pushes or stores them.
+    const event = externalizeImages(live.ids.rewrite(stampEvent(rawEvent)), this.ctx.store.blobs);
     live.transcript = applyAgentEvent(live.transcript, event);
     if (event.type === "run_start") {
       live.running = true;

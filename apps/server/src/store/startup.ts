@@ -17,6 +17,7 @@ import type { ServerInfo, ServerRegistry } from "../services/server-registry.js"
 import { getMetaJson, setMetaJson, transaction } from "./db/database.js";
 import { LEGACY_JSON_DIRS, LEGACY_JSON_FILES } from "./import-json.js";
 import type { JsonImportRecord, Store } from "./store.js";
+import { vacuumIfAlone } from "./migrate-images.js";
 
 /** Successful starts of the new version before the imported JSON files are deleted. */
 export const CLEANUP_AFTER_STARTS = 3;
@@ -46,7 +47,11 @@ export function recordSuccessfulStart(store: Store, registry: ServerRegistry | n
     setMetaJson(db, "successful_starts", next);
     return next;
   });
-  return { starts, deleted: cleanupImportedJson(store, registry, starts, log) };
+  const deleted = cleanupImportedJson(store, registry, starts, log);
+  // I-157: give the space the moved-out images took back to the file system, once, when no other
+  // server has the database open (else a later start does it).
+  vacuumIfAlone(db, () => !registry || registry.others().length === 0, log);
+  return { starts, deleted };
 }
 
 /** Delete the imported JSON files if the migration is confirmed. Returns what was deleted. */

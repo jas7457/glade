@@ -462,6 +462,12 @@ export interface PromptImage {
   mimeType: string;
   /** Base64 data (no data: prefix). */
   data: string;
+  /**
+   * Instead of `data` (I-157): an image already in the environment's blob store (`sha256:<hex>`,
+   * e.g. one from the transcript), with `data` empty. The server reads it back into `data` before
+   * handing it to the harness, so harnesses always get real image data.
+   */
+  blob?: string;
 }
 
 export interface PromptRequest {

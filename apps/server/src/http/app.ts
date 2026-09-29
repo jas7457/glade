@@ -50,6 +50,7 @@ import { createAgentsRoutes } from "./agents.js";
 import type { SearchService } from "../services/search/search-service.js";
 import { isLocal, localOnly, securityMiddleware } from "./security.js";
 import { authRoutes } from "./auth.js";
+import { blobRoutes } from "./blobs.js";
 import { AuthError, AuthService } from "../services/auth/auth-service.js";
 import type { RemoteTransport } from "../services/transports/manager.js";
 import { createWsHandler } from "./ws.js";
@@ -144,6 +145,8 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
       updateJob ?? new UpdateJob({ build: () => service.environment.build(), unavailableReason: UPDATE_UNAVAILABLE_DEV }),
     ),
   );
+  // Image files (I-157): content-addressed, immutable; same auth as other API reads.
+  app.route("/api", blobRoutes(service.store.blobs));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
 
@@ -565,7 +568,8 @@ function requireImages(value: unknown): void {
         typeof i === "object" &&
         i !== null &&
         typeof (i as Record<string, unknown>).mimeType === "string" &&
-        typeof (i as Record<string, unknown>).data === "string",
+        typeof (i as Record<string, unknown>).data === "string" &&
+        ((i as Record<string, unknown>).blob === undefined || typeof (i as Record<string, unknown>).blob === "string"),
     );
-  if (!ok) throw new HttpError(400, "images must be [{ mimeType, data }]");
+  if (!ok) throw new HttpError(400, "images must be [{ mimeType, data, blob? }]");
 }

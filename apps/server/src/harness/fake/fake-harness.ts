@@ -22,6 +22,7 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compactionNoticeText } from "../format.js";
+import { fakePng } from "./fake-image.js";
 import { SessionEvents } from "../session-events.js";
 import type {
   AgentHarness,
@@ -74,6 +75,22 @@ export const defaultFakeScript: FakeScript = (request, nextId) => {
       { type: "block_start", messageId: id, index: 0, block: { type: "text", text: "" } },
       ...words.map((delta) => ({ type: "block_delta" as const, messageId: id, index: 0, delta })),
       { type: "message_end", message: { id, role: "assistant", content: [{ type: "text", text: words.join("") }], timestamp: Date.now(), stopReason: "stop" } },
+    ];
+  }
+  // `screenshot`: a tool call whose result is an image (I-157).
+  if (request.text.trim() === "screenshot") {
+    const id = nextId();
+    const toolCallId = `call-${id}`;
+    const answer = nextId();
+    const call = { type: "toolCall" as const, id: toolCallId, name: "screenshot", kind: "other" as const, args: {} };
+    const data = fakePng(Number.parseInt(id.replace(/\D/g, "") || "0", 10)).toString("base64");
+    return [
+      { type: "message_start", message: { id, role: "assistant", content: [call], timestamp: Date.now(), streaming: true } },
+      { type: "message_end", message: { id, role: "assistant", content: [call], timestamp: Date.now(), stopReason: "toolUse" } },
+      { type: "tool_start", toolCallId, toolName: "screenshot", args: {} },
+      { type: "tool_end", toolCallId, result: { toolCallId, toolName: "screenshot", status: "done", output: "Took a screenshot", images: [{ type: "image", mimeType: "image/png", data }] } },
+      { type: "message_start", message: { id: answer, role: "assistant", content: [{ type: "text", text: "Here it is." }], timestamp: Date.now(), streaming: true } },
+      { type: "message_end", message: { id: answer, role: "assistant", content: [{ type: "text", text: "Here it is." }], timestamp: Date.now(), stopReason: "stop" } },
     ];
   }
   const assistantId = nextId();

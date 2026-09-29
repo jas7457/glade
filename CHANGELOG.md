@@ -166,6 +166,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Images (screenshots, pasted pictures) are stored as files next to the database instead of
+  inside it, so the database stays small (yours: about 60 MB → 13 MB). Existing images are moved
+  once on first start, and images no chat uses any more are cleaned up.
 - Settings → Agents lists every supported agent (pi, Claude Code, Gemini CLI, Codex, your own
   ACP agents) with whether it's installed, an Enable switch, its settings and install links.
   Only enabled agents are offered, also to other devices. A "Settings for" switcher picks the

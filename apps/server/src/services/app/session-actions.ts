@@ -24,6 +24,7 @@ import {
   type UiResponse,
 } from "@glade/protocol";
 import { createRevealPath } from "../reveal.js";
+import { BlobMissingError, resolvePromptImages } from "../../store/images.js";
 import type { AppContext, LiveSession } from "./context.js";
 import { ActiveElsewhereError, HttpError } from "./errors.js";
 import type { LeaseSync } from "./lease-sync.js";
@@ -72,8 +73,17 @@ export class SessionActions {
     await this.sendPrompt(id, req, live);
   }
 
-  async sendPrompt(id: string, req: PromptRequest, live: LiveSession): Promise<void> {
-    if (!req.text.trim() && !req.images?.length) throw new HttpError(400, "Message is empty");
+  async sendPrompt(id: string, given: PromptRequest, live: LiveSession): Promise<void> {
+    if (!given.text.trim() && !given.images?.length) throw new HttpError(400, "Message is empty");
+    // Images sent by reference (I-157) reach the harness as real data.
+    let req = given;
+    try {
+      const images = resolvePromptImages(given.images, this.ctx.store.blobs);
+      if (images !== given.images) req = { ...given, images };
+    } catch (err) {
+      if (err instanceof BlobMissingError) throw new HttpError(400, err.message);
+      throw err;
+    }
     await this.checkImageSizes(req.images, live);
     const isFirst = !live.transcript.messages.some((m) => m.role === "user");
     live.lastUsedAt = Date.now();
