@@ -47,7 +47,7 @@ describe("touch composer", () => {
   it("is a slim pill until focused or typed into, then grows with the pickers (like ChatGPT)", async () => {
     renderBox({ touch: true, autoFocus: false });
     const box = () => textarea().closest("[data-compact]")!;
-    const pickersHidden = () => screen.getByRole("button", { name: "Model" }).parentElement!.className.includes("[&>*]:hidden");
+    const pickersHidden = () => screen.getByRole("button", { name: /^Model and thinking:/ }).parentElement!.className.includes("[&>*]:hidden");
     expect(box().getAttribute("data-compact")).toBe("true");
     expect(pickersHidden()).toBe(true);
     await act(async () => textarea().focus());
@@ -132,17 +132,21 @@ describe("touch composer", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("the model and thinking pickers open as sheets", () => {
+  it("one pill opens one sheet with a Model and a Thinking section", () => {
     const { props } = renderBox({ touch: true });
-    fireEvent.click(screen.getByRole("button", { name: "Model" }));
-    const sheet = screen.getByRole("dialog", { name: "Model" });
-    expect(sheet.textContent).toContain("anthropic");
+    const pill = () => screen.getByRole("button", { name: /^Model and thinking:/ });
+    expect(pill().getAttribute("aria-label")).toBe("Model and thinking: Claude Haiku, Low");
+    expect(screen.queryByRole("button", { name: "Thinking level" })).toBeNull();
+    fireEvent.click(pill());
+    const sheet = screen.getByRole("dialog", { name: "Model & Thinking" });
+    expect(sheet.textContent).toContain("Model · anthropic");
+    expect(sheet.textContent).toContain("Thinking");
     expect(screen.getByRole("option", { name: "Claude Haiku" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("option", { name: "GPT Mini" }));
     expect(props.onModelChange).toHaveBeenCalledWith({ provider: "openai", id: "mini" });
-    expect(screen.queryByRole("dialog", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Model & Thinking" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Thinking level" }));
+    fireEvent.click(pill());
     fireEvent.click(screen.getByRole("option", { name: "High" }));
     expect(props.onThinkingChange).toHaveBeenCalledWith("high");
   });

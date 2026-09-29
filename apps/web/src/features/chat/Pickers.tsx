@@ -183,3 +183,79 @@ export function ThinkingPicker({ value, levels, onChange, disabled, open, onOpen
     </Menu>
   );
 }
+
+export interface ModelThinkingPickerProps extends PickerOpenProps {
+  model: ModelRef | null;
+  models: ModelInfo[];
+  onModelChange: (model: ModelRef) => void;
+  thinkingLevel: ThinkingLevel;
+  thinkingLevels: ThinkingLevel[];
+  onThinkingChange: (level: ThinkingLevel) => void;
+  disabled?: boolean;
+}
+
+/**
+ * Touch (the iPhone app, I-164): model and thinking level behind **one** pill ("Opus · Medium")
+ * that opens one sheet with a Model section (per provider when there are several) and a
+ * Thinking section. Sheet-only: without an `OptionSheetContext` it renders the two menus.
+ */
+export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
+  const { model, models, onModelChange, thinkingLevel, thinkingLevels, onThinkingChange, disabled, open, onOpenChange } = props;
+  const sheet = useOptionSheet();
+  if (!sheet) {
+    return (
+      <>
+        <ModelPicker value={model} models={models} onChange={onModelChange} disabled={disabled} />
+        <ThinkingPicker value={thinkingLevel} levels={thinkingLevels} onChange={onThinkingChange} disabled={disabled} />
+      </>
+    );
+  }
+  const current = models.find((m) => sameModel(m, model));
+  const modelLabel = current?.name ?? model?.id ?? (models.length ? "Select model" : "Loading models…");
+  const thinks = !(thinkingLevels.length === 0 || (thinkingLevels.length === 1 && thinkingLevels[0] === "off"));
+  const providers = new Map<string, ModelInfo[]>();
+  for (const m of models) providers.set(m.provider, [...(providers.get(m.provider) ?? []), m]);
+  const several = providers.size > 1;
+  const sections: OptionSheetSection[] = [...providers.entries()].map(([provider, list]) => ({
+    title: several ? `Model · ${provider}` : "Model",
+    items: list.map((m) => ({
+      key: `${m.provider}/${m.id}`,
+      label: m.name,
+      checked: sameModel(m, model),
+      onSelect: () => onModelChange({ provider: m.provider, id: m.id }),
+    })),
+  }));
+  if (thinks) {
+    sections.push({
+      title: "Thinking",
+      items: thinkingLevels.map((level) => ({ key: `thinking/${level}`, label: thinkingLabel(level), checked: level === thinkingLevel, onSelect: () => onThinkingChange(level) })),
+    });
+  }
+  return (
+    <SheetPicker
+      title={thinks ? "Model & Thinking" : "Model"}
+      open={open}
+      onOpenChange={onOpenChange}
+      trigger={(onClick) => (
+        <button
+          type="button"
+          class={cn(triggerClass, touchTriggerClass, "max-w-[14rem]")}
+          disabled={disabled || models.length === 0}
+          aria-label={thinks ? `Model and thinking: ${modelLabel}, ${thinkingLabel(thinkingLevel)}` : `Model: ${modelLabel}`}
+          onClick={onClick}
+        >
+          <span class="truncate">{modelLabel}</span>
+          {thinks && (
+            <>
+              <span class="shrink-0 opacity-50">·</span>
+              <Brain size={12} class={cn("shrink-0", thinkingLevel === "off" && "opacity-50")} />
+              <span class="shrink-0">{thinkingLabel(thinkingLevel)}</span>
+            </>
+          )}
+          <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+        </button>
+      )}
+      sections={sections}
+    />
+  );
+}

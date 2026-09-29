@@ -86,7 +86,7 @@ import {
 import { fileIcon } from "./UserBubble";
 import { useImageLightbox } from "./ImageLightbox";
 import { ContextMeter } from "./ContextMeter";
-import { ModelPicker, ThinkingPicker } from "./Pickers";
+import { ModelPicker, ModelThinkingPicker, ThinkingPicker } from "./Pickers";
 import { InterruptedBanner } from "./InterruptedBanner";
 import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
@@ -743,20 +743,37 @@ export function ComposerBox(props: ComposerBoxProps) {
           />
           {!props.hideModelPickers && (
             <span class={cn("contents", touch && "[&>*]:order-2", compact && "[&>*]:hidden")}>
-              <ModelPicker
-                value={props.model}
-                models={props.models}
-                onChange={props.onModelChange}
-                disabled={busy}
-                {...pickerProps("model")}
-              />
-              <ThinkingPicker
-                value={props.thinkingLevel}
-                levels={props.thinkingLevels}
-                onChange={props.onThinkingChange}
-                disabled={busy}
-                {...pickerProps("thinking")}
-              />
+              {touch && OptionSheet ? (
+                // One pill + one sheet for both on the phone (I-164).
+                <ModelThinkingPicker
+                  model={props.model}
+                  models={props.models}
+                  onModelChange={props.onModelChange}
+                  thinkingLevel={props.thinkingLevel}
+                  thinkingLevels={props.thinkingLevels}
+                  onThinkingChange={props.onThinkingChange}
+                  disabled={busy}
+                  open={openPicker !== null}
+                  onOpenChange={(o) => setOpenPicker(o ? (openPicker ?? "model") : null)}
+                />
+              ) : (
+                <>
+                  <ModelPicker
+                    value={props.model}
+                    models={props.models}
+                    onChange={props.onModelChange}
+                    disabled={busy}
+                    {...pickerProps("model")}
+                  />
+                  <ThinkingPicker
+                    value={props.thinkingLevel}
+                    levels={props.thinkingLevels}
+                    onChange={props.onThinkingChange}
+                    disabled={busy}
+                    {...pickerProps("thinking")}
+                  />
+                </>
+              )}
             </span>
           )}
           {touch ? <span class={cn("order-2 flex items-center self-center", compact && "hidden")}>{props.toolbarExtra}</span> : props.toolbarExtra}
