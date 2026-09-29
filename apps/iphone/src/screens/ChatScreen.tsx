@@ -140,6 +140,8 @@ function TitleModelLine({ sessionId }: { sessionId: string }) {
           onClick={open}
         >
           <span class="truncate">{label.thinking ? `${label.model} · ${label.thinking}` : label.model}</span>
+          {/* A permission mode other than the default (I-174); bypass in red. */}
+          {label.mode && <span class={cn("shrink-0", label.mode.danger && "text-danger")}>{` · ${label.mode.label}`}</span>}
           <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
         </button>
       )}

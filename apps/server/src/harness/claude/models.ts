@@ -30,11 +30,34 @@ export function claudeThinkingLevels(model: ClaudeModelInfo | undefined): Thinki
   return ["off", "low", "medium", "high"];
 }
 
+/** Group header of Claude Code's models in the pickers (I-175). */
+export const CLAUDE_MODEL_GROUP = "Claude Code";
+
+/**
+ * Name and description from Claude Code's `displayName` / `description` (I-175), like its /model
+ * list: "Opus" + "Opus 5.5 · Best for everyday, complex tasks" → "Opus 5.5" + "Best for everyday,
+ * complex tasks"; a description not starting with the display name ("Newer version available ·
+ * …") keeps the display name and the whole description.
+ */
+export function claudeModelLabel(model: Pick<ClaudeModelInfo, "value" | "displayName" | "description">): { name: string; description?: string } {
+  const display = (model.displayName || model.value).trim();
+  const description = model.description?.trim() ?? "";
+  if (!description) return { name: display };
+  const at = description.indexOf(" · ");
+  const head = at >= 0 ? description.slice(0, at).trim() : description;
+  const rest = at >= 0 ? description.slice(at + 3).trim() : "";
+  if (display && head.toLowerCase().startsWith(display.toLowerCase()) && head.length <= display.length + 24) {
+    return { name: head, ...(rest ? { description: rest } : {}) };
+  }
+  return { name: display, description };
+}
+
 export function translateClaudeModel(model: ClaudeModelInfo): ModelInfo {
   return {
     provider: CLAUDE_PROVIDER,
     id: model.value,
-    name: model.displayName || model.value,
+    ...claudeModelLabel(model),
+    group: CLAUDE_MODEL_GROUP,
     thinkingLevels: claudeThinkingLevels(model),
     input: ["text", "image"],
   };

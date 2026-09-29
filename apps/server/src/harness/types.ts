@@ -30,6 +30,8 @@ export interface OpenSessionOptions {
   sessionRef: string | null;
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
+  /** The chat's saved permission mode (I-174; `permissionModes` harnesses). Absent: the harness's default. */
+  permissionMode?: string | null;
   /** Extra environment for the agent process (agent API identity, I-037). */
   env?: Record<string, string>;
   /** Text appended to the agent's system prompt (sub-agent role, I-037). */
@@ -189,6 +191,11 @@ export interface HarnessSession {
   abort(): Promise<void>;
   setModel(model: ModelRef): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /**
+   * Switch the permission mode (I-174; capability `permissionModes`), mid-run too. Rejects (and
+   * keeps the mode) when the agent refuses it.
+   */
+  setPermissionMode?(mode: string): Promise<void>;
   setTitle(title: string): Promise<void>;
   respondToUi(response: UiResponse): void;
   /** Harness-provided slash commands (extensions, skills, prompt templates). Built-ins are Glade's. */

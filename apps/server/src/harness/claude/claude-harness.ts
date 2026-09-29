@@ -10,6 +10,8 @@
  * - Titles, completions and side questions: one-shot runs (`one-shot.ts`) with Haiku, no tools.
  * - Glade's sub-agent and chat tools: an in-process MCP server (`glade-tools.ts`).
  * - Transcripts are Glade's (the store, I-121); nothing is imported from Claude's files.
+ * - Permission modes (I-174, capability `permissionModes`): per chat, starting from Claude Code's
+ *   own `permissions.defaultMode` (`permissions.ts`).
  */
 import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
@@ -29,6 +31,7 @@ import { ClaudeSession, newClaudeSessionId, toSlashCommand, type ClaudeSessionOp
 import { gladeToolSpecs } from "./glade-tools.js";
 import { CLAUDE_PROVIDER, claudeModelId, findClaudeModel, translateClaudeModels } from "./models.js";
 import { claudeOneShot } from "./one-shot.js";
+import { readClaudePermissionSettings, type ClaudePermissionSettings } from "./permissions.js";
 import { PushQueue } from "./push-queue.js";
 import { realClaudeSdk, type ClaudeInitResult, type ClaudeModelInfo, type ClaudeSdk, type ClaudeUserInput } from "./sdk.js";
 
@@ -47,6 +50,7 @@ export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
   shell: false,
   sideQuestions: true,
   models: true,
+  permissionModes: true,
 };
 
 export interface ClaudeHarnessOptions {
@@ -62,8 +66,10 @@ export interface ClaudeHarnessOptions {
   findExecutable?: (command: string) => string | null;
   /** Limits for every chat process (dev/testing: `GLADE_CLAUDE_MAX_BUDGET_USD`, `…_MAX_TURNS`). */
   limits?: ClaudeSessionOptions["limits"];
-  /** Session hooks: tests (`cancelGraceMs`), debugging (`traceFile`). */
-  session?: Partial<Pick<ClaudeSessionOptions, "cancelGraceMs" | "traceFile">>;
+  /** Session hooks: tests (`cancelGraceMs`, `home`), debugging (`traceFile`). */
+  session?: Partial<Pick<ClaudeSessionOptions, "cancelGraceMs" | "traceFile" | "home">>;
+  /** Claude Code's permission settings (default: its settings files for the chat's folder, I-174). */
+  permissionSettings?: () => ClaudePermissionSettings;
   /** Base environment (default: the server's). */
   env?: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
@@ -166,6 +172,8 @@ export class ClaudeHarness implements AgentHarness {
       existing: options.sessionRef !== null,
       model: options.model ?? null,
       thinkingLevel: options.thinkingLevel ?? null,
+      permissionMode: options.permissionMode ?? null,
+      permissionSettings: this.options.permissionSettings ?? (() => readClaudePermissionSettings(options.cwd)),
       ...(options.appendSystemPrompt ? { appendSystemPrompt: options.appendSystemPrompt } : {}),
       ...(options.tools ? { tools: options.tools } : {}),
       env: this.childEnv(),

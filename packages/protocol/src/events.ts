@@ -27,6 +27,26 @@ export interface SessionState {
    * `null`/absent when idle or unknown.
    */
   runStartedAt?: number | null;
+  /**
+   * The chat's permission mode (I-174; harnesses with the `permissionModes` capability), one of
+   * `permissionModes`' ids. Absent/null: the harness has no modes (or doesn't know it yet).
+   */
+  permissionMode?: string | null;
+  /** The modes the chat can switch to, in the order Shift+Tab cycles them. Empty/absent: none. */
+  permissionModes?: PermissionModeInfo[];
+}
+
+/**
+ * A permission mode a harness offers (I-174), e.g. Claude Code's "Accept edits" or "Plan mode".
+ * The UI shows `label` in the mode pill and cycles the list with Shift+Tab.
+ */
+export interface PermissionModeInfo {
+  id: string;
+  label: string;
+  /** One line about what it does (menus and sheets). */
+  description?: string;
+  /** Dangerous (e.g. bypassing all permission checks): shown in red. */
+  danger?: boolean;
 }
 
 export interface SessionStats {
@@ -65,6 +85,16 @@ export type UiRequest =
       /** The tool call it's about, when it's in the transcript. */
       toolCallId?: string;
       options: PermissionOption[];
+      /**
+       * Show the options as a numbered list in the given order, like a terminal prompt (Claude
+       * Code, I-174): keys 1–9 pick one. Absent: buttons, rejections first (ACP).
+       */
+      numbered?: boolean;
+      /**
+       * The option focused (↩ picks it); default the first "allow once". When it's a rejection the
+       * number keys are off, so a stray key can't approve.
+       */
+      defaultOptionId?: string;
       timeoutMs?: number;
     };
 
@@ -73,6 +103,11 @@ export interface PermissionOption {
   id: string;
   label: string;
   kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+  /**
+   * The agent stops and waits to be told what to do instead (Claude Code's "No, and tell Claude
+   * what to do differently", I-174): the composer gets the focus after it's picked. Esc picks it.
+   */
+  focusComposer?: boolean;
 }
 
 export type UiResponse =

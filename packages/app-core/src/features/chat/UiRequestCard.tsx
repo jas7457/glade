@@ -2,7 +2,10 @@
  * An extension dialog (select / confirm / input / editor) shown as a prominent card above
  * the composer. The agent is paused ("blocked") until the user answers, so the card grabs
  * focus and uses the warning accent. `permission` requests (ACP agents asking before a tool
- * call, I-119) show the agent's own options (allow once / always / reject …) as buttons.
+ * call, I-119) show the agent's own options (allow once / always / reject …) as buttons, or,
+ * when the request is `numbered` (Claude Code, I-174), as a numbered list in the agent's order
+ * like its terminal prompt: 1–9 pick, Esc picks the option that hands back to the user
+ * (`focusComposer`), after which the composer gets the focus.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { MessageCircleQuestion, ShieldQuestion } from "lucide-preact";
@@ -15,9 +18,11 @@ export interface UiRequestCardProps {
   onRespond: (response: UiResponse) => void;
   /** Number of further requests waiting behind this one. */
   more?: number;
+  /** Called after an option with `focusComposer` was picked (focus the chat's composer). */
+  onFocusComposer?: () => void;
 }
 
-export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardProps) {
+export function UiRequestCard({ request, onRespond, more = 0, onFocusComposer }: UiRequestCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(request.kind === "editor" ? request.prefill ?? "" : "");
 
@@ -29,6 +34,13 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
   }, [request.id]);
 
   const cancel = () => onRespond({ id: request.id, cancelled: true });
+  const choose = (option: PermissionOption) => {
+    onRespond({ id: request.id, value: option.id });
+    if (option.focusComposer) onFocusComposer?.();
+  };
+  const numbered = request.kind === "permission" && request.numbered === true;
+  const handBack = request.kind === "permission" ? request.options.find((o) => o.focusComposer) : undefined;
+  const defaultOption = request.kind === "permission" ? defaultPermission(request) : undefined;
 
   return (
     <div
@@ -40,12 +52,19 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
-          cancel();
+          // Numbered permission prompts: Esc is "No, and tell … what to do" (like the CLI).
+          if (numbered && handBack) choose(handBack);
+          else cancel();
         }
         // 1-9 pick an option directly.
         if (request.kind === "select" && /^[1-9]$/.test(e.key) && !(e.target instanceof HTMLInputElement)) {
           const option = request.options[Number(e.key) - 1];
           if (option !== undefined) (e.preventDefault(), onRespond({ id: request.id, value: option }));
+        }
+        // Numbered permission prompts, unless they open on a rejection (no stray-key approvals).
+        if (request.kind === "permission" && numbered && /^[1-9]$/.test(e.key) && !isRejection(defaultOption)) {
+          const option = request.options[Number(e.key) - 1];
+          if (option !== undefined) (e.preventDefault(), choose(option));
         }
       }}
     >
@@ -76,7 +95,38 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
           </>
         )}
 
-        {request.kind === "permission" && (
+        {request.kind === "permission" && numbered && (
+          <>
+            {request.message && <p class="selectable mb-2 font-mono text-[0.92rem] break-words whitespace-pre-wrap text-fg-muted">{request.message}</p>}
+            <div class="flex flex-col gap-0.5" role="listbox" aria-label="Options">
+              {request.options.map((option, i) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={option === defaultOption}
+                  data-autofocus={option === defaultOption ? true : undefined}
+                  class="flex min-h-7 items-center gap-2 rounded-control px-2 py-1 text-left outline-none hover:bg-hover focus:bg-accent focus:text-accent-fg"
+                  onClick={() => choose(option)}
+                  onKeyDown={(e) => {
+                    const buttons = [...(e.currentTarget.parentElement?.querySelectorAll("button") ?? [])];
+                    const idx = buttons.indexOf(e.currentTarget);
+                    if (e.key === "ArrowDown") (e.preventDefault(), buttons[idx + 1]?.focus());
+                    if (e.key === "ArrowUp") (e.preventDefault(), buttons[idx - 1]?.focus());
+                  }}
+                >
+                  <span class="w-4 shrink-0 text-right text-[0.85rem] opacity-50">{i + 1}</span>
+                  <span class="min-w-0 flex-1 break-words">
+                    {option.label}
+                    {option === handBack && <span class="ml-1.5 text-[0.85rem] opacity-50">esc</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {request.kind === "permission" && !numbered && (
           <>
             {request.message && <p class="selectable mb-3 font-mono text-[0.92rem] break-words whitespace-pre-wrap text-fg-muted">{request.message}</p>}
             <div class="flex flex-wrap justify-end gap-2">
@@ -85,7 +135,7 @@ export function UiRequestCard({ request, onRespond, more = 0 }: UiRequestCardPro
                   key={option.id}
                   variant={option === primaryPermission(request.options) ? "primary" : undefined}
                   data-autofocus={option === primaryPermission(request.options) ? true : undefined}
-                  onClick={() => onRespond({ id: request.id, value: option.id })}
+                  onClick={() => choose(option)}
                 >
                   {option.label}
                 </Button>
@@ -181,6 +231,15 @@ const PERMISSION_ORDER: Record<PermissionOption["kind"], number> = { reject_alwa
 /** Rejections first, the default answer (allow once) last, like macOS dialogs. */
 export function permissionOrder(options: readonly PermissionOption[]): PermissionOption[] {
   return [...options].sort((a, b) => (PERMISSION_ORDER[a.kind] ?? 1.5) - (PERMISSION_ORDER[b.kind] ?? 1.5));
+}
+
+/** The focused option of a permission request: its `defaultOptionId`, else the primary one. */
+function defaultPermission(request: Extract<UiRequest, { kind: "permission" }>): PermissionOption | undefined {
+  return request.options.find((o) => o.id === request.defaultOptionId) ?? primaryPermission(request.options);
+}
+
+function isRejection(option: PermissionOption | undefined): boolean {
+  return option?.kind === "reject_once" || option?.kind === "reject_always";
 }
 
 /** The default button: the first "allow once", else the first option. */

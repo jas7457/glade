@@ -509,6 +509,11 @@ export class AppService {
     return this.actions.setThinkingLevel(id, level);
   }
 
+  /** Switch a chat's permission mode (I-174). */
+  setPermissionMode(id: string, mode: string): Promise<void> {
+    return this.actions.setPermissionMode(id, mode);
+  }
+
   listCommands(id: string): Promise<SlashCommand[]> {
     return this.actions.listCommands(id);
   }

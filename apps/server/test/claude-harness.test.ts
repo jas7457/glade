@@ -5,7 +5,7 @@
  * permissions, questions, model/thinking, compaction), the harness (models, commands, titles,
  * Glade's tools) and a chat through the app service.
  */
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,7 +14,8 @@ import { ClaudeHarness, CLAUDE_CAPABILITIES } from "../src/harness/claude/claude
 import type { ClaudeSession } from "../src/harness/claude/claude-session.js";
 import { friendlyError } from "../src/harness/claude/claude-session.js";
 import { claudeToolAllowlist, gladeToolSpecs } from "../src/harness/claude/glade-tools.js";
-import { claudeThinkingLevels, thinkingOptions, translateClaudeModels } from "../src/harness/claude/models.js";
+import { claudeModelLabel, claudeThinkingLevels, thinkingOptions, translateClaudeModels } from "../src/harness/claude/models.js";
+import { alwaysAllowLabel, claudePermissionModes, readClaudePermissionSettings } from "../src/harness/claude/permissions.js";
 import { claudeToolBlock, structuredPatchDiff } from "../src/harness/claude/tools.js";
 import { ClaudeTranslator } from "../src/harness/claude/translate.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
@@ -46,7 +47,8 @@ function harness(sdk: FakeClaudeSdk, extra: Partial<ConstructorParameters<typeof
     which: () => true,
     findExecutable: () => "/usr/local/bin/claude",
     env: { PATH: "/usr/bin", HOME: "/Users/me", GLADE_TOKEN: "server-secret", CLAUDECODE: "1" },
-    session: { cancelGraceMs: 50 },
+    session: { cancelGraceMs: 50, home: "/Users/me" },
+    permissionSettings: () => ({ defaultMode: null, bypassDisabled: false }),
     ...extra,
   });
 }
@@ -246,12 +248,23 @@ describe("Claude translator", () => {
 describe("Claude models and thinking", () => {
   it("lists the SDK's models without its own 'default' entry, with thinking levels", () => {
     const models = translateClaudeModels(FAKE_INIT.models);
-    expect(models.map((m) => [m.provider, m.id, m.name])).toEqual([
-      ["anthropic", "sonnet", "Sonnet"],
-      ["anthropic", "haiku", "Haiku"],
+    expect(models.map((m) => [m.provider, m.id, m.name, m.description, m.group])).toEqual([
+      ["anthropic", "sonnet", "Sonnet 5", "Efficient for routine tasks", "Claude Code"],
+      ["anthropic", "haiku", "Haiku", undefined, "Claude Code"],
     ]);
     expect(models[0]!.thinkingLevels).toEqual(["off", "low", "medium", "high", "max"]);
     expect(claudeThinkingLevels(FAKE_INIT.models[2])).toEqual(["off", "low", "medium", "high"]);
+  });
+
+  it("names models with their version, like Claude Code's /model list (I-175)", () => {
+    const label = (displayName: string, description?: string) => claudeModelLabel({ value: displayName.toLowerCase(), displayName, description });
+    expect(label("Opus", "Opus 5.5 · Best for everyday, complex tasks")).toEqual({ name: "Opus 5.5", description: "Best for everyday, complex tasks" });
+    expect(label("Fable", "Fable 5.1 · Most capable for your hardest work")).toEqual({ name: "Fable 5.1", description: "Most capable for your hardest work" });
+    expect(label("Haiku", "Haiku 4.5 · Fastest for quick answers")).toEqual({ name: "Haiku 4.5", description: "Fastest for quick answers" });
+    expect(label("Opus 4.8", "Newer version available · select Opus for Opus 5.5")).toEqual({ name: "Opus 4.8", description: "Newer version available · select Opus for Opus 5.5" });
+    expect(label("Sonnet 5")).toEqual({ name: "Sonnet 5" });
+    expect(label("Sonnet", "Sonnet 5")).toEqual({ name: "Sonnet 5" });
+    expect(label("Opus", "Opus is the best model for long, careful agentic coding work")).toEqual({ name: "Opus", description: "Opus is the best model for long, careful agentic coding work" });
   });
 
   it("maps a thinking level to the query options", () => {
@@ -669,6 +682,213 @@ describe("Claude chats through the app service", () => {
       // The session ref is Claude's session id, kept for resuming.
       expect(store.getSession(id)!.sessionRef).toBe(sdk.chats[0]!.options.sessionId);
       expect(store.getSession(id)!.model).toEqual({ provider: "anthropic", id: "sonnet" });
+    } finally {
+      await service.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+
+describe("Claude permissions like the CLI (I-174)", () => {
+  const rules = (toolName: string, ...contents: string[]) => ({ type: "addRules", rules: contents.map((ruleContent) => ({ toolName, ruleContent })), behavior: "allow", destination: "localSettings" });
+  const label = (...suggestions: unknown[]) => alwaysAllowLabel(suggestions, "/Users/me/src/app", "/Users/me");
+
+  it("words the 'don't ask again' option like Claude Code", () => {
+    expect(label(rules("Bash", "npm test:*"))).toBe("Yes, and don't ask again for npm test commands in ~/src/app");
+    expect(label(rules("Bash", "npm test *", "git status:*"))).toBe("Yes, and don't ask again for npm test and git status commands in ~/src/app");
+    expect(label(rules("Bash", "a:*", "b:*", "c:*"))).toBe("Yes, and don't ask again for a, b, and c commands in ~/src/app");
+    expect(label(rules("WebFetch", "domain:example.com"))).toBe("Yes, and don't ask again for example.com");
+    expect(label({ type: "addDirectories", directories: ["/Users/me/data"], destination: "session" })).toBe("Yes, and always allow access to ~/data from this project");
+    expect(label({ type: "setMode", mode: "acceptEdits", destination: "session" })).toBe("Yes, allow all edits during this session");
+    expect(label({ type: "addDirectories", directories: ["/tmp/x"], destination: "session" }, rules("Bash", "ls:*"))).toBe("Yes, and allow access to /tmp/x and ls commands");
+    expect(label({ type: "setMode", mode: "acceptEdits", destination: "session" }, { type: "addDirectories", directories: ["/tmp/x"], destination: "session" })).toBe(
+      "Yes, allow all edits during this session; always allow access to /tmp/x from this project",
+    );
+    expect(label({ ...rules("Read", "//tmp/notes/**"), destination: "session" })).toBe("Yes, allow reading from /tmp/notes during this session");
+    expect(label({ type: "addRules", rules: [{ toolName: "mcp__github__create_issue" }], behavior: "allow", destination: "localSettings" })).toBe("Yes, and don't ask again for mcp__github__create_issue");
+    expect(label()).toBeNull();
+    expect(alwaysAllowLabel(undefined, "/x")).toBeNull();
+  });
+
+  it("offers Default, Accept edits, Plan, Auto (models that support it) and Bypass, in Shift+Tab order", () => {
+    expect(claudePermissionModes({ supportsAutoMode: true }).map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+    expect(claudePermissionModes(undefined).map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "bypassPermissions"]);
+    expect(claudePermissionModes(undefined).at(-1)).toMatchObject({ label: "Bypass permissions", danger: true });
+    expect(claudePermissionModes(undefined, { bypassDisabled: true, current: "dontAsk" }).map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "dontAsk"]);
+  });
+
+  it("reads the default mode and the bypass switch from Claude Code's settings files", () => {
+    const user = join(dir, "user.json");
+    const local = join(dir, "local.json");
+    writeFileSync(user, JSON.stringify({ permissions: { defaultMode: "plan" } }));
+    writeFileSync(local, JSON.stringify({ permissions: { defaultMode: "acceptEdits", disableBypassPermissionsMode: "disable" } }));
+    expect(readClaudePermissionSettings(cwd, [user, join(dir, "missing.json")])).toEqual({ defaultMode: "plan", bypassDisabled: false });
+    expect(readClaudePermissionSettings(cwd, [user, local])).toEqual({ defaultMode: "acceptEdits", bypassDisabled: true });
+    writeFileSync(local, "{ not json");
+    expect(readClaudePermissionSettings(cwd, [local])).toEqual({ defaultMode: null, bypassDisabled: false });
+  });
+
+  const requestsOf = (events: AgentEvent[]) => events.filter((e): e is { type: "ui_request"; request: UiRequest } => e.type === "ui_request").map((e) => e.request);
+
+  it("asks with Claude Code's options; No stops the turn and waits for the user", async () => {
+    let answer: unknown;
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        q.emit(assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test" } }]));
+        answer = await q.canUseTool("Bash", { command: "npm test" }, "b1", { suggestions: [rules("Bash", "npm test:*")] });
+        q.emit(result({ subtype: "error_during_execution", isError: true }));
+      },
+    });
+    const { session, events } = await openSession(harness(sdk));
+    await session.prompt({ text: "test it" });
+    await until(() => requestsOf(events).length === 1);
+    const request = requestsOf(events)[0]!;
+    expect(request.kind === "permission" && request.numbered).toBe(true);
+    expect(request.kind === "permission" && request.options).toEqual([
+      { id: "allow", label: "Yes", kind: "allow_once" },
+      { id: "allow_always", label: `Yes, and don't ask again for npm test commands in ${cwd}`, kind: "allow_always" },
+      { id: "reject", label: "No, and tell Claude what to do differently", kind: "reject_once", focusComposer: true },
+    ]);
+    session.respondToUi({ id: request.id, value: "reject" });
+    await until(() => events.some((e) => e.type === "run_end"));
+    expect(answer).toMatchObject({ behavior: "deny", interrupt: true, message: expect.stringMatching(/STOP what you are doing and wait for the user/) });
+    const reply = assistants(await session.loadTranscript())[0]!;
+    expect(reply.stopReason).toBe("aborted"); // stopped, not failed
+    expect(reply.errorMessage).toBeUndefined();
+    expect((await session.loadTranscript()).toolResults.b1).toMatchObject({ rejected: true });
+  });
+
+  it("leaves out 'don't ask again' when Claude Code says so, and opens on No when it must", async () => {
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        await q.canUseTool("Bash", { command: "rm -rf /" }, "b1", { suggestions: [rules("Bash", "rm:*")], suppressAlwaysAllowRule: true, defaultToNo: true });
+        q.emit(result());
+      },
+    });
+    const { session, events } = await openSession(harness(sdk));
+    await session.prompt({ text: "x" });
+    await until(() => requestsOf(events).length === 1);
+    const request = requestsOf(events)[0]!;
+    expect(request.kind === "permission" && request.options.map((o) => o.id)).toEqual(["allow", "reject"]);
+    expect(request).toMatchObject({ defaultOptionId: "reject" });
+    session.respondToUi({ id: request.id, value: "allow" });
+    await until(() => events.some((e) => e.type === "run_end"));
+  });
+
+  it("'Yes, allow all edits during this session' switches the chat to Accept edits", async () => {
+    let answer: unknown;
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        answer = await q.canUseTool("Write", { file_path: "a.txt", content: "a" }, "w1", { suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }] });
+        q.emit(result());
+      },
+    });
+    const { session, events } = await openSession(harness(sdk));
+    expect(session.getState().permissionMode).toBe("default");
+    await session.prompt({ text: "write" });
+    await until(() => requestsOf(events).length === 1);
+    const request = requestsOf(events)[0]!;
+    expect(request.kind === "permission" && request.options[1]!.label).toBe("Yes, allow all edits during this session");
+    session.respondToUi({ id: request.id, value: "allow_always" });
+    await until(() => events.some((e) => e.type === "run_end"));
+    expect(answer).toMatchObject({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] });
+    expect(session.getState().permissionMode).toBe("acceptEdits");
+  });
+
+  it("starts a new chat in Claude Code's own default mode, bypass selectable", async () => {
+    const sdk = new FakeClaudeSdk({ onUser: (q) => q.reply("ok") });
+    const h = harness(sdk, { permissionSettings: () => ({ defaultMode: "acceptEdits", bypassDisabled: false }) });
+    const { session, run } = await openSession(h);
+    expect(session.getState().permissionMode).toBe("acceptEdits");
+    // Claude Code's default model (Sonnet) supports auto mode.
+    expect(session.getState().permissionModes!.map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+    await run("hi");
+    expect(sdk.chats[0]!.options.permissionMode).toBeUndefined(); // Claude Code applies its own default
+    expect(sdk.chats[0]!.options.allowDangerouslySkipPermissions).toBe(true);
+
+    // Bypass turned off in Claude Code's settings: not offered, not allowed.
+    const off = harness(new FakeClaudeSdk({ onUser: (q) => q.reply("ok") }), { permissionSettings: () => ({ defaultMode: null, bypassDisabled: true }) });
+    const locked = await openSession(off);
+    expect(locked.session.getState().permissionModes!.map((m) => m.id)).not.toContain("bypassPermissions");
+    await expect(locked.session.setPermissionMode("bypassPermissions")).rejects.toThrow(/can't switch/);
+  });
+
+  it("switches modes mid-run, keeps the mode when Claude Code refuses, and passes a saved mode to new processes", async () => {
+    let release!: () => void;
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        await new Promise<void>((r) => (release = r));
+        q.reply("ok");
+      },
+      onSetPermissionMode: (_q, mode) => {
+        if (mode === "auto") throw new Error("auto mode is unavailable for your plan");
+      },
+    });
+    const h = harness(sdk);
+    const session = (await h.openSession({ cwd, sessionRef: null, model: { provider: "anthropic", id: "haiku" } })) as ClaudeSession;
+    open.push(session);
+    const events: AgentEvent[] = [];
+    session.onEvent((e) => events.push(e));
+    // Haiku: no Auto.
+    expect(session.getState().permissionModes!.map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "bypassPermissions"]);
+    await session.setPermissionMode("plan"); // no process yet: used when it starts
+    await session.prompt({ text: "go" });
+    await until(() => sdk.chats[0]?.received.length === 1);
+    expect(sdk.chats[0]!.options).toMatchObject({ permissionMode: "plan", allowDangerouslySkipPermissions: true });
+
+    await session.setPermissionMode("bypassPermissions");
+    expect(sdk.chats[0]!.modes).toEqual(["bypassPermissions"]);
+    expect(session.getState().permissionMode).toBe("bypassPermissions");
+    await session.setModel({ provider: "anthropic", id: "sonnet" }); // auto becomes available
+    await expect(session.setPermissionMode("auto")).rejects.toThrow(/didn't switch to Auto mode: auto mode is unavailable/);
+    expect(session.getState().permissionMode).toBe("bypassPermissions");
+    release();
+    await until(() => events.some((e) => e.type === "run_end"));
+    await until(() => sdk.chats[0]!.closed); // model change: restarted when idle
+
+    // Claude Code reports a mode itself (a plan approved): the chat follows.
+    sdk.chats[0]!.emit({ type: "system", subtype: "status", status: null, permissionMode: "default" });
+
+    // A reopened chat keeps its saved mode.
+    const reopened = (await h.openSession({ cwd, sessionRef: session.sessionRef, permissionMode: "acceptEdits" })) as ClaudeSession;
+    open.push(reopened);
+    expect(reopened.getState().permissionMode).toBe("acceptEdits");
+    await reopened.prompt({ text: "again" });
+    await until(() => sdk.chats.length === 2 && sdk.chats[1]!.received.length === 1);
+    expect(sdk.chats[1]!.options.permissionMode).toBe("acceptEdits");
+  });
+
+  it("follows the mode Claude Code reports", async () => {
+    const sdk = new FakeClaudeSdk({
+      onUser: (q) => {
+        q.emit({ type: "system", subtype: "init", model: "claude-sonnet-5", permissionMode: "plan", session_id: "s" });
+        q.emit({ type: "system", subtype: "status", status: null, permissionMode: "acceptEdits", session_id: "s" });
+        q.reply("ok");
+      },
+    });
+    const { session, run } = await openSession(harness(sdk));
+    await run("hi");
+    expect(session.getState().permissionMode).toBe("acceptEdits");
+  });
+
+  it("saves the mode per chat, so a resume keeps it and a new chat doesn't inherit it", async () => {
+    const sdk = new FakeClaudeSdk({ onUser: (q) => q.reply("ok") });
+    const store = new Store(join(dir, "data"), 0);
+    const registry = new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" }), harness(sdk)]);
+    const service = new AppService({ store, harnesses: registry, scratchDir: cwd });
+    try {
+      expect(service.listHarnesses().find((h) => h.id === "claude")!.capabilities.permissionModes).toBe(true);
+      const first = await service.createWorkspace({ projectId: null, harness: "claude" });
+      const id = first.session.session.id;
+      expect((await service.getSessionDetail(id)).state.permissionMode).toBe("default");
+      await service.setPermissionMode(id, "bypassPermissions");
+      await until(() => store.getSession(id)!.permissionMode === "bypassPermissions");
+      await expect(service.setPermissionMode(id, "nonsense")).rejects.toThrow(/can't switch/);
+
+      const second = await service.createWorkspace({ projectId: null, harness: "claude" });
+      expect((await service.getSessionDetail(second.session.session.id)).state.permissionMode).toBe("default");
+      expect(store.getSession(second.session.session.id)!.permissionMode).toBeUndefined();
     } finally {
       await service.dispose();
     }

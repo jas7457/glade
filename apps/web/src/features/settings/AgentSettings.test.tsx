@@ -128,6 +128,9 @@ describe("Models page (I-155)", () => {
       ["pi · anthropic", ["haiku", "sonnet"]],
       ["pi · openai", ["gpt"]],
     ]);
+    // A harness's own group label (I-175): "Claude Code", not "Claude Code · anthropic".
+    const claude = groupModelsByAgent([{ ...model("anthropic", "opus", "claude"), group: "Claude Code" }, model("openai", "gpt", "pi")], (h) => (h === "claude" ? "Claude Code" : "pi"));
+    expect(claude.map(([g]) => g)).toEqual(["Claude Code", "pi · openai"]);
   });
 
   it("shows the agent groups and the agents that choose their own model", () => {

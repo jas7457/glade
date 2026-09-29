@@ -20,6 +20,7 @@ vi.mock("@glade/app-core/lib/api", () => ({
     getSession: vi.fn(() => new Promise(() => {})),
     setModel: vi.fn(async () => undefined),
     setThinkingLevel: vi.fn(async () => undefined),
+    setPermissionMode: vi.fn(async () => undefined),
     respondToUi: vi.fn(async () => undefined),
     runShell: vi.fn(async () => ({ id: "shell-1" })),
   },
@@ -192,6 +193,69 @@ describe("Composer (existing chat)", () => {
     expect(screen.getByRole("alert").textContent).toContain("pi exited with code 1");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("Composer permission modes (I-174)", () => {
+  const MODES = [
+    { id: "default", label: "Default" },
+    { id: "acceptEdits", label: "Accept edits" },
+    { id: "plan", label: "Plan mode" },
+    { id: "bypassPermissions", label: "Bypass permissions", danger: true },
+  ];
+
+  it("shows the mode pill and cycles the modes with Shift+Tab, bypass in red", async () => {
+    const store = readyChat("c1");
+    store.state.value = { ...store.state.value, permissionMode: "plan", permissionModes: MODES };
+    renderAt(<Composer chatId="c1" />);
+    const pill = () => screen.getByRole("button", { name: /^Permission mode:/ });
+    expect(pill().getAttribute("aria-label")).toBe("Permission mode: Plan mode");
+    expect(pill().dataset.danger).toBeUndefined();
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+    expect(api.setPermissionMode).toHaveBeenCalledWith("c1", "bypassPermissions");
+    await waitFor(() => expect(pill().getAttribute("aria-label")).toBe("Permission mode: Bypass permissions"));
+    expect(pill().dataset.danger).toBe("true");
+    fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+    expect(api.setPermissionMode).toHaveBeenLastCalledWith("c1", "default"); // wraps around
+  });
+
+  it("puts the previous mode back when the agent refuses", async () => {
+    vi.mocked(api.setPermissionMode).mockRejectedValueOnce(new Error("bypass is disabled"));
+    const store = readyChat("c1");
+    store.state.value = { ...store.state.value, permissionMode: "plan", permissionModes: MODES };
+    renderAt(<Composer chatId="c1" />);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(store.state.value.permissionMode).toBe("plan"));
+  });
+
+  it("has no pill (and Shift+Tab does nothing) for agents without modes", () => {
+    readyChat("c1");
+    renderAt(<Composer chatId="c1" />);
+    expect(screen.queryByRole("button", { name: /^Permission mode:/ })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab", shiftKey: true });
+    expect(api.setPermissionMode).not.toHaveBeenCalled();
+  });
+
+  it("focuses the composer after 'No, and tell Claude what to do differently'", async () => {
+    const store = readyChat("c1", true);
+    store.uiRequests.value = [
+      {
+        id: "p1",
+        kind: "permission",
+        title: "Allow Bash?",
+        numbered: true,
+        options: [
+          { id: "allow", label: "Yes", kind: "allow_once" },
+          { id: "reject", label: "No, and tell Claude what to do differently", kind: "reject_once", focusComposer: true },
+        ],
+      },
+    ];
+    renderAt(<Composer chatId="c1" />);
+    expect(document.activeElement?.textContent).toMatch(/Yes/);
+    fireEvent.click(screen.getByRole("option", { name: /No, and tell Claude/ }));
+    expect(api.respondToUi).toHaveBeenCalledWith("c1", { id: "p1", value: "reject" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" })));
   });
 });
 

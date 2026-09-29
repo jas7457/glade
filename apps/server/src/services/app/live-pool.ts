@@ -101,6 +101,7 @@ export class LivePool {
         sessionRef: record.sessionRef,
         model: record.model,
         thinkingLevel: record.thinkingLevel,
+        ...(record.permissionMode ? { permissionMode: record.permissionMode } : {}),
         env: this.agentEnv(record),
         ...(agent ? { appendSystemPrompt: agent.systemPrompt, ...(agent.tools ? { tools: agent.tools } : {}) } : {}),
       });
@@ -244,14 +245,16 @@ export class LivePool {
       !session.lastRunFailed
     ) {
       this.records.saveSession({ ...session, lastRunFailed: true });
-    } else if (event.type === "state" && (event.state.model || event.state.thinkingLevel)) {
+    } else if (event.type === "state" && (event.state.model || event.state.thinkingLevel || event.state.permissionMode)) {
       const next = {
         ...session,
         model: event.state.model ?? session.model,
         thinkingLevel: event.state.thinkingLevel ?? session.thinkingLevel,
+        ...(event.state.permissionMode ? { permissionMode: event.state.permissionMode } : {}),
       };
       const modelChanged = next.model !== session.model && !sameModel(next.model, session.model);
-      if (modelChanged || next.thinkingLevel !== session.thinkingLevel) this.records.saveSession(next);
+      // I-174: the permission mode is saved per chat, so a resume keeps it.
+      if (modelChanged || next.thinkingLevel !== session.thinkingLevel || next.permissionMode !== session.permissionMode) this.records.saveSession(next);
     }
   }
 

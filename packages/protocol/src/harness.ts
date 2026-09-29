@@ -32,6 +32,12 @@ export interface HarnessCapabilities {
    * Absent = true. ACP agents (I-119) choose their own model, so the pickers are hidden.
    */
   models?: boolean;
+  /**
+   * Permission modes (I-174, Claude Code's Default / Accept edits / Plan …): the session state's
+   * `permissionMode` / `permissionModes`, switched with `PUT /sessions/:id/permission-mode`.
+   * Absent = false.
+   */
+  permissionModes?: boolean;
 }
 
 export interface HarnessInfo {

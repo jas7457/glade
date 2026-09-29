@@ -11,9 +11,15 @@
  *   folds it in between tool rounds. A follow-up (⌘↩) waits for the run to end; like pi and ACP it
  *   stays queued when the run is stopped or fails.
  * - **Stop:** `interrupt()`; after a grace period without a result the process is dropped.
- * - **Permissions:** Claude Code's own settings decide; whatever it would ask about comes through
- *   `canUseTool` as a `permission` card (allow once / always / reject). `AskUserQuestion` asks each
- *   question as a `select` dialog.
+ * - **Permissions (I-174):** Claude Code's own settings decide; whatever it would ask about comes
+ *   through `canUseTool` as a `permission` card worded like the CLI's prompt (`permissions.ts`:
+ *   Yes / Yes, and don't ask again for … / No, and tell Claude what to do differently).
+ *   `AskUserQuestion` asks each question as a `select` dialog.
+ * - **Permission modes (I-174):** the chat's mode is in the state (`permissionMode(s)`); a new chat
+ *   starts in Claude Code's own default mode, a saved one is passed to each process
+ *   (`permissionMode`), changes apply at once (`setPermissionMode`). Every process may bypass
+ *   (`allowDangerouslySkipPermissions`) unless Claude Code's settings disable it; what Claude Code
+ *   reports (`init`, `status`) wins.
  * - **Model / thinking:** applied when the next process starts (a live one is restarted when idle).
  * - **Compaction:** `/compact` sent as a message; the `compact_boundary` gives the numbers.
  * - A process that ends by itself (crash, killed) ends the running turn with the error and exits
@@ -41,6 +47,19 @@ import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
 import type { HarnessSession } from "../types.js";
 import { claudeToolAllowlist } from "./glade-tools.js";
+import {
+  PERMISSION_ALLOW,
+  PERMISSION_ALWAYS,
+  PERMISSION_REJECT,
+  REJECT_MESSAGE,
+  alwaysAllowLabel,
+  claudePermissionModeLabel,
+  claudePermissionModes,
+  claudePermissionOptions,
+  isClaudePermissionMode,
+  suggestedMode,
+  type ClaudePermissionSettings,
+} from "./permissions.js";
 import { CLAUDE_PROVIDER, DEFAULT_CONTEXT_WINDOW, claudeModelId, claudeThinkingLevels, findClaudeModel, thinkingOptions } from "./models.js";
 import { PushQueue } from "./push-queue.js";
 import type { CanUseTool, ClaudeMcpToolSpec, ClaudeModelInfo, ClaudeOptions, ClaudeQuery, ClaudeSdk, ClaudeSlashCommand, ClaudeUserInput, ClaudeWire, PermissionResult } from "./sdk.js";
@@ -61,6 +80,12 @@ export interface ClaudeSessionOptions {
   existing: boolean;
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
+  /** The chat's saved permission mode (I-174); absent: Claude Code's own default. */
+  permissionMode?: string | null;
+  /** Claude Code's permission settings for the folder (default mode, bypass disabled). */
+  permissionSettings?: () => ClaudePermissionSettings;
+  /** Home folder for paths in permission labels (tests). */
+  home?: string;
   appendSystemPrompt?: string;
   /** Tool allowlist (pi names, sub-agent definitions). */
   tools?: string[];
@@ -118,22 +143,54 @@ export class ClaudeSession implements HarnessSession {
   private commands: SlashCommand[] | null = null;
   /** Steering messages sent while the process was still starting. */
   private readonly pendingSends: PromptRequest[] = [];
+  /** The mode was saved or picked (passed to each process); else Claude Code's default applies. */
+  private modeChosen: boolean;
+  private bypassDisabled = false;
+  /** The chosen model's `supportsAutoMode`. */
+  private autoMode = false;
 
   constructor(private readonly options: ClaudeSessionOptions) {
     this.sessionRef = options.sessionRef;
     this.existing = options.existing;
     this.events = new SessionEvents(options.log);
     const model = claudeModelId(options.model) ? options.model : null;
-    this.state = { ...defaultSessionState(), model, thinkingLevel: options.thinkingLevel ?? "off", thinkingLevels: claudeThinkingLevels(undefined) };
+    this.modeChosen = isClaudePermissionMode(options.permissionMode);
+    const permissionMode = isClaudePermissionMode(options.permissionMode) ? options.permissionMode : "default";
+    this.state = {
+      ...defaultSessionState(),
+      model,
+      thinkingLevel: options.thinkingLevel ?? "off",
+      thinkingLevels: claudeThinkingLevels(undefined),
+      permissionMode,
+      permissionModes: claudePermissionModes(undefined, { current: permissionMode }),
+    };
     this.translator = new ClaudeTranslator(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`);
   }
 
-  /** Thinking levels of the chosen model, once the model list is known. */
+  /** Thinking levels and permission modes of the chosen model, once the model list is known. */
   async init(): Promise<void> {
     const models = await this.options.models().catch(() => [] as ClaudeModelInfo[]);
     const info = findClaudeModel(models, claudeModelId(this.state.model));
     const thinkingLevels = claudeThinkingLevels(info);
-    this.setState({ thinkingLevels, thinkingLevel: clampThinkingLevel(thinkingLevels, this.state.thinkingLevel) });
+    let settings: ClaudePermissionSettings = { defaultMode: null, bypassDisabled: false };
+    try {
+      settings = this.options.permissionSettings?.() ?? settings;
+    } catch (err) {
+      this.options.log?.(`claude: reading permission settings failed: ${(err as Error).message}`);
+    }
+    this.bypassDisabled = settings.bypassDisabled;
+    // Claude Code's default model: its "default" entry, or the model it resolves to.
+    const resolved = info?.value === "default" && info.resolvedModel ? findClaudeModel(models, info.resolvedModel) : undefined;
+    this.autoMode = (info?.supportsAutoMode ?? resolved?.supportsAutoMode) === true;
+    // A new chat starts in Claude Code's own default mode (never one carried over from elsewhere).
+    const mode = this.modeChosen ? this.state.permissionMode! : (settings.defaultMode ?? "default");
+    this.setState({ thinkingLevels, thinkingLevel: clampThinkingLevel(thinkingLevels, this.state.thinkingLevel), ...this.modeState(mode) });
+  }
+
+  /** `permissionMode` + the modes offered with it (Auto only on models that support it). */
+  private modeState(mode: string, autoMode = this.autoMode): Pick<SessionState, "permissionMode" | "permissionModes"> {
+    const modes = claudePermissionModes({ supportsAutoMode: autoMode }, { bypassDisabled: this.bypassDisabled, current: mode });
+    return { permissionMode: modes.some((m) => m.id === mode) ? mode : "default", permissionModes: modes };
   }
 
   // HarnessSession ------------------------------------------------------------------------------
@@ -183,9 +240,34 @@ export class ClaudeSession implements HarnessSession {
   async setModel(model: ModelRef): Promise<void> {
     if (model.provider !== CLAUDE_PROVIDER || !claudeModelId(model)) throw new Error(`${LABEL} can't use ${model.provider}/${model.id}`);
     const models = await this.options.models().catch(() => [] as ClaudeModelInfo[]);
-    const thinkingLevels = claudeThinkingLevels(findClaudeModel(models, model.id));
-    this.setState({ model, thinkingLevels, thinkingLevel: clampThinkingLevel(thinkingLevels, this.state.thinkingLevel) });
+    const info = findClaudeModel(models, model.id);
+    const thinkingLevels = claudeThinkingLevels(info);
+    this.autoMode = info?.supportsAutoMode === true;
+    const modes = this.modeState(this.state.permissionMode ?? "default");
+    if (modes.permissionMode !== this.state.permissionMode) this.modeChosen = true; // Auto left behind: Default from now on
+    this.setState({ model, thinkingLevels, thinkingLevel: clampThinkingLevel(thinkingLevels, this.state.thinkingLevel), ...modes });
     this.restartSoon();
+  }
+
+  /**
+   * Switch the permission mode (I-174): at once in a running process (`setPermissionMode`), else
+   * with the next one. A mode Claude Code refuses (e.g. bypass disabled by its settings) keeps the
+   * previous one and rejects.
+   */
+  async setPermissionMode(mode: string): Promise<void> {
+    if (!isClaudePermissionMode(mode) || !(this.state.permissionModes ?? []).some((m) => m.id === mode)) {
+      throw new Error(`${LABEL} can't switch to "${mode}" here`);
+    }
+    const query = this.query ?? (this.starting ? await this.starting.catch(() => null) : null);
+    if (query && this.query === query) {
+      try {
+        await query.setPermissionMode(mode);
+      } catch (err) {
+        throw new Error(`${LABEL} didn't switch to ${claudePermissionModeLabel(mode)}: ${(err as Error).message}`);
+      }
+    }
+    this.modeChosen = true;
+    if (this.state.permissionMode !== mode) this.setState(this.modeState(mode));
   }
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {
@@ -367,6 +449,10 @@ export class ClaudeSession implements HarnessSession {
       ...thinkingOptions(this.state.thinkingLevel, findClaudeModel(models, modelId)),
       systemPrompt: { type: "preset", preset: "claude_code", ...(this.options.appendSystemPrompt ? { append: this.options.appendSystemPrompt } : {}) },
       canUseTool,
+      // I-174: a saved/picked mode is passed; otherwise Claude Code starts in its own default.
+      ...(this.modeChosen && isClaudePermissionMode(this.state.permissionMode) ? { permissionMode: this.state.permissionMode } : {}),
+      // Bypass stays selectable mid-run unless Claude Code's settings turn it off.
+      ...(this.bypassDisabled ? {} : { allowDangerouslySkipPermissions: true }),
       ...(mcpServers ? { mcpServers } : {}),
       ...(this.options.tools?.length ? { tools: claudeToolAllowlist(this.options.tools) } : {}),
       ...this.options.limits,
@@ -470,9 +556,11 @@ export class ClaudeSession implements HarnessSession {
         this.confirmed = true;
         const model = typeof message.model === "string" ? message.model : null;
         if (!this.state.model && model) void this.adoptModel(model);
+        this.adoptMode(message.permissionMode);
         return;
       }
       case "status": {
+        this.adoptMode(message.permissionMode);
         if (message.status === "compacting") this.setState({ isCompacting: true });
         else if (this.state.isCompacting && !this.turn?.compact) this.setState({ isCompacting: false });
         if (message.compact_result === "failed" && this.turn?.compact) {
@@ -509,16 +597,24 @@ export class ClaudeSession implements HarnessSession {
     }
   }
 
+  /** The mode Claude Code reports (its default at start, a plan approved, a card's switch): shown in the pill. */
+  private adoptMode(mode: unknown): void {
+    if (!isClaudePermissionMode(mode) || mode === this.state.permissionMode) return;
+    this.setState(this.modeState(mode));
+  }
+
   /** The model Claude Code started with when the chat has none: shown in the picker. */
   private async adoptModel(model: string): Promise<void> {
     const models = await this.options.models().catch(() => [] as ClaudeModelInfo[]);
     if (this.state.model) return;
     const info = findClaudeModel(models, model);
     const thinkingLevels = claudeThinkingLevels(info);
+    if (info) this.autoMode = info.supportsAutoMode === true;
     this.setState({
       model: { provider: CLAUDE_PROVIDER, id: info?.value ?? model },
       thinkingLevels,
       thinkingLevel: clampThinkingLevel(thinkingLevels, this.state.thinkingLevel),
+      ...this.modeState(this.state.permissionMode ?? "default"),
     });
   }
 
@@ -579,25 +675,36 @@ export class ClaudeSession implements HarnessSession {
     if (toolName === "AskUserQuestion") return this.askQuestions(input, opts.signal);
     for (const event of this.translator.ensureTool(opts.toolUseID, toolName, input)) this.emit(event);
     const summary = claudeToolSummary(toolName, input) ?? opts.description ?? opts.blockedPath;
+    // I-174: Claude Code's own prompt: Yes / Yes, and don't ask again for … / No, and tell Claude …
+    const always = opts.suppressAlwaysAllowRule ? null : alwaysAllowLabel(opts.suggestions, this.options.cwd, this.options.home);
     const request: UiRequest = {
       id: this.nextUiId(),
       kind: "permission",
       title: opts.title || `Allow ${opts.displayName || toolName}?`,
       ...(summary ? { message: summary } : {}),
       toolCallId: opts.toolUseID,
-      options: [
-        { id: "allow", label: "Allow", kind: "allow_once" },
-        ...(opts.suggestions?.length && !opts.suppressAlwaysAllowRule ? [{ id: "allow_always", label: "Always allow", kind: "allow_always" as const }] : []),
-        { id: "reject", label: "Reject", kind: "reject_once" },
-      ],
+      options: claudePermissionOptions(always),
+      numbered: true,
+      ...(opts.defaultToNo ? { defaultOptionId: PERMISSION_REJECT } : {}),
     };
     const response = await this.ask(request, opts.signal);
     const value = response && "value" in response ? response.value : null;
-    if (value === "allow") return { behavior: "allow", updatedInput: input };
-    if (value === "allow_always") return { behavior: "allow", updatedInput: input, updatedPermissions: opts.suggestions ?? [] };
-    if (value === "reject") {
+    if (value === PERMISSION_ALLOW) return { behavior: "allow", updatedInput: input };
+    if (value === PERMISSION_ALWAYS && always) {
+      const mode = suggestedMode(opts.suggestions);
+      if (mode && mode !== this.state.permissionMode) {
+        // "Yes, allow all edits during this session": the pill follows at once.
+        this.modeChosen = true;
+        this.setState(this.modeState(mode));
+      }
+      return { behavior: "allow", updatedInput: input, updatedPermissions: opts.suggestions ?? [] };
+    }
+    if (value === PERMISSION_REJECT) {
+      // "No, and tell Claude what to do differently": it stops and waits for the user (the turn
+      // ends as stopped, not failed).
       this.translator.rejectTool(opts.toolUseID);
-      return { behavior: "deny", message: "The user rejected this tool call." };
+      turn.aborted = true;
+      return { behavior: "deny", message: REJECT_MESSAGE, interrupt: true };
     }
     return { behavior: "deny", message: "The run was stopped.", interrupt: true };
   }

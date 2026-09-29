@@ -179,6 +179,17 @@ export class SessionActions {
     await live.session.setThinkingLevel(level);
   }
 
+  async setPermissionMode(id: string, mode: string): Promise<void> {
+    this.records.requireSession(id);
+    const live = await this.pool.ensureLive(id);
+    if (!live.session.setPermissionMode) throw new HttpError(501, `${live.harness.info.label} has no permission modes`);
+    try {
+      await live.session.setPermissionMode(mode);
+    } catch (err) {
+      throw new HttpError(409, (err as Error).message);
+    }
+  }
+
   // Slash-command support (Glade's own built-ins run in the web app; see docs/ARCHITECTURE.md)
 
   /** The harness's slash commands (extensions, skills, prompt templates) for a session. */

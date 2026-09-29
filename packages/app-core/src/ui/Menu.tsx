@@ -123,26 +123,37 @@ export interface MenuCheckItemProps {
    * moves to the trailing edge, so a list mixing both (e.g. "Move to Folder") keeps one column.
    */
   icon?: ComponentChildren;
+  /** A muted second line under the label (e.g. a model's description, I-175). */
+  description?: ComponentChildren;
   children: ComponentChildren;
 }
 
 /** Item with a leading checkmark (used for single-choice lists like model pickers). */
-export function MenuCheckItem({ checked, onSelect, disabled, detail, icon, children }: MenuCheckItemProps) {
+export function MenuCheckItem({ checked, onSelect, disabled, detail, icon, description, children }: MenuCheckItemProps) {
   const { Item } = usePrimitives();
+  const label = description ? (
+    <span class="flex min-w-0 flex-1 flex-col">
+      <span class="truncate">{children}</span>
+      <span class="truncate text-[0.85rem] opacity-60">{description}</span>
+    </span>
+  ) : (
+    <span class="flex-1 truncate">{children}</span>
+  );
+  const itemClass = cn(menuItemClass, description && "h-auto py-[3px]");
   if (icon) {
     return (
-      <Item onSelect={onSelect} disabled={disabled} class={menuItemClass} aria-checked={checked} role="menuitemradio">
+      <Item onSelect={onSelect} disabled={disabled} class={itemClass} aria-checked={checked} role="menuitemradio">
         <MenuIcon icon={icon} />
-        <span class="flex-1 truncate">{children}</span>
+        {label}
         {detail && <span class="ml-4 text-[0.85rem] opacity-60">{detail}</span>}
         <span class="ml-2 flex w-3 justify-center">{checked && <Check size={12} strokeWidth={3} />}</span>
       </Item>
     );
   }
   return (
-    <Item onSelect={onSelect} disabled={disabled} class={cn(menuItemClass, "pl-1")} aria-checked={checked} role="menuitemradio">
-      <span class="flex w-4 justify-center">{checked && <Check size={12} strokeWidth={3} />}</span>
-      <span class="flex-1 truncate">{children}</span>
+    <Item onSelect={onSelect} disabled={disabled} class={cn(itemClass, "pl-1")} aria-checked={checked} role="menuitemradio">
+      <span class={cn("flex w-4 justify-center", description && "self-start pt-[3px]")}>{checked && <Check size={12} strokeWidth={3} />}</span>
+      {label}
       {detail && <span class="ml-4 text-[0.85rem] opacity-60">{detail}</span>}
     </Item>
   );

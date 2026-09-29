@@ -1,7 +1,7 @@
 /**
  * Putting text into a chat's composer from elsewhere (the side question card's "Tell the Agent",
  * I-140). The composer of that chat picks the request up, adds the text to its draft (after what's
- * already typed) and focuses the box.
+ * already typed) and focuses the box. Empty text only focuses it (I-174).
  */
 import { signal } from "@preact/signals";
 
@@ -20,6 +20,11 @@ let nonce = 0;
 /** Add `text` to the composer of session `chatId` and focus it. */
 export function prefillComposer(chatId: string, text: string): void {
   composerPrefill.value = { draftKey: `chat:${chatId}`, text, nonce: ++nonce };
+}
+
+/** Focus the composer of session `chatId` (e.g. after "No, and tell Claude what to do differently", I-174). */
+export function focusComposer(chatId: string): void {
+  prefillComposer(chatId, "");
 }
 
 /** The draft after adding `text` to what's typed (a blank line between). */

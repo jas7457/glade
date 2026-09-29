@@ -1,13 +1,14 @@
 /**
- * Composer toolbar pickers: model (grouped by provider) and thinking level.
+ * Composer toolbar pickers: model (grouped by provider, or the harness's group label), thinking
+ * level and permission mode (I-174, harnesses with modes; Shift+Tab in the composer cycles it).
  * Controlled components; the composer decides what a change means (API call or local state).
  * Inside an `OptionSheetContext` (the iPhone app, I-164) they open as bottom sheets instead of
  * popover menus.
  */
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
-import { Brain, ChevronDown } from "lucide-preact";
-import { sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
+import { Brain, ChevronDown, Shield, ShieldAlert } from "lucide-preact";
+import { sameModel, type ModelInfo, type ModelRef, type PermissionModeInfo, type ThinkingLevel } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { Menu, MenuCheckItem, MenuLabel, MenuSeparator } from "@glade/app-core/ui";
 import { thinkingLabel } from "./composer-utils";
@@ -73,6 +74,11 @@ export interface PickerOpenProps {
   onCloseAutoFocus?: (e: Event) => void;
 }
 
+/** A model's group header: the harness's label for it ("Claude Code", I-175), else its provider. */
+export function modelGroup(m: ModelInfo): string {
+  return m.group ?? m.provider;
+}
+
 export interface ModelPickerProps extends PickerOpenProps {
   value: ModelRef | null;
   models: ModelInfo[];
@@ -84,7 +90,7 @@ export function ModelPicker({ value, models, onChange, disabled, open, onOpenCha
   const current = models.find((m) => sameModel(m, value));
   const label = current?.name ?? value?.id ?? (models.length ? "Select model" : "Loading models…");
   const providers = new Map<string, ModelInfo[]>();
-  for (const m of models) providers.set(m.provider, [...(providers.get(m.provider) ?? []), m]);
+  for (const m of models) providers.set(modelGroup(m), [...(providers.get(modelGroup(m)) ?? []), m]);
   const sheet = useOptionSheet();
   const triggerButton = (onClick?: () => void) => (
     <button type="button" class={cn(triggerClass, sheet && touchTriggerClass)} disabled={disabled || models.length === 0} aria-label="Model" onClick={onClick}>
@@ -105,6 +111,7 @@ export function ModelPicker({ value, models, onChange, disabled, open, onOpenCha
           items: list.map((m) => ({
             key: `${m.provider}/${m.id}`,
             label: m.name,
+            ...(m.description ? { description: m.description } : {}),
             checked: sameModel(m, value),
             onSelect: () => onChange({ provider: m.provider, id: m.id }),
           })),
@@ -127,7 +134,7 @@ export function ModelPicker({ value, models, onChange, disabled, open, onOpenCha
           {i > 0 && <MenuSeparator />}
           <MenuLabel>{provider}</MenuLabel>
           {list.map((m) => (
-            <MenuCheckItem key={`${m.provider}/${m.id}`} checked={sameModel(m, value)} onSelect={() => onChange({ provider: m.provider, id: m.id })}>
+            <MenuCheckItem key={`${m.provider}/${m.id}`} checked={sameModel(m, value)} description={m.description} onSelect={() => onChange({ provider: m.provider, id: m.id })}>
               {m.name}
             </MenuCheckItem>
           ))}
@@ -184,6 +191,74 @@ export function ThinkingPicker({ value, levels, onChange, disabled, open, onOpen
   );
 }
 
+/** A chat's permission mode (I-174): the current one, the modes in Shift+Tab order, a setter. */
+export interface PermissionModeControl {
+  value: string | null;
+  modes: PermissionModeInfo[];
+  onChange: (mode: string) => void;
+}
+
+/** The mode after `current` in the cycle (Shift+Tab), wrapping around. */
+export function nextPermissionMode(modes: readonly PermissionModeInfo[], current: string | null): PermissionModeInfo | undefined {
+  if (!modes.length) return undefined;
+  const at = modes.findIndex((m) => m.id === current);
+  return modes[(at + 1) % modes.length];
+}
+
+/** The permission modes as a sheet section (the iPhone's Model & Thinking sheet). */
+export function permissionModeSection({ value, modes, onChange }: PermissionModeControl): OptionSheetSection {
+  return {
+    title: "Permissions",
+    items: modes.map((m) => ({
+      key: `mode/${m.id}`,
+      label: m.danger ? <span class="text-danger">{m.label}</span> : m.label,
+      ...(m.description ? { description: m.description } : {}),
+      checked: m.id === value,
+      onSelect: () => onChange(m.id),
+    })),
+  };
+}
+
+/**
+ * The composer toolbar's permission mode pill (I-174, desktop): the mode's name, red while a
+ * dangerous one (bypass) is on; a menu of the modes. Hidden without modes.
+ */
+export function PermissionModePicker({ value, modes, onChange, disabled, open, onOpenChange, onCloseAutoFocus }: PermissionModeControl & PickerOpenProps & { disabled?: boolean }) {
+  if (!modes.length) return null;
+  const current = modes.find((m) => m.id === value) ?? modes[0]!;
+  const Icon = current.danger ? ShieldAlert : Shield;
+  return (
+    <Menu
+      side="top"
+      open={open}
+      onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
+      contentClass="min-w-[260px]"
+      trigger={
+        <button
+          type="button"
+          class={cn(triggerClass, current.danger && "text-danger hover:text-danger data-[state=open]:text-danger")}
+          disabled={disabled}
+          aria-label={`Permission mode: ${current.label}`}
+          title="Permission mode (⇧⇥)"
+          data-danger={current.danger ? "true" : undefined}
+        >
+          <Icon size={12} class={cn("shrink-0", !current.danger && current.id === modes[0]!.id && "opacity-60")} />
+          <span class="truncate">{current.label}</span>
+          <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+        </button>
+      }
+    >
+      <MenuLabel>Permission mode · ⇧⇥</MenuLabel>
+      {modes.map((m) => (
+        <MenuCheckItem key={m.id} checked={m.id === current.id} description={m.description} onSelect={() => onChange(m.id)}>
+          <span class={cn(m.danger && "text-danger group-data-[highlighted]:text-current")}>{m.label}</span>
+        </MenuCheckItem>
+      ))}
+    </Menu>
+  );
+}
+
 export interface ModelThinkingPickerProps extends PickerOpenProps {
   model: ModelRef | null;
   models: ModelInfo[];
@@ -199,11 +274,13 @@ export interface ModelThinkingPickerProps extends PickerOpenProps {
   agents?: { label: string; section: OptionSheetSection } | null;
   /** The agent chooses its own model (I-119): no Model/Thinking; the pill shows the agent. Needs `agents`. */
   hideModel?: boolean;
+  /** Sheet only: the chat's permission modes as a section (I-174); the pill shows a non-default mode. */
+  permissionModes?: PermissionModeControl | null;
   /**
    * Sheet only: a different control that opens the same sheet (the iPhone chat's title line,
    * I-172). `label`: the model's name and the thinking level (`null`: the model doesn't reason).
    */
-  trigger?: (open: () => void, label: { model: string; thinking: string | null }) => ComponentChildren;
+  trigger?: (open: () => void, label: { model: string; thinking: string | null; mode: PermissionModeInfo | null }) => ComponentChildren;
 }
 
 /**
@@ -243,13 +320,14 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
   const modelLabel = current?.name ?? model?.id ?? (models.length ? "Select model" : "Loading models…");
   const thinks = !(thinkingLevels.length === 0 || (thinkingLevels.length === 1 && thinkingLevels[0] === "off"));
   const providers = new Map<string, ModelInfo[]>();
-  for (const m of models) providers.set(m.provider, [...(providers.get(m.provider) ?? []), m]);
+  for (const m of models) providers.set(modelGroup(m), [...(providers.get(modelGroup(m)) ?? []), m]);
   const several = providers.size > 1;
   const sections: OptionSheetSection[] = [...providers.entries()].map(([provider, list]) => ({
     title: several ? `Model · ${provider}` : "Model",
     items: list.map((m) => ({
       key: `${m.provider}/${m.id}`,
       label: m.name,
+      ...(m.description ? { description: m.description } : {}),
       checked: sameModel(m, model),
       onSelect: () => onModelChange({ provider: m.provider, id: m.id }),
     })),
@@ -260,13 +338,17 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
       items: thinkingLevels.map((level) => ({ key: `thinking/${level}`, label: thinkingLabel(level), checked: level === thinkingLevel, onSelect: () => onThinkingChange(level) })),
     });
   }
+  const modes = props.permissionModes?.modes.length ? props.permissionModes : null;
+  if (modes) sections.push(permissionModeSection(modes));
   if (agents) sections.push(agents.section);
+  // The pill names a mode other than the first (the harness's default), red when it's dangerous.
+  const mode = modes ? (modes.modes.find((m) => m.id === modes.value && m.id !== modes.modes[0]!.id) ?? null) : null;
   return (
     <SheetPicker
       title={thinks ? "Model & Thinking" : "Model"}
       open={open}
       onOpenChange={onOpenChange}
-      trigger={props.trigger ? (onClick) => props.trigger!(onClick, { model: modelLabel, thinking: thinks ? thinkingLabel(thinkingLevel) : null }) : (onClick) => (
+      trigger={props.trigger ? (onClick) => props.trigger!(onClick, { model: modelLabel, thinking: thinks ? thinkingLabel(thinkingLevel) : null, mode }) : (onClick) => (
         <button
           type="button"
           class={cn(triggerClass, touchTriggerClass, "max-w-[14rem]")}
@@ -282,6 +364,7 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
               <span class="shrink-0">{thinkingLabel(thinkingLevel)}</span>
             </>
           )}
+          {mode && (mode.danger ? <ShieldAlert size={12} class="shrink-0 text-danger" aria-label={mode.label} /> : <Shield size={12} class="shrink-0" aria-label={mode.label} />)}
           <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
         </button>
       )}

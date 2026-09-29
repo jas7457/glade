@@ -11,9 +11,9 @@
  * translator's fixtures stay small and a newer SDK adding fields never breaks the build. Options
  * use the SDK's own `Options` type (type-only import; nothing is loaded until a query starts).
  */
-import type { CanUseTool, McpServerConfig, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, McpServerConfig, Options, PermissionMode, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 
-export type { CanUseTool, McpServerConfig, Options as ClaudeOptions, PermissionResult };
+export type { CanUseTool, McpServerConfig, Options as ClaudeOptions, PermissionMode, PermissionResult };
 
 /** Any SDK message (`SDKMessage`), read field by field. */
 export type ClaudeWire = Record<string, unknown> & { type: string; subtype?: string };
@@ -42,6 +42,8 @@ export interface ClaudeModelInfo {
   supportsEffort?: boolean;
   supportedEffortLevels?: Array<"low" | "medium" | "high" | "xhigh" | "max">;
   supportsAdaptiveThinking?: boolean;
+  /** The model can run in auto mode (I-174). */
+  supportsAutoMode?: boolean;
 }
 
 /** What `initializationResult()` answers (the fields we read). */
@@ -55,6 +57,8 @@ export interface ClaudeInitResult {
 export interface ClaudeQuery extends AsyncIterable<ClaudeWire> {
   interrupt(): Promise<unknown>;
   setModel(model?: string): Promise<void>;
+  /** Switch the permission mode of the running session (I-174). */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
   initializationResult(): Promise<ClaudeInitResult>;
   supportedCommands(): Promise<ClaudeSlashCommand[]>;
   close(): void;

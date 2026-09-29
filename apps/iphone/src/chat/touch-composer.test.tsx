@@ -150,4 +150,36 @@ describe("touch composer", () => {
     fireEvent.click(screen.getByRole("option", { name: "High" }));
     expect(props.onThinkingChange).toHaveBeenCalledWith("high");
   });
+
+  it("names Claude Code's models with their version and a description, and offers its permission modes (I-174/I-175)", () => {
+    const onMode = vi.fn();
+    const claude: ModelInfo[] = [{ provider: "anthropic", id: "opus", name: "Opus 5.5", description: "Best for everyday, complex tasks", group: "Claude Code", thinkingLevels: ["off", "high"], input: ["text"] }];
+    renderBox({
+      touch: true,
+      models: claude,
+      model: { provider: "anthropic", id: "opus" },
+      thinkingLevels: ["off", "high"],
+      thinkingLevel: "high",
+      permissionModes: {
+        value: "bypassPermissions",
+        modes: [
+          { id: "default", label: "Default", description: "Asks before edits and commands" },
+          { id: "plan", label: "Plan mode" },
+          { id: "bypassPermissions", label: "Bypass permissions", danger: true },
+        ],
+        onChange: onMode,
+      },
+    });
+    const pill = screen.getByRole("button", { name: /^Model and thinking:/ });
+    expect(pill.textContent).toContain("Opus 5.5");
+    expect(pill.textContent).not.toContain("Best for");
+    expect(pill.querySelector(".text-danger")).toBeTruthy(); // bypass on: a red shield
+    fireEvent.click(pill);
+    const sheet = screen.getByRole("dialog", { name: "Model & Thinking" });
+    expect(sheet.textContent).toContain("Best for everyday, complex tasks");
+    expect(sheet.textContent).toContain("Permissions");
+    expect(sheet.textContent).toContain("Asks before edits and commands");
+    fireEvent.click(screen.getByRole("option", { name: /Plan mode/ }));
+    expect(onMode).toHaveBeenCalledWith("plan");
+  });
 });

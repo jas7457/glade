@@ -434,6 +434,12 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     await service.setThinkingLevel(c.req.param("id"), body.level);
     return c.body(null, 204);
   });
+  api.put("/sessions/:id/permission-mode", async (c) => {
+    const body = await readBody<{ mode: string }>(c);
+    if (typeof body.mode !== "string" || !body.mode) throw new HttpError(400, "mode must be a non-empty string");
+    await service.setPermissionMode(c.req.param("id"), body.mode);
+    return c.body(null, 204);
+  });
   api.get("/sessions/:id/commands", async (c) => c.json(await service.listCommands(c.req.param("id"))));
   api.post("/sessions/:id/compact", async (c) => {
     const body = await readOptionalBody<{ instructions?: string }>(c);

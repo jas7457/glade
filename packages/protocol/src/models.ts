@@ -15,6 +15,13 @@ export interface ModelInfo extends ModelRef {
   harness?: string;
   /** Human readable name, e.g. "Claude Sonnet 4". */
   name: string;
+  /** A short line about the model, shown muted under its name in the pickers (I-175). */
+  description?: string;
+  /**
+   * Group header in the model pickers instead of the provider id (I-175), e.g. "Claude Code"
+   * for the Claude Code harness's `anthropic` models. Absent = the provider.
+   */
+  group?: string;
   /** Supported thinking levels, in ascending order. `["off"]` for non-reasoning models. */
   thinkingLevels: ThinkingLevel[];
   /** Accepted input modalities. */

@@ -12,6 +12,7 @@ import {
   updateHostSettings as updateSettings,
 } from "@glade/app-core/state/host-settings";
 import { harnessLabel } from "@glade/app-core/state/harnesses";
+import { modelGroup } from "@glade/app-core/features/chat/Pickers";
 import { hostDeviceName, hostHarnesses } from "@glade/app-core/state/host-settings";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
@@ -24,10 +25,10 @@ export const THINKING_LABELS: Record<ThinkingLevel, string> = {
   max: "Max",
 };
 
-/** Group models by provider (providers and models sorted by name). */
+/** Group models by provider, or the harness's group label (I-175); groups and models sorted by name. */
 export function groupModels(list: readonly ModelInfo[]): Array<[provider: string, models: ModelInfo[]]> {
   const map = new Map<string, ModelInfo[]>();
-  for (const m of list) map.set(m.provider, [...(map.get(m.provider) ?? []), m]);
+  for (const m of list) map.set(modelGroup(m), [...(map.get(modelGroup(m)) ?? []), m]);
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([p, ms]) => [p, ms.sort((a, b) => a.name.localeCompare(b.name))]);
@@ -45,7 +46,7 @@ export function groupModelsByAgent(list: readonly ModelInfo[], labelOf: (harness
   }
   return [...byAgent.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .flatMap(([agent, ms]) => groupModels(ms).map(([provider, pms]) => [`${agent} · ${provider}`, pms] as [string, ModelInfo[]]));
+    .flatMap(([agent, ms]) => groupModels(ms).map(([provider, pms]) => [provider === agent ? agent : `${agent} · ${provider}`, pms] as [string, ModelInfo[]]));
 }
 
 /** The server's default small model when it's available (`DEFAULT_SMALL_MODEL`). */

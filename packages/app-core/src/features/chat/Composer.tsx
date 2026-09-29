@@ -86,8 +86,8 @@ import {
 import { fileIcon } from "./UserBubble";
 import { useImageLightbox } from "./ImageLightbox";
 import { ContextMeter } from "./ContextMeter";
-import { ModelPicker, ModelThinkingPicker, ThinkingPicker } from "./Pickers";
-import { modelInfo, setChatModel, setChatThinkingLevel } from "./chat-model";
+import { ModelPicker, ModelThinkingPicker, PermissionModePicker, ThinkingPicker, nextPermissionMode, type PermissionModeControl } from "./Pickers";
+import { chatPermissionModes, modelInfo, setChatModel, setChatThinkingLevel } from "./chat-model";
 import { InterruptedBanner } from "./InterruptedBanner";
 import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
@@ -98,7 +98,7 @@ import { findSavedPrompt, savedPromptCommands, withSavedPrompts } from "./slash/
 import { applyMention, findMention } from "./mentions/parse";
 import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
 import { useFileSearch } from "./mentions/useFileSearch";
-import { composerPrefill, withPrefill } from "./composer-prefill";
+import { composerPrefill, focusComposer, withPrefill } from "./composer-prefill";
 import { askSideQuestion } from "./side-question-actions";
 import { useMetaHeld } from "./use-meta-held";
 import { useOptionSheet, type OptionSheetItem, type OptionSheetSection } from "./option-sheet";
@@ -150,6 +150,11 @@ export interface ComposerBoxProps {
    * Thinking sheet (shown even when `hideModelPickers`). Ignored by the desktop's menus.
    */
   agents?: { label: string; section: OptionSheetSection } | null;
+  /**
+   * The chat's permission mode (I-174, harnesses with modes): a pill in the toolbar (desktop) or a
+   * section of the Model & Thinking sheet (touch); Shift+Tab in the text cycles it.
+   */
+  permissionModes?: PermissionModeControl | null;
   /**
    * Resolve true to clear the input. `files` = attached by reference (I-090), in order. `behavior`
    * = what the user asked for while running (↩ steer, ⌘↩ follow-up, I-153); ignored when idle.
@@ -209,7 +214,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const [dragging, setDragging] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [openPicker, setOpenPicker] = useState<"model" | "thinking" | null>(null);
+  const [openPicker, setOpenPicker] = useState<"model" | "thinking" | "mode" | null>(null);
   const pickerFromSlash = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -261,9 +266,11 @@ export function ComposerBox(props: ComposerBoxProps) {
   useEffect(() => {
     if (!prefill || prefill.draftKey !== draftKey) return;
     composerPrefill.value = null;
-    const next = withPrefill(drafts.get(draftKey) ?? "", prefill.text);
-    updateText(next);
-    pendingCaret.current = next.length;
+    if (prefill.text) {
+      const next = withPrefill(drafts.get(draftKey) ?? "", prefill.text);
+      updateText(next);
+      pendingCaret.current = next.length;
+    }
     textareaRef.current?.focus();
   }, [prefill, draftKey]);
 
@@ -363,7 +370,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     textareaRef.current?.focus();
   };
 
-  const pickerProps = (which: "model" | "thinking") => ({
+  const pickerProps = (which: "model" | "thinking" | "mode") => ({
     open: openPicker === which,
     onOpenChange: (open: boolean) => {
       if (!open && openPicker !== which) return;
@@ -497,6 +504,14 @@ export function ComposerBox(props: ComposerBoxProps) {
         setMentionDismissedAt(mention.start);
         return;
       }
+    }
+    // Shift+Tab cycles the permission mode (I-174), like Claude Code's terminal.
+    const modes = props.permissionModes;
+    if (e.key === "Tab" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !composing && modes?.modes.length) {
+      e.preventDefault();
+      const next = nextPermissionMode(modes.modes, modes.value);
+      if (next) modes.onChange(next.id);
+      return;
     }
     // Touch (I-164): ↩ is a plain new line; only the Send button sends.
     const action = touch ? null : enterAction(e);
@@ -771,6 +786,7 @@ export function ComposerBox(props: ComposerBoxProps) {
                   disabled={busy}
                   agents={props.agents}
                   hideModel={props.hideModelPickers}
+                  permissionModes={props.permissionModes}
                   open={openPicker !== null}
                   onOpenChange={(o) => setOpenPicker(o ? (openPicker ?? "model") : null)}
                 />
@@ -793,6 +809,9 @@ export function ComposerBox(props: ComposerBoxProps) {
                 </>
               )}
             </span>
+          )}
+          {!touch && props.permissionModes && (
+            <PermissionModePicker {...props.permissionModes} disabled={!!lockedReason} {...pickerProps("mode")} />
           )}
           {touch ? <span class={cn("order-2 flex items-center self-center", compact && "hidden")}>{props.toolbarExtra}</span> : props.toolbarExtra}
           <div class={cn("flex-1", touch && (compact ? "hidden" : "order-2"))} />
@@ -994,6 +1013,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
         <UiRequestCard
           request={uiRequests[0]}
           more={uiRequests.length - 1}
+          onFocusComposer={() => focusComposer(chatId)}
           onRespond={(response) => {
             store.uiRequests.value = store.uiRequests.value.filter((r) => r.id !== response.id);
             void runAction(() => apiForSession(chatId).respondToUi(chatId, response), "Could not send answer");
@@ -1037,6 +1057,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       thinkingLevels={state.thinkingLevels}
       onThinkingChange={onThinkingChange}
       hideModelPickers={capabilities.models === false}
+      permissionModes={chatPermissionModes(chatId)}
       onSend={onSend}
       onStop={() => void runAction(() => apiForSession(chatId).abort(chatId), "Could not stop")}
       above={above}

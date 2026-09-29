@@ -11,8 +11,8 @@ export const FAKE_INIT: ClaudeInitResult = {
   commands: [{ name: "review", description: "Review the changes", argumentHint: "[focus]" }],
   models: [
     { value: "default", displayName: "Default (recommended)", description: "Sonnet", resolvedModel: "claude-sonnet-5" },
-    { value: "sonnet", displayName: "Sonnet", resolvedModel: "claude-sonnet-5", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"], supportsAdaptiveThinking: true },
-    { value: "haiku", displayName: "Haiku", resolvedModel: "claude-haiku-4-5" },
+    { value: "sonnet", displayName: "Sonnet", description: "Sonnet 5 · Efficient for routine tasks", resolvedModel: "claude-sonnet-5", supportsAutoMode: true, supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"], supportsAdaptiveThinking: true },
+    { value: "haiku", displayName: "Haiku", resolvedModel: "claude-haiku-4-5", supportsAutoMode: false },
   ],
 };
 
@@ -124,6 +124,14 @@ export class FakeQuery implements ClaudeQuery {
 
   async setModel(): Promise<void> {}
 
+  /** Modes switched to (`setPermissionMode`), in order. */
+  readonly modes: string[] = [];
+
+  async setPermissionMode(mode: string): Promise<void> {
+    await this.sdk.options.onSetPermissionMode?.(this, mode);
+    this.modes.push(mode);
+  }
+
   async initializationResult(): Promise<ClaudeInitResult> {
     return this.sdk.init;
   }
@@ -148,6 +156,8 @@ export interface FakeClaudeSdkOptions {
   onUser?: (query: FakeQuery, message: ClaudeUserInput) => void | Promise<void>;
   onString?: (query: FakeQuery, prompt: string) => void;
   onInterrupt?: (query: FakeQuery) => void | Promise<void>;
+  /** Throw to refuse a mode switch. */
+  onSetPermissionMode?: (query: FakeQuery, mode: string) => void | Promise<void>;
   /** Sessions Claude Code "has on disk". */
   sessions?: Set<string>;
 }

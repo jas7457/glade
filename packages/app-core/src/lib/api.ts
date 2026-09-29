@@ -290,6 +290,8 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     dismissSideQuestion: (id: string, questionId: string) => request<void>("POST", `/sessions/${id}/side-questions/${questionId}/dismiss`),
     setModel: (id: string, model: ModelRef) => request<void>("PUT", `/sessions/${id}/model`, model),
     setThinkingLevel: (id: string, level: ThinkingLevel) => request<void>("PUT", `/sessions/${id}/thinking`, { level }),
+    /** Switch the chat's permission mode (I-174; harnesses with `permissionModes`). */
+    setPermissionMode: (id: string, mode: string) => request<void>("PUT", `/sessions/${id}/permission-mode`, { mode }),
     respondToUi: (id: string, body: UiResponse) => request<void>("POST", `/sessions/${id}/ui-response`, body),
     /** The harness's slash commands (Glade's built-ins are defined in features/chat/slash). */
     listCommands: (id: string) => request<SlashCommand[]>("GET", `/sessions/${id}/commands`),

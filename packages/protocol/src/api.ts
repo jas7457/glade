@@ -151,6 +151,8 @@ export interface Session {
   /** Last model / thinking level used, so re-opening restores them. */
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
+  /** The chat's permission mode (I-174), so a resume keeps it. Absent: the harness's default. */
+  permissionMode?: string | null;
 }
 
 /** Session plus runtime state that isn't persisted. */
