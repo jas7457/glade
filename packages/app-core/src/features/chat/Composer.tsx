@@ -100,7 +100,8 @@ import { useFileSearch } from "./mentions/useFileSearch";
 import { composerPrefill, withPrefill } from "./composer-prefill";
 import { askSideQuestion } from "./side-question-actions";
 import { useMetaHeld } from "./use-meta-held";
-import { useOptionSheet, type OptionSheetItem } from "./option-sheet";
+import { useOptionSheet, type OptionSheetItem, type OptionSheetSection } from "./option-sheet";
+import { agentSheetSection } from "./context-bar/AgentPicker";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -143,6 +144,11 @@ export interface ComposerBoxProps {
   onThinkingChange: (level: ThinkingLevel) => void;
   /** Hide the model and thinking pickers (harnesses that choose their own model, e.g. ACP agents; I-119). */
   hideModelPickers?: boolean;
+  /**
+   * Touch only (the iPhone's new chat, I-166): the agent choice as a section of the Model &
+   * Thinking sheet (shown even when `hideModelPickers`). Ignored by the desktop's menus.
+   */
+  agents?: { label: string; section: OptionSheetSection } | null;
   /**
    * Resolve true to clear the input. `files` = attached by reference (I-090), in order. `behavior`
    * = what the user asked for while running (↩ steer, ⌘↩ follow-up, I-153); ignored when idle.
@@ -750,7 +756,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               e.currentTarget.value = "";
             }}
           />
-          {!props.hideModelPickers && (
+          {(!props.hideModelPickers || (touch && OptionSheet && props.agents)) && (
             <span class={cn("contents", touch && "[&>*]:order-2", compact && "[&>*]:hidden")}>
               {touch && OptionSheet ? (
                 // One pill + one sheet for both on the phone (I-164).
@@ -762,6 +768,8 @@ export function ComposerBox(props: ComposerBoxProps) {
                   thinkingLevels={props.thinkingLevels}
                   onThinkingChange={props.onThinkingChange}
                   disabled={busy}
+                  agents={props.agents}
+                  hideModel={props.hideModelPickers}
                   open={openPicker !== null}
                   onOpenChange={(o) => setOpenPicker(o ? (openPicker ?? "model") : null)}
                 />
@@ -1074,13 +1082,17 @@ export interface NewChatComposerProps {
   placeholder?: string;
   autoFocus?: boolean;
   class?: string;
+  /** Replace the current history entry with the new chat (the iPhone's /new screen, I-166). */
+  replace?: boolean;
+  /** Read-only with this explanation (e.g. the Mac isn't connected). */
+  lockedReason?: string;
 }
 
 const NEW_CHAT_COMMANDS = builtinCommands(false);
 /** Every built-in name: harness commands with these names stay hidden in new chats too. */
 const BUILTIN_NAMES = new Set(builtinCommands(true).map((c) => c.name));
 
-function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, class: className }: NewChatComposerProps) {
+function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, class: className, replace, lockedReason }: NewChatComposerProps) {
   const navigate = useNavigate();
   // I-123: pickers follow the host (the project's environment, or the one chosen for a standalone chat).
   const envId = projectId ? envIdOfProject(projectId) : (chosenEnv ?? undefined);
@@ -1140,7 +1152,7 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
         // The chat exists either way; keep the text in its composer when sending failed.
         if (!sent && text) drafts.set(`chat:${sessionId}`, text);
       }
-      navigate(chatPath(created.workspace));
+      navigate(chatPath(created.workspace), replace ? { replace: true } : undefined);
       return true;
     } catch (err) {
       notify("error", `Could not start chat: ${(err as Error).message}`);
@@ -1165,6 +1177,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
       thinkingLevels={levels}
       onThinkingChange={setPickedLevel}
       hideModelPickers={!usesModels}
+      agents={agentSheetSection(envId ?? null)}
+      lockedReason={lockedReason}
       onSend={onSend}
       slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
       mentions={{ projectId, envId }}
@@ -1179,12 +1193,32 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
 
 export type ComposerProps = { placeholder?: string; autoFocus?: boolean; class?: string } & (
   | { chatId: string; projectId?: never }
-  | { chatId?: null; projectId: string | null; /** Standalone chats: the environment (I-123). */ envId?: string | null }
+  | {
+      chatId?: null;
+      projectId: string | null;
+      /** Standalone chats: the environment (I-123). */
+      envId?: string | null;
+      /** Replace the current history entry with the new chat (I-166). */
+      replace?: boolean;
+      /** Read-only with this explanation. */
+      lockedReason?: string;
+    }
 );
 
 export function Composer(props: ComposerProps) {
   if (props.chatId) {
     return <ChatComposer chatId={props.chatId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
   }
-  return <NewChatComposer projectId={props.projectId ?? null} envId={(props as { envId?: string | null }).envId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
+  const { envId, replace, lockedReason } = props as NewChatComposerProps;
+  return (
+    <NewChatComposer
+      projectId={props.projectId ?? null}
+      envId={envId}
+      placeholder={props.placeholder}
+      autoFocus={props.autoFocus ?? true}
+      class={props.class}
+      replace={replace}
+      lockedReason={lockedReason}
+    />
+  );
 }

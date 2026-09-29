@@ -192,16 +192,40 @@ export interface ModelThinkingPickerProps extends PickerOpenProps {
   thinkingLevels: ThinkingLevel[];
   onThinkingChange: (level: ThinkingLevel) => void;
   disabled?: boolean;
+  /**
+   * Sheet only (the iPhone's new chat, I-166): the agent choice as a third section; `label` =
+   * the current agent.
+   */
+  agents?: { label: string; section: OptionSheetSection } | null;
+  /** The agent chooses its own model (I-119): no Model/Thinking; the pill shows the agent. Needs `agents`. */
+  hideModel?: boolean;
 }
 
 /**
  * Touch (the iPhone app, I-164): model and thinking level behind **one** pill ("Opus · Medium")
  * that opens one sheet with a Model section (per provider when there are several) and a
- * Thinking section. Sheet-only: without an `OptionSheetContext` it renders the two menus.
+ * Thinking section (and an Agent section when `agents` is given, I-166). Sheet-only: without an
+ * `OptionSheetContext` it renders the two menus.
  */
 export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
-  const { model, models, onModelChange, thinkingLevel, thinkingLevels, onThinkingChange, disabled, open, onOpenChange } = props;
+  const { model, models, onModelChange, thinkingLevel, thinkingLevels, onThinkingChange, disabled, open, onOpenChange, agents } = props;
   const sheet = useOptionSheet();
+  if (sheet && agents && props.hideModel) {
+    return (
+      <SheetPicker
+        title="Agent"
+        open={open}
+        onOpenChange={onOpenChange}
+        trigger={(onClick) => (
+          <button type="button" class={cn(triggerClass, touchTriggerClass, "max-w-[14rem]")} disabled={disabled} aria-label={`Agent: ${agents.label}`} onClick={onClick}>
+            <span class="truncate">{agents.label}</span>
+            <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+          </button>
+        )}
+        sections={[agents.section]}
+      />
+    );
+  }
   if (!sheet) {
     return (
       <>
@@ -231,6 +255,7 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
       items: thinkingLevels.map((level) => ({ key: `thinking/${level}`, label: thinkingLabel(level), checked: level === thinkingLevel, onSelect: () => onThinkingChange(level) })),
     });
   }
+  if (agents) sections.push(agents.section);
   return (
     <SheetPicker
       title={thinks ? "Model & Thinking" : "Model"}
@@ -240,7 +265,7 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
         <button
           type="button"
           class={cn(triggerClass, touchTriggerClass, "max-w-[14rem]")}
-          disabled={disabled || models.length === 0}
+          disabled={disabled || (models.length === 0 && !agents)}
           aria-label={thinks ? `Model and thinking: ${modelLabel}, ${thinkingLabel(thinkingLevel)}` : `Model: ${modelLabel}`}
           onClick={onClick}
         >

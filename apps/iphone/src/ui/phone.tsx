@@ -5,6 +5,7 @@
  * bar and home indicator: index.html sets viewport-fit=cover).
  */
 import type { ComponentChildren, JSX } from "preact";
+import { createPortal } from "preact/compat";
 import { useEffect } from "preact/hooks";
 import { cn } from "@glade/app-core/lib/cn";
 
@@ -124,7 +125,8 @@ export function ListRow({ icon, title, subtitle, detail, onClick, chevron, tone 
 
 /**
  * Bottom sheet over a dimmed backdrop (tap outside or Cancel closes it). iOS presents pickers and
- * small forms this way instead of popovers.
+ * small forms this way instead of popovers. Rendered into `document.body`: an ancestor with a
+ * backdrop filter (the glass composer, whose pickers open sheets) would otherwise trap it (I-166).
  */
 export function Sheet({
   open,
@@ -150,7 +152,7 @@ export function Sheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
   if (!open) return null;
-  return (
+  return createPortal(
     <div class="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined}>
       <div class="absolute inset-0 bg-black/40 animate-[phone-fade_160ms_ease-out]" onClick={onClose} />
       <div
@@ -169,7 +171,8 @@ export function Sheet({
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
