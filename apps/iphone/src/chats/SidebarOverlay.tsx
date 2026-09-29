@@ -75,7 +75,7 @@ export function SidebarOverlay({ open, onClose }: SidebarOverlayProps) {
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
         style={drag.value ? { transform: `translateX(${drag.value}px)` } : undefined}
-        class="absolute inset-y-0 left-0 flex w-[85%] max-w-[380px] flex-col bg-window pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] text-[17px] text-fg shadow-2xl animate-[phone-slide-in_240ms_cubic-bezier(0.2,0.8,0.2,1)]"
+        class="absolute inset-y-0 left-0 flex w-[85%] max-w-[380px] flex-col bg-grouped pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] text-[17px] text-fg shadow-2xl animate-[phone-slide-in_240ms_cubic-bezier(0.2,0.8,0.2,1)]"
       >
         <div class="flex h-11 shrink-0 items-center justify-between px-2">
           <NavIconButton label="Settings" onClick={() => go(paths.settings())}>

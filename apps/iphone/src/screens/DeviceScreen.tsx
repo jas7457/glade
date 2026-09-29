@@ -47,7 +47,7 @@ export function DeviceScreen() {
   };
 
   return (
-    <Screen>
+    <Screen grouped>
       <NavBar
         title={name}
         left={

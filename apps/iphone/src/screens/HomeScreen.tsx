@@ -15,7 +15,7 @@ export function HomeScreen() {
   const navigate = useNavigate();
   const query = useSignal("");
   return (
-    <Screen>
+    <Screen grouped>
       <NavBar
         large
         title="Chats"
@@ -30,7 +30,7 @@ export function HomeScreen() {
           </NavIconButton>
         }
       />
-      <div class="shrink-0 bg-window px-4 pb-3">
+      <div class="shrink-0 px-4 pb-3">
         <SearchField value={query.value} onInput={(v) => (query.value = v)} />
       </div>
       <ScreenBody>

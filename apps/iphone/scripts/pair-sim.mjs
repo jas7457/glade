@@ -7,7 +7,7 @@
 //   node apps/iphone/scripts/pair-sim.mjs --api http://127.0.0.1:<port>/api [--device "iPhone 18 Pro"]
 //
 // The app must be installed and showing Connect to a Device (first run), or Chats (then it goes
-// through the + button).
+// through Settings → Connect to a Device…).
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -45,9 +45,13 @@ for (let i = 0; i < 4 && /isRemoteLeafPlaceholder/.test(tree); i++) {
   tree = sim("");
 }
 if (!hit(tree, /label: 'Paste Link'/)) {
-  const plus = hit(tree, /label: 'Connect to a Device'.*Button|Button.*label: 'Connect to a Device'/);
-  if (!plus) throw new Error(`neither Connect nor the + button found; see ${out}/step-1.png`);
-  tree = sim(`t ${plus}`);
+  // Already paired: Chats → Settings → Connect to a Device…
+  const settings = hit(tree, /Button.*label: 'Settings'/);
+  if (!settings) throw new Error(`neither Connect nor Settings found; see ${out}/step-1.png`);
+  tree = sim(`t ${settings}`);
+  const connect = hit(tree, /label: 'Connect to a Device…'/);
+  if (!connect) throw new Error(`no Connect to a Device… in Settings; see ${out}/step-1.png`);
+  tree = sim(`t ${connect}`);
 }
 const paste = hit(tree, /Button.*label: 'Paste Link'/);
 if (!paste) throw new Error(`no Paste Link button; see ${out}`);

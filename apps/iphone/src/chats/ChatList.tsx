@@ -79,7 +79,7 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
             </button>
             {open &&
               (group.chats.length === 0 ? (
-                <div class="rounded-xl bg-surface px-4 py-2.5 text-[15px] text-fg-subtle">No chats</div>
+                <div class="rounded-xl bg-cell px-4 py-2.5 text-[15px] text-fg-subtle">No chats</div>
               ) : (
                 <Rows
                   chats={group.chats}
@@ -144,7 +144,7 @@ function Rows({
   const selectedIdx = selectedChatId ? chats.findIndex((c) => c.id === selectedChatId) : -1;
   const count = expanded ? chats.length : Math.min(chats.length, Math.max(limit, selectedIdx + 1));
   return (
-    <div role="list" class="overflow-hidden rounded-xl bg-surface [&>*+*]:border-t [&>*+*]:border-separator">
+    <div role="list" class="overflow-hidden rounded-xl bg-cell [&>*+*]:border-t [&>*+*]:border-separator">
       {chats.slice(0, count).map((chat) => (
         <ChatRow key={chat.id} chat={chat} selected={chat.id === selectedChatId} onOpen={onOpen} onActions={onActions} showDevice={showDevice} />
       ))}
@@ -233,7 +233,7 @@ function EnvironmentStatusRows({ onOpenDevice }: { onOpenDevice?: (envId: string
   if (rows.length === 0) return null;
   return (
     <section class="mx-4 mb-5" aria-label="Devices">
-      <div class="overflow-hidden rounded-xl bg-surface [&>*+*]:border-t [&>*+*]:border-separator">
+      <div class="overflow-hidden rounded-xl bg-cell [&>*+*]:border-t [&>*+*]:border-separator">
         {rows.map((r) => (
           <button
             key={r.id}

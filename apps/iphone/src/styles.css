@@ -9,6 +9,18 @@
  */
 html[data-iphone] {
   --pi-font-size: 16px;
+  /* iOS grouped lists: a tinted page with white (dark: raised) cells. */
+  --pi-grouped: #f2f2f7;
+  --pi-cell: #ffffff;
+}
+html[data-iphone][data-theme="dark"] {
+  --pi-grouped: #000000;
+  --pi-cell: #1c1c1e;
+}
+
+@theme {
+  --color-grouped: var(--pi-grouped);
+  --color-cell: var(--pi-cell);
 }
 body {
   /* No rubber-band scrolling of the whole page and no long-press callouts on chrome. */

@@ -96,7 +96,7 @@ export function NewChatScreen() {
   const close = () => (picker.value = null);
 
   return (
-    <Screen>
+    <Screen grouped>
       <NavBar
         title="New Chat"
         left={

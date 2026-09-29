@@ -8,15 +8,15 @@ import type { ComponentChildren, JSX } from "preact";
 import { useEffect } from "preact/hooks";
 import { cn } from "@/lib/cn";
 
-/** A full-height screen: nav bar on top, scrolling body. */
-export function Screen({ children, class: className }: { children: ComponentChildren; class?: string }) {
-  return <div class={cn("flex h-full min-h-0 flex-col bg-window text-[17px] text-fg", className)}>{children}</div>;
+/** A full-height screen: nav bar on top, scrolling body. `grouped`: the tinted page behind inset grouped lists. */
+export function Screen({ children, class: className, grouped }: { children: ComponentChildren; class?: string; grouped?: boolean }) {
+  return <div class={cn("flex h-full min-h-0 flex-col text-[17px] text-fg", grouped ? "bg-grouped" : "bg-window", className)}>{children}</div>;
 }
 
 /** Top bar below the status bar: optional left/right slots and a centered title. */
 export function NavBar({ title, left, right, large }: { title?: ComponentChildren; left?: ComponentChildren; right?: ComponentChildren; large?: boolean }) {
   return (
-    <header class="shrink-0 select-none bg-window pt-[env(safe-area-inset-top)]">
+    <header class="shrink-0 select-none pt-[env(safe-area-inset-top)]">
       <div class="relative flex h-11 items-center justify-between px-2">
         <div class="z-10 flex min-w-11 items-center">{left}</div>
         {!large && title !== undefined && (
@@ -82,7 +82,7 @@ export function ListGroup({ header, footer, children }: { header?: ComponentChil
   return (
     <section class="mx-4 mb-6">
       {header && <h2 class="px-4 pb-1.5 text-[13px] text-fg-muted uppercase">{header}</h2>}
-      <div class="overflow-hidden rounded-xl bg-surface [&>*+*]:border-t [&>*+*]:border-separator">{children}</div>
+      <div class="overflow-hidden rounded-xl bg-cell [&>*+*]:border-t [&>*+*]:border-separator">{children}</div>
       {footer && <p class="px-4 pt-1.5 text-[13px] text-fg-muted">{footer}</p>}
     </section>
   );
@@ -155,7 +155,7 @@ export function Sheet({
       <div class="absolute inset-0 bg-black/40 animate-[phone-fade_160ms_ease-out]" onClick={onClose} />
       <div
         class={cn(
-          "relative flex max-h-[92%] flex-col rounded-t-2xl bg-window pb-[max(env(safe-area-inset-bottom),12px)] shadow-2xl animate-[phone-sheet-in_220ms_cubic-bezier(0.2,0.8,0.2,1)]",
+          "relative flex max-h-[92%] flex-col rounded-t-2xl bg-grouped pb-[max(env(safe-area-inset-bottom),12px)] shadow-2xl animate-[phone-sheet-in_220ms_cubic-bezier(0.2,0.8,0.2,1)]",
           full && "h-[92%]",
         )}
       >
@@ -176,10 +176,10 @@ export function Sheet({
 /** Text input styled for the phone (16px+ so iOS doesn't zoom on focus). */
 export function PhoneInput(props: JSX.InputHTMLAttributes<HTMLInputElement> & { class?: string }) {
   const { class: className, ...rest } = props;
-  return <input {...rest} class={cn("h-11 w-full rounded-xl bg-surface px-4 text-[17px] text-fg outline-none placeholder:text-fg-subtle", className)} />;
+  return <input {...rest} class={cn("h-11 w-full rounded-xl bg-cell px-4 text-[17px] text-fg outline-none placeholder:text-fg-subtle", className)} />;
 }
 
 export function PhoneTextArea(props: JSX.TextareaHTMLAttributes<HTMLTextAreaElement> & { class?: string }) {
   const { class: className, ...rest } = props;
-  return <textarea {...rest} class={cn("w-full resize-none rounded-xl bg-surface px-4 py-3 text-[17px] text-fg outline-none placeholder:text-fg-subtle", className)} />;
+  return <textarea {...rest} class={cn("w-full resize-none rounded-xl bg-cell px-4 py-3 text-[17px] text-fg outline-none placeholder:text-fg-subtle", className)} />;
 }

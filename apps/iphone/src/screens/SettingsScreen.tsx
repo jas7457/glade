@@ -25,7 +25,7 @@ export const APP_VERSION: string = pkg.version;
 export function SettingsScreen() {
   const navigate = useNavigate();
   return (
-    <Screen>
+    <Screen grouped>
       <NavBar
         title="Settings"
         left={
