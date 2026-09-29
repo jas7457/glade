@@ -28,18 +28,18 @@ separate future app (F-025) on the same shared core.
 - **Pairing starts from the phone**: scan the QR code shown by a Mac's *Share This Device…* with the
   iPhone camera (or paste the link / type the code). Tokens live in the iOS Keychain.
 
-## 2. What's on this Mac (verified 2026-09-27)
+## 2. What's on this Mac (verified 2026-09-27; the §8 setup is done, re-verified the same day)
 
 | Thing | State |
 |---|---|
 | macOS | 27.0, Apple silicon (MacBook Air) |
 | Xcode | **27.0** (build 27A266a) at `/Applications/Xcode.app`. First-launch setup is done (`xcodebuild -checkFirstLaunchStatus` exits 0). |
-| `xcode-select -p` | **`/Library/Developer/CommandLineTools`**: it still points at the Command Line Tools, not Xcode. Either the user runs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` once (see §8), or every command sets `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. Agents must not run sudo. |
+| `xcode-select -p` | `/Applications/Xcode.app/Contents/Developer` (switched by the user; `DEVELOPER_DIR` is no longer needed). iOS SDK 27.0 and iPhoneSimulator SDK 27.0 are present. |
 | iOS simulator runtime | iOS 27.0 installed. Devices include **iPhone 18 Pro** (`D589342D-F5C7-422A-B92E-0B938D999EFD`), iPhone 18 Pro Max, iPhone Air, iPhone 17, iPhone 17e. |
-| Rust | rustc 1.98.1 via rustup (`. "$HOME/.cargo/env"` in non-login shells). Installed targets: **only `aarch64-apple-darwin`**. The iOS targets are missing (see §8). |
-| Homebrew | 7.0.6 at `/opt/homebrew/bin/brew`. **CocoaPods is not installed** (Tauri's iOS prerequisites list it; see §8). |
+| Rust | rustc 1.98.1 via rustup (`. "$HOME/.cargo/env"` in non-login shells). Targets: `aarch64-apple-darwin`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios`. A test crate builds for `aarch64-apple-ios-sim` and `aarch64-apple-ios`. |
+| Homebrew / CocoaPods | Homebrew 7.0.6; CocoaPods 1.17.0 at `/opt/homebrew/bin/pod`. It warns unless `LANG=en_US.UTF-8`, so export that in commands that run `pod`. |
 | Node / pnpm | Node 24.20.0, pnpm 12.3.4 |
-| Tauri | CLI `@tauri-apps/cli ^2.11.5` (in `apps/desktop`), crate `tauri = "2"` |
+| Tauri | CLI `@tauri-apps/cli ^2.11.5` (in `apps/desktop`; `tauri ios init|dev|build` available), crate `tauri = "2"` |
 | Signing | No Apple ID is set up in Xcode yet. The simulator needs no signing; a real iPhone does (see §7). |
 
 Tauri 2 iOS prerequisites (from v2.tauri.app/start/prerequisites):
