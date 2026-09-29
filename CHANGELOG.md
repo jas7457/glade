@@ -7,6 +7,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Codex as an agent: when `codex` is installed, Settings → Agents offers it, using your own Codex
+  login. Codex chats stream replies, commands, file edits with diffs, MCP calls, web searches and
+  plans; pick Codex's models and reasoning effort, stop or steer a run, answer approval cards
+  worded like Codex's own, and switch between Read only / Auto / Full access per chat. When your
+  Codex usage runs out, the chat says so with the reset date.
 - Claude Code chats ask for permission the way the CLI does (Yes / Yes, and don't ask again for … /
   No, and tell Claude what to do differently; keys 1–3 and Esc), and have permission modes
   (Default, Accept edits, Plan, Auto, Bypass) in a pill next to the model, switched with
