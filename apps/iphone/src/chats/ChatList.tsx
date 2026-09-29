@@ -42,24 +42,13 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
   const actionsFor = useSignal<WorkspaceSummary | null>(null);
   const multi = multipleEnvironments.value;
   const closed = closedProjects.value;
+  const remotes = connections.value.filter((c) => !c.isLocal);
+  const noneConnected = remotes.length > 0 && remotes.every((c) => remoteStateOf(c.id) !== "connected");
 
   return (
     <div class="pb-2" data-chat-list>
       <EnvironmentStatusRows onOpenDevice={onOpenDevice} />
-      {groups.length === 0 &&
-        (searching ? (
-          <p class="px-8 py-10 text-center text-fg-muted">No chats match “{query.trim()}”.</p>
-        ) : (
-          <div class="flex flex-col items-center px-8 py-12 text-center">
-            <p class="text-[20px] font-semibold text-fg-strong">No chats yet</p>
-            <p class="mt-1 text-[15px] text-fg-muted">Chats from your Macs show up here.</p>
-            {onNewChat && (
-              <button type="button" onClick={onNewChat} class="mt-4 min-h-11 rounded-xl px-4 text-[17px] font-semibold text-accent active:opacity-60">
-                Start a Chat
-              </button>
-            )}
-          </div>
-        ))}
+      {groups.length === 0 && <EmptyState query={query} noneConnected={noneConnected} onNewChat={onNewChat} />}
       {groups.map((group) => {
         if (group.kind === "standalone") {
           return (
@@ -112,6 +101,23 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
         );
       })}
       <ChatActionsSheet chat={actionsFor.value} onClose={() => (actionsFor.value = null)} />
+    </div>
+  );
+}
+
+function EmptyState({ query, noneConnected, onNewChat }: { query: string; noneConnected: boolean; onNewChat?: () => void }) {
+  if (query.trim()) return <p class="px-8 py-10 text-center text-fg-muted">No chats match “{query.trim()}”.</p>;
+  // Every Mac is down or connecting: their status rows above say so.
+  if (noneConnected) return <p class="px-8 py-6 text-center text-[15px] text-fg-muted">Chats show up here once your Mac is connected.</p>;
+  return (
+    <div class="flex flex-col items-center px-8 py-12 text-center">
+      <p class="text-[20px] font-semibold text-fg-strong">No chats yet</p>
+      <p class="mt-1 text-[15px] text-fg-muted">Chats from your Macs show up here.</p>
+      {onNewChat && (
+        <button type="button" onClick={onNewChat} class="mt-4 min-h-11 rounded-xl px-4 text-[17px] font-semibold text-accent active:opacity-60">
+          Start a Chat
+        </button>
+      )}
     </div>
   );
 }

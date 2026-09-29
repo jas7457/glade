@@ -106,6 +106,16 @@ describe("iPhone chat list", () => {
     expect(onNewChat).toHaveBeenCalled();
   });
 
+  it("says chats come back once the Mac is connected when every Mac is down", () => {
+    connections.value = [fakeEnv("m1", "Studio", "offline")];
+    projects.value = [];
+    workspaces.value = [];
+    renderList();
+    expect(screen.getByText("Can't reach Studio")).toBeTruthy();
+    expect(screen.queryByText("No chats yet")).toBeNull();
+    expect(screen.getByText(/once your Mac is connected/)).toBeTruthy();
+  });
+
   it("opens a chat's actions on long-press (context menu)", () => {
     renderList();
     fireEvent.contextMenu(screen.getByText("Fix the build"));
