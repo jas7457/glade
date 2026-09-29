@@ -7,6 +7,10 @@
  * Read, Delete). Folders (I-165): top-level folders are sections holding projects and chats; a
  * project's folders are rows at the top of its list that open in place. Long-press on a folder or
  * project header opens its folder actions.
+ *
+ * Search (I-167): titles filter instantly; after a pause, hits from inside the chats ("In
+ * Conversations") and an "✦ Ask" row follow (`ChatSearchResults`, `chat-search.ts`). Opening one
+ * jumps to the matched message.
  */
 import { useSignal } from "@preact/signals";
 import { useRef } from "preact/hooks";
@@ -16,13 +20,16 @@ import { cn } from "@glade/app-core/lib/cn";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 import { connectionFor, connections, multipleEnvironments } from "@glade/app-core/state/env-registry";
 import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
-import { envIdOf } from "@glade/app-core/state/store";
+import { envIdOf, workspacesById } from "@glade/app-core/state/store";
 import { closedProjects, setProjectOpen } from "@glade/app-core/state/ui";
+import { requestJump } from "@glade/app-core/features/chat/jump-to-message";
 import { Spinner, StatusIndicator } from "@glade/app-core/ui";
 import { DeviceMarker } from "~/ui/phone-extra";
 import { ChatActionsSheet } from "./ChatActionsSheet";
 import { FolderActionsSheet, ProjectActionsSheet } from "./FolderSheets";
 import { allChatsOf, chatGroups, type ChatGroup, type FolderChats, type ProjectGroup as ProjectGroupData } from "./chat-groups";
+import { SEARCH_MIN_CHARS, useAsk, useContentSearch, type SessionTarget } from "./chat-search";
+import { ChatSearchResults } from "./ChatSearchResults";
 
 /** Chats shown per project before "Show More" (all of them while searching). */
 export const PHONE_PROJECT_LIMIT = 5;
@@ -33,6 +40,11 @@ export interface ChatListProps {
   selectedChatId?: string | null;
   /** A chat was tapped. */
   onOpen: (chat: WorkspaceSummary) => void;
+  /**
+   * A search result from inside a chat was tapped (I-167): open that session (`paths.chat(envId,
+   * workspaceId, sessionId)`). The jump to the matched message is already requested.
+   */
+  onOpenSession?: (target: SessionTarget) => void;
   /** A Mac's status row was tapped. */
   onOpenDevice?: (envId: string) => void;
   /** Shown in the empty state when set. */
@@ -41,9 +53,12 @@ export interface ChatListProps {
 
 type Actions = { kind: "chat"; chat: WorkspaceSummary } | { kind: "folder"; folder: Folder } | { kind: "project"; project: Project };
 
-export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevice, onNewChat }: ChatListProps) {
+export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenSession, onOpenDevice, onNewChat }: ChatListProps) {
   const groups = chatGroups(query);
   const searching = query.trim().length > 0;
+  const deepSearch = query.trim().length >= SEARCH_MIN_CHARS;
+  const content = useContentSearch(query);
+  const ask = useAsk(query);
   const expanded = useSignal<ReadonlySet<string>>(new Set());
   const actions = useSignal<Actions | null>(null);
   const multi = multipleEnvironments.value;
@@ -56,6 +71,14 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
     else next.add(id);
     expanded.value = next;
   };
+  const openTarget = (t: SessionTarget) => {
+    if (t.message) requestJump(t.sessionId, t.message);
+    if (onOpenSession) return onOpenSession(t);
+    const chat = workspacesById.value.get(t.workspaceId);
+    if (chat) onOpen(chat);
+  };
+  // Nothing matched anywhere (titles, and inside the chats once that search is back).
+  const nothing = groups.length === 0 && (!deepSearch || (content.status === "done" && content.hits.length === 0));
   const ctx: SectionContext = {
     searching,
     selectedChatId,
@@ -71,7 +94,7 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
   return (
     <div class="pb-2" data-chat-list>
       <EnvironmentStatusRows onOpenDevice={onOpenDevice} />
-      {groups.length === 0 && <EmptyState query={query} noneConnected={noneConnected} onNewChat={onNewChat} />}
+      {nothing && <EmptyState query={query} noneConnected={noneConnected} onNewChat={onNewChat} />}
       {groups.map((group) => {
         if (group.kind === "standalone") {
           return (
@@ -84,6 +107,7 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenDevi
         if (group.kind === "folder") return <FolderSection key={group.key} group={group} ctx={ctx} />;
         return <ProjectSection key={group.key} group={group} ctx={ctx} />;
       })}
+      {deepSearch && <ChatSearchResults query={query} content={content} ask={ask.state} onAsk={ask.run} onOpen={openTarget} multi={multi} />}
       <ChatActionsSheet chat={actions.value?.kind === "chat" ? actions.value.chat : null} onClose={() => (actions.value = null)} />
       <FolderActionsSheet folder={actions.value?.kind === "folder" ? actions.value.folder : null} onClose={() => (actions.value = null)} />
       <ProjectActionsSheet project={actions.value?.kind === "project" ? actions.value.project : null} onClose={() => (actions.value = null)} />

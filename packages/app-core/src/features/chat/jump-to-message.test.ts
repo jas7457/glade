@@ -74,7 +74,7 @@ describe("centeredScrollTop", () => {
 describe("jumpElement / flashElement", () => {
   it("picks the turn part or the user bubble and flashes it", () => {
     const column = document.createElement("div");
-    column.innerHTML = `<div data-role="user"><img><div class="bubble">hi</div></div><div data-role="assistant"><p>a</p><p class="b">b</p></div>`;
+    column.innerHTML = `<div data-role="user"><img><div class="bubble">hi</div><time data-aux="time">9:00</time></div><div data-role="assistant"><p>a</p><p class="b">b</p></div>`;
     const bubble = jumpElement(column, { messageId: "u", itemIndex: 0, partIndex: null })!;
     expect(bubble.className).toBe("bubble");
     const part = jumpElement(column, { messageId: "a", itemIndex: 1, partIndex: 1 })!;

@@ -16,7 +16,7 @@ import { CommandPalette, Spinner, type CommandPaletteSection } from "@glade/app-
 import { COMMAND_GROUPS, isAvailable, type Command, type CommandContext, type CommandPrompt, buildCommands } from "@/app/commands";
 import { chatPath } from "@glade/app-core/app/routes";
 import { requestJump } from "@glade/app-core/features/chat/jump-to-message";
-import { askChats, searchChats } from "@/lib/api-search";
+import { askChats, searchChats } from "@glade/app-core/lib/api-search";
 import { connections, hasLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { workspacesById } from "@glade/app-core/state/store";
 import { paletteOpen } from "@glade/app-core/state/ui";

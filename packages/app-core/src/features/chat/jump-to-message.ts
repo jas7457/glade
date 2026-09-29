@@ -100,8 +100,9 @@ export function jumpElement(column: HTMLElement, target: JumpTarget): HTMLElemen
     const part = item.children[target.partIndex];
     return part instanceof HTMLElement ? part : item;
   }
-  // A user item is a right-aligned column (images, then the text bubble): highlight the bubble.
-  const bubble = item.dataset.role === "user" ? item.lastElementChild : null;
+  // A user item is a right-aligned column (images, then the text bubble, then its `data-aux`
+  // time): highlight the bubble.
+  const bubble = item.dataset.role === "user" ? [...item.children].filter((el) => !(el instanceof HTMLElement && el.dataset.aux)).at(-1) : null;
   return bubble instanceof HTMLElement ? bubble : item;
 }
 

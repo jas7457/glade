@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 
 vi.mock("@glade/app-core/lib/api", () => ({ api: { generateSessionTitle: vi.fn() }, request: vi.fn() }));
-vi.mock("@/lib/api-search", () => ({
+vi.mock("@glade/app-core/lib/api-search", () => ({
   searchChats: vi.fn(async (q: string) => ({ query: q, hits: [] })),
   askChats: vi.fn(),
 }));
@@ -15,7 +15,7 @@ vi.mock("@glade/app-core/state/actions", () => ({
 
 import type { AskResponse, SearchHit } from "@glade/protocol";
 import { api } from "@glade/app-core/lib/api";
-import { askChats, searchChats } from "@/lib/api-search";
+import { askChats, searchChats } from "@glade/app-core/lib/api-search";
 import { renameWorkspace, updateSettings } from "@glade/app-core/state/actions";
 import { projects, sessions, workspaces } from "@glade/app-core/state/store";
 import { toasts } from "@glade/app-core/state/toasts";
