@@ -1060,6 +1060,7 @@ dependencies = [
 name = "glade-iphone"
 version = "0.1.0"
 dependencies = [
+ "objc2",
  "security-framework",
  "serde_json",
  "tauri",

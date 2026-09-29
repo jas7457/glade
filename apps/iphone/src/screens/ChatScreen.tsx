@@ -126,7 +126,9 @@ function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId:
     <AgentLinksContext.Provider value={links}>
       <div class="flex h-full min-h-0 flex-col bg-window">
         <Transcript chatId={sessionId} columnClass="w-full px-3" />
-        <div class={cn("shrink-0 px-2 pt-1", keyboardOpen ? "pb-2" : "pb-[max(env(safe-area-inset-bottom),8px)]")}>
+        {/* Under the composer: only part of the home-indicator inset (the card may overlap its
+            top, like Messages), else it floats over an empty strip. */}
+        <div class={cn("shrink-0 px-2 pt-1", keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_-_20px),8px)]")}>
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />
           <Composer chatId={sessionId} autoFocus={false} />
         </div>
