@@ -22,8 +22,8 @@ import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleA
 import { subagentSessionsOf, type AgentColor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@/lib/cn";
 import { loadChatSession, loadEarlierMessages, useChatSession } from "@/state/chat-session";
-import { envIdOfSession, sessions } from "@/state/store";
-import { ChatEnvContext } from "./chat-env";
+import { envIdOfSession, sessions, sessionsById, workspacesById } from "@/state/store";
+import { ChatCwdContext, ChatEnvContext } from "./chat-env";
 import { Button, Disclosure, Spinner } from "@/ui";
 import { formatDuration, useNow } from "./duration";
 import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
@@ -146,6 +146,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
 
   return (
     <ChatEnvContext.Provider value={envIdOfSession(chatId)}>
+    <ChatCwdContext.Provider value={workspacesById.value.get(sessionsById.value.get(chatId)?.workspaceId ?? "")?.cwd ?? null}>
     <div class={cn("relative flex min-h-0 flex-1 flex-col", className)}>
       <div ref={scrollRef} class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="transcript-scroll">
         {placeholder}
@@ -179,6 +180,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
         </button>
       )}
     </div>
+    </ChatCwdContext.Provider>
     </ChatEnvContext.Provider>
   );
 }

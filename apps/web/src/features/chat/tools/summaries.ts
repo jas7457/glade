@@ -144,6 +144,30 @@ export function summarizeToolCall(
   return { verb: call.name, subject: argsPreview(call.args ?? partialArgs(call.argsText)), mono: false };
 }
 
+/**
+ * A shell command's leading `cd <dir> &&` / `cd <dir>;` / `pushd <dir> &&`, split off for the
+ * one-line summary (I-152): agents start fresh shells in the chat's folder and often `cd` first,
+ * which hides the actual command. `dir` is null when the `cd` goes to the chat's own folder (then
+ * it's dropped); otherwise a short label: relative to the chat's folder, else `~`-shortened.
+ * Only the display changes; the expanded view shows the exact command.
+ */
+export function splitLeadingCd(command: string, cwd?: string | null, home?: string | null): { dir: string | null; rest: string } | null {
+  const m = /^\s*(?:cd|pushd)\s+("([^"]+)"|'([^']+)'|([^\s;&|]+))\s*(?:&&|;)\s*/.exec(command);
+  if (!m) return null;
+  const rest = command.slice(m[0].length);
+  if (!rest.trim()) return null;
+  let target = (m[2] ?? m[3] ?? m[4] ?? "").replace(/\/+$/, "");
+  const homeDir = home?.replace(/\/+$/, "");
+  if (homeDir && (target === "~" || target.startsWith("~/"))) target = homeDir + target.slice(1);
+  else if (homeDir && target.startsWith("$HOME")) target = homeDir + target.slice(5);
+  const base = cwd?.replace(/\/+$/, "");
+  if (base && !target.startsWith("/")) target = target === "." ? base : `${base}/${target.replace(/^\.\//, "")}`;
+  if (base && target === base) return { dir: null, rest };
+  if (base && target.startsWith(`${base}/`)) return { dir: target.slice(base.length + 1), rest };
+  if (homeDir && (target === homeDir || target.startsWith(`${homeDir}/`))) return { dir: `~${target.slice(homeDir.length)}`, rest };
+  return { dir: target || null, rest };
+}
+
 /** Header for a collapsed group of calls. */
 export function groupLabel(count: number, active: boolean): string {
   const noun = count === 1 ? "tool call" : "tool calls";

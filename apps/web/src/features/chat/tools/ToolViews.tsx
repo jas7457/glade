@@ -21,7 +21,8 @@ import { Markdown } from "../Markdown";
 import { ThinkingView } from "../Thinking";
 import { identityFor, useSpawnLinks } from "../spawn-context";
 import type { AgentIdentityView } from "../agent-identity";
-import { groupLabel, summarizeToolCall, truncate } from "./summaries";
+import { groupLabel, splitLeadingCd, summarizeToolCall, truncate } from "./summaries";
+import { useChatCwd } from "../chat-env";
 import { rendererFor } from "./renderers";
 
 /** Parts are rebuilt on every transcript change; compare what they point at instead. */
@@ -129,6 +130,10 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const { call, result, status } = part;
   const active = isActiveStatus(status);
   const summary = summarizeToolCall(call, active, result?.status === "error" ? undefined : result?.output);
+  // A leading `cd <dir> &&` is noise in the one-liner (I-152): dropped for the chat's own folder,
+  // a small relative label otherwise. The expanded body still shows the exact command.
+  const cwd = useChatCwd();
+  const cd = call.kind === "shell" && call.input?.command ? splitLeadingCd(call.input.command, cwd, homeOf(cwd)) : null;
   // message_agent / close_agent: the agent's fun name in its colour, like spawn cards (I-108).
   const spawnLinks = useSpawnLinks();
   const agentName = call.kind === "agent" ? call.input?.agentName : undefined;
@@ -159,7 +164,12 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
           ) : summary.subject && (
             <>
               {" "}
-              <span class={cn("text-fg", summary.mono && "font-mono text-[0.92em]")}>{summary.subject}</span>
+              {cd?.dir && (
+                <span class="mr-1.5 rounded-[4px] bg-fg/[0.07] px-1 py-px font-mono text-[0.82em] text-fg-subtle" title={`In ${cd.dir}`}>
+                  {cd.dir}
+                </span>
+              )}
+              <span class={cn("text-fg", summary.mono && "font-mono text-[0.92em]")}>{cd ? truncate(cd.rest) : summary.subject}</span>
             </>
           )}
         </span>
@@ -236,4 +246,9 @@ function AgentSubject({ agent, text }: { agent: AgentIdentityView; text?: string
       {text && <span class="text-fg">: {truncate(text)}</span>}
     </span>
   );
+}
+
+/** The home folder implied by a chat's folder (`/Users/<name>` or `/home/<name>`), for `~` in cd labels. */
+function homeOf(cwd: string | null): string | null {
+  return cwd ? (/^\/(?:Users|home)\/[^/]+/.exec(cwd)?.[0] ?? null) : null;
 }

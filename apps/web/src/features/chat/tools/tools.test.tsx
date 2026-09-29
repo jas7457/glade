@@ -7,6 +7,7 @@ import { currentKind, dominantKind, groupKinds, ToolCallRow, ToolGroup } from ".
 import { toolCallStatus, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { SpawnLinksContext } from "../spawn-context";
 import { NO_SPAWN_LINKS } from "../agent-spawns";
+import { ChatCwdContext } from "../chat-env";
 
 Element.prototype.scrollTo ??= function () {};
 
@@ -136,6 +137,23 @@ const part = (id: string, status: ToolCallPart["status"] = "done", output = "hi"
   call: { type: "toolCall", id, name: "x_shell", kind: "shell", input: { command: `echo ${id}` }, args: {} },
   result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "x_shell", status: status === "cancelled" ? "done" : status === "rejected" ? "error" : status, output },
   status,
+});
+
+describe("ToolCallRow: leading cd (I-152)", () => {
+  const shell = (command: string): ToolCallPart => ({ ...part("cd"), call: { ...part("cd").call, input: { command } } });
+  const row = (command: string) =>
+    render(
+      <ChatCwdContext.Provider value="/Users/me/src/glade">
+        <ToolCallRow part={shell(command)} />
+      </ChatCwdContext.Provider>,
+    ).container.querySelector("button")!.textContent;
+  it("hides a cd into the chat's folder and labels a subfolder", () => {
+    expect(row("cd /Users/me/src/glade && grep -n x a.ts")).toContain("Ran grep -n x a.ts");
+    const sub = row("cd /Users/me/src/glade/apps/web && ls");
+    expect(sub).toContain("apps/web");
+    expect(sub).toContain("ls");
+    expect(sub).not.toContain("/Users/me");
+  });
 });
 
 describe("ToolGroup / ToolCallRow", () => {

@@ -163,6 +163,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Command rows no longer start with a long `cd /path/to/project &&`: a cd into the chat's folder
+  is hidden, and a subfolder shows as a small label (e.g. `apps/web`) before the command.
 - Sub-agents get a short title when they start (shown in their tab), and hovering an agent's chip
   shows that title and what it's doing now in plain words instead of the whole prompt.
 - Starting a sub-agent shows its card straight away ("Starting an agent…"), and a sub-agent's

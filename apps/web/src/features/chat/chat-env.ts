@@ -11,3 +11,10 @@ export const ChatEnvContext = createContext<string | null>(null);
 export function useChatEnv(): string | null {
   return useContext(ChatEnvContext);
 }
+
+/** The folder the rendered chat runs in (its workspace's cwd), for shortening `cd` in tool rows (I-152). */
+export const ChatCwdContext = createContext<string | null>(null);
+
+export function useChatCwd(): string | null {
+  return useContext(ChatCwdContext);
+}
