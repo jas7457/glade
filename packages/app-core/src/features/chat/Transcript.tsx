@@ -59,11 +59,16 @@ export interface TranscriptProps {
   class?: string;
   /** Classes for the centered content column (default: max-w-[760px] with padding). */
   columnClass?: string;
+  /**
+   * Height (px) of anything floating over the bottom of the transcript (the iPhone's glass
+   * composer): the conversation scrolls under it but its last line can still scroll clear of it.
+   */
+  bottomInset?: number;
 }
 
 export const columnClass = "mx-auto w-full max-w-[760px] px-6";
 
-export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class: className, columnClass: column = columnClass }: TranscriptProps) {
+export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class: className, columnClass: column = columnClass, bottomInset = 0 }: TranscriptProps) {
   const store = useChatSession(chatId);
   const transcript = store.transcript.value;
   const state = store.state.value;
@@ -150,7 +155,11 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
     <div class={cn("relative flex min-h-0 flex-1 flex-col", className)}>
       <div ref={scrollRef} class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="transcript-scroll">
         {placeholder}
-        <div ref={contentRef} class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}>
+        <div
+          ref={contentRef}
+          class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}
+          style={bottomInset ? { paddingBottom: `${32 + bottomInset}px` } : undefined}
+        >
           {store.start.value > 0 && (
             <div class="mb-4 flex justify-center">
               <Button size="sm" disabled={store.loadingEarlier.value} onClick={() => void loadEarlierMessages(chatId)}>
@@ -173,6 +182,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
         <button
           type="button"
           onClick={() => scrollToBottom("smooth")}
+          style={bottomInset ? { bottom: `${12 + bottomInset}px` } : undefined}
           class="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface-raised px-3 text-[0.92rem] text-fg-muted shadow-popover hover:text-fg"
         >
           <ArrowDown size={13} />

@@ -10,7 +10,7 @@
  * The screen pins itself to the visible area above the keyboard (chat/keyboard.ts).
  */
 import { ChevronLeft, Menu as MenuIcon } from "lucide-preact";
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { AgentLinksContext, type AgentLinks } from "@glade/app-core/features/chat/agent-links";
@@ -112,6 +112,15 @@ function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId:
   // Marks the session as viewed (so finished runs don't turn unread) and loads it.
   useChatSession(sessionId);
   const subagents = subagentSessionsOf(sessions.value, sessionId);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setComposerHeight(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const links: AgentLinks = {
     canOpen: (name) => subagents.some((s) => s.agentName === name),
     open: (name) => {
@@ -124,11 +133,18 @@ function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId:
   };
   return (
     <AgentLinksContext.Provider value={links}>
-      <div class="flex h-full min-h-0 flex-col bg-window">
-        <Transcript chatId={sessionId} columnClass="w-full px-3" />
-        {/* Under the composer: only part of the home-indicator inset (the card may overlap its
-            top, like Messages), else it floats over an empty strip. */}
-        <div class={cn("shrink-0 px-2 pt-1", keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_-_20px),8px)]")}>
+      <div class="relative flex h-full min-h-0 flex-col bg-window">
+        {/* The conversation scrolls under the floating glass composer; `bottomInset` keeps its
+            last line reachable above it (like ChatGPT / Messages). */}
+        <Transcript chatId={sessionId} columnClass="w-full px-3" bottomInset={composerHeight} />
+        <div
+          ref={composerRef}
+          class={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 px-2 pt-1 [&>*]:pointer-events-auto",
+            // Under the composer: only part of the home-indicator inset (the pill overlaps its top).
+            keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_-_20px),8px)]",
+          )}
+        >
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />
           <Composer chatId={sessionId} autoFocus={false} />
         </div>

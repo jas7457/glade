@@ -573,15 +573,19 @@ export function ComposerBox(props: ComposerBoxProps) {
       <div
         data-compact={touch ? String(compact) : undefined}
         class={cn(
-          "relative flex rounded-[14px] bg-surface-raised transition-shadow",
+          "relative flex rounded-[14px] transition-shadow",
+          // Touch: frosted glass floating over the transcript (styles.css .pi-glass).
+          touch ? "pi-glass" : "bg-surface-raised",
           !touch && "flex-col",
           // items-center per wrapped line: +, the picker pill, the spinner and Send share one centre line.
           touch && "flex-wrap items-center rounded-[22px] transition-[margin,border-radius] duration-200 ease-out",
-          compact && "mx-5",
+          compact && "mx-3 rounded-[26px]",
           touch && !compact && "px-1 pb-1",
           dragging
             ? "shadow-[0_0_0_2px_var(--pi-accent)]"
-            : shellInput
+            : touch && !shellInput
+              ? undefined
+              : shellInput
               ? "shadow-[0_0_0_1.5px_var(--pi-tool-shell),0_2px_10px_-4px_rgb(0_0_0/0.12)]"
               : "shadow-[0_0_0_0.5px_var(--pi-separator),0_2px_10px_-4px_rgb(0_0_0/0.12)] focus-within:shadow-[0_0_0_0.5px_var(--pi-fg-subtle),0_2px_12px_-4px_rgb(0_0_0/0.16)]",
         )}
@@ -678,7 +682,7 @@ export function ComposerBox(props: ComposerBoxProps) {
             "selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60",
             shellInput && "font-mono text-[0.95rem]",
             // Touch: beside [+] and Send while compact, full width above the toolbar when not.
-            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-1.5 pt-[9px] pb-[9px]" : "order-1 basis-full"),
+            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-1.5 pt-[13px] pb-[13px]" : "order-1 basis-full"),
           )}
           onFocus={
             touch

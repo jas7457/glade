@@ -272,6 +272,9 @@ export async function loadModels(refresh = false, envId?: string): Promise<void>
     // A remote environment that refused this device shows "Needs pairing" instead (I-125).
     const { status, code } = err as { status?: number; code?: string };
     if (status === 401 || code === "remote_disabled") return;
+    // A remote one we can't reach (asleep, offline): its status says so in the list; no toast
+    // per unreachable Mac (I-164: the iPhone showed one for each on launch).
+    if (status === undefined && conn && !conn.isLocal) return;
     notify("error", `Could not load models: ${(err as Error).message}`);
   }
   await defaults;

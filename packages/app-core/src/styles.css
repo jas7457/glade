@@ -328,3 +328,24 @@ html[data-desktop] [data-sidebar] {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/*
+ * Frosted "glass" surface (the iPhone composer, I-164): translucent, blurring and saturating what
+ * scrolls behind it, with a thin top highlight — the closest HTML gets to iOS's Liquid Glass.
+ */
+.pi-glass {
+  background: color-mix(in srgb, var(--pi-surface-raised) 58%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.7),
+    0 0 0 0.5px var(--pi-separator),
+    0 10px 30px -10px rgb(0 0 0 / 0.22);
+}
+[data-theme="dark"] .pi-glass {
+  background: color-mix(in srgb, var(--pi-surface-raised) 55%, transparent);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.14),
+    0 0 0 0.5px rgb(255 255 255 / 0.1),
+    0 10px 30px -10px rgb(0 0 0 / 0.6);
+}
