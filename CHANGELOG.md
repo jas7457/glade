@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Folders in the chat list: group projects and standalone chats in top-level folders, or a
+  project's chats in folders inside it (one level deep). Create, rename and delete them; drag
+  things in or use Move to Folder (on iPhone: long-press). Deleting a folder moves its contents
+  back out.
 - Side questions: ask follow-ups right in the same card. Answers in long chats now see the start
   of the chat and your earlier messages, not just the latest part, and the card says when an answer
   only saw part of the chat. Tell the Agent / Add to Queue pass on the whole thread.
