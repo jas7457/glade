@@ -608,12 +608,23 @@ export class AuthService {
   }
 
   renameDevice(id: string, name: unknown): PairedDevice {
-    if (typeof name !== "string" || !name.trim()) throw new AuthError(400, "invalid_request", "name is required");
-    if (name.trim().length > MAX_DEVICE_NAME) throw new AuthError(400, "invalid_request", `name can be at most ${MAX_DEVICE_NAME} characters`);
+    return this.rename(id, name, null);
+  }
+
+  /** `PATCH /api/auth/me` (I-171): the authenticated device renames itself, and only itself. */
+  renameSelf(device: DeviceRow, name: unknown): PairedDevice {
+    return this.rename(device.id, name, "by the device");
+  }
+
+  private rename(id: string, name: unknown, by: string | null): PairedDevice {
+    // Control characters (newlines, tabs…) become spaces; runs of whitespace collapse.
+    const clean = typeof name === "string" ? name.replace(/[\p{Cc}\s]+/gu, " ").trim() : "";
+    if (!clean) throw new AuthError(400, "invalid_request", "name is required");
+    if (clean.length > MAX_DEVICE_NAME) throw new AuthError(400, "invalid_request", `name can be at most ${MAX_DEVICE_NAME} characters`);
     const device = this.deviceById(id);
     if (!device || device.revoked_at !== null) throw new AuthError(404, "not_found", "No such device");
-    this.db.prepare("UPDATE devices SET name = ? WHERE id = ?").run(name.trim(), id);
-    this.audit("device_renamed", { deviceId: id, deviceName: name.trim(), detail: `was "${device.name}"` });
+    this.db.prepare("UPDATE devices SET name = ? WHERE id = ?").run(clean, id);
+    this.audit("device_renamed", { deviceId: id, deviceName: clean, detail: `was "${device.name}"${by ? `, ${by}` : ""}` });
     return this.toPaired(this.deviceById(id)!);
   }
 

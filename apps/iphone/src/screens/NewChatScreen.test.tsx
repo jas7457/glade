@@ -118,4 +118,17 @@ describe("NewChatScreen", () => {
     expect(defaultNewChatEnv(null)).toBe("b");
     expect(defaultNewChatEnv("a")).toBe("a");
   });
+
+  it("says what to check when the Mac can't be reached, with Retry (I-170)", () => {
+    const studio = fakeEnv("m1", "Studio", "offline");
+    const retry = vi.fn();
+    studio.retry = retry;
+    connections.value = [studio];
+    renderNew(`${paths.newChat()}?env=m1`);
+    expect(screen.getByRole("status").textContent).toContain("Can't reach Studio");
+    expect(screen.getByText("Make sure it's awake with Glade open, and Tailscale is on on both.")).toBeTruthy();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).placeholder).toBe("Can't reach Studio");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
 });

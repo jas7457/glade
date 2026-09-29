@@ -247,6 +247,43 @@ describe("device tokens", () => {
     expect(actions).toEqual(expect.arrayContaining(["remote_enabled", "invite_created", "pair_requested", "pair_allowed", "device_renamed", "device_revoked", "auth_failed"]));
   });
 
+  it("a paired device renames itself with its own token only (I-171)", async () => {
+    const t = start();
+    const a = await t.paired();
+    const b = await t.pair(t.grantOf(await t.invite()));
+    if (b.body.status !== "paired") throw new Error("b not paired");
+    const bId = b.body.device.id;
+    const names = async () => ((await (await t.local("GET", "/api/auth/devices")).json()) as Array<{ id: string; name: string }>).map((d) => [d.id, d.name]);
+    const before = await names();
+
+    const res = await t.remote("PATCH", "/api/auth/me", { token: a.token, body: { name: "  Jason's\n iPhone \t" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: a.device.id, name: "Jason's iPhone" });
+    // Only its own row changed.
+    expect(await names()).toEqual(before.map(([id, name]) => [id, id === a.device.id ? "Jason's iPhone" : name]));
+
+    // Validation: empty, too long, not a string; the name stays.
+    for (const name of ["   ", "x".repeat(101), 42, undefined]) {
+      const bad = await t.remote("PATCH", "/api/auth/me", { token: a.token, body: { name } });
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toMatchObject({ code: "invalid_request" });
+    }
+    expect((await t.remote("PATCH", "/api/auth/me", { token: a.token, body: { name: "x".repeat(100) } })).status).toBe(200);
+
+    // No token / a bad token: 401; the host itself has no device identity.
+    expect((await t.remote("PATCH", "/api/auth/me", { body: { name: "Evil" } })).status).toBe(401);
+    expect((await t.remote("PATCH", "/api/auth/me", { token: "nope", body: { name: "Evil" } })).status).toBe(401);
+    expect((await t.local("PATCH", "/api/auth/me", { name: "Evil" })).status).toBe(400);
+    // A device can't rename another one through the host's route.
+    expect((await t.remote("PATCH", `/api/auth/devices/${bId}`, { token: a.token, body: { name: "Evil" } })).status).toBe(403);
+    expect((await names()).find(([id]) => id === bId)?.[1]).not.toBe("Evil");
+
+    // Revoked: its token no longer renames anything.
+    await t.local("DELETE", `/api/auth/devices/${a.device.id}`);
+    expect((await t.remote("PATCH", "/api/auth/me", { token: a.token, body: { name: "Back" } })).status).toBe(401);
+    expect(await t.audit()).toContain("device_renamed");
+  });
+
   it("stores the client's environment id and lists it with the device (I-136)", async () => {
     const t = start();
     await t.enable();

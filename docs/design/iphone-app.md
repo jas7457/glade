@@ -262,8 +262,11 @@ Needed native bits:
   loopback + own origin only).
 - **The iPhone's own identity:** it has no environment id (no server). Generate a stable random
   device id on first launch, keep it in the Keychain, and send it as `clientEnvironmentId` when
-  pairing, so the Mac's Connections list can show and rename it (I-136/I-138). `deviceName`: use
-  the iPhone's name if available, else "iPhone".
+  pairing, so the Mac's Connections list can show and rename it (I-136/I-138). `deviceName`: iOS
+  16+ only tells apps "iPhone", so the user names it (Connect screen, Settings → This iPhone;
+  stored on the phone, default "iPhone"); renaming it later pushes the name to every paired Mac
+  with `PATCH /api/auth/me {name}` (a device renames only itself; Macs that are down get it when
+  they reconnect) (I-171).
 - **Code-free tailnet pairing (I-143)** requires the host to see a `Tailscale-User-Login` header
   from serve. That also works for an iPhone on the same account, but the iPhone can't *discover*
   hosts via `tailscale status` (no CLI). So pairing on the iPhone = scan the QR code / paste the

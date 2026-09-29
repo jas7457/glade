@@ -4,6 +4,7 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import { connections } from "@glade/app-core/state/env-registry";
 import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { paths } from "~/app/routes";
+import { phoneName } from "~/state/connect";
 import { phoneTheme } from "~/state/theme";
 import { fakeEnv } from "~/test/fake-env";
 import { DeviceScreen } from "./DeviceScreen";
@@ -77,5 +78,31 @@ describe("iPhone settings", () => {
     const router = renderAt(paths.device("m2"));
     fireEvent.click(screen.getByRole("button", { name: "Pair Again…" }));
     expect(router.state.location.pathname).toBe(paths.connect());
+  });
+
+  it("renames this iPhone (I-171)", () => {
+    phoneName.value = "iPhone";
+    renderAt(paths.settings());
+    expect(screen.getByTestId("phone-name").textContent).toBe("iPhone");
+    fireEvent.click(screen.getByRole("button", { name: /^Name\s*iPhone/ }));
+    fireEvent.input(screen.getByLabelText("This iPhone's name"), { target: { value: "  Jason's  iPhone " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(phoneName.value).toBe("Jason's iPhone");
+    expect(localStorage.getItem("glade.iphone.deviceName")).toBe("Jason's iPhone");
+    expect(screen.getByTestId("phone-name").textContent).toBe("Jason's iPhone");
+  });
+
+  it("an unreachable Mac says what to check, with Retry (I-170)", () => {
+    const studio = fakeEnv("m1", "Studio", "offline");
+    let retried = 0;
+    studio.retry = () => retried++;
+    connections.value = [studio];
+    renderAt(paths.settings());
+    expect(screen.getByRole("button", { name: /Studio\s*Can't reach/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Studio/ }));
+    expect(screen.getByTestId("device-status").textContent).toBe("Can't reach");
+    expect(screen.getByText("Make sure it's awake with Glade open, and Tailscale is on on both.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retried).toBe(1);
   });
 });

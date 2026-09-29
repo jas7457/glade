@@ -38,6 +38,7 @@
  *   POST   /api/auth/pair/wait TailnetPairWait → PairResponse  (long-polls like the above; not rate-limited)
  * Any paired device (bearer):
  *   GET    /api/auth/me                        → PairedDevice (who am I; also refreshes last seen)
+ *   PATCH  /api/auth/me {name}                 → PairedDevice (rename itself, I-171; trimmed, ≤ 100 characters)
  *   POST   /api/auth/ws-ticket                 → { ticket: string; expiresAt: number }
  */
 

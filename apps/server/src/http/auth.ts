@@ -1,8 +1,8 @@
 /**
  * `/api/auth/*` (I-125/I-126; contract: packages/protocol/src/auth.ts). The host's own endpoints
  * (remote switch, invites, pending pairings, devices, audit) are local-owner only; `pair` is for
- * clients without a token (remote access on, rate-limited); `me` and `ws-ticket` need a device
- * token; `pair/wait` is the code-free client waiting (I-143). All behaviour lives in {@link AuthService}; its `AuthError`s become `{ code, error }` in
+ * clients without a token (remote access on, rate-limited); `me` (GET, and PATCH to rename itself,
+ * I-171) and `ws-ticket` need a device token; `pair/wait` is the code-free client waiting (I-143). All behaviour lives in {@link AuthService}; its `AuthError`s become `{ code, error }` in
  * app.ts's error handler.
  */
 import { Hono, type Context } from "hono";
@@ -24,6 +24,13 @@ export function authRoutes(auth: AuthService, remote?: RemoteTransport): Hono {
     const d = device(c);
     if (!d) return c.json({ code: "not_a_device", error: "Only paired devices have a device identity." }, 400);
     return c.json(auth.me(d, requestMeta(c)));
+  });
+  // I-171: a paired device renames itself (its token only says which device; no other ids taken).
+  api.patch("/me", async (c) => {
+    const d = device(c);
+    if (!d) return c.json({ code: "not_a_device", error: "Only paired devices have a device identity." }, 400);
+    const body = await readBody<{ name?: unknown }>(c);
+    return c.json(auth.renameSelf(d, body.name));
   });
   api.post("/ws-ticket", (c) => {
     const d = device(c);

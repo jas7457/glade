@@ -8,6 +8,7 @@ import { startEnvironments } from "@glade/app-core/state/environments";
 import { remoteMaster, setRemoteMaster } from "@glade/app-core/state/remote-master";
 import { setSecretStore } from "@glade/app-core/state/saved-environments";
 import { iphoneSecretStore } from "~/lib/secrets";
+import { syncPhoneName } from "~/state/connect";
 import { startPhoneAppearance } from "~/state/theme";
 
 export async function bootIphone(): Promise<void> {
@@ -15,4 +16,5 @@ export async function bootIphone(): Promise<void> {
   if (!remoteMaster.value) await setRemoteMaster(true);
   startPhoneAppearance();
   await startEnvironments({ localBaseUrl: null });
+  syncPhoneName();
 }
