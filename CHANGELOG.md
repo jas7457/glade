@@ -201,6 +201,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- When your Mac offers more than one agent, every chat shows which agent it runs on (the default
+  one too): a badge in the chat header, and before the model on the iPhone's chat title line.
 - The model picker shows Claude Code's models with their version and a short description
   ("Opus 5.5 — Best for everyday, complex tasks") under a "Claude Code" header.
 - Long chats open faster on the Mac and iPhone: they start with the latest messages and load older
