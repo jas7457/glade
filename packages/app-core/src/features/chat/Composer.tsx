@@ -87,6 +87,7 @@ import { fileIcon } from "./UserBubble";
 import { useImageLightbox } from "./ImageLightbox";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ModelThinkingPicker, ThinkingPicker } from "./Pickers";
+import { modelInfo, setChatModel, setChatThinkingLevel } from "./chat-model";
 import { InterruptedBanner } from "./InterruptedBanner";
 import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
@@ -912,10 +913,6 @@ function QueuedText({ text }: { text: string }) {
   );
 }
 
-function modelInfo(models: ModelInfo[], ref: ModelRef | null): ModelInfo | undefined {
-  return ref ? models.find((m) => sameModel(m, ref)) : undefined;
-}
-
 function supportsImageInput(info: ModelInfo | undefined): boolean {
   // Unknown model (list not loaded yet): allow; the agent will reject if unsupported.
   return info ? info.input.includes("image") : true;
@@ -972,26 +969,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
   const runShell = ({ command, shareWithAgent }: ShellInput) =>
     runAction(() => apiForSession(chatId).runShell(chatId, { command, shareWithAgent }), "Could not run the command");
 
-  const onModelChange = (model: ModelRef) => {
-    const info = modelInfo(models, model);
-    const prev = store.state.value;
-    store.state.value = {
-      ...prev,
-      model,
-      ...(info ? { thinkingLevels: info.thinkingLevels, thinkingLevel: clampThinkingLevel(info.thinkingLevels, prev.thinkingLevel) } : {}),
-    };
-    void runAction(() => apiForSession(chatId).setModel(chatId, model), "Could not change model").then((ok) => {
-      if (!ok) store.state.value = prev;
-    });
-  };
-
-  const onThinkingChange = (level: ThinkingLevel) => {
-    const prev = store.state.value;
-    store.state.value = { ...prev, thinkingLevel: level };
-    void runAction(() => apiForSession(chatId).setThinkingLevel(chatId, level), "Could not change thinking level").then((ok) => {
-      if (!ok) store.state.value = prev;
-    });
-  };
+  const onModelChange = (model: ModelRef) => setChatModel(chatId, models, model);
+  const onThinkingChange = (level: ThinkingLevel) => setChatThinkingLevel(chatId, level);
 
   const interrupted = summary?.interrupted === true;
   // I-062: another Glade server (e.g. the dev server next to the installed app) runs it right now.
