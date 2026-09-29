@@ -8,10 +8,11 @@ import { FolderPlus, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from
 import { routes } from "@/app/routes";
 import { routeContext } from "@/app/paths";
 import { cn } from "@/lib/cn";
-import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, Titlebar, sidebarClass } from "@/ui";
+import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, StatusDot, Titlebar, sidebarClass } from "@/ui";
 import { envIdOf, workspacesById, workspacesForProject, sortedProjects } from "@/state/store";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { reorderProjects } from "@/state/actions";
+import { updateAvailable } from "@/state/version";
 import { SettingsNav } from "@/features/settings";
 import { DownEnvironmentRows } from "@/features/environments/DownEnvironmentRows";
 import { ChatList } from "./ChatList";
@@ -113,6 +114,8 @@ export function Sidebar() {
               class="min-w-0 flex-1"
               icon={<SettingsIcon />}
               label="Settings"
+              // I-149: a quiet dot when a newer Glade is on main (Settings → About says more).
+              badge={updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
               onSelect={() => navigate(routes.settings())}
               trailing={<Kbd keys="⌘," class="border-0 bg-transparent" />}
             />

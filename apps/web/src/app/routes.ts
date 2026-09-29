@@ -42,7 +42,7 @@ export const routes = {
   settings: (section?: SettingsSection) => (section ? `/settings/${section}` : "/settings"),
 };
 
-export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent", "commands", "prompts", "remote"] as const;
+export const SETTINGS_SECTIONS = ["general", "models", "appearance", "agent", "commands", "prompts", "remote", "about"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**

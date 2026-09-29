@@ -14,10 +14,14 @@
  * I-138: one name per row, set by this device (`nameOfConnection`); Rename (or double-click the
  * name) sets it for both directions at once (`renameConnection`).
  *
+ * I-149: a device this one uses whose Glade is built from another commit says so ("Running an older
+ * Glade (3 commits behind this device)" / "newer"), counted by this device's repo when it can,
+ * else by build time.
+ *
  * Glade hosts found on the tailnet that this device doesn't use yet follow as "Connect…" rows,
  * kept fresh while shown (I-137, `use-discovery.ts`) with a Refresh button.
  */
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { Monitor, Plus, RefreshCw, Share } from "lucide-preact";
 import type { DiscoveredEnvironment, PairedDevice } from "@glade/protocol";
 import { mergeConnections, nameOfConnection, type Connection } from "@/state/connections";
@@ -28,6 +32,7 @@ import { remoteStateOf, remoteStateText } from "@/state/remote-status";
 import { Badge, Button, FormGroup, FormRow, Spinner, StatusDot, TextField, confirm, remoteStatusTone } from "@/ui";
 import { formatLastSeen } from "./HostRemoteAccess";
 import { DeviceKindIcon } from "./device-kind";
+import { BUILD_MISMATCH_HINT, buildComparisons, buildRelation, buildRelationText, compareBuild, ownBuild } from "@/state/version";
 import { useDiscovery } from "./use-discovery";
 
 export interface ConnectionsProps {
@@ -182,6 +187,14 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
   );
 
   const state = env ? remoteStateOf(env.id) : null;
+  // I-149: its build vs. ours (the local server's).
+  const theirs = conn?.info.value?.build;
+  const ours = ownBuild.value ?? connectionFor(localEnvironmentId.value)?.info.value?.build;
+  const differs = !!theirs && !!ours && theirs.commit !== ours.commit;
+  useEffect(() => {
+    if (differs && theirs) compareBuild(theirs.commit);
+  }, [differs, theirs?.commit]);
+  const relation = differs ? buildRelation(ours, theirs, buildComparisons.value.get(theirs!.commit)) : null;
 
   return (
     <FormRow
@@ -236,6 +249,11 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
                   Disconnect…
                 </Button>
               </span>
+            </span>
+          )}
+          {relation && (
+            <span class="min-w-0 text-fg-muted" data-testid="build-relation" title={BUILD_MISMATCH_HINT}>
+              {`${buildRelationText(relation)}. ${BUILD_MISMATCH_HINT}`}
             </span>
           )}
           {device && (

@@ -7,6 +7,13 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Glade lives in the menu bar: ⌘Q closes the window but keeps chats, sub-agents and sharing
+  running; quit for real with Quit Glade Completely (menu bar or ⌥⌘Q). The menu bar icon shows
+  working chats and sharing. New options: Show in Dock and Open at login.
+- Glade keeps your Mac awake while a chat is working, and while it's shared with a connected
+  device (on power; optional on battery). The display can still sleep.
+- Settings → About shows which build you're running and whether it's behind GitHub's main, and
+  Connections tells you when another device runs an older or newer Glade.
 - Pair your own devices without typing a code: click Connect on a device found on your tailnet,
   check that both screens show the same number, and press Allow on the other device. Works when
   both are signed in to the same Tailscale account; otherwise Glade asks for the code as before.

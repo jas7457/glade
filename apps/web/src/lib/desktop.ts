@@ -22,7 +22,12 @@ export type MenuAction =
   | "new-tab"
   | "close-tab"
   | "next-tab"
-  | "previous-tab";
+  | "previous-tab"
+  // Menu bar (tray) items (I-150, src-tauri/src/tray.rs): open a working chat / one that needs
+  // you; Settings → Remote Access (the sharing toggle couldn't turn sharing on).
+  | "show-working"
+  | "show-needs-you"
+  | "remote-settings";
 const MENU_EVENT = "glade:menu";
 
 /** Listen for app-menu actions. Returns an unsubscribe function (safe to call immediately). */
@@ -119,4 +124,45 @@ export function onNativeNotificationClick(handler: (data: string) => void): () =
     disposed = true;
     unlisten?.();
   };
+}
+
+/**
+ * The Mac app's own preferences (I-150, `src-tauri/src/prefs.rs`): kept by the shell, not the
+ * server. `quitNoticeShown` is the shell's; the UI only reads it.
+ */
+export interface DesktopPrefs {
+  /** Off: Glade lives only in the menu bar, also with its window open. */
+  showInDock: boolean;
+  /** ⌘Q closes the windows and keeps Glade running in the menu bar. */
+  quitToMenuBar: boolean;
+  quitNoticeShown: boolean;
+}
+
+/** `null` outside the Mac app. */
+export async function getDesktopPrefs(): Promise<DesktopPrefs | null> {
+  if (!isDesktop()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<DesktopPrefs>("desktop_prefs_get");
+}
+
+export async function setDesktopPrefs(patch: Partial<Pick<DesktopPrefs, "showInDock" | "quitToMenuBar">>): Promise<DesktopPrefs | null> {
+  if (!isDesktop()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<DesktopPrefs>("desktop_prefs_set", { patch });
+}
+
+/** "Open at login" as the system reports it (`SMAppService`, `src-tauri/src/login_item.rs`). */
+export type LoginItemStatus = "enabled" | "disabled" | "requires-approval" | "unavailable";
+
+export async function getLoginItem(): Promise<LoginItemStatus> {
+  if (!isDesktop()) return "unavailable";
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<LoginItemStatus>("login_item_get");
+}
+
+/** Rejects with a message when the system refuses. */
+export async function setLoginItem(enabled: boolean): Promise<LoginItemStatus> {
+  if (!isDesktop()) return "unavailable";
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<LoginItemStatus>("login_item_set", { enabled });
 }

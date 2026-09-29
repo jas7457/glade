@@ -267,11 +267,17 @@ pub fn data_dir() -> PathBuf {
 /// `GET path` on a loopback server; returns the body of a 200 response. HTTP/1.0 so the
 /// response is never chunked.
 pub fn http_get(host: &str, port: u16, path: &str, timeout: Duration) -> Option<String> {
+    http_request(host, port, "GET", path, None, timeout)
+}
+
+/// A request with an optional JSON body on a loopback server; the body of a 200 response.
+pub fn http_request(host: &str, port: u16, method: &str, path: &str, json: Option<&str>, timeout: Duration) -> Option<String> {
     let addr = (host, port).to_socket_addrs().ok()?.next()?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(300)).ok()?;
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let req = format!("GET {path} HTTP/1.0\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    let body = json.map(|b| format!("Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{b}", b.len()));
+    let req = format!("{method} {path} HTTP/1.0\r\nHost: {host}:{port}\r\nConnection: close\r\n{}", body.as_deref().unwrap_or("\r\n"));
     stream.write_all(req.as_bytes()).ok()?;
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).ok()?;
@@ -369,9 +375,12 @@ pub fn start(bundle: &Bundle, log_path: &Path, preferred_port: Option<u16>) -> R
         // An inherited pre-rename copy would be ignored anyway; don't pass it on.
         cmd.env_remove(format!("{LEGACY_ENV_PREFIX}{name}"));
     }
-    // Don't leak a dev-mode harness choice from the launching environment.
-    cmd.env_remove(format!("{ENV_PREFIX}HARNESS"));
-    cmd.env_remove(format!("{LEGACY_ENV_PREFIX}HARNESS"));
+    // Don't leak a dev-mode harness choice from the launching environment, except into test
+    // builds with their own identifier (agents check them with `GLADE_HARNESS=fake`, no model).
+    if env_var(crate::dev::IDENTIFIER_ENV).is_none() {
+        cmd.env_remove(format!("{ENV_PREFIX}HARNESS"));
+        cmd.env_remove(format!("{LEGACY_ENV_PREFIX}HARNESS"));
+    }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start {}: {e}", node.display()))?;
     let stdin = child.stdin.take();
     let mut server = RunningServer { port, child, stdin };

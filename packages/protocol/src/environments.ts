@@ -11,6 +11,7 @@
  *   GET /api/fs/browse?path=&hidden=1    → FsBrowseResult (directories only)
  *   POST /api/fs/mkdir {path}            → FsBrowseEntry (create a folder, for "New Folder")
  */
+import type { BuildInfo } from "./version.js";
 
 /** Things an environment can do; clients hide what's missing. */
 export interface EnvironmentCapabilities {
@@ -42,6 +43,8 @@ export interface EnvironmentInfo {
   /** The host user's home folder (for "~" in the folder browser). */
   home: string;
   capabilities: EnvironmentCapabilities;
+  /** The commit it was built from (I-149); absent on older servers and in identity-only answers. */
+  build?: BuildInfo | null;
 }
 
 /** `PATCH /api/environment` body. `name` is trimmed; empty resets to the machine name. */

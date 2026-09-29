@@ -1,5 +1,5 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
-import { BookText, Cpu, Globe, Palette, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
+import { BookText, Cpu, Globe, Info, Palette, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
 import type { SettingsSection } from "@/app/routes";
 import { hostHarnesses as harnesses } from "@/state/host-settings";
 
@@ -26,6 +26,7 @@ export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof
   commands: { label: "Slash Commands", Icon: SlashSquare },
   prompts: { label: "Prompts", Icon: BookText },
   remote: { label: "Remote Access", Icon: Globe },
+  about: { label: "About", Icon: Info },
 };
 
 /** Sections that belong to the environment running the agents (I-123): they get an environment switcher. */
@@ -38,6 +39,6 @@ export interface SettingsGroup {
 
 /** Sidebar categories in order. Every section must appear in exactly one group. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
-  { title: "App", sections: ["general", "appearance", "remote"] },
+  { title: "App", sections: ["general", "appearance", "remote", "about"] },
   { title: "AI", sections: ["models", "agent", "commands", "prompts"] },
 ];

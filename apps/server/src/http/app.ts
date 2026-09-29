@@ -56,6 +56,10 @@ import { createWsHandler } from "./ws.js";
 import { commandIds } from "./commands.js";
 import { loadStaticSnapshot, type StaticFile } from "./static-snapshot.js";
 import { fsBrowseRoutes } from "./fs-browse.js";
+import { powerRoutes } from "./power.js";
+import type { PowerTracker } from "../services/power.js";
+import { versionRoutes } from "./version.js";
+import { UpdateChecker } from "../services/update-check.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -81,9 +85,13 @@ export interface CreateAppOptions {
   folderInfo?: FolderInfoService;
   /** Chat search (I-045/I-046); routes are mounted only when given. */
   search?: SearchService;
+  /** Keeping the Mac awake + menu bar state (I-147/I-150); routes are mounted only when given. */
+  power?: PowerTracker;
+  /** Build stamp + behind check (I-149). Default: one on the service's build that isn't started (tests). */
+  updates?: UpdateChecker;
 }
 
-export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, power }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -117,6 +125,13 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   app.route("/api/agents", createAgentsRoutes(service, search));
   // Folder browser (I-124): directories in the home folder and /Volumes, New Folder.
   app.route("/api", fsBrowseRoutes());
+  if (power) {
+    app.use("/api/power", localOnly);
+    app.use("/api/desktop/*", localOnly);
+    app.route("/api", powerRoutes(power));
+  }
+  // Build stamp and "is this app behind?" (I-149).
+  app.route("/api", versionRoutes(updates ?? new UpdateChecker({ build: () => service.environment.build() })));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
 

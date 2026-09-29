@@ -291,6 +291,15 @@ export interface Settings {
   };
   /** Saved prompts (I-098): global and per project, in their manual order. See `prompts.ts`. */
   prompts: import("./prompts.js").SavedPrompt[];
+  /** Keeping the Mac awake (I-147, `power.ts`). Only the Mac app holds the assertion. */
+  power: {
+    /** "Keep this Mac awake while a chat is working" (General). */
+    whileWorking: boolean;
+    /** "Keep this device awake while it's shared" with a device connected, on AC power (Remote Access). */
+    whileShared: boolean;
+    /** Also on battery power (Remote Access). */
+    whileSharedOnBattery: boolean;
+  };
 }
 
 /** Settings of the pi harness (`Settings.harnesses.pi`, I-066). */
@@ -347,6 +356,7 @@ export function defaultSettings(): Settings {
       hidden: [],
     },
     prompts: [],
+    power: { whileWorking: true, whileShared: true, whileSharedOnBattery: false },
   };
 }
 
@@ -561,6 +571,8 @@ export type ServerMessage = (
    * sequenced (sent as is, in either socket mode).
    */
   | { type: "pairing_pending"; pending: PendingPairing[] }
+  /** Why the Mac is kept awake (I-147), after every change. Local-owner sockets only; not sequenced. */
+  | { type: "power"; power: import("./power.js").PowerStatus }
   // Sequenced sync (I-122) ---------------------------------------------------------------------
   /** Several pushes at once (sent every ~50 ms). */
   | { type: "batch"; messages: ServerMessage[] }

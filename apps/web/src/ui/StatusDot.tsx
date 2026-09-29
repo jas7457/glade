@@ -6,18 +6,20 @@
  *   pending  → amber   connecting / reconnecting
  *   off      → grey    turned off / offline
  *   error    → red     needs attention (needs pairing, can't reach)
+ *   info     → accent  something new, quietly (an update is available, I-149)
  *
  *   <StatusDot tone="on" label="Connected" />
  */
 import { cn } from "@/lib/cn";
 
-export type StatusTone = "on" | "pending" | "off" | "error";
+export type StatusTone = "on" | "pending" | "off" | "error" | "info";
 
 const TONE_CLASS: Record<StatusTone, string> = {
   on: "bg-success",
   pending: "bg-warning",
   off: "bg-fg-subtle",
   error: "bg-danger",
+  info: "bg-accent",
 };
 
 export interface StatusDotProps {

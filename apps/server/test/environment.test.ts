@@ -35,7 +35,7 @@ function tempDir(): string {
   return dir;
 }
 
-const MACHINE: EnvironmentOptions = { platform: "darwin", hostname: "studio.local", home: "/Users/test", machineName: () => "Test Mac Studio" };
+const MACHINE: EnvironmentOptions = { platform: "darwin", hostname: "studio.local", home: "/Users/test", machineName: () => "Test Mac Studio", build: () => null };
 
 function start(dir = tempDir(), environment: EnvironmentOptions = MACHINE) {
   const store = new Store(join(dir, "data"), 0);
@@ -113,6 +113,7 @@ describe("environment identity", () => {
       hostname: "studio.local",
       home: "/Users/test",
       capabilities: { openIn: true, reveal: true, nativeFolderPicker: true, browse: true, remoteAccess: true },
+      build: null,
     });
   });
 

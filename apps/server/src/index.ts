@@ -26,8 +26,10 @@ import { AuthService } from "./services/auth/auth-service.js";
 import { lastServedPort, managesTransport, RemoteTransport } from "./services/transports/manager.js";
 import { TailscaleTransport } from "./services/transports/tailscale.js";
 import { FolderInfoService } from "./services/folder-info.js";
+import { createPowerTracker } from "./services/power.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
+import { UpdateChecker } from "./services/update-check.js";
 import { migrateLegacyDataDir } from "./store/migrate-data-dir.js";
 import { NewerSchemaError } from "./store/db/database.js";
 import { olderServerMessage, recordSuccessfulStart } from "./store/startup.js";
@@ -194,12 +196,18 @@ const auth = new AuthService({
   // I-143: code-free pairing only for requests from the host's own Tailscale account.
   tailscaleLogin: async () => (remote ? remote.ownLogin() : null),
 });
+// I-149: is this build behind origin's main? (read-only `git ls-remote`, at startup + every 4 h)
+const updates = new UpdateChecker({ build: () => service.environment.build(), log: env("DEBUG") ? log : undefined });
+// I-147/I-150: why the Mac is kept awake (only the Mac app's shell holds the assertion) + menu bar state.
+const power = createPowerTracker({ service, auth, canHold: serverKind === "desktop" });
 const { app, injectWebSocket } = createApp({
   service,
+  updates,
   folderInfo,
   search,
   auth,
   remote,
+  power,
   ownPorts: () => [...(listeningPort === null ? [] : [listeningPort]), ...(Number.isInteger(webPort) ? [webPort] : [])],
   staticDir: config.staticDir ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
   // The installed app's bundle can be replaced while it runs (I-082): keep serving our own copy.
@@ -231,6 +239,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: listenPort
     console.warn(`[glade] could not record the start: ${(err as Error).message}`);
   }
   remote?.start();
+  updates.start();
   void service.startTranscriptImport().catch((err: Error) => console.warn(`[glade] importing conversations failed: ${err.message}`));
 });
 injectWebSocket(server);
@@ -246,7 +255,9 @@ async function shutdown(signal: string): Promise<void> {
     server.close();
     search?.dispose();
     auth.dispose();
+    power.dispose();
     remote?.dispose();
+    updates.dispose();
     await service.dispose();
     registry.release();
   } catch (err) {

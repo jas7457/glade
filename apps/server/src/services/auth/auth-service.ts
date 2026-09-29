@@ -183,6 +183,8 @@ export class AuthService {
   private readonly failedAudit = new Map<string, number>();
   private lastPendingKey = "[]";
   private timer: NodeJS.Timeout | null = null;
+  /** Told when a remote socket opens or closes (I-147: connected devices keep the Mac awake). */
+  private readonly socketListeners = new Set<() => void>();
 
   constructor(private readonly options: AuthServiceOptions) {
     this.db = options.db;
@@ -679,6 +681,31 @@ export class AuthService {
     return device;
   }
 
+  /** Names of the devices with a socket open to this server right now (I-147), sorted. */
+  connectedDeviceNames(): string[] {
+    const names: string[] = [];
+    for (const id of this.remoteSockets.keys()) {
+      const device = this.deviceById(id);
+      if (device && device.revoked_at === null) names.push(device.name);
+    }
+    return names.sort((a, b) => a.localeCompare(b));
+  }
+
+  /** Listen for remote sockets opening and closing. Returns an unsubscribe function. */
+  onSocketsChange(listener: () => void): () => void {
+    this.socketListeners.add(listener);
+    return () => this.socketListeners.delete(listener);
+  }
+
+  private socketsChanged(): void {
+    for (const listener of this.socketListeners) listener();
+  }
+
+  /** Send a message to this server's local-owner sockets (e.g. `power`, I-147). */
+  pushLocal(message: ServerMessage): void {
+    for (const s of this.localSockets) s.send(message);
+  }
+
   /** Track a socket (remote ones by device, for revocation; local ones get pairing pushes). */
   attachSocket(identity: Identity, socket: AuthSocket): () => void {
     if (identity.kind === "local") {
@@ -692,10 +719,12 @@ export class AuthService {
     let set = this.remoteSockets.get(id);
     if (!set) this.remoteSockets.set(id, (set = new Set()));
     set.add(socket);
+    this.socketsChanged();
     return () => {
       const s = this.remoteSockets.get(id);
       s?.delete(socket);
       if (s && s.size === 0) this.remoteSockets.delete(id);
+      this.socketsChanged();
     };
   }
 
@@ -704,6 +733,7 @@ export class AuthService {
     const sockets = this.remoteSockets.get(id);
     this.remoteSockets.delete(id);
     for (const s of sockets ?? []) s.close(CLOSE_REVOKED, "device revoked");
+    if (sockets) this.socketsChanged();
   }
 
   private cutOffRemote(): void {
@@ -711,6 +741,7 @@ export class AuthService {
     const all = [...this.remoteSockets.values()];
     this.remoteSockets.clear();
     for (const set of all) for (const s of set) s.close(CLOSE_REMOTE_DISABLED, "remote access turned off");
+    if (all.length) this.socketsChanged();
   }
 
   private pushPending(): void {

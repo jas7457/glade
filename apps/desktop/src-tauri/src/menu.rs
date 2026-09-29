@@ -6,6 +6,10 @@
 //!
 //! ⌘W closes the current tab, so Close Window is our own item on ⇧⌘W (the predefined one is
 //! hard-wired to ⌘W).
+//!
+//! Quit is ours too (I-150): "Quit Glade" (⌘Q) closes to the menu bar when that setting is on,
+//! "Quit Glade Completely" (⌥⌘Q) always quits (`quit.rs`). Menu bar (tray) clicks come here as
+//! well and go to `tray::handle`.
 
 use tauri::menu::{AboutMetadata, Menu, MenuEvent, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager};
@@ -14,6 +18,8 @@ use crate::{focus_main, MAIN_WINDOW};
 
 pub const MENU_EVENT: &str = "glade:menu";
 const CLOSE_WINDOW: &str = "close-window";
+const QUIT: &str = "quit";
+const QUIT_COMPLETELY: &str = "quit-completely";
 /// Items that (show and) act on the main window.
 const APP_ACTIONS: [&str; 5] = ["new-chat", "settings", "toggle-sidebar", "command-palette", "new-tab"];
 /// Items that act on the main window's current tabs: ignored while it's hidden (a stray ⌘W
@@ -34,6 +40,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let next_tab = MenuItemBuilder::with_id("next-tab", "Show Next Tab").accelerator("Ctrl+Tab").build(app)?;
     let previous_tab = MenuItemBuilder::with_id("previous-tab", "Show Previous Tab")
         .accelerator("Ctrl+Shift+Tab")
+        .build(app)?;
+    let quit = MenuItemBuilder::with_id(QUIT, "Quit Glade").accelerator("CmdOrCtrl+Q").build(app)?;
+    let quit_completely = MenuItemBuilder::with_id(QUIT_COMPLETELY, "Quit Glade Completely")
+        .accelerator("CmdOrCtrl+Alt+Q")
         .build(app)?;
     let command_palette = MenuItemBuilder::with_id("command-palette", "Command Palette…")
         .accelerator("CmdOrCtrl+K")
@@ -56,7 +66,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .hide_others()
         .show_all()
         .separator()
-        .quit()
+        .item(&quit)
+        .item(&quit_completely)
         .build()?;
     let file = SubmenuBuilder::new(app, "File")
         .item(&new_chat)
@@ -95,7 +106,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
 pub fn handle(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
-    if APP_ACTIONS.contains(&id) {
+    if crate::tray::handle(app, id) {
+        return;
+    }
+    if id == QUIT {
+        crate::quit::menu_quit(app);
+    } else if id == QUIT_COMPLETELY {
+        crate::quit::quit_completely(app);
+    } else if APP_ACTIONS.contains(&id) {
         focus_main(app);
         let _ = app.emit_to(MAIN_WINDOW, MENU_EVENT, id);
     } else if TAB_ACTIONS.contains(&id) {

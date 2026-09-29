@@ -2,7 +2,9 @@ import { Button, FormGroup, FormRow, SegmentedControl, Switch } from "@/ui";
 import { settings } from "@/state/store";
 import { updateSettings } from "@/state/actions";
 import { harnessCapabilities } from "@/state/harnesses";
+import { hasLocalEnvironment } from "@/state/env-registry";
 import { isDesktop } from "@/lib/desktop";
+import { DesktopAppSettings, KeepAwakeSettings } from "./DesktopAppSettings";
 import { notificationPermission, notificationPrefs, requestNotificationPermission, updateNotificationPrefs, type NotificationPrefs } from "@/state/notifications";
 
 export function GeneralSettings() {
@@ -66,6 +68,8 @@ export function GeneralSettings() {
       </FormGroup>
 
       <NotificationSettings />
+      {hasLocalEnvironment.value && <KeepAwakeSettings />}
+      {isDesktop() && <DesktopAppSettings />}
     </>
   );
 }

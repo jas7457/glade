@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: the bundled splash page, the Vite dev server and the local Glade server (any loopback port). Only this window may use the Keychain commands (secret_*, I-134) and the notification commands (notify_*, I-135).",
+  "description": "Main window: the bundled splash page, the Vite dev server and the local Glade server (any loopback port). Only this window may use the Keychain commands (secret_*, I-134) the notification commands (notify_*, I-135) and the app preference / login item commands (desktop_prefs_*, login_item_*, I-150).",
   "windows": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:*", "http://127.0.0.1:*/*", "http://localhost:*", "http://localhost:*/*"]
@@ -22,6 +22,10 @@
     "allow-notify-request",
     "allow-notify-show",
     "allow-notify-ready",
+    "allow-desktop-prefs-get",
+    "allow-desktop-prefs-set",
+    "allow-login-item-get",
+    "allow-login-item-set",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://*" }, { "url": "https://*" }, { "url": "mailto:*" }]

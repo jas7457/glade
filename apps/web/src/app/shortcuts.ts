@@ -109,8 +109,11 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey"
   return BINDINGS.get(`mod+${e.key.toLowerCase()}`) ?? null;
 }
 
+/** Menu bar (tray) actions: handled by `useMenuBarActions` (app/menuBarActions.ts, I-150). */
+type MenuBarAction = "show-working" | "show-needs-you" | "remote-settings";
+
 /** Menu actions handled globally; the tab ones (`TAB_SHORTCUTS`) go to `useTabShortcuts`. */
-const MENU_ACTIONS: Record<Exclude<MenuAction, TabCommandId>, GlobalCommandId> = {
+const MENU_ACTIONS: Record<Exclude<MenuAction, TabCommandId | MenuBarAction>, GlobalCommandId> = {
   "new-chat": "new-chat",
   settings: "settings",
   "toggle-sidebar": "toggle-sidebar",
@@ -123,7 +126,7 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
   useEffect(
     () =>
       onMenuAction((action) => {
-        if (!isTabCommand(action)) latest.current[MENU_ACTIONS[action]]();
+        if (!isTabCommand(action) && action in MENU_ACTIONS) latest.current[MENU_ACTIONS[action as keyof typeof MENU_ACTIONS]]();
       }),
     [],
   );

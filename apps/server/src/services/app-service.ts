@@ -210,15 +210,25 @@ export class AppService {
   // Push channel
   // -------------------------------------------------------------------------------------------
 
-  subscribe(listener: Listener): () => void {
+  /** `internal`: a server-side listener (e.g. the power tracker, I-147), not a client: it doesn't wake the usage poller. */
+  subscribe(listener: Listener, options: { internal?: boolean } = {}): () => void {
     const { listeners, usage } = this.ctx;
+    if (options.internal) {
+      this.internalListeners.add(listener);
+      listeners.add(listener);
+      return () => {
+        this.internalListeners.delete(listener);
+        listeners.delete(listener);
+      };
+    }
     listeners.add(listener);
-    usage?.setClientCount(listeners.size);
+    usage?.setClientCount(listeners.size - this.internalListeners.size);
     return () => {
       listeners.delete(listener);
-      usage?.setClientCount(listeners.size);
+      usage?.setClientCount(listeners.size - this.internalListeners.size);
     };
   }
+  private readonly internalListeners = new Set<Listener>();
 
   /** Latest subscription usage limits (possibly stale), or null if unavailable. */
   getUsageLimits(): UsageLimits | null {

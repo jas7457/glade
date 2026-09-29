@@ -7,7 +7,8 @@ import { useLocation, useNavigate } from "react-router";
 import { ChevronLeft } from "lucide-preact";
 import { routes } from "@/app/routes";
 import { cn } from "@/lib/cn";
-import { SidebarGroup, SidebarItem, SidebarList, sidebarClass } from "@/ui";
+import { SidebarGroup, SidebarItem, SidebarList, StatusDot, sidebarClass } from "@/ui";
+import { updateAvailable } from "@/state/version";
 import { SECTION_INFO, SETTINGS_GROUPS } from "./sections";
 
 /** Where "Back to app" goes: the last non-settings location. */
@@ -34,6 +35,7 @@ export function SettingsNav() {
                   key={section}
                   icon={<Icon />}
                   label={label}
+                  badge={section === "about" && updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
                   selected={pathname === routes.settings(section)}
                   onSelect={() => navigate(routes.settings(section))}
                 />

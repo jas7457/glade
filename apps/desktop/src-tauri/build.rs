@@ -11,6 +11,10 @@ fn main() {
             "notify_request",
             "notify_show",
             "notify_ready",
+            "desktop_prefs_get",
+            "desktop_prefs_set",
+            "login_item_get",
+            "login_item_set",
         ])),
     )
     .expect("failed to run tauri-build");

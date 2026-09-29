@@ -5,7 +5,8 @@
  *    else is shown, remote environments are hidden and disconnected, and this device doesn't
  *    accept others (nothing is deleted).
  * 2. **Let other devices use this device** (local server only, `SharingRows`), with this
- *    device's address under it while it's on.
+ *    device's address under it while it's on, and "Keep this device awake while it's shared"
+ *    (`KeepAwakeRows`, I-147).
  * 3. **Tailscale** status (local server only; the transport serves both directions).
  * 4. **Connections** (`Connections`): "Connect to a Device…" (`ConnectEnvironmentDialog`) and
  *    "Share This Device…" (`AddDeviceDialog`; offers to turn sharing on first) above one list of
@@ -25,6 +26,7 @@ import { ConnectEnvironmentDialog } from "./ConnectEnvironmentDialog";
 import { Connections } from "./Connections";
 import { AuditLog, SharingRows } from "./HostRemoteAccess";
 import { TransportStatusRow } from "./TransportStatus";
+import { KeepAwakeRows } from "./KeepAwakeRows";
 
 const HOST_POLL_MS = 10_000;
 
@@ -102,6 +104,7 @@ export function RemoteAccessSettings() {
         </FormRow>
         {remoteMasterError.value && <FormRow label={<span role="alert" class="text-danger">{remoteMasterError.value}</span>} />}
         {master && local && <SharingRows />}
+        {master && local && host?.enabled && <KeepAwakeRows />}
         {master && local && host?.transport && <TransportStatusRow status={host.transport} enabled={host.enabled} />}
       </FormGroup>
 

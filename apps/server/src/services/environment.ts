@@ -6,8 +6,9 @@
  */
 import { execFileSync } from "node:child_process";
 import { homedir, hostname } from "node:os";
-import { SYNC_PROTOCOL, type EnvironmentInfo } from "@glade/protocol";
+import { SYNC_PROTOCOL, type BuildInfo, type EnvironmentInfo } from "@glade/protocol";
 import { VERSION } from "../config.js";
+import { currentBuild } from "./build-info.js";
 import type { Store } from "../store/store.js";
 
 /** Longest environment name accepted by a rename. */
@@ -22,6 +23,8 @@ export interface EnvironmentOptions {
   home?: string;
   /** The machine's display name (tests). Default: `scutil --get ComputerName` on macOS, else the host name. */
   machineName?: () => string | null;
+  /** The commit this server was built from (I-149; tests). Default: {@link currentBuild}. */
+  build?: () => BuildInfo | null;
 }
 
 /** The macOS computer name ("Jason's Mac Studio"), or null when unavailable. */
@@ -40,6 +43,7 @@ export class Environment {
   private readonly home: string;
   private readonly machineNameSource: () => string | null;
   private machineName: string | null = null;
+  readonly build: () => BuildInfo | null;
 
   constructor(
     private readonly store: Store,
@@ -48,6 +52,7 @@ export class Environment {
     this.platform = options.platform ?? process.platform;
     this.hostname = options.hostname ?? hostname();
     this.home = options.home ?? homedir();
+    this.build = options.build ?? currentBuild;
     this.machineNameSource = options.machineName ?? (() => (this.platform === "darwin" ? macComputerName() : null));
   }
 
@@ -79,6 +84,7 @@ export class Environment {
         // Device auth and pairing (I-125/I-126).
         remoteAccess: true,
       },
+      build: this.build(),
     };
   }
 

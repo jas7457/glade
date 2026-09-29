@@ -5,8 +5,9 @@
  *
  * I-082: a running Glade is **not** quit. The new bundle is copied next to the installed one and
  * swapped in with renames, so the running app keeps its already-loaded files (its server serves
- * the web app from a copy taken at startup) and the next launch starts the new version. Quit and
- * reopen Glade whenever it suits you.
+ * the web app from a copy taken at startup) and the next launch starts the new version. Quit Glade
+ * completely (menu bar → Quit Glade Completely, or ⌥⌘Q; I-150: ⌘Q only closes it to the menu bar)
+ * and reopen it whenever it suits you.
  *
  * I-059 (renamed from pi-ui): the pre-rename `/Applications/pi-ui.app` is removed once Glade.app is
  * installed and pi-ui isn't running (its data folder stays; Glade copies it on first start).
@@ -63,7 +64,11 @@ try {
   // best effort: LaunchServices also notices the new bundle on first launch
 }
 console.log(`[install] installed ${target}`);
-if (running(target)) console.log("[install] Glade is running: quit it (⌘Q) and reopen it to use the new version.");
+console.log(
+  running(target)
+    ? "[install] Glade is running: quit it completely (menu bar → Quit Glade Completely, or ⌥⌘Q) and reopen it to use the new version."
+    : "[install] Open Glade to use the new version.",
+);
 
 // I-059: the pre-rename app is replaced by Glade.app; its data folder is left alone (a backup).
 if (existsSync(legacyTarget) && !running(legacyTarget)) {

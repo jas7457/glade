@@ -7,20 +7,31 @@
 //! - Links never navigate the window away: external ones open in the default browser (`links.rs`,
 //!   I-129).
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the
-//!   Dock icon brings it back; ⌘Q quits and stops the server (after confirming if chats are
-//!   working, see `quit.rs`).
+//!   Dock icon brings it back. ⌘Q closes to the menu bar (I-150: no Dock icon, everything keeps
+//!   running) unless that's turned off; "Quit Glade Completely" (⌥⌘Q, the menu bar menu) quits
+//!   and stops the server (after confirming if chats are working, see `quit.rs`).
+//! - Menu bar icon and menu (`tray.rs`), fed with the server's state by `shell_state.rs`, which
+//!   also holds the keep-awake power assertion (`power.rs`, I-147). Dock icon / activation
+//!   policy in `dock.rs`, the app's own preferences in `prefs.rs`, Open at login in
+//!   `login_item.rs`.
 //! - Device tokens for paired environments live in the Keychain (`secrets.rs`, I-134).
 //! - System notifications with click-to-open (`notifications.rs`, I-135).
 //! - The app always runs its own server, also while `pnpm dev` uses the same data folder: the
 //!   servers share it safely (I-062), and each chat's agent runs in one of them at a time.
 
 mod dev;
+mod dock;
 mod links;
+mod login_item;
 mod menu;
 mod notifications;
+mod power;
+mod prefs;
 mod quit;
 mod secrets;
 mod server;
+mod shell_state;
+mod tray;
 mod writing_tools;
 
 use std::path::PathBuf;
@@ -32,13 +43,17 @@ use server::{Bundle, ServerState};
 
 pub const MAIN_WINDOW: &str = "main";
 
-/// Show, unminimize and focus the main window.
+/// Show, unminimize and focus the main window (at the screen it was on: the web view stays alive
+/// while hidden). Leaves "closed to the menu bar" and brings the Dock icon back if "Show in Dock"
+/// is on (I-150).
 pub fn focus_main(app: &AppHandle) {
+    dock::set_in_menu_bar(false, app);
     if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+    dock::activate(app);
 }
 
 fn apply_vibrancy(window: &WebviewWindow) {
@@ -100,6 +115,7 @@ fn start_server(app: AppHandle) {
             Ok(running) => {
                 let url = running.url();
                 *app.state::<ServerState>().0.lock().unwrap() = Some(running);
+                shell_state::start(app.clone());
                 if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
                     if let Ok(url) = url.parse() {
                         let _ = w.navigate(url);
@@ -153,16 +169,23 @@ pub fn run() {
             notifications::notify_permission,
             notifications::notify_request,
             notifications::notify_show,
-            notifications::notify_ready
+            notifications::notify_ready,
+            prefs::desktop_prefs_get,
+            prefs::desktop_prefs_set,
+            prefs::login_item_get,
+            prefs::login_item_set
         ])
         .menu(menu::build)
         .on_menu_event(menu::handle)
         .setup(|app| {
+            app.manage(prefs::PrefsState::load(app.handle()));
+            dock::apply(app.handle());
             let window = create_main_window(app.handle())?;
             apply_vibrancy(&window);
             writing_tools::disable_affordance(&window);
             quit::install(app.handle());
             notifications::install(app.handle());
+            tray::install(app.handle())?;
             if !tauri::is_dev() {
                 start_server(app.handle().clone());
             }
@@ -189,7 +212,10 @@ pub fn run() {
                 api.prevent_exit();
             }
         }
-        RunEvent::Exit => stop_server(app),
+        RunEvent::Exit => {
+            shell_state::stop();
+            stop_server(app);
+        }
         _ => {}
     });
 }

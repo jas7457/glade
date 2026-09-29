@@ -9,7 +9,7 @@ import { syncStatus } from "@/state/sync";
 import { hasLocalEnvironment } from "@/state/env-registry";
 import { cn } from "@/lib/cn";
 import { Button, IconButton, Spinner, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, formatShortcut } from "@/ui";
-import { initError, initialized, loadAll, workspacesById } from "@/state/store";
+import { initError, initialized, loadAll, workspaces, workspacesById } from "@/state/store";
 import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar, togglePalette } from "@/state/ui";
 import { currentWorkspaceId } from "@/state/attention";
 import { Sidebar } from "@/features/sidebar";
@@ -19,6 +19,7 @@ import { Palette } from "@/features/palette";
 import { globalCommands } from "./commands";
 import { useLastRoute } from "./lastRoute";
 import { useOpenChatRequests } from "./openChatRequests";
+import { useMenuBarActions } from "./menuBarActions";
 import { routeContext } from "./paths";
 import { SHORTCUTS, useGlobalShortcuts } from "./shortcuts";
 
@@ -107,6 +108,11 @@ export function Layout() {
   }, [location.pathname, ctx.workspaceId]);
   useLastRoute();
   useOpenChatRequests();
+  useMenuBarActions(
+    (path) => void navigate(path),
+    () => workspaces.value,
+    () => currentWorkspaceId.value,
+  );
 
   const commandContext = { navigate: (path: string) => navigate(path), route: ctx };
   useGlobalShortcuts(globalCommands({ ...commandContext, togglePalette }));
