@@ -7,6 +7,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- iPhone: name your iPhone when pairing or in Settings, and every Mac shows that name.
 - iPhone: search now looks inside your chats too (showing the matching passage and opening at
   that message), and an Ask row finds a chat from a description, across all your connected Macs.
 - Folders in the chat list: group projects and standalone chats in top-level folders, or a
@@ -185,6 +186,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- iPhone: when a Mac can't be reached, the phone says what to check (awake with Glade open,
+  Tailscale on) and offers Retry.
 - Every item in the sidebar's chat, project and folder menus now has an icon, on the Mac and in
   the iPhone's long-press sheets.
 - iPhone: New Chat now looks like a chat: the same floating text box (attachments, Model &
