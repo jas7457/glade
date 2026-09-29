@@ -92,6 +92,7 @@ export function SidebarOverlay({ open, onClose }: SidebarOverlayProps) {
             query={query.value}
             selectedChatId={chatId}
             onOpen={(chat) => go(paths.chat(envIdOf(chat), chat.id))}
+            onOpenSession={(t) => go(paths.chat(t.envId, t.workspaceId, t.sessionId))}
             onOpenDevice={(id) => go(paths.device(id))}
             onNewChat={() => go(paths.newChat())}
           />

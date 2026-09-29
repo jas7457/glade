@@ -52,7 +52,7 @@ describe("iPhone chat list", () => {
     expect(screen.getByRole("img", { name: "Needs your input" })).toBeTruthy();
   });
 
-  it("filters by title and hides groups without matches", () => {
+  it("filters by title and hides groups without matches", async () => {
     const { container, rerender, onOpen } = renderList({ query: "build" });
     expect(ids(container)).toEqual(["c1"]);
     expect(container.querySelector("[data-project-id=p2]")).toBeNull();
@@ -63,7 +63,8 @@ describe("iPhone chat list", () => {
         <ChatList onOpen={onOpen} query="nothing like this" />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/No chats match/)).toBeTruthy();
+    // After the search inside chats came back empty.
+    expect(await screen.findByText(/No chats match/)).toBeTruthy();
     expect(matchesQuery("Fix the build", "the FIX")).toBe(true);
     expect(chatGroups("loose").map((g) => g.kind)).toEqual(["standalone"]);
   });

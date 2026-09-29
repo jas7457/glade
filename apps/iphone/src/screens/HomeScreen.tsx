@@ -37,6 +37,7 @@ export function HomeScreen() {
         <ChatList
           query={query.value}
           onOpen={(chat) => navigate(paths.chat(envIdOf(chat), chat.id))}
+          onOpenSession={(t) => navigate(paths.chat(t.envId, t.workspaceId, t.sessionId))}
           onOpenDevice={(id) => navigate(paths.device(id))}
           onNewChat={() => navigate(paths.newChat())}
         />

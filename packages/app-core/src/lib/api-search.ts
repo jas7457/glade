@@ -2,7 +2,7 @@
  * REST client for chat search (I-045) and the chat finder (I-046). See docs/ARCHITECTURE.md.
  */
 import type { AskResponse, SearchResponse } from "@glade/protocol";
-import { request, type RequestFn } from "@glade/app-core/lib/api";
+import { request, type RequestFn } from "./api";
 
 /** Full-text search over all chats (titles, summaries, messages). */
 export function searchChats(q: string, limit = 20, via: RequestFn = request): Promise<SearchResponse> {
