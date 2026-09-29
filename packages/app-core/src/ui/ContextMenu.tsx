@@ -9,7 +9,7 @@
 import type { ComponentChildren } from "preact";
 import * as CM from "@radix-ui/react-context-menu";
 import { cn } from "@glade/app-core/lib/cn";
-import { MenuKindContext, menuContentClass } from "./Menu";
+import { MenuKindContext, keepOpenForSubmenus, menuContentClass } from "./Menu";
 
 export interface ContextMenuProps {
   /** Menu items. */
@@ -32,6 +32,7 @@ export function ContextMenu({ content, children, disabled, onOpenChange, content
       <CM.Portal>
         <CM.Content
           onCloseAutoFocus={onCloseAutoFocus}
+          onInteractOutside={keepOpenForSubmenus}
           collisionPadding={8}
           class={cn(menuContentClass, "max-h-[var(--radix-context-menu-content-available-height)]", contentClass)}
         >

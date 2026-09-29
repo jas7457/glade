@@ -52,6 +52,17 @@ function usePrimitives() {
     : { Item: DM.Item, Separator: DM.Separator, Label: DM.Label, Sub: DM.Sub, SubTrigger: DM.SubTrigger, SubContent: DM.SubContent, Portal: DM.Portal };
 }
 
+/**
+ * Keep a menu open when the pointer lands in one of its submenus. Radix tells a submenu apart
+ * from "outside" by bubbling through the React tree, but Preact portals only bubble through the
+ * DOM, so a click on a portaled submenu item (e.g. a folder under "Move to Folder") closed the
+ * menu on pointerdown and the item's onSelect never ran. Same workaround as Dialog (I-139).
+ */
+export function keepOpenForSubmenus(e: Event): void {
+  const target = e.target;
+  if (target instanceof Element && target.closest("[data-radix-menu-content]")) e.preventDefault();
+}
+
 export interface MenuProps {
   trigger: ComponentChildren;
   children: ComponentChildren;
@@ -69,7 +80,7 @@ export function Menu({ trigger, children, align = "start", side = "bottom", open
     <DM.Root open={open} onOpenChange={onOpenChange} modal={false}>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
-        <DM.Content onCloseAutoFocus={onCloseAutoFocus} align={align} side={side} sideOffset={4} collisionPadding={8} class={cn(menuContentClass, contentClass)}>
+        <DM.Content onCloseAutoFocus={onCloseAutoFocus} onInteractOutside={keepOpenForSubmenus} align={align} side={side} sideOffset={4} collisionPadding={8} class={cn(menuContentClass, contentClass)}>
           <MenuKindContext.Provider value="dropdown">{children}</MenuKindContext.Provider>
         </DM.Content>
       </DM.Portal>
