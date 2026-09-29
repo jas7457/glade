@@ -11,6 +11,11 @@ Every entry corresponds to a ticked item in PLAN.md.
   to your Macs. On first launch, Connect to a Device pairs it with a Mac from its Share This
   Device… link or code; the Mac sees an "iPhone" asking to connect, and the token is kept in the
   iPhone's Keychain. Scan QR Code reads the code the Mac shows (asks for the camera first).
+  Then: all your chats from every Mac in one list (by project, with working / needs you /
+  unread, search), a chat full screen with a touch composer (↩ is a new line; hold Send for
+  follow-up or Ask Aside), model and thinking pickers as sheets, sub-agents as cards you can
+  open, the chat list as a slide-over, new chats, and Settings for your Macs (rename,
+  disconnect, their AI settings read-only) and the theme.
 
 - Update Now in Settings → About: when you're behind, Glade pulls, installs and rebuilds itself
   with live progress, then restarts on the new version (right away, or once your chats finish).
