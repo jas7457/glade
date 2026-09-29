@@ -185,6 +185,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Every item in the sidebar's chat, project and folder menus now has an icon, on the Mac and in
+  the iPhone's long-press sheets.
 - iPhone: New Chat now looks like a chat: the same floating text box (attachments, Model &
   Thinking), a welcome in the middle, and Mac / Project chips above the text box; the agent is
   picked in the Model & Thinking sheet.
@@ -361,6 +363,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Choosing a folder in "Move to Folder" (or any other submenu item) now works; the click used to
+  close the menu without doing anything.
 - Opening a search result flashes the matching message again (it flashed an invisible timestamp).
 - The menu bar menu stays open while it updates (e.g. when a chat finishes as you look at it).
 - The Send button stays in place while an agent works (disabled until you type), and Ask Aside
