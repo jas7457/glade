@@ -575,8 +575,10 @@ export function ComposerBox(props: ComposerBoxProps) {
         class={cn(
           "relative flex rounded-[14px] bg-surface-raised transition-shadow",
           !touch && "flex-col",
-          touch && "flex-wrap items-end rounded-[22px] transition-[margin,border-radius] duration-200 ease-out",
+          // items-center per wrapped line: +, the picker pill, the spinner and Send share one centre line.
+          touch && "flex-wrap items-center rounded-[22px] transition-[margin,border-radius] duration-200 ease-out",
           compact && "mx-5",
+          touch && !compact && "px-1 pb-1",
           dragging
             ? "shadow-[0_0_0_2px_var(--pi-accent)]"
             : shellInput
