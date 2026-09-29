@@ -40,7 +40,8 @@ if (!existsSync(built)) {
 /** The installed app (by its path): `tauri dev`'s "Glade (dev).app" runs from target/debug. */
 function running(app) {
   try {
-    execFileSync("pgrep", ["-f", `${app}/Contents/MacOS/`], { stdio: "ignore" });
+    // `-a`: include ancestors, since installs usually run from a chat inside Glade itself.
+    execFileSync("pgrep", ["-af", `${app}/Contents/MacOS/`], { stdio: "ignore" });
     return true;
   } catch {
     return false;
