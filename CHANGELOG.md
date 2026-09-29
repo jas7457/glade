@@ -7,6 +7,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- iPhone: the chat's model and thinking level show under its title; tap to change them.
 - iPhone: name your iPhone when pairing or in Settings, and every Mac shows that name.
 - iPhone: search now looks inside your chats too (showing the matching passage and opening at
   that message), and an Ask row finds a chat from a description, across all your connected Macs.
@@ -186,6 +187,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Long chats open faster on the Mac and iPhone: they start with the latest messages and load older
+  ones as you scroll up.
 - iPhone: when a Mac can't be reached, the phone says what to check (awake with Glade open,
   Tailscale on) and offers Retry.
 - Every item in the sidebar's chat, project and folder menus now has an icon, on the Mac and in
@@ -366,6 +369,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- iPhone: a chat whose Mac drops no longer goes blank; it says the Mac can't be reached, with Retry.
 - Choosing a folder in "Move to Folder" (or any other submenu item) now works; the click used to
   close the menu without doing anything.
 - Opening a search result flashes the matching message again (it flashed an invisible timestamp).
