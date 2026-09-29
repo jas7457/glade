@@ -7,6 +7,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Claude Code as an agent: if `claude` is installed, it shows up on the Agents page and in the
+  agent picker, using your own Claude Code install and login. Chats stream text, thinking and tool
+  calls (with diffs and a plan card), with Claude's models and thinking levels, its permission
+  prompts as Glade's permission card, and they resume after restarts. Stop, steering, slash
+  commands, /compact, the context meter, titles, side questions and Glade sub-agents work too.
 - iPhone: the chat's model and thinking level show under its title; tap to change them.
 - iPhone: name your iPhone when pairing or in Settings, and every Mac shows that name.
 - iPhone: search now looks inside your chats too (showing the matching passage and opening at
