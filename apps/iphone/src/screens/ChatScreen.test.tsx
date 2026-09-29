@@ -96,6 +96,44 @@ describe("ChatScreen", () => {
     expect(screen.getByRole("option", { name: /Sonnet/ })).toBeTruthy();
   });
 
+  it("leads the line with the chat's agent when its Mac offers two or more (I-176)", () => {
+    const caps = { models: true } as HarnessCapabilities;
+    harnesses.value = [
+      { id: "fake", label: "Fake", isDefault: true, capabilities: caps },
+      { id: "claude", label: "Claude Code", isDefault: false, capabilities: caps },
+    ];
+    models.value = [model("opus", "Opus")];
+    const store = getChatSession("m1");
+    store.status.value = "ready";
+    store.state.value = { ...defaultSessionState(), model: { provider: "anthropic", id: "opus" }, thinkingLevel: "medium", thinkingLevels: ["off", "low", "medium", "high"] };
+    renderAt("/e/env1/chats/w");
+    const line = screen.getByRole("button", { name: "Fake. Model and thinking: Opus, Medium" });
+    expect(line.textContent).toBe("Fake · Opus · Medium");
+  });
+
+  it("no agent in the line when the Mac offers one (I-176)", () => {
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { models: true } as HarnessCapabilities }];
+    models.value = [model("opus", "Opus")];
+    const store = getChatSession("m1");
+    store.status.value = "ready";
+    store.state.value = { ...defaultSessionState(), model: { provider: "anthropic", id: "opus" }, thinkingLevel: "medium", thinkingLevels: ["off", "low", "medium", "high"] };
+    renderAt("/e/env1/chats/w");
+    expect(screen.getByRole("button", { name: "Model and thinking: Opus, Medium" }).textContent).toBe("Opus · Medium");
+  });
+
+  it("agents that choose their own model: just the agent's name, when there are several (I-176)", () => {
+    harnesses.value = [
+      { id: "fake", label: "Fake", isDefault: true, capabilities: { models: false } as HarnessCapabilities },
+      { id: "pi", label: "pi", isDefault: false, capabilities: { models: true } as HarnessCapabilities },
+    ];
+    const store = getChatSession("m1");
+    store.status.value = "ready";
+    store.state.value = { ...defaultSessionState(), model: { provider: "anthropic", id: "opus" } };
+    renderAt("/e/env1/chats/w");
+    expect(screen.queryByRole("button", { name: /Model/ })).toBeNull();
+    expect(screen.getByTitle("Runs on Fake").textContent).toBe("Fake");
+  });
+
   it("no model line for agents that choose their own model", () => {
     harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { models: false } as HarnessCapabilities }];
     const store = getChatSession("m1");

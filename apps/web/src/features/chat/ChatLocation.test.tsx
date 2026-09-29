@@ -125,7 +125,7 @@ describe("chat location line (I-107)", () => {
   });
 });
 
-describe("agent badge (I-119)", () => {
+describe("agent badge (I-119, I-176)", () => {
   const caps = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
   beforeEach(() => {
     status.mockResolvedValue(repo("main"));
@@ -144,7 +144,17 @@ describe("agent badge (I-119)", () => {
     expect(badge?.title).toBe("Runs on Fake ACP (ACP)");
   });
 
-  it("shows nothing for the default agent", async () => {
+  it("shows the default agent too when the Mac offers two or more (I-176)", async () => {
+    sessions.value = [makeSession({ id: "s", workspaceId: "local", harness: "pi" })];
+    renderHeader(local);
+    await waitFor(() => expect(location()?.textContent).toBe("Local·main"));
+    const badge = document.querySelector<HTMLElement>("[title^='Runs on']");
+    expect(badge?.textContent).toBe("pi");
+    expect(badge?.title).toBe("Runs on pi");
+  });
+
+  it("shows nothing when the Mac offers one agent (I-176)", async () => {
+    harnesses.value = [{ id: "pi", label: "pi", isDefault: true, capabilities: caps }];
     sessions.value = [makeSession({ id: "s", workspaceId: "local", harness: "pi" })];
     renderHeader(local);
     await waitFor(() => expect(location()?.textContent).toBe("Local·main"));

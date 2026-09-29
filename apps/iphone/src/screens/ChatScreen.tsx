@@ -2,8 +2,8 @@
  * One chat, full screen (I-164, doc §5.3): `/e/:envId/chats/:chatId[?tab=<sessionId>]`.
  *
  * Nav bar: the menu button (the chat list over the chat, also a swipe from the left edge), the
- * chat's title and its working / needs-you indicator, and under it the model · thinking level
- * (tap: the Model & Thinking sheet, I-172). Below: the shared transcript full width,
+ * chat's title and its working / needs-you indicator, and under it the agent (I-176, when its Mac
+ * offers several) · model · thinking level (tap: the Model & Thinking sheet, I-172). Below: the shared transcript full width,
  * the sub-agents as cards, and the touch composer (↩ = new line, Send sends; holding Send offers
  * steer / follow-up / Ask Aside). Pickers open as sheets (`OptionSheetContext` → `SheetList`).
  *
@@ -22,6 +22,7 @@ import { ModelThinkingPicker } from "@glade/app-core/features/chat/Pickers";
 import { OptionSheetContext } from "@glade/app-core/features/chat/option-sheet";
 import { Transcript } from "@glade/app-core/features/chat/Transcript";
 import { cn } from "@glade/app-core/lib/cn";
+import { chatAgentOf } from "@glade/app-core/state/chat-agent";
 import { useChatSession } from "@glade/app-core/state/chat-session";
 import { resolveSessionId, sessions, sessionsById, workspacesById } from "@glade/app-core/state/store";
 import { Spinner } from "@glade/app-core/ui";
@@ -124,11 +125,21 @@ function StatusIndicator({ session }: { session: SessionSummary | undefined }) {
 
 /**
  * "Opus · Medium ▾" under the title (I-172): opens the composer's Model & Thinking sheet. Not
- * shown for agents that pick their own model, or before the chat has loaded.
+ * shown for agents that pick their own model, or before the chat has loaded. I-176: led by the
+ * chat's agent ("Claude Code · Opus · Medium ▾") when its Mac offers two or more (`chatAgentOf`,
+ * the desktop badge's rule); the model truncates first. Agents without a picker: just their name.
  */
 function TitleModelLine({ sessionId }: { sessionId: string }) {
   const picker = chatModelPickerProps(sessionId);
-  if (!picker?.model) return null;
+  const agent = chatAgentOf(sessionId);
+  if (!picker?.model) {
+    if (!agent) return null;
+    return (
+      <span class="-mt-px max-w-full truncate px-1.5 text-[12px] leading-4 font-normal text-fg-muted" title={agent.title}>
+        {agent.label}
+      </span>
+    );
+  }
   return (
     <ModelThinkingPicker
       {...picker}
@@ -136,12 +147,15 @@ function TitleModelLine({ sessionId }: { sessionId: string }) {
         <button
           type="button"
           class="pointer-events-auto -mt-px inline-flex max-w-full items-center gap-0.5 rounded-full px-1.5 text-[12px] leading-4 font-normal text-fg-muted active:opacity-60"
-          aria-label={label.thinking ? `Model and thinking: ${label.model}, ${label.thinking}` : `Model: ${label.model}`}
+          aria-label={`${agent ? `${agent.label}. ` : ""}${label.thinking ? `Model and thinking: ${label.model}, ${label.thinking}` : `Model: ${label.model}`}`}
           onClick={open}
         >
-          <span class="truncate">{label.thinking ? `${label.model} · ${label.thinking}` : label.model}</span>
+          {/* whitespace-pre: keep the spaces around "·" at the flex items' edges. */}
+          {agent && <span class="max-w-[45%] shrink-0 overflow-hidden text-ellipsis whitespace-pre">{`${agent.label} · `}</span>}
+          <span class="min-w-0 truncate">{label.model}</span>
+          {label.thinking && <span class="shrink-0 whitespace-pre">{` · ${label.thinking}`}</span>}
           {/* A permission mode other than the default (I-174); bypass in red. */}
-          {label.mode && <span class={cn("shrink-0", label.mode.danger && "text-danger")}>{` · ${label.mode.label}`}</span>}
+          {label.mode && <span class={cn("shrink-0 whitespace-pre", label.mode.danger && "text-danger")}>{` · ${label.mode.label}`}</span>}
           <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
         </button>
       )}
