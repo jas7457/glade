@@ -16,8 +16,8 @@ import { useOptionSheet, type OptionSheetSection } from "./option-sheet";
 const triggerClass =
   "inline-flex h-6 max-w-[220px] items-center gap-1 rounded-control px-1.5 text-[0.92rem] text-fg-muted outline-none hover:bg-hover hover:text-fg data-[state=open]:bg-selected data-[state=open]:text-fg disabled:opacity-40";
 
-/** Taller trigger for touch (the sheet variant): a 36px row instead of the 24px desktop one. */
-const touchTriggerClass = "h-9 px-2";
+/** Touch (the sheet variant): a compact pill, so model + thinking fit one row on a phone. */
+const touchTriggerClass = "h-8 max-w-[10.5rem] shrink rounded-full px-2.5 text-[0.85rem]";
 
 /**
  * The sheet form of a picker: `trigger` opens a sheet with `sections`; picking closes it. Open

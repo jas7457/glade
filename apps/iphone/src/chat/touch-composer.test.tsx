@@ -44,6 +44,29 @@ afterEach(() => {
 });
 
 describe("touch composer", () => {
+  it("is a slim pill until focused or typed into, then grows with the pickers (like ChatGPT)", async () => {
+    renderBox({ touch: true, autoFocus: false });
+    const box = () => textarea().closest("[data-compact]")!;
+    const pickersHidden = () => screen.getByRole("button", { name: "Model" }).parentElement!.className.includes("[&>*]:hidden");
+    expect(box().getAttribute("data-compact")).toBe("true");
+    expect(pickersHidden()).toBe(true);
+    await act(async () => textarea().focus());
+    expect(box().getAttribute("data-compact")).toBe("false");
+    expect(pickersHidden()).toBe(false);
+    // Blurred but with text: stays open.
+    type("draft");
+    await act(async () => textarea().blur());
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(box().getAttribute("data-compact")).toBe("false");
+    // Empty and blurred: back to the pill, after a short delay (so a tap on a picker lands first).
+    type("");
+    await act(async () => textarea().focus());
+    await act(async () => textarea().blur());
+    expect(box().getAttribute("data-compact")).toBe("false");
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(box().getAttribute("data-compact")).toBe("true");
+  });
+
   it("↩ doesn't send on the iPhone (a new line); the Send button sends", async () => {
     (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__ = true;
     const { onSend } = renderBox();

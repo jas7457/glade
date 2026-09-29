@@ -45,7 +45,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { ArrowUp, ClockArrowUp, MessageCircleQuestionMark, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
+import { ArrowUp, ClockArrowUp, MessageCircleQuestionMark, Paperclip, Plus, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
   MAX_ATTACHMENT_BYTES,
@@ -190,6 +190,9 @@ export function ComposerBox(props: ComposerBoxProps) {
   const touch = props.touch ?? isIphoneApp();
   const OptionSheet = useOptionSheet();
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
+  /** Touch: the text field has the focus (the box grows while it does; see `expanded`). */
+  const [focused, setFocused] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
@@ -554,12 +557,26 @@ export function ComposerBox(props: ComposerBoxProps) {
           ? { label: "Send follow-up", tooltip: "Follow-up (⌘↩): sent after the agent finishes" }
           : { label: "Steer", tooltip: "Steer (↩): delivered after the current step · hold ⌘ for a follow-up" };
 
+  // Touch (I-164, like ChatGPT): a slim one-line pill ([+] text [send]) until you type into it;
+  // then it grows full width with the text on top and the pickers in a row below. Same DOM in
+  // both (CSS order/wrap only), so the textarea never remounts and keeps its focus.
+  const expanded =
+    !touch || focused || text.trim() !== "" || images.length > 0 || files.length > 0 || openPicker !== null || sendOptionsOpen || !!shellInput;
+  const compact = touch && !expanded;
+  useEffect(() => () => {
+    if (blurTimer.current) clearTimeout(blurTimer.current);
+  }, []);
+
   return (
     <div class={cn("w-full", props.class)}>
       {props.above}
       <div
+        data-compact={touch ? String(compact) : undefined}
         class={cn(
-          "relative flex flex-col rounded-[14px] bg-surface-raised transition-shadow",
+          "relative flex rounded-[14px] bg-surface-raised transition-shadow",
+          !touch && "flex-col",
+          touch && "flex-wrap items-end rounded-[22px] transition-[margin,border-radius] duration-200 ease-out",
+          compact && "mx-5",
           dragging
             ? "shadow-[0_0_0_2px_var(--pi-accent)]"
             : shellInput
@@ -586,7 +603,7 @@ export function ComposerBox(props: ComposerBoxProps) {
         {menuOpen && <SlashMenu groups={groups} activeIndex={active} onHover={setActiveIndex} onPick={complete} />}
         {mentionOpen && <MentionMenu entries={fileEntries} activeIndex={mentionActive} onHover={setMentionIndex} onPick={pickMention} />}
         {(images.length > 0 || files.length > 0) && (
-          <div class="flex flex-wrap items-center gap-2 px-3 pt-3" aria-label="Attachments">
+          <div class={cn("flex flex-wrap items-center gap-2 px-3 pt-3", touch && "order-first w-full")} aria-label="Attachments">
             {images.map((img, i) => (
               <div key={img.id} class="group/att relative">
                 {/* Opens large like transcript images (I-115); the × below is a sibling, so it doesn't. */}
@@ -632,7 +649,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           </div>
         )}
         {shellInput && (
-          <div id={shellHintId} data-tone="shell" class="flex items-center gap-1.5 px-3.5 pt-2 -mb-1.5 text-[0.85rem] select-none">
+          <div id={shellHintId} data-tone="shell" class={cn("flex items-center gap-1.5 px-3.5 pt-2 -mb-1.5 text-[0.85rem] select-none", touch && "order-first w-full")}>
             <Terminal size={12} strokeWidth={2.25} class="pi-tone-text" aria-hidden="true" />
             <span class="pi-tone-text font-medium">Shell</span>
             <span class="text-fg-muted">{shellInput.shareWithAgent ? "Run a command — shared with the agent" : "Run a command — not shared with the agent"}</span>
@@ -658,7 +675,29 @@ export function ComposerBox(props: ComposerBoxProps) {
           class={cn(
             "selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60",
             shellInput && "font-mono text-[0.95rem]",
+            // Touch: beside [+] and Send while compact, full width above the toolbar when not.
+            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-1.5 pt-[9px] pb-[9px]" : "order-1 basis-full"),
           )}
+          onFocus={
+            touch
+              ? () => {
+                  if (blurTimer.current) clearTimeout(blurTimer.current);
+                  blurTimer.current = null;
+                  setFocused(true);
+                }
+              : undefined
+          }
+          onBlur={
+            touch
+              ? () => {
+                  // Late, so a tap on a picker or Send lands before the box shrinks under it.
+                  blurTimer.current = setTimeout(() => {
+                    blurTimer.current = null;
+                    setFocused(false);
+                  }, 200);
+                }
+              : undefined
+          }
           onInput={(e) => {
             updateText(e.currentTarget.value);
             syncCaret(e);
@@ -674,7 +713,8 @@ export function ComposerBox(props: ComposerBoxProps) {
             }
           }}
         />
-        <div class="flex items-center gap-1 px-2 pt-1 pb-2">
+        {/* Touch: `contents` lets its children join the box's own row (compact) or wrap below the text. */}
+        <div class={cn("flex items-center gap-1 px-2 pt-1 pb-2", touch && "contents")}>
           <Tooltip content="Attach files">
             <button
               type="button"
@@ -682,11 +722,12 @@ export function ComposerBox(props: ComposerBoxProps) {
               disabled={busy}
               class={cn(
                 "inline-flex items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40",
-                touch ? "size-9" : "size-6",
+                touch ? "order-1 m-1 size-9 shrink-0 rounded-full" : "size-6",
+                touch && !compact && "order-2",
               )}
               onClick={() => fileRef.current?.click()}
             >
-              <Paperclip size={touch ? 18 : 14} />
+              {touch ? <Plus size={22} /> : <Paperclip size={14} />}
             </button>
           </Tooltip>
           <input
@@ -701,7 +742,7 @@ export function ComposerBox(props: ComposerBoxProps) {
             }}
           />
           {!props.hideModelPickers && (
-            <>
+            <span class={cn("contents", touch && "[&>*]:order-2", compact && "[&>*]:hidden")}>
               <ModelPicker
                 value={props.model}
                 models={props.models}
@@ -716,11 +757,11 @@ export function ComposerBox(props: ComposerBoxProps) {
                 disabled={busy}
                 {...pickerProps("thinking")}
               />
-            </>
+            </span>
           )}
-          {props.toolbarExtra}
-          <div class="flex-1" />
-          {loading && <Spinner size={14} class="mr-1" />}
+          {touch ? <span class={cn("order-2 flex items-center self-center", compact && "hidden")}>{props.toolbarExtra}</span> : props.toolbarExtra}
+          <div class={cn("flex-1", touch && (compact ? "hidden" : "order-2"))} />
+          {loading && <Spinner size={14} class={cn("mr-1", touch && "order-3 m-2.5 self-center")} />}
           {props.askAside && !touch && (
             // The slot is always there (no layout shift, I-140); the button only shows while it applies.
             <span class={cn("flex", !canAskAside && "invisible")} data-testid="ask-aside-slot">
@@ -746,7 +787,7 @@ export function ComposerBox(props: ComposerBoxProps) {
                 type="button"
                 aria-label="Stop"
                 onClick={props.onStop}
-                class={cn("flex items-center justify-center rounded-full bg-fg text-window hover:opacity-85", touch ? "size-9" : "size-7")}
+                class={cn("flex items-center justify-center rounded-full bg-fg text-window hover:opacity-85", touch ? "order-3 m-1 size-9 shrink-0" : "size-7")}
               >
                 <Square size={touch ? 12 : 10} fill="currentColor" strokeWidth={0} />
               </button>
@@ -771,7 +812,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               {...sendPressHandlers}
               class={cn(
                 "flex items-center justify-center rounded-full bg-accent text-accent-fg select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
-                touch ? "size-9 touch-manipulation" : "size-7",
+                touch ? "order-3 m-1 size-9 shrink-0 touch-manipulation" : "size-7",
               )}
             >
               {choosesBehavior && followUpHeld ? (
