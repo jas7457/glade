@@ -1,7 +1,8 @@
 /**
  * A project folder in the sidebar: a collapsible row (folder icon + name, hover "+" and "…")
- * followed by its chats (pinned first, newest first). The row is the drag handle for reordering
- * projects (the whole group moves); "Move Up / Move Down" in its menu are the keyboard way.
+ * followed by its folders (I-165) and its chats not in one (pinned first, newest first). The row is
+ * the drag handle for reordering projects (the whole group moves); "Move Up / Move Down" in its
+ * menu are the keyboard way. It's also where a chat dragged out of one of its folders goes.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -10,16 +11,19 @@ import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade
 import { routes } from "@/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@/ui";
 import { cn } from "@/lib/cn";
-import { envIdOf, workspacesForProject } from "@/state/store";
+import { envIdOf, foldersForProject, looseWorkspaces, workspacesForProject, workspacesInFolder } from "@/state/store";
+import { moveProjectFolder, moveProjectToFolder, reorderProjectFolders } from "@/state/folder-actions";
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
 import { closedProjects, setProjectOpen } from "@/state/ui";
 import { moveProject, removeProject, renameProject } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { loadProjectGit, newChatWorktree, projectGit } from "@/state/worktrees";
-import { ChatList } from "./ChatList";
+import { ChatList, dropKindOf } from "./ChatList";
 import { DropLine } from "./DropLine";
+import { FolderGroup } from "./FolderGroup";
 import { InlineRename } from "./InlineRename";
-import type { SortBinding } from "./useSortable";
+import { MoveToFolderMenu, createFolderAndRename } from "./folder-menu";
+import { dropTargetProps, useSortable, type SortBinding } from "./useSortable";
 
 export const PROJECT_CHAT_LIMIT = 5;
 
@@ -34,6 +38,10 @@ export interface ProjectGroupProps {
   sort?: SortBinding;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  /** 1 inside a top-level folder (I-165). */
+  indent?: 0 | 1;
+  /** The top-level folder it's in (for "Move to Folder"). */
+  folderId?: string | null;
 }
 
 export function ProjectGroup({
@@ -45,10 +53,21 @@ export function ProjectGroup({
   sort,
   canMoveUp = false,
   canMoveDown = false,
+  indent = 0,
+  folderId = null,
 }: ProjectGroupProps) {
   const navigate = useNavigate();
   const open = !closedProjects.value.has(project.id);
   const list = workspacesForProject(project.id);
+  const projectFolders = foldersForProject(project.id);
+  const loose = looseWorkspaces(project.id);
+  const chatKind = dropKindOf(project.id);
+  const folderSort = useSortable({
+    group: `folders:${project.id}`,
+    ids: projectFolders.map((f) => f.id),
+    onReorder: (ids) => void reorderProjectFolders(project.id, ids),
+    disabled: projectFolders.length < 2,
+  });
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const renaming = useRef(false);
@@ -109,7 +128,9 @@ export function ProjectGroup({
         Rename
       </MenuItem>
       <MenuItem onSelect={() => void copyPath()}>Copy Path</MenuItem>
+      <MenuItem onSelect={() => void createFolderAndRename({ projectId: project.id })}>New Folder</MenuItem>
       <MenuSeparator />
+      <MoveToFolderMenu projectId={null} envId={envIdOf(project)} current={folderId} onMove={(to) => void moveProjectToFolder(project.id, to)} />
       <MenuItem disabled={!canMoveUp} onSelect={() => void moveProject(project.id, -1)}>
         Move Up
       </MenuItem>
@@ -132,10 +153,12 @@ export function ProjectGroup({
       {...sort?.item}
       class={cn("relative", sidebarClass.rows, open && sidebarClass.subgroupGap, sort?.dragging && "opacity-40")}
     >
-      <DropLine edge={sort?.dropEdge ?? null} />
+      <DropLine edge={sort?.dropEdge ?? null} indent={indent} />
       <ContextMenu content={items} onCloseAutoFocus={onCloseAutoFocus} disabled={editing}>
         <SidebarItem
           {...(editing ? {} : sort?.handle)}
+          {...dropTargetProps("", chatKind)}
+          indent={indent}
           label={project.name}
           title={project.path}
           icon={open ? <FolderOpen /> : <Folder />}
@@ -179,16 +202,49 @@ export function ProjectGroup({
           }
         />
       </ContextMenu>
-      {open && (
-        <ChatList
-          chats={list}
-          listId={project.id}
-          selectedChatId={selectedChatId}
-          limit={PROJECT_CHAT_LIMIT}
-          indent={1}
-          emptyLabel="No chats"
-          onRemoved={onChatRemoved}
-        />
+      {open &&
+        projectFolders.map((folder, i) => {
+          const chats = workspacesInFolder(folder.id);
+          const fsort = folderSort.bind(folder.id, i, projectFolders.length);
+          return (
+            <FolderGroup
+              key={folder.id}
+              folder={folder}
+              indent={indent === 0 ? 1 : 2}
+              statuses={chats.map((c) => c.status)}
+              accept={chatKind}
+              sort={fsort}
+              dragging={fsort.dragging}
+              canMoveUp={i > 0}
+              canMoveDown={i < projectFolders.length - 1}
+              onMove={(delta) => void moveProjectFolder(folder.id, delta)}
+              contentsLabel="Its chats"
+            >
+              <ChatList
+                chats={chats}
+                listId={project.id}
+                folderId={folder.id}
+                selectedChatId={selectedChatId}
+                limit={PROJECT_CHAT_LIMIT}
+                indent={indent === 0 ? 2 : 3}
+                emptyLabel="No chats"
+                onRemoved={onChatRemoved}
+              />
+            </FolderGroup>
+          );
+        })}
+      {open && (loose.length > 0 || projectFolders.length === 0) && (
+        <div {...dropTargetProps("", chatKind)}>
+          <ChatList
+            chats={loose}
+            listId={project.id}
+            selectedChatId={selectedChatId}
+            limit={PROJECT_CHAT_LIMIT}
+            indent={indent === 0 ? 1 : 2}
+            emptyLabel="No chats"
+            onRemoved={onChatRemoved}
+          />
+        </div>
       )}
     </div>
   );

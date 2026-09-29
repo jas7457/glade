@@ -14,6 +14,9 @@
  *   8   Chats
  *   8   Standalone chat                 34m   ← standalone chats: title at indent 0
  *
+ * Folders (I-165) add levels 2 and 3 (56, 80): a project inside a folder has its icon at 32, its
+ * chats at 56; a project's folder has its icon at 32 inside the project, its chats at 56.
+ *
  * Indent 0 is flush with the header text; indent 1 is one icon (16px) + gap (8px) further right,
  * i.e. where a label starts after an icon. Status / age / pin sit on the right of the row
  * (the trailing slot) and hover actions replace them. The settings sidebar uses indent 0.
@@ -39,7 +42,7 @@ export const SIDEBAR_METRICS = {
   /** Gap between a row icon and its label. */
   iconGap: 8,
   /** Row content (icon, else label) start per indent level: 8 (= header text) + n × (16 + 8). */
-  inset: [8, 32],
+  inset: [8, 32, 56, 80],
 } as const;
 
 export const sidebarClass = {
@@ -49,9 +52,9 @@ export const sidebarClass = {
   header: "h-6 mb-0.5",
   subgroupGap: "mb-1.5",
   paddingX: "px-2.5",
-  inset: ["pl-2", "pl-8"],
+  inset: ["pl-2", "pl-8", "pl-14", "pl-20"],
   /** Left edge of full-width lines (drop line, pinned divider) aligned with the content per indent. */
-  lineStart: ["left-2", "left-8"],
+  lineStart: ["left-2", "left-8", "left-14", "left-20"],
   /** Text colours (tokens in styles.css): row labels, selected/unread rows, headers + ages + icons. */
   fg: "text-sidebar-fg",
   fgStrong: "text-sidebar-fg-strong",
@@ -60,4 +63,5 @@ export const sidebarClass = {
   fgHover: "hover:text-sidebar-fg-strong",
 } as const;
 
-export type SidebarIndent = 0 | 1;
+/** 2 and 3: rows inside folders (I-165), e.g. a folder's project's chats. */
+export type SidebarIndent = 0 | 1 | 2 | 3;

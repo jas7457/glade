@@ -15,7 +15,7 @@ import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import * as DM from "@radix-ui/react-dropdown-menu";
 import * as CM from "@radix-ui/react-context-menu";
-import { Check } from "lucide-preact";
+import { Check, ChevronRight } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { floatingSurfaceClass } from "./floating";
 
@@ -30,8 +30,8 @@ export const MenuKindContext = createContext<"dropdown" | "context">("dropdown")
 
 function usePrimitives() {
   return useContext(MenuKindContext) === "context"
-    ? { Item: CM.Item, Separator: CM.Separator, Label: CM.Label }
-    : { Item: DM.Item, Separator: DM.Separator, Label: DM.Label };
+    ? { Item: CM.Item, Separator: CM.Separator, Label: CM.Label, Sub: CM.Sub, SubTrigger: CM.SubTrigger, SubContent: CM.SubContent, Portal: CM.Portal }
+    : { Item: DM.Item, Separator: DM.Separator, Label: DM.Label, Sub: DM.Sub, SubTrigger: DM.SubTrigger, SubContent: DM.SubContent, Portal: DM.Portal };
 }
 
 export interface MenuProps {
@@ -112,6 +112,24 @@ export function MenuSeparator() {
 export function MenuLabel({ children }: { children: ComponentChildren }) {
   const { Label } = usePrimitives();
   return <Label class="px-2 pt-1 pb-0.5 text-[0.85rem] font-semibold text-fg-muted">{children}</Label>;
+}
+
+/** A submenu (macOS: an item with a chevron that opens its items beside it), e.g. "Move to Folder". */
+export function MenuSub({ label, disabled, children }: { label: ComponentChildren; disabled?: boolean; children: ComponentChildren }) {
+  const { Sub, SubTrigger, SubContent, Portal } = usePrimitives();
+  return (
+    <Sub>
+      <SubTrigger disabled={disabled} class={cn(menuItemClass, "data-[state=open]:bg-hover")}>
+        <span class="flex-1 truncate">{label}</span>
+        <ChevronRight size={12} class="-mr-1 opacity-60" aria-hidden />
+      </SubTrigger>
+      <Portal>
+        <SubContent sideOffset={4} alignOffset={-5} collisionPadding={8} class={menuContentClass}>
+          {children}
+        </SubContent>
+      </Portal>
+    </Sub>
+  );
 }
 
 export { DM as MenuPrimitive };

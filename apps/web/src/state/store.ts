@@ -14,6 +14,7 @@ import {
   activeMainSessionId,
   defaultSettings,
   mainSessionsOf,
+  type Folder,
   type HarnessDefaults,
   type ModelInfo,
   type Project,
@@ -32,12 +33,15 @@ import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
 import { harnesses, loadHarnesses } from "./harnesses";
 import { requestOpenChat } from "./open-chat";
+import { buildTopLevel, flattenProjects, foldersOfProject, workspaceFolderId, type TopEntry } from "./folders";
 
 export const projects = signal<Project[]>([]);
 /** Sidebar rows (I-035). Each holds one or more sessions. */
 export const workspaces = signal<WorkspaceSummary[]>([]);
 /** Every session of every workspace (main tabs and sub-agents). */
 export const sessions = signal<SessionSummary[]>([]);
+/** Folders in the chat list (I-165), every environment's. */
+export const folders = signal<Folder[]>([]);
 export const models = signal<ModelInfo[]>([]);
 /** What the harness itself uses when no model is given (pi's settings); "Default" means this (I-050). */
 export const harnessDefaults = signal<HarnessDefaults | null>(null);
@@ -70,6 +74,7 @@ export function envIdOf(item: { environmentId?: string } | undefined | null): st
 export const projectsById = computed(() => new Map(projects.value.map((p) => [p.id, p])));
 export const workspacesById = computed(() => new Map(workspaces.value.map((w) => [w.id, w])));
 export const sessionsById = computed(() => new Map(sessions.value.map((s) => [s.id, s])));
+export const foldersById = computed(() => new Map(folders.value.map((f) => [f.id, f])));
 
 /** Projects in their manual order (`sortOrder` ascending); never re-sorted by activity. */
 export function compareProjects(a: Project, b: Project): number {
@@ -117,12 +122,38 @@ export const PROJECT_ORDER = "projects";
 export const pinOrderList = (projectId: string | null) => `pins:${projectId ?? "standalone"}`;
 
 /**
- * Projects in their manual order: each environment's server order (`sortOrder`), interleaved
- * across environments as this device arranged them (never re-sorted by activity).
+ * The top of the project list (I-165): projects outside folders and top-level folders with their
+ * projects, in each environment's server order (`sortOrder`), interleaved across environments as
+ * this device arranged them (never re-sorted by activity).
  */
-export const sortedProjects = computed(() =>
-  interleave(clientOrders.value[PROJECT_ORDER] ?? [], byEnv([...projects.value].sort(compareProjects)), envOrder()),
+export const sidebarEntries = computed<TopEntry[]>(() =>
+  buildTopLevel([...projects.value].sort(compareProjects), folders.value, clientOrders.value[PROJECT_ORDER] ?? [], envOrder(), envIdOf),
 );
+
+/** Projects in their manual (sidebar) order; a folder's projects sit in its place. */
+export const sortedProjects = computed(() => flattenProjects(sidebarEntries.value));
+
+/** A project's folders in their order (I-165). */
+export function foldersForProject(projectId: string): Folder[] {
+  return foldersOfProject(folders.value, projectId);
+}
+
+/** The folder a chat is shown in, or null (unknown / mismatched folder ids count as none). */
+export function folderOfWorkspace(workspace: WorkspaceSummary): string | null {
+  return workspaceFolderId(workspace, foldersById.value, envIdOf);
+}
+
+/** A list's chats that aren't in a folder (pinned first; `workspacesForProject` order). */
+export function looseWorkspaces(projectId: string | null): WorkspaceSummary[] {
+  return workspacesForProject(projectId).filter((w) => folderOfWorkspace(w) === null);
+}
+
+/** The chats in a folder (pinned first, then newest). */
+export function workspacesInFolder(folderId: string): WorkspaceSummary[] {
+  const folder = foldersById.value.get(folderId);
+  if (!folder) return [];
+  return workspacesForProject(folder.projectId).filter((w) => folderOfWorkspace(w) === folderId);
+}
 
 export function workspacesForProject(projectId: string | null): WorkspaceSummary[] {
   const list = workspaces.value.filter((w) => w.projectId === projectId).sort(compareWorkspaces);
@@ -193,9 +224,19 @@ export async function loadAll(envId?: string): Promise<void> {
   const shell = conn?.shell ?? localShell;
   const key = envId ?? primaryEnvironmentId();
   try {
-    const [p, w, ss, s] = await Promise.all([client.listProjects(), client.listWorkspaces(), client.listSessions(), client.getSettings()]);
+    const [p, w, ss, s, f] = await Promise.all([
+      client.listProjects(),
+      client.listWorkspaces(),
+      client.listSessions(),
+      client.getSettings(),
+      // Older servers have no folders (I-165).
+      Promise.resolve()
+        .then(() => client.listFolders())
+        .catch(() => [] as Folder[]),
+    ]);
     if (!shellSynced.has(key) && (envId === undefined || connectionFor(envId))) {
       projects.value = replaceEnv(projects.value, envId, tagAll(p, envId));
+      folders.value = replaceEnv(folders.value, envId, tagAll(f, envId));
       workspaces.value = replaceEnv(workspaces.value, envId, tagAll(w, envId));
       sessions.value = replaceEnv(sessions.value, envId, tagAll(ss, envId));
       shell.settings.value = s;
@@ -257,6 +298,7 @@ export function applyShellSnapshot(shell: ShellSnapshot, envId?: string): void {
   projects.value = replaceEnv(projects.value, envId, tagAll(shell.projects, envId));
   workspaces.value = replaceEnv(workspaces.value, envId, tagAll(shell.workspaces, envId));
   sessions.value = replaceEnv(sessions.value, envId, tagAll(shell.sessions, envId));
+  folders.value = replaceEnv(folders.value, envId, tagAll(shell.folders ?? [], envId));
   const acpChanged = agentSettingsKey(target.settings.value) !== agentSettingsKey(shell.settings);
   target.settings.value = shell.settings;
   if (shell.environment) {
@@ -274,7 +316,7 @@ export function applyShellSnapshot(shell: ShellSnapshot, envId?: string): void {
  * has: ours that it doesn't have are dropped. Returns true when the server has some we don't
  * (take a snapshot).
  */
-export function applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[] }, envId?: string): boolean {
+export function applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[] }, envId?: string): boolean {
   const env = envId ?? primaryEnvironmentId();
   const ids = { projects: new Set(check.projects), workspaces: new Set(check.workspaces), sessions: new Set(check.sessions) };
   const prune = <T extends { id: string; environmentId?: string }>(list: T[], keep: Set<string>) =>
@@ -282,8 +324,14 @@ export function applyShellCheck(check: { projects: string[]; workspaces: string[
   projects.value = prune(projects.value, ids.projects);
   workspaces.value = prune(workspaces.value, ids.workspaces);
   sessions.value = prune(sessions.value, ids.sessions);
+  if (check.folders) folders.value = prune(folders.value, new Set(check.folders));
   const count = (list: Array<{ environmentId?: string }>) => list.filter((x) => envIdOf(x) === env).length;
-  return count(projects.value) < ids.projects.size || count(workspaces.value) < ids.workspaces.size || count(sessions.value) < ids.sessions.size;
+  return (
+    count(projects.value) < ids.projects.size ||
+    count(workspaces.value) < ids.workspaces.size ||
+    count(sessions.value) < ids.sessions.size ||
+    (check.folders !== undefined && count(folders.value) < check.folders.length)
+  );
 }
 
 /** An environment was disconnected (remote access off, removed): hide its items (nothing is deleted). */
@@ -293,6 +341,7 @@ export function removeEnvironmentItems(envId: string): void {
   projects.value = keep(projects.value);
   workspaces.value = keep(workspaces.value);
   sessions.value = keep(sessions.value);
+  folders.value = keep(folders.value);
 }
 
 /** Tests: forget that a snapshot was applied. */
@@ -325,6 +374,12 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
       break;
     case "project_removed":
       projects.value = projects.value.filter((p) => p.id !== message.projectId);
+      break;
+    case "folder_upsert":
+      folders.value = upsert(folders.value, tag(message.folder, envId));
+      break;
+    case "folder_removed":
+      folders.value = folders.value.filter((f) => f.id !== message.folderId);
       break;
     case "settings": {
       // ACP agents added/removed (I-119) or agents turned on/off (I-155), maybe in another

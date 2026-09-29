@@ -9,6 +9,7 @@ import { migration003 } from "./003-environment.js";
 import { migration004 } from "./004-auth.js";
 import { migration005 } from "./005-image-blobs.js";
 import { migration006 } from "./006-images-per-chat.js";
+import { migration007 } from "./007-folders.js";
 import type { Db } from "../database.js";
 
 export interface Migration {
@@ -19,7 +20,7 @@ export interface Migration {
   run?: (db: Db) => void;
 }
 
-export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006];
+export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007];
 
 /** The schema version this build writes (also announced in `servers/<pid>.json`). */
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;

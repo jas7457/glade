@@ -94,7 +94,7 @@ describe("SidebarItem", () => {
     expect(button("Plain").className).toContain(sidebarClass.inset[0]);
     expect(button("Nested").className).toContain(sidebarClass.inset[1]);
     // Indent 0 is flush with the header text (px-2); indent 1 is where a label starts after an icon.
-    expect(SIDEBAR_METRICS.inset).toEqual([8, 32]);
+    expect(SIDEBAR_METRICS.inset).toEqual([8, 32, 56, 80]);
     expect(SIDEBAR_METRICS.inset[0] + SIDEBAR_METRICS.iconWidth + SIDEBAR_METRICS.iconGap).toBe(SIDEBAR_METRICS.inset[1]);
   });
 });

@@ -2,11 +2,14 @@
  * One chat in the sidebar: title, and on the right the pin plus the status (spinner / unread
  * dot / needs-input) when not idle, else the age. On hover (or while the menu is open) the right
  * side is replaced by a "…" menu button; the same menu opens on right-click: Rename, Pin,
- * Move Up/Down (pinned chats), Mark as Read / Mark as Unread (I-073: flags the last open tab), Delete.
+ * Move Up/Down (pinned chats), Move to Folder (I-165), Mark as Read / Mark as Unread (I-073: flags
+ * the last open tab), Delete.
  * Chats working in their own git worktree (I-096) show a small branch glyph.
  */
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
-import { envIdOf } from "@/state/store";
+import { envIdOf, folderOfWorkspace } from "@/state/store";
+import { moveWorkspaceToFolder } from "@/state/folder-actions";
+import { MoveToFolderMenu } from "./folder-menu";
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { GitBranch, MoreHorizontal, Pin } from "lucide-preact";
@@ -64,6 +67,12 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
           </MenuItem>
         </>
       )}
+      <MoveToFolderMenu
+        projectId={chat.projectId}
+        envId={envIdOf(chat)}
+        current={folderOfWorkspace(chat)}
+        onMove={(folderId) => void moveWorkspaceToFolder(chat.id, folderId)}
+      />
       {chat.unread ? (
         <MenuItem onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>
       ) : (

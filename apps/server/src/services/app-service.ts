@@ -7,7 +7,9 @@ import type {
   CreateSessionRequest,
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
+  CreateFolderRequest,
   DeepPartial,
+  Folder,
   EnvironmentInfo,
   GenerateTitleResponse,
   AgentCatalogEntry,
@@ -36,6 +38,7 @@ import type {
   SpawnAgentResponse,
   ThinkingLevel,
   UiResponse,
+  UpdateFolderRequest,
   UpdateProjectRequest,
   UpdateSessionRequest,
   UpdateWorkspaceRequest,
@@ -52,6 +55,7 @@ import { createAppContext, type AppContext, type AppServiceOptions, type Listene
 import { LeaseSync } from "./app/lease-sync.js";
 import { LivePool } from "./app/live-pool.js";
 import { Projects } from "./app/projects.js";
+import { Folders } from "./app/folders.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
@@ -95,6 +99,7 @@ export class AppService {
   private readonly sessions: Sessions;
   private readonly workspaces: Workspaces;
   private readonly projects: Projects;
+  private readonly folders: Folders;
   private readonly team: AgentTeam;
   private readonly unwatch: Array<() => void> = [];
   /** Sequenced live sync to protocol-2 clients (I-122). */
@@ -144,8 +149,9 @@ export class AppService {
     this.sessions = new Sessions(ctx, this.records, this.pool, this.leaseSync, this.actions, this.transcripts, {
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
     });
-    this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions);
-    this.projects = new Projects(ctx, this.records, this.workspaces);
+    this.folders = new Folders(ctx, this.records);
+    this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions, this.folders);
+    this.projects = new Projects(ctx, this.records, this.workspaces, this.folders);
     this.team = new AgentTeam(ctx, this.records, this.pool, this.actions, this.sessions, this.titles);
 
     if (ctx.leases) {
@@ -186,7 +192,32 @@ export class AppService {
       sessions: this.sessions.listSessions(),
       settings: this.ctx.store.getSettings(),
       environment: this.environment.info(),
+      folders: this.folders.listFolders(),
     };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Folders in the chat list (I-165)
+  // -------------------------------------------------------------------------------------------
+
+  listFolders(): Folder[] {
+    return this.folders.listFolders();
+  }
+
+  createFolder(req: CreateFolderRequest): Folder {
+    return this.folders.createFolder(req);
+  }
+
+  updateFolder(id: string, req: UpdateFolderRequest): Folder {
+    return this.folders.updateFolder(id, req);
+  }
+
+  reorderFolders(projectId: string, ids: string[]): Folder[] {
+    return this.folders.reorderFolders(projectId, ids);
+  }
+
+  deleteFolder(id: string): void {
+    this.folders.deleteFolder(id);
   }
 
   // -------------------------------------------------------------------------------------------

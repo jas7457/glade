@@ -158,7 +158,7 @@ describe("Sidebar", () => {
       expect(projectOrder(container)).toEqual(["p2", "p1"]);
     });
 
-    it("reorders pinned chats within their list; unpinned chats aren't draggable", () => {
+    it("reorders pinned chats within their list; unpinned chats only move into folders", () => {
       workspaces.value = [
         ...workspaces.value,
         makeWorkspace({ id: "c5", projectId: "p1", title: "Pinned two", pinned: true, pinOrder: 1 }),
@@ -176,11 +176,13 @@ describe("Sidebar", () => {
       expect(api.reorderPinnedWorkspaces).toHaveBeenCalledWith("p1", ["c5", "c3"]);
       expect(rowTitles(alpha)).toEqual(["c5", "c3", "c2", "c1"]);
 
-      // Unpinned rows don't start a drag.
-      fireEvent.pointerDown(alpha.querySelector("[data-chat-id=c2] button") as HTMLElement, { button: 0, clientX: 10, clientY: 70 });
+      // Unpinned rows don't reorder (no insertion line); they only go into folders (I-165).
+      const unpinned = alpha.querySelector("[data-chat-id=c2] button") as HTMLElement;
+      fireEvent.pointerDown(unpinned, { button: 0, clientX: 10, clientY: 70 });
       fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
       expect(container.querySelector("[data-drop-line]")).toBeNull();
       fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
+      fireEvent.click(unpinned);
       expect(api.reorderPinnedWorkspaces).toHaveBeenCalledTimes(1);
     });
   });

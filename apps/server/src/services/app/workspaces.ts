@@ -25,6 +25,7 @@ import type { LeaseSync } from "./lease-sync.js";
 import type { LivePool } from "./live-pool.js";
 import type { Records } from "./records.js";
 import type { Sessions } from "./sessions.js";
+import type { Folders } from "./folders.js";
 
 /** True when `ids` holds exactly the ids in `expected`, each once. */
 export function sameIdSet(ids: string[], expected: string[]): boolean {
@@ -39,6 +40,7 @@ export class Workspaces {
     private readonly pool: LivePool,
     private readonly leaseSync: LeaseSync,
     private readonly sessions: Sessions,
+    private readonly folders: Folders,
   ) {}
 
   listWorkspaces(): WorkspaceSummary[] {
@@ -106,6 +108,8 @@ export class Workspaces {
       delete next.pinOrder;
     }
     if (req.layout !== undefined) next.layout = req.layout;
+    // Into / out of a folder (I-165).
+    if (req.folderId !== undefined) Object.assign(next, this.folders.moveWorkspace(next, req.folderId));
     return this.records.saveWorkspace(next);
   }
 

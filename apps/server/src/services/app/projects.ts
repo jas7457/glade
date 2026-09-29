@@ -12,15 +12,17 @@ import { checkoutBranch, createBranch } from "../project-git.js";
 import { projectGitInfo } from "../worktrees.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
+import type { Folders } from "./folders.js";
 import { dropProjectPrompts } from "./prompts.js";
 import type { Records } from "./records.js";
-import { sameIdSet, type Workspaces } from "./workspaces.js";
+import type { Workspaces } from "./workspaces.js";
 
 export class Projects {
   constructor(
     private readonly ctx: AppContext,
     private readonly records: Records,
     private readonly workspaces: Workspaces,
+    private readonly folders: Folders,
   ) {}
 
   /** Projects in their manual order (`sortOrder` ascending). */
@@ -59,7 +61,10 @@ export class Projects {
   }
 
   updateProject(id: string, req: UpdateProjectRequest): Project {
+    // Into / out of a top-level folder (I-165).
+    if (req.folderId !== undefined) this.folders.moveProject(id, req.folderId);
     const project = this.records.requireProject(id);
+    if (req.name === undefined) return project;
     const next: Project = {
       ...project,
       ...(req.name !== undefined && req.name.trim() ? { name: req.name.trim() } : {}),
@@ -70,19 +75,12 @@ export class Projects {
     return next;
   }
 
-  /** Set the manual project order. `ids` must be exactly the current projects. */
+  /**
+   * Set the manual project order. `ids` must be exactly the current projects, plus (I-165) any
+   * top-level folders, which share the order.
+   */
   reorderProjects(ids: string[]): Project[] {
-    const projects = this.ctx.store.listProjects();
-    if (!sameIdSet(ids, projects.map((p) => p.id))) {
-      throw new HttpError(400, "ids must list every project exactly once");
-    }
-    ids.forEach((id, sortOrder) => {
-      const project = this.ctx.store.getProject(id)!;
-      if (project.sortOrder === sortOrder) return;
-      const next = { ...project, sortOrder };
-      this.ctx.store.upsertProject(next);
-      this.ctx.broadcast({ type: "project_upsert", project: next });
-    });
+    this.folders.reorderSidebar(ids);
     return this.listProjects();
   }
 
@@ -135,6 +133,7 @@ export class Projects {
     for (const workspace of this.ctx.store.listWorkspaces().filter((w) => w.projectId === id)) {
       await this.workspaces.deleteWorkspace(workspace.id);
     }
+    this.folders.deleteProjectFolders(id); // its folders (I-165)
     this.ctx.store.removeProject(id);
     dropProjectPrompts(this.ctx, id); // its saved prompts (I-098) go with it
     this.ctx.broadcast({ type: "project_removed", projectId: id });

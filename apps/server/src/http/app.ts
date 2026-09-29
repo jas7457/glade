@@ -15,6 +15,7 @@ import {
   WORKTREE_REMOVALS,
   type CheckoutBranchRequest,
   type CreateBranchRequest,
+  type CreateFolderRequest,
   type CreateProjectRequest,
   type CreateSessionRequest,
   type CreateWorkspaceRequest,
@@ -23,6 +24,7 @@ import {
   type OpenProjectRequest,
   type OpenWorkspaceRequest,
   type PromptRequest,
+  type ReorderFoldersRequest,
   type ReorderPinnedWorkspacesRequest,
   type ReorderProjectsRequest,
   type Settings,
@@ -30,6 +32,7 @@ import {
   type SideQuestionRequest,
   type ThinkingLevel,
   type UiResponse,
+  type UpdateFolderRequest,
   type UpdateProjectRequest,
   type UpdateEnvironmentRequest,
   type UpdateSessionRequest,
@@ -215,6 +218,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.patch("/projects/:id", async (c) => {
     const body = await readBody<UpdateProjectRequest>(c);
     optional(body.name, "string", "name");
+    optionalFolderId(body.folderId);
     // A project's environment is set at creation and never changes (I-123).
     if ("environmentId" in body) throw new HttpError(400, "environmentId can't be changed");
     return c.json(service.updateProject(c.req.param("id"), body));
@@ -252,6 +256,32 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     return c.body(null, 204);
   });
 
+  // Folders in the chat list (I-165) ---------------------------------------------------------
+  api.get("/folders", (c) => c.json(service.listFolders()));
+  api.post("/folders", once, async (c) => {
+    const body = await readBody<CreateFolderRequest>(c);
+    requireString(body.name, "name");
+    if (body.projectId !== undefined && body.projectId !== null && typeof body.projectId !== "string") {
+      throw new HttpError(400, "projectId must be a string or null");
+    }
+    return c.json(service.createFolder(body));
+  });
+  api.put("/folders/order", async (c) => {
+    const body = await readBody<ReorderFoldersRequest>(c);
+    requireString(body.projectId, "projectId");
+    requireIds(body.ids);
+    return c.json(service.reorderFolders(body.projectId, body.ids));
+  });
+  api.patch("/folders/:id", async (c) => {
+    const body = await readBody<UpdateFolderRequest>(c);
+    optional(body.name, "string", "name");
+    return c.json(service.updateFolder(c.req.param("id"), body));
+  });
+  api.delete("/folders/:id", (c) => {
+    service.deleteFolder(c.req.param("id"));
+    return c.body(null, 204);
+  });
+
   // Workspaces (sidebar rows) ----------------------------------------------------------------
   api.get("/workspaces", (c) => c.json(service.listWorkspaces()));
   api.post("/workspaces", once, async (c) => {
@@ -282,6 +312,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     const body = await readBody<UpdateWorkspaceRequest>(c);
     optional(body.title, "string", "title");
     optional(body.pinned, "boolean", "pinned");
+    optionalFolderId(body.folderId);
     if (body.layout !== undefined && body.layout !== null && (typeof body.layout !== "object" || Array.isArray(body.layout))) {
       throw new HttpError(400, "layout must be an object or null");
     }
@@ -531,6 +562,11 @@ function requireString(value: unknown, name: string, allowEmpty = false): assert
 
 function optional(value: unknown, type: "string" | "boolean", name: string): void {
   if (value !== undefined && typeof value !== type) throw new HttpError(400, `${name} must be a ${type}`);
+}
+
+/** `folderId` in a PATCH body: absent, a string, or null (I-165). */
+function optionalFolderId(value: unknown): void {
+  if (value !== undefined && value !== null && typeof value !== "string") throw new HttpError(400, "folderId must be a string or null");
 }
 
 function requireIds(value: unknown): asserts value is string[] {

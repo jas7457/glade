@@ -11,6 +11,7 @@ export {
   MenuCheckItem,
   MenuSeparator,
   MenuLabel,
+  MenuSub,
   MenuPrimitive,
   menuContentClass,
   menuItemClass,
