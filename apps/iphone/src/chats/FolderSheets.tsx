@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import type { Folder, Project } from "@glade/protocol";
-import { Check } from "lucide-preact";
+import { Check, FolderInput, FolderMinus, FolderPlus, Folders, Pencil, Trash2 } from "lucide-preact";
 import { createFolder, deleteFolder, moveProjectToFolder, renameFolder } from "@glade/app-core/state/folder-actions";
 import { envIdOf, folders, foldersForProject, sidebarEntries } from "@glade/app-core/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
@@ -83,13 +83,13 @@ export function MoveToFolderSheet({ name, projectId, envId, current, onMove, onC
         {options.length > 0 && (
           <ListGroup header="Folders">
             {options.map((f) => (
-              <ListRow key={f.id} title={f.name} detail={f.id === current ? <Check size={18} class="text-accent" aria-label="Current folder" /> : undefined} onClick={() => (f.id === current ? onClose() : move(f.id))} />
+              <ListRow key={f.id} icon={<Folders size={20} />} title={f.name} detail={f.id === current ? <Check size={18} class="text-accent" aria-label="Current folder" /> : undefined} onClick={() => (f.id === current ? onClose() : move(f.id))} />
             ))}
           </ListGroup>
         )}
         <ListGroup>
-          <ListRow title="New Folder…" tone="accent" onClick={() => setCreating(true)} />
-          {current && <ListRow title="Remove from Folder" onClick={() => move(null)} />}
+          <ListRow icon={<FolderPlus size={20} />} title="New Folder…" tone="accent" onClick={() => setCreating(true)} />
+          {current && <ListRow icon={<FolderMinus size={20} />} title="Remove from Folder" onClick={() => move(null)} />}
         </ListGroup>
       </div>
     </Sheet>
@@ -128,10 +128,10 @@ export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null;
     <Sheet open onClose={onClose} title={folder.name}>
       <div class="pt-1">
         <ListGroup>
-          <ListRow title="Rename" onClick={() => setMode("rename")} />
+          <ListRow icon={<Pencil size={20} />} title="Rename" onClick={() => setMode("rename")} />
         </ListGroup>
         <ListGroup>
-          <ListRow title="Delete Folder…" tone="danger" onClick={() => setMode("delete")} />
+          <ListRow icon={<Trash2 size={20} />} title="Delete Folder…" tone="danger" onClick={() => setMode("delete")} />
         </ListGroup>
       </div>
     </Sheet>
@@ -181,8 +181,8 @@ export function ProjectActionsSheet({ project, onClose }: { project: Project | n
     <Sheet open onClose={onClose} title={project.name}>
       <div class="pt-1">
         <ListGroup>
-          <ListRow title="New Folder…" onClick={() => setMode("newFolder")} />
-          <ListRow title="Move to Folder…" onClick={() => setMode("move")} />
+          <ListRow icon={<FolderPlus size={20} />} title="New Folder…" onClick={() => setMode("newFolder")} />
+          <ListRow icon={<FolderInput size={20} />} title="Move to Folder…" onClick={() => setMode("move")} />
         </ListGroup>
       </div>
     </Sheet>

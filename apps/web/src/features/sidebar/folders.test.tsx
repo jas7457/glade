@@ -141,6 +141,27 @@ describe("sidebar folders (I-165)", () => {
     expect(api.updateWorkspace).toHaveBeenCalledWith("c4", { folderId: "F" });
   });
 
+  it("every item of the chat, project and folder menus has an icon (I-168)", async () => {
+    const { container } = renderSidebar();
+    const expectIcons = () => {
+      const items = screen.getAllByRole("menuitem").concat(screen.queryAllByRole("menuitemradio"));
+      expect(items.length).toBeGreaterThan(0);
+      for (const item of items) expect(item.querySelector("svg"), item.textContent ?? "").not.toBeNull();
+    };
+    fireEvent.contextMenu(container.querySelector("[data-chat-id=c3]") as HTMLElement);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to Folder" }));
+    await screen.findByRole("menuitem", { name: "Remove from Folder" });
+    expectIcons();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" }));
+    expectIcons();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Work" }));
+    expectIcons();
+  });
+
   it("New Folder in the Projects header creates a folder and edits its name", async () => {
     renderSidebar();
     fireEvent.click(screen.getByRole("button", { name: "New Folder" }));

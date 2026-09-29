@@ -23,7 +23,25 @@ export const menuContentClass =
   "z-50 min-w-[180px] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-[8px] p-[5px] text-[1rem] select-none outline-none " +
   floatingSurfaceClass;
 export const menuItemClass =
-  "relative flex h-[22px] items-center gap-2 rounded-[4px] px-2 outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-fg data-[disabled]:opacity-40";
+  "group relative flex h-[22px] items-center gap-2 rounded-[4px] px-2 outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-fg data-[disabled]:opacity-40";
+
+/**
+ * The leading icon column of an item (I-168): 14px lucide icons, muted, taking the label's colour
+ * when highlighted and on destructive items (red like their label).
+ */
+function MenuIcon({ icon, destructive }: { icon: ComponentChildren; destructive?: boolean }) {
+  return (
+    <span
+      class={cn(
+        "flex w-4 shrink-0 justify-center [&_svg]:size-3.5",
+        destructive ? "text-current" : "text-fg-muted group-data-[highlighted]:text-current",
+      )}
+      aria-hidden
+    >
+      {icon}
+    </span>
+  );
+}
 
 /** Which Radix menu family the items are rendered in. */
 export const MenuKindContext = createContext<"dropdown" | "context">("dropdown");
@@ -76,7 +94,7 @@ export function MenuItem({ onSelect, disabled, destructive, icon, shortcut, chil
       disabled={disabled}
       class={cn(menuItemClass, destructive && "text-danger data-[highlighted]:bg-danger data-[highlighted]:text-white")}
     >
-      {icon && <span class="flex w-4 justify-center [&_svg]:size-3.5">{icon}</span>}
+      {icon && <MenuIcon icon={icon} destructive={destructive} />}
       <span class="flex-1 truncate">{children}</span>
       {shortcut && <span class="ml-4 opacity-50">{shortcut}</span>}
     </Item>
@@ -89,12 +107,27 @@ export interface MenuCheckItemProps {
   disabled?: boolean;
   /** Secondary text, right aligned. */
   detail?: ComponentChildren;
+  /**
+   * Leading icon (I-168). With an icon the item lines up with icon <MenuItem>s and the checkmark
+   * moves to the trailing edge, so a list mixing both (e.g. "Move to Folder") keeps one column.
+   */
+  icon?: ComponentChildren;
   children: ComponentChildren;
 }
 
 /** Item with a leading checkmark (used for single-choice lists like model pickers). */
-export function MenuCheckItem({ checked, onSelect, disabled, detail, children }: MenuCheckItemProps) {
+export function MenuCheckItem({ checked, onSelect, disabled, detail, icon, children }: MenuCheckItemProps) {
   const { Item } = usePrimitives();
+  if (icon) {
+    return (
+      <Item onSelect={onSelect} disabled={disabled} class={menuItemClass} aria-checked={checked} role="menuitemradio">
+        <MenuIcon icon={icon} />
+        <span class="flex-1 truncate">{children}</span>
+        {detail && <span class="ml-4 text-[0.85rem] opacity-60">{detail}</span>}
+        <span class="ml-2 flex w-3 justify-center">{checked && <Check size={12} strokeWidth={3} />}</span>
+      </Item>
+    );
+  }
   return (
     <Item onSelect={onSelect} disabled={disabled} class={cn(menuItemClass, "pl-1")} aria-checked={checked} role="menuitemradio">
       <span class="flex w-4 justify-center">{checked && <Check size={12} strokeWidth={3} />}</span>
@@ -115,11 +148,22 @@ export function MenuLabel({ children }: { children: ComponentChildren }) {
 }
 
 /** A submenu (macOS: an item with a chevron that opens its items beside it), e.g. "Move to Folder". */
-export function MenuSub({ label, disabled, children }: { label: ComponentChildren; disabled?: boolean; children: ComponentChildren }) {
+export function MenuSub({
+  label,
+  disabled,
+  icon,
+  children,
+}: {
+  label: ComponentChildren;
+  disabled?: boolean;
+  icon?: ComponentChildren;
+  children: ComponentChildren;
+}) {
   const { Sub, SubTrigger, SubContent, Portal } = usePrimitives();
   return (
     <Sub>
       <SubTrigger disabled={disabled} class={cn(menuItemClass, "data-[state=open]:bg-hover")}>
+        {icon && <MenuIcon icon={icon} />}
         <span class="flex-1 truncate">{label}</span>
         <ChevronRight size={12} class="-mr-1 opacity-60" aria-hidden />
       </SubTrigger>

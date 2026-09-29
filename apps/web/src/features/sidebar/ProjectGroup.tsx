@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Folder, FolderOpen, MoreHorizontal, Plus } from "lucide-preact";
+import { ArrowDown, ArrowUp, Copy, Folder, FolderOpen, FolderPlus, GitBranch, MoreHorizontal, Pencil, Plus, SquarePen, Trash2 } from "lucide-preact";
 import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade/protocol";
 import { routes } from "@glade/app-core/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@glade/app-core/ui";
@@ -116,10 +116,11 @@ export function ProjectGroup({
           {project.path}
         </span>
       </MenuLabel>
-      <MenuItem onSelect={newChat}>New Chat</MenuItem>
-      {isRepo && <MenuItem onSelect={newWorktreeChat}>New Chat in Worktree</MenuItem>}
+      <MenuItem icon={<SquarePen />} onSelect={newChat}>New Chat</MenuItem>
+      {isRepo && <MenuItem icon={<GitBranch />} onSelect={newWorktreeChat}>New Chat in Worktree</MenuItem>}
       <MenuSeparator />
       <MenuItem
+        icon={<Pencil />}
         onSelect={() => {
           renaming.current = true;
           setEditing(true);
@@ -127,18 +128,18 @@ export function ProjectGroup({
       >
         Rename
       </MenuItem>
-      <MenuItem onSelect={() => void copyPath()}>Copy Path</MenuItem>
-      <MenuItem onSelect={() => void createFolderAndRename({ projectId: project.id })}>New Folder</MenuItem>
+      <MenuItem icon={<Copy />} onSelect={() => void copyPath()}>Copy Path</MenuItem>
+      <MenuItem icon={<FolderPlus />} onSelect={() => void createFolderAndRename({ projectId: project.id })}>New Folder</MenuItem>
       <MenuSeparator />
       <MoveToFolderMenu projectId={null} envId={envIdOf(project)} current={folderId} onMove={(to) => void moveProjectToFolder(project.id, to)} />
-      <MenuItem disabled={!canMoveUp} onSelect={() => void moveProject(project.id, -1)}>
+      <MenuItem icon={<ArrowUp />} disabled={!canMoveUp} onSelect={() => void moveProject(project.id, -1)}>
         Move Up
       </MenuItem>
-      <MenuItem disabled={!canMoveDown} onSelect={() => void moveProject(project.id, 1)}>
+      <MenuItem icon={<ArrowDown />} disabled={!canMoveDown} onSelect={() => void moveProject(project.id, 1)}>
         Move Down
       </MenuItem>
       <MenuSeparator />
-      <MenuItem destructive onSelect={() => void remove()}>
+      <MenuItem destructive icon={<Trash2 />} onSelect={() => void remove()}>
         Remove Project…
       </MenuItem>
     </>

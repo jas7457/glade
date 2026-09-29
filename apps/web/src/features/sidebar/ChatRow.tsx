@@ -12,7 +12,7 @@ import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
 import { MoveToFolderMenu } from "./folder-menu";
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { GitBranch, MoreHorizontal, Pin } from "lucide-preact";
+import { ArrowDown, ArrowUp, GitBranch, Mail, MailOpen, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import type { WorkspaceSummary } from "@glade/protocol";
 import { chatPath } from "@glade/app-core/app/routes";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, type SidebarIndent } from "@glade/app-core/ui";
@@ -49,6 +49,7 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
   const items = (
     <>
       <MenuItem
+        icon={<Pencil />}
         onSelect={() => {
           renaming.current = true;
           setEditing(true);
@@ -56,13 +57,13 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
       >
         Rename
       </MenuItem>
-      <MenuItem onSelect={() => void setWorkspacePinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
+      <MenuItem icon={chat.pinned ? <PinOff /> : <Pin />} onSelect={() => void setWorkspacePinned(chat.id, !chat.pinned)}>{chat.pinned ? "Unpin" : "Pin"}</MenuItem>
       {pinPosition && (
         <>
-          <MenuItem disabled={pinPosition.first} onSelect={() => void movePinnedWorkspace(chat.id, -1)}>
+          <MenuItem icon={<ArrowUp />} disabled={pinPosition.first} onSelect={() => void movePinnedWorkspace(chat.id, -1)}>
             Move Up
           </MenuItem>
-          <MenuItem disabled={pinPosition.last} onSelect={() => void movePinnedWorkspace(chat.id, 1)}>
+          <MenuItem icon={<ArrowDown />} disabled={pinPosition.last} onSelect={() => void movePinnedWorkspace(chat.id, 1)}>
             Move Down
           </MenuItem>
         </>
@@ -74,12 +75,12 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved, pinPosition }: 
         onMove={(folderId) => void moveWorkspaceToFolder(chat.id, folderId)}
       />
       {chat.unread ? (
-        <MenuItem onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>
+        <MenuItem icon={<MailOpen />} onSelect={() => void markWorkspaceRead(chat.id)}>Mark as Read</MenuItem>
       ) : (
-        <MenuItem onSelect={() => void markWorkspaceUnread(chat.id)}>Mark as Unread</MenuItem>
+        <MenuItem icon={<Mail />} onSelect={() => void markWorkspaceUnread(chat.id)}>Mark as Unread</MenuItem>
       )}
       <MenuSeparator />
-      <MenuItem destructive onSelect={() => void remove()}>
+      <MenuItem destructive icon={<Trash2 />} onSelect={() => void remove()}>
         Delete…
       </MenuItem>
     </>

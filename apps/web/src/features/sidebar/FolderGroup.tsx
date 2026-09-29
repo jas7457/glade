@@ -9,7 +9,7 @@
  */
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
-import { Folders, MoreHorizontal, Plus } from "lucide-preact";
+import { ArrowDown, ArrowUp, Folders, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-preact";
 import type { ChatStatus, Folder } from "@glade/protocol";
 import { aggregateChatStatus } from "@glade/protocol";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass, type SidebarIndent } from "@glade/app-core/ui";
@@ -68,6 +68,7 @@ export function FolderGroup({ folder, indent, statuses, accept, sort, dragging, 
   const items = (
     <>
       <MenuItem
+        icon={<Pencil />}
         onSelect={() => {
           renaming.current = true;
           renamingFolderId.value = folder.id;
@@ -78,16 +79,16 @@ export function FolderGroup({ folder, indent, statuses, accept, sort, dragging, 
       {onMove && (
         <>
           <MenuSeparator />
-          <MenuItem disabled={!canMoveUp} onSelect={() => onMove(-1)}>
+          <MenuItem icon={<ArrowUp />} disabled={!canMoveUp} onSelect={() => onMove(-1)}>
             Move Up
           </MenuItem>
-          <MenuItem disabled={!canMoveDown} onSelect={() => onMove(1)}>
+          <MenuItem icon={<ArrowDown />} disabled={!canMoveDown} onSelect={() => onMove(1)}>
             Move Down
           </MenuItem>
         </>
       )}
       <MenuSeparator />
-      <MenuItem destructive onSelect={() => void remove()}>
+      <MenuItem destructive icon={<Trash2 />} onSelect={() => void remove()}>
         Delete Folder…
       </MenuItem>
     </>

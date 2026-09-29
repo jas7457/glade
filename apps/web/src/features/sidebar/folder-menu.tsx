@@ -5,6 +5,7 @@
  * ready to edit, like Finder) and "Remove from Folder".
  */
 import { signal } from "@preact/signals";
+import { FolderInput, FolderMinus, FolderPlus, Folders } from "lucide-preact";
 import type { Folder } from "@glade/protocol";
 import { MenuCheckItem, MenuItem, MenuSeparator, MenuSub } from "@glade/app-core/ui";
 import { createFolder } from "@glade/app-core/state/folder-actions";
@@ -43,15 +44,15 @@ export function MoveToFolderMenu({ projectId, envId, current, onMove }: MoveToFo
     if (folder) onMove(folder.id);
   };
   return (
-    <MenuSub label="Move to Folder">
+    <MenuSub icon={<FolderInput />} label="Move to Folder">
       {options.map((f) => (
-        <MenuCheckItem key={f.id} checked={f.id === current} onSelect={() => f.id !== current && onMove(f.id)}>
+        <MenuCheckItem key={f.id} icon={<Folders />} checked={f.id === current} onSelect={() => f.id !== current && onMove(f.id)}>
           {f.name}
         </MenuCheckItem>
       ))}
       {options.length > 0 && <MenuSeparator />}
-      <MenuItem onSelect={() => void newFolder()}>New Folder</MenuItem>
-      {current && <MenuItem onSelect={() => onMove(null)}>Remove from Folder</MenuItem>}
+      <MenuItem icon={<FolderPlus />} onSelect={() => void newFolder()}>New Folder</MenuItem>
+      {current && <MenuItem icon={<FolderMinus />} onSelect={() => onMove(null)}>Remove from Folder</MenuItem>}
     </MenuSub>
   );
 }

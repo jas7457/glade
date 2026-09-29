@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import type { WorkspaceSummary } from "@glade/protocol";
+import { FolderInput, Mail, MailOpen, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, renameWorkspace, setWorkspacePinned } from "@glade/app-core/state/actions";
 import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
 import { envIdOf, folderOfWorkspace } from "@glade/app-core/state/store";
@@ -82,17 +83,17 @@ export function ChatActionsSheet({ chat, onClose }: { chat: WorkspaceSummary | n
     <Sheet open onClose={onClose} title={name}>
       <div class="pt-1">
         <ListGroup>
-          <ListRow title="Rename" onClick={() => setMode("rename")} />
-          <ListRow title={chat.pinned ? "Unpin" : "Pin"} onClick={() => run(() => setWorkspacePinned(chat.id, !chat.pinned))} />
-          <ListRow title="Move to Folder…" onClick={() => setMode("move")} />
+          <ListRow icon={<Pencil size={20} />} title="Rename" onClick={() => setMode("rename")} />
+          <ListRow icon={chat.pinned ? <PinOff size={20} /> : <Pin size={20} />} title={chat.pinned ? "Unpin" : "Pin"} onClick={() => run(() => setWorkspacePinned(chat.id, !chat.pinned))} />
+          <ListRow icon={<FolderInput size={20} />} title="Move to Folder…" onClick={() => setMode("move")} />
           {chat.unread ? (
-            <ListRow title="Mark as Read" onClick={() => run(() => markWorkspaceRead(chat.id))} />
+            <ListRow icon={<MailOpen size={20} />} title="Mark as Read" onClick={() => run(() => markWorkspaceRead(chat.id))} />
           ) : (
-            <ListRow title="Mark as Unread" onClick={() => run(() => markWorkspaceUnread(chat.id))} />
+            <ListRow icon={<Mail size={20} />} title="Mark as Unread" onClick={() => run(() => markWorkspaceUnread(chat.id))} />
           )}
         </ListGroup>
         <ListGroup>
-          <ListRow title="Delete…" tone="danger" onClick={() => setMode("delete")} />
+          <ListRow icon={<Trash2 size={20} />} title="Delete…" tone="danger" onClick={() => setMode("delete")} />
         </ListGroup>
       </div>
     </Sheet>
