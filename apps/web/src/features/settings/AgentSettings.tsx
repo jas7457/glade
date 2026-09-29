@@ -1,11 +1,11 @@
 /**
  * Settings → Agents (`/settings/agent`, I-155, I-159): harness-independent settings (the agent new
- * chats use, sub-agents on/off), then one card per agent this device can run: pi and Claude Code
- * (native since I-173, `claude` on the PATH).
+ * chats use, sub-agents on/off), then one card per agent this device can run: pi, Claude Code
+ * (native since I-173, `claude` on the PATH) and Codex (I-177, `codex` on the PATH).
  * Each card says whether the agent was found here and has its Enable switch (only enabled +
  * installed agents are offered, to this device and to every device using it). When the agent's
  * command isn't on the PATH, the switch is off and disabled, with the commands looked for.
- * No install advice, no per-agent options (pi is always `pi`, Claude Code `claude`, on the PATH).
+ * No install advice, no per-agent options (pi is always `pi`, Claude Code `claude`, Codex `codex`, on the PATH).
  *
  * The list comes from `GET /api/agent-catalog`; until it loads (or on an older server) it's
  * derived from the harness list.

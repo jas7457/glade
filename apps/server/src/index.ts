@@ -16,6 +16,7 @@ import { serve } from "@hono/node-server";
 import { env, isTemporaryDir, LEGACY_APP_DIR_NAME, loadConfig, platformDataDir, startupBanner } from "./config.js";
 import { AcpHarnessProvider } from "./harness/acp/acp-harness.js";
 import { ClaudeHarness } from "./harness/claude/claude-harness.js";
+import { CodexHarness } from "./harness/codex/codex-harness.js";
 import type { AcpResumeState } from "./harness/acp/resume-store.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
@@ -155,6 +156,16 @@ harnesses.register(
     subagents: () => store.getSettings().agent.subagents,
     ...(claudeBudget || claudeTurns ? { limits: { ...(claudeBudget ? { maxBudgetUsd: claudeBudget } : {}), ...(claudeTurns ? { maxTurns: claudeTurns } : {}) } } : {}),
     ...(env("CLAUDE_TRACE") ? { session: { traceFile: env("CLAUDE_TRACE")! } } : {}),
+    log: env("DEBUG") ? log : undefined,
+  }),
+);
+
+// I-177: Codex, native (`codex app-server` JSON-RPC with the user's `codex`); offered when `codex`
+// is on the PATH. Registered in fake mode too, so sandboxes can test it.
+harnesses.register(
+  new CodexHarness({
+    utilityCwd: config.scratchDir,
+    subagents: () => store.getSettings().agent.subagents,
     log: env("DEBUG") ? log : undefined,
   }),
 );

@@ -1,5 +1,5 @@
 /**
- * The Agents page (I-155, I-159, I-173): the agents a device can run (pi and Claude Code for now),
+ * The Agents page (I-155, I-159, I-173, I-177): the agents a device can run (pi, Claude Code, Codex),
  * whether each is found there, and whether the device offers it. A device offers only agents that
  * are installed *and* enabled (`Settings.agents.<harnessId>.enabled`, on unless turned off);
  * `GET /api/harnesses` lists just those, so new chats, pickers, sub-agents and other devices only
@@ -29,10 +29,15 @@ export const PI_COMMAND = "pi";
 export const CLAUDE_HARNESS_ID = "claude";
 export const CLAUDE_COMMAND = "claude";
 
-/** The command a built-in harness runs (pi, Claude Code), `null` for others (e.g. the dev fake). */
+/** Codex's native harness (I-177): its id, and the CLI it drives (`codex app-server`, `codex` on the PATH). */
+export const CODEX_HARNESS_ID = "codex";
+export const CODEX_COMMAND = "codex";
+
+/** The command a built-in harness runs (pi, Claude Code, Codex), `null` for others (e.g. the dev fake). */
 export function builtinAgentCommand(harnessId: string): string | null {
   if (harnessId === "pi") return PI_COMMAND;
   if (harnessId === CLAUDE_HARNESS_ID) return CLAUDE_COMMAND;
+  if (harnessId === CODEX_HARNESS_ID) return CODEX_COMMAND;
   return null;
 }
 
@@ -58,10 +63,10 @@ export function isAgentEnabled(settings: { agents?: AgentSwitches }, harnessId: 
 }
 
 export interface AgentCatalogEntry {
-  /** Harness id ("pi", "claude"). */
+  /** Harness id ("pi", "claude", "codex"). */
   id: string;
   label: string;
-  /** builtin: pi, Claude Code (or the dev fake); known: a well-known ACP agent. */
+  /** builtin: pi, Claude Code, Codex (or the dev fake); known: a well-known ACP agent. */
   kind: "builtin" | "known";
   /** The command line it runs (display), `null` when not applicable. */
   command: string | null;

@@ -1,6 +1,7 @@
 /**
- * The agents this device can run (I-155, I-159, I-173): pi (or the dev fake), Claude Code (native,
- * `harness/claude/`) and the well-known ACP agents (`KNOWN_ACP_AGENTS`: none since I-173).
+ * The agents this device can run (I-155, I-159, I-173, I-177): pi (or the dev fake), Claude Code
+ * (native, `harness/claude/`), Codex (native, `harness/codex/`) and the well-known ACP agents
+ * (`KNOWN_ACP_AGENTS`: none since I-173).
  *
  * - {@link acpAgentConfigs}: the ACP agents that become harnesses: each known agent whose command
  *   is installed (found on the PATH; nothing is started), then the ACP agents the user added. Those
@@ -45,7 +46,7 @@ export interface AgentCatalogOptions {
   settings: Settings;
 }
 
-/** Settings → Agents: pi (or the fake), Claude Code and the known agents, installed or not (see the header). */
+/** Settings → Agents: pi (or the fake), Claude Code, Codex and the known agents, installed or not (see the header). */
 export function buildAgentCatalog({ harnesses, settings }: AgentCatalogOptions): AgentCatalogEntry[] {
   const defaultId = harnesses.info().find((h) => h.isDefault)?.id ?? null;
   const entry = (h: AgentHarness): AgentCatalogEntry => {
