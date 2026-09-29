@@ -3,14 +3,32 @@
 @source "../../web/src";
 @source "./";
 
-html,
-body,
-#app {
-  height: 100%;
+/*
+ * The shared components size everything in rem off a 13px desktop base; on the iPhone the base
+ * is 16px, so 44pt touch targets are h-11 and the transcript reads at a phone size.
+ */
+html[data-iphone] {
+  --pi-font-size: 16px;
 }
 body {
   /* No rubber-band scrolling of the whole page and no long-press callouts on chrome. */
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+}
+
+@keyframes phone-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes phone-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes phone-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
 }

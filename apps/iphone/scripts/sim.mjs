@@ -6,7 +6,7 @@
 // Output of the build goes to /tmp/glade-iphone-build.log (only errors are printed). Then use
 // `node scripts/ios-sim.mjs --app io.github.jas7457.glade.iphone …` (repo root) to tap and screenshot.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, openSync } from "node:fs";
+import { existsSync, openSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,8 @@ const log = "/tmp/glade-iphone-build.log";
 
 if (!noBuild) {
   const env = { ...process.env, LANG: "en_US.UTF-8", PATH: `${join(homedir(), ".cargo/bin")}:${process.env.PATH}` };
+  // Tauri moves the archived app here and fails if the previous one is still there.
+  rmSync(app, { recursive: true, force: true });
   const out = openSync(log, "w");
   const t0 = Date.now();
   const r = spawnSync("pnpm", ["tauri", "ios", "build", "--target", "aarch64-sim", "--debug", "--ci"], { cwd: root, env, stdio: ["ignore", out, out] });

@@ -53,6 +53,11 @@ export interface PairOptions {
   /** Sent to the host (its Allow prompt and list): this device's own name, {@link defaultDeviceName} (I-138). */
   deviceName: string;
   deviceKind: DeviceKind;
+  /**
+   * Sent as `clientEnvironmentId` (I-136). Defaults to the local environment's id; a pure client
+   * without one (the iPhone app, I-164) passes its own stable device id.
+   */
+  clientEnvironmentId?: string;
   onState?: (state: PairState) => void;
   signal?: AbortSignal;
   /** How long to wait for each address's `GET /api/environment` (ms). */
@@ -60,6 +65,11 @@ export interface PairOptions {
 }
 
 const PROBE_TIMEOUT_MS = 6_000;
+
+function clientIdOf(options: PairOptions): { clientEnvironmentId?: string } {
+  const id = options.clientEnvironmentId ?? localEnvironmentId.value;
+  return id ? { clientEnvironmentId: id } : {};
+}
 
 function describeHost(target: PairTarget, info?: EnvironmentInfo | null): string {
   return info?.name || target.name || hostOf(target.urls[0] ?? "") || "the other device";
@@ -143,7 +153,7 @@ export async function runPairing(target: PairTarget, options: PairOptions): Prom
         grant: target.grant,
         deviceName: options.deviceName.trim() || "Glade",
         deviceKind: options.deviceKind,
-        ...(localEnvironmentId.value ? { clientEnvironmentId: localEnvironmentId.value } : {}),
+        ...clientIdOf(options),
       },
       signal,
     );
@@ -284,7 +294,7 @@ export async function runTailnetPairing(target: TailnetPairTarget, options: Pair
         clientNonce,
         deviceName: options.deviceName.trim() || "Glade",
         deviceKind: options.deviceKind,
-        ...(localEnvironmentId.value ? { clientEnvironmentId: localEnvironmentId.value } : {}),
+        ...clientIdOf(options),
       },
       signal,
     );

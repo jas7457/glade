@@ -7,9 +7,18 @@
  * sidebar over the window's vibrancy.
  */
 
-/** True when running inside the Glade desktop app (Tauri webview). */
+/** True when running inside the Glade desktop app (Tauri webview), not the iPhone app. */
 export function isDesktop(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !isIphoneApp();
+}
+
+/**
+ * True inside the Glade iPhone app (apps/iphone, I-164): also a Tauri webview, but none of the
+ * Mac app's native bits (menus, dock, notifications, Keychain via the desktop shell) apply.
+ * Its index.html sets `window.__GLADE_IPHONE__` before any module runs.
+ */
+export function isIphoneApp(): boolean {
+  return typeof window !== "undefined" && (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__ === true;
 }
 
 /** Custom app-menu items (ids from apps/desktop/src-tauri/src/menu.rs). */

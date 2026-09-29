@@ -7,6 +7,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- The Glade iPhone app (early, simulator only for now): it runs no server of its own and connects
+  to your Macs. On first launch, Connect to a Device pairs it with a Mac from its Share This
+  Device… link or code; the Mac sees an "iPhone" asking to connect, and the token is kept in the
+  iPhone's Keychain.
+
 - Update Now in Settings → About: when you're behind, Glade pulls, installs and rebuilds itself
   with live progress, then restarts on the new version (right away, or once your chats finish).
 - Glade lives in the menu bar: ⌘Q closes the window but keeps chats, sub-agents and sharing

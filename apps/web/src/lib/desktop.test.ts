@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isDesktop, onMenuAction, openExternal, setDockBadge } from "./desktop";
+import { isDesktop, isIphoneApp, onMenuAction, openExternal, setDockBadge } from "./desktop";
 
 describe("desktop bridge in a browser", () => {
   afterEach(() => {
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    delete (window as unknown as Record<string, unknown>).__GLADE_IPHONE__;
+  });
+
+  it("the iPhone app's webview isn't the desktop app (I-164)", () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    (window as unknown as Record<string, unknown>).__GLADE_IPHONE__ = true;
+    expect(isIphoneApp()).toBe(true);
+    expect(isDesktop()).toBe(false);
   });
 
   it("detects the Tauri webview by its injected globals", () => {

@@ -1,12 +1,7 @@
 import { render } from "preact";
 import "./styles.css";
+import { App } from "./app/App";
+import { bootIphone } from "./boot";
 
-function Hello() {
-  return (
-    <div class="flex h-full items-center justify-center bg-window text-fg">
-      <h1 class="text-2xl font-semibold">Hello Glade</h1>
-    </div>
-  );
-}
-
-render(<Hello />, document.getElementById("app")!);
+void bootIphone();
+render(<App />, document.getElementById("app")!);
