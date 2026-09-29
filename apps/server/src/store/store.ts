@@ -25,6 +25,7 @@ import {
   defaultSettings,
   type ChatMessage,
   type DeepPartial,
+  type Folder,
   type Project,
   type Session,
   type MessagePatch,
@@ -64,11 +65,13 @@ export interface StoreChange {
   /** Removed sessions are the last known records (callers need their workspace). */
   sessions: { upserted: Session[]; removed: Session[] };
   settings: boolean;
+  /** Folders in the chat list (I-165). */
+  folders: { upserted: Folder[]; removed: string[] };
 }
 
 /**
  * One row of the event log (I-122), as the sync hub sees it. `type`: "project" | "workspace" |
- * "session" | "agent" | "settings" | "environment" (scope "shell") or "messages" (scope "session").
+ * "session" | "agent" | "settings" | "environment" | "folder" (scope "shell") or "messages" (scope "session").
  */
 export interface EventRow {
   seq: number;
@@ -167,6 +170,7 @@ export class Store {
   private readonly workspaces = new Map<string, Workspace>();
   private readonly sessions = new Map<string, Session>();
   private readonly agents = new Map<string, AgentRecord>();
+  private readonly folders = new Map<string, Folder>();
   private settingsOverrides: DeepPartial<Settings> = {};
   private settingsCache: Settings | null = null;
   private lastSeq = 0;
@@ -414,6 +418,7 @@ export class Store {
       workspaces: { upserted: [], removed: [] },
       sessions: { upserted: [], removed: [] },
       settings: false,
+      folders: { upserted: [], removed: [] },
     };
     for (const id of touched.get("project") ?? []) {
       const next = this.readRecord<Project>("projects", id);
@@ -424,6 +429,17 @@ export class Store {
       } else if (before) {
         this.projects.delete(id);
         change.projects.removed.push(id);
+      }
+    }
+    for (const id of touched.get("folder") ?? []) {
+      const next = this.readRecord<Folder>("folders", id);
+      const before = this.folders.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) change.folders.upserted.push(next);
+        this.folders.set(id, next);
+      } else if (before) {
+        this.folders.delete(id);
+        change.folders.removed.push(id);
       }
     }
     for (const id of touched.get("workspace") ?? []) {
@@ -480,6 +496,8 @@ export class Store {
       change.workspaces.removed.length ||
       change.sessions.upserted.length ||
       change.sessions.removed.length ||
+      change.folders.upserted.length ||
+      change.folders.removed.length ||
       change.settings;
     return () => {
       if (any) {
@@ -540,6 +558,7 @@ export class Store {
     for (const w of all<Workspace>("SELECT data_json FROM workspaces ORDER BY rowid")) this.workspaces.set(w.id, w);
     for (const s of all<Session>("SELECT data_json FROM sessions ORDER BY rowid")) this.sessions.set(s.id, s);
     for (const a of all<AgentRecord>("SELECT data_json FROM agents ORDER BY rowid")) this.agents.set(a.sessionId, a);
+    for (const f of all<Folder>("SELECT data_json FROM folders ORDER BY rowid")) this.folders.set(f.id, f);
     this.loadSettings();
   }
 
@@ -640,6 +659,16 @@ export class Store {
       .run(a.sessionId, a.parentSessionId, a.workspaceId, JSON.stringify(a), now);
   }
 
+  private putFolder(f: Folder, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO folders (id, project_id, sort_order, data_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET project_id = excluded.project_id, sort_order = excluded.sort_order,
+           data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(f.id, f.projectId, f.sortOrder, JSON.stringify(f), now);
+  }
+
   private putSettings(overrides: DeepPartial<Settings>, now: number): void {
     this.db
       .prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at")
@@ -689,6 +718,65 @@ export class Store {
       this.event("project", id);
     });
     this.projects.delete(id);
+    this.publish();
+  }
+
+  // Folders (I-165) ----------------------------------------------------------------------------
+
+  listFolders(): Folder[] {
+    return [...this.folders.values()];
+  }
+
+  getFolder(id: string): Folder | undefined {
+    return this.folders.get(id);
+  }
+
+  /**
+   * Write folders, projects and workspaces in one transaction (a folder change and the members it
+   * moves; a reorder). Every record gets its own event row.
+   */
+  saveSidebar(changes: { folders?: Folder[]; projects?: Project[]; workspaces?: Workspace[] }): void {
+    const projects = (changes.projects ?? []).map((next) => ({
+      ...next,
+      environmentId: this.projects.get(next.id)?.environmentId ?? next.environmentId ?? this.environmentId,
+    }));
+    transaction(this.db, () => {
+      const now = Date.now();
+      for (const f of changes.folders ?? []) {
+        this.putFolder(f, now);
+        this.event("folder", f.id);
+      }
+      for (const p of projects) {
+        this.putProject(p, now);
+        this.event("project", p.id);
+      }
+      for (const w of changes.workspaces ?? []) {
+        this.putWorkspace(w, now);
+        this.event("workspace", w.id);
+      }
+    });
+    for (const f of changes.folders ?? []) this.folders.set(f.id, f);
+    for (const p of projects) this.projects.set(p.id, p);
+    for (const w of changes.workspaces ?? []) this.workspaces.set(w.id, w);
+    this.publish();
+  }
+
+  upsertFolder(folder: Folder): Folder {
+    this.saveSidebar({ folders: [folder] });
+    return folder;
+  }
+
+  /** Delete folders and, in the same transaction, save the members moved out of them. */
+  removeFolders(ids: readonly string[], moved: { projects?: Project[]; workspaces?: Workspace[] } = {}): void {
+    if (!ids.length) return;
+    transaction(this.db, () => {
+      for (const id of ids) {
+        this.db.prepare("DELETE FROM folders WHERE id = ?").run(id);
+        this.event("folder", id);
+      }
+      this.saveSidebar(moved);
+    });
+    for (const id of ids) this.folders.delete(id);
     this.publish();
   }
 

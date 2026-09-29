@@ -1,13 +1,17 @@
 /**
- * A chat's actions on the iPhone (long-press on a row, I-164): Rename, Pin/Unpin, Mark as
- * Read/Unread and Delete, as a bottom sheet (iOS has no context menus over web content).
+ * A chat's actions on the iPhone (long-press on a row, I-164): Rename, Pin/Unpin, Move to Folder
+ * (I-165), Mark as Read/Unread and Delete, as a bottom sheet (iOS has no context menus over web
+ * content).
  */
 import { useEffect, useState } from "preact/hooks";
 import type { WorkspaceSummary } from "@glade/protocol";
 import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { moveWorkspaceToFolder } from "@/state/folder-actions";
+import { envIdOf, folderOfWorkspace } from "@/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
+import { MoveToFolderSheet } from "./FolderSheets";
 
-type Mode = "menu" | "rename" | "delete";
+type Mode = "menu" | "rename" | "delete" | "move";
 
 export function ChatActionsSheet({ chat, onClose }: { chat: WorkspaceSummary | null; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>("menu");
@@ -48,6 +52,18 @@ export function ChatActionsSheet({ chat, onClose }: { chat: WorkspaceSummary | n
       </Sheet>
     );
   }
+  if (mode === "move") {
+    return (
+      <MoveToFolderSheet
+        name={name}
+        projectId={chat.projectId}
+        envId={envIdOf(chat)}
+        current={folderOfWorkspace(chat)}
+        onMove={(folderId) => void moveWorkspaceToFolder(chat.id, folderId)}
+        onClose={onClose}
+      />
+    );
+  }
   if (mode === "delete") {
     return (
       <Sheet open onClose={onClose} title="Delete Chat?">
@@ -68,6 +84,7 @@ export function ChatActionsSheet({ chat, onClose }: { chat: WorkspaceSummary | n
         <ListGroup>
           <ListRow title="Rename" onClick={() => setMode("rename")} />
           <ListRow title={chat.pinned ? "Unpin" : "Pin"} onClick={() => run(() => setWorkspacePinned(chat.id, !chat.pinned))} />
+          <ListRow title="Move to Folder…" onClick={() => setMode("move")} />
           {chat.unread ? (
             <ListRow title="Mark as Read" onClick={() => run(() => markWorkspaceRead(chat.id))} />
           ) : (

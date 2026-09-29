@@ -27,19 +27,23 @@ import { setClientOrder } from "./env-order";
 import {
   PROJECT_ORDER,
   envIdOf,
+  folderOfWorkspace,
+  folders,
+  sidebarEntries,
   envIdOfProject,
   itemOrderKey,
   pinOrderList,
   projects,
   sessions,
   shellOf,
-  sortedProjects,
   upsert,
   workspaces,
+  workspacesById,
   workspacesForProject,
 } from "./store";
 import { notify } from "./toasts";
 import { resetNewChatWorktree, worktreeRequestFor } from "./worktrees";
+import { entryId } from "./folders";
 
 /** `ids` with `id` swapped one step up (-1) or down (+1); null at the edges or if missing. */
 export function stepOrder(ids: readonly string[], id: string, delta: -1 | 1): string[] | null {
@@ -149,8 +153,13 @@ export function movePinnedWorkspace(id: string, delta: -1 | 1): Promise<boolean>
   const ids = workspacesForProject(workspace.projectId)
     .filter((w) => w.pinned)
     .map((w) => w.id);
-  const next = stepOrder(ids, id, delta);
-  return next ? reorderPinnedWorkspaces(workspace.projectId, next) : Promise.resolve(false);
+  // Within what's shown with it: its folder's pinned chats, or those outside folders (I-165).
+  const folder = folderOfWorkspace(workspace);
+  const shown = ids.filter((wid) => folderOfWorkspace(workspacesById.value.get(wid)!) === folder);
+  const next = stepOrder(shown, id, delta);
+  if (!next) return Promise.resolve(false);
+  const rest = ids.filter((wid) => !shown.includes(wid));
+  return reorderPinnedWorkspaces(workspace.projectId, [...next, ...rest]);
 }
 
 /**
@@ -271,45 +280,76 @@ export async function updateProject(id: string, patch: UpdateProjectRequest): Pr
 export const renameProject = (id: string, name: string) => updateProject(id, { name });
 
 /**
- * Set the manual project order (full list of ids, possibly of several environments). Applied
- * optimistically (`sortOrder` = index within its environment); this device keeps how the
- * environments are interleaved (I-123), each server gets its own projects' order. Restored and
- * reported if a server rejects it.
+ * Set the manual order of the project list's top level: project and (I-165) top-level folder ids,
+ * possibly of several environments. `inside` gives folders' project ids in a new order (others
+ * keep theirs). Applied optimistically (`sortOrder` = index within its environment, folders and
+ * their projects sharing one numbering); this device keeps how the environments are interleaved
+ * (I-123), each server gets its own part. Restored and reported if a server rejects it.
  */
-export async function reorderProjects(ids: string[]): Promise<boolean> {
+export async function reorderProjects(ids: string[], inside: Readonly<Record<string, readonly string[]>> = {}): Promise<boolean> {
   const all = projects.value;
-  const byId = new Map(all.map((p) => [p.id, p]));
-  const before = new Map(all.map((p) => [p.id, p.sortOrder]));
-  setClientOrder(PROJECT_ORDER, ids.flatMap((id) => (byId.has(id) ? [itemOrderKey(byId.get(id)!)] : [])));
-  const envs = [...new Set(ids.map((id) => envIdOf(byId.get(id))))];
-  const parts = envs.map((env) => idsOfEnv(ids, all, env));
+  const allFolders = folders.value;
+  const entries = new Map(sidebarEntries.value.map((e) => [entryId(e), e]));
+  const itemOf = (id: string) => {
+    const e = entries.get(id);
+    return e ? (e.kind === "project" ? e.project : e.folder) : (all.find((p) => p.id === id) ?? allFolders.find((f) => f.id === id));
+  };
+  const listed = ids.filter((id) => itemOf(id));
+  const before = new Map<string, number>([...all.map((p) => [p.id, p.sortOrder] as const), ...allFolders.map((f) => [f.id, f.sortOrder] as const)]);
+  setClientOrder(PROJECT_ORDER, listed.map((id) => itemOrderKey(itemOf(id)!)));
+  const envs = [...new Set(listed.map((id) => envIdOf(itemOf(id))))];
+  const expand = (id: string): string[] => {
+    const e = entries.get(id);
+    if (e?.kind !== "folder") return [id];
+    const current = e.projects.map((p) => p.id);
+    const wanted = (inside[id] ?? current).filter((pid) => current.includes(pid) || all.some((p) => p.id === pid));
+    return [id, ...wanted, ...current.filter((pid) => !wanted.includes(pid))];
+  };
+  const parts = envs.map((env) => {
+    const flat = listed.filter((id) => envIdOf(itemOf(id)) === env).flatMap(expand);
+    // Projects the list doesn't show (moved elsewhere meanwhile) keep their place after the rest.
+    return [...new Set([...flat, ...all.filter((p) => envIdOf(p) === env && !flat.includes(p.id)).map((p) => p.id)])];
+  });
   const order = new Map(parts.flatMap((part) => part.map((id, i) => [id, i] as const)));
   projects.value = all.map((p) => (order.has(p.id) ? { ...p, sortOrder: order.get(p.id) as number } : p));
+  folders.value = allFolders.map((f) => (order.has(f.id) ? { ...f, sortOrder: order.get(f.id) as number } : f));
   try {
     for (const [i, env] of envs.entries()) {
       // Only environments whose own order changed are asked.
       const mine = parts[i]!;
-      const was = [...all].filter((p) => envIdOf(p) === env).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((p) => p.id);
-      if (envs.length > 1 && was.length === mine.length && was.every((id, j) => id === mine[j])) continue;
+      const was = mine.slice().sort((a, b) => (before.get(a) ?? 0) - (before.get(b) ?? 0));
+      if (envs.length > 1 && was.every((id, j) => id === mine[j])) continue;
       const updated = await apiFor(env).reorderProjects(mine);
       projects.value = updated.map((p) => tagged(retag(projects.value, p), env)).reduce(upsert, projects.value);
     }
     return true;
   } catch (err) {
     projects.value = projects.value.map((p) => (before.has(p.id) ? { ...p, sortOrder: before.get(p.id) as number } : p));
+    folders.value = folders.value.map((f) => (before.has(f.id) ? { ...f, sortOrder: before.get(f.id) as number } : f));
     fail("Could not reorder projects", err);
     return false;
   }
 }
 
-/** Keyboard alternative to dragging: move a project one step up or down. */
+/**
+ * Keyboard alternative to dragging: move a project or top-level folder one step up or down in its
+ * list (the top level, or its folder's projects).
+ */
 export function moveProject(id: string, delta: -1 | 1): Promise<boolean> {
+  const top = sidebarEntries.value;
+  const topIds = top.map(entryId);
+  if (topIds.includes(id)) {
+    const next = stepOrder(topIds, id, delta);
+    return next ? reorderProjects(next) : Promise.resolve(false);
+  }
+  const folder = top.find((e) => e.kind === "folder" && e.projects.some((p) => p.id === id));
+  if (folder?.kind !== "folder") return Promise.resolve(false);
   const next = stepOrder(
-    sortedProjects.value.map((p) => p.id),
+    folder.projects.map((p) => p.id),
     id,
     delta,
   );
-  return next ? reorderProjects(next) : Promise.resolve(false);
+  return next ? reorderProjects(topIds, { [folder.folder.id]: next }) : Promise.resolve(false);
 }
 
 export async function removeProject(id: string): Promise<boolean> {

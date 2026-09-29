@@ -9,6 +9,7 @@ import type { SessionAgentState, SpawnedAgentRef } from "./agents.js";
 import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, TranscriptPage } from "./sync.js";
 import type { EnvironmentInfo } from "./environments.js";
 import type { PendingPairing } from "./auth.js";
+import type { Folder } from "./folders.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -31,6 +32,8 @@ export interface Project {
    * came from".
    */
   environmentId?: string;
+  /** The top-level folder it's in (I-165); absent/`null` = not in a folder. */
+  folderId?: string | null;
 }
 
 /**
@@ -61,6 +64,11 @@ export interface Workspace {
    * the worktree folder. Absent for workspaces working in the project folder itself.
    */
   worktree?: WorkspaceWorktree;
+  /**
+   * The folder it's in (I-165): a top-level folder for standalone workspaces, a folder of its own
+   * project otherwise. Absent/`null` = not in a folder.
+   */
+  folderId?: string | null;
 }
 
 /** A workspace's own git worktree (I-096). */
@@ -357,9 +365,14 @@ export interface CreateProjectRequest {
 
 export interface UpdateProjectRequest {
   name?: string;
+  /** Move into a top-level folder (I-165); `null` moves it out. */
+  folderId?: string | null;
 }
 
-/** `PUT /api/projects/order`: the full list of project ids in their new order. */
+/**
+ * `PUT /api/projects/order`: the full list of project ids in their new order. May also list
+ * top-level folder ids (I-165): folders and projects share one order (`sortOrder`).
+ */
 export interface ReorderProjectsRequest {
   ids: string[];
 }
@@ -414,6 +427,8 @@ export interface UpdateWorkspaceRequest {
   pinned?: boolean;
   /** Replace the saved layout (`null` clears it). */
   layout?: WorkspaceLayout | null;
+  /** Move into a folder (I-165): a top-level one for standalone chats, one of its project's otherwise; `null` moves it out. */
+  folderId?: string | null;
 }
 
 /** `POST /api/workspaces/:id/sessions`: a new main session (tab) in the workspace. */
@@ -525,6 +540,8 @@ export interface ShellSnapshot {
   settings: Settings;
   /** The server's environment (I-123; missing on older servers). */
   environment?: EnvironmentInfo;
+  /** Folders in the chat list (I-165; missing on older servers). */
+  folders?: Folder[];
 }
 
 /**
@@ -552,6 +569,10 @@ export type ServerMessage = (
   | { type: "workspace_removed"; workspaceId: string }
   | { type: "project_upsert"; project: Project }
   | { type: "project_removed"; projectId: string }
+  /** A folder in the chat list was created, renamed or reordered (I-165). */
+  | { type: "folder_upsert"; folder: Folder }
+  /** A folder was deleted; its members were moved out (their own upserts follow). */
+  | { type: "folder_removed"; folderId: string }
   | { type: "settings"; settings: Settings }
   | { type: "models"; models: ModelInfo[] }
   /** Subscription usage limits; `null` when unavailable (feature hidden). */
@@ -574,7 +595,7 @@ export type ServerMessage = (
   | { type: "snapshot"; scope: "shell"; seq: number; shell: ShellSnapshot }
   | ({ type: "snapshot"; scope: "session"; sessionId: string; seq: number; page: TranscriptPage } & SessionLiveState)
   /** Caught up: live pushes follow. `check`: every id the server has (drop the others; missing ones mean resubscribe). */
-  | { type: "live"; scope: "shell"; seq: number; check: { projects: string[]; workspaces: string[]; sessions: string[] } }
+  | { type: "live"; scope: "shell"; seq: number; check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[] } }
   | ({ type: "live"; scope: "session"; sessionId: string; seq: number } & SessionLiveState)
   /** Changed messages / tool results of a session's transcript (replay, or written by another server). */
   | { type: "transcript_patch"; sessionId: string; messages: MessagePatch[]; toolResults: ToolResult[] }
