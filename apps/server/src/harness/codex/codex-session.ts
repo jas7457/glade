@@ -21,9 +21,17 @@
  *   — resets <date>" (`errors.ts`, dates from `account/rateLimits/read`); sign-in problems say how
  *   to log in. Token usage feeds the context meter and session stats.
  * - **Compaction:** `thread/compact/start`; its turn runs silently apart from the notice.
+ * - **Slash commands (I-178, `commands.ts`):** Codex's skills (`skills/list` for the chat's folder)
+ *   and `/review`. `/<skill> rest` sends a skill item; `/review …` runs `review/start` as the
+ *   turn (its review is the reply). A review sent while a turn runs waits as a follow-up.
+ * - **`!cmd` / `!!cmd` (I-178):** `command/exec` in the chat's folder, in the chat's permission
+ *   mode's sandbox, output streamed as `shell_*` events; allowed while a turn runs. A shared
+ *   (`!`) command is added to Codex's history as Codex records its own `!` commands
+ *   (`thread/inject_items`) right away when idle, else with the next message (as text before it).
  * - The app-server ending fails the running turn and exits the session (`onExit`); the next prompt
  *   opens the chat again in a new process, which resumes the thread.
  */
+import { StringDecoder } from "node:string_decoder";
 import {
   applyAgentEvent,
   clampThinkingLevel,
@@ -35,14 +43,17 @@ import {
   type PermissionOption,
   type PromptRequest,
   type SessionState,
+  type ShellResult,
+  type SlashCommand,
   type ThinkingLevel,
   type Transcript,
   type UiRequest,
   type UiResponse,
 } from "@glade/protocol";
 import { SessionEvents } from "../session-events.js";
-import type { HarnessSession } from "../types.js";
+import type { HarnessSession, ShellRunRequest } from "../types.js";
 import type { CodexAppServer, ThreadListener } from "./app-server.js";
+import { codexSlashCommands, parseSlashText, reviewTarget, shellArgv, skillInput, userShellItem, userShellRecord } from "./commands.js";
 import { NOT_LOGGED_IN, friendlyTurnError, usageLimitMessage } from "./errors.js";
 import { CODEX_PROVIDER, DEFAULT_CONTEXT_WINDOW, codexModelId, codexThinkingLevels, defaultLevel, effortToLevel, findCodexModel, levelToEffort } from "./models.js";
 import {
@@ -68,6 +79,8 @@ import type {
   DynamicToolSpec,
   FileChangeRequestApprovalParams,
   PermissionsRequestApprovalParams,
+  ReviewStartResponse,
+  ReviewTarget,
   ServerNotifications,
   ThreadStartResponse,
   ToolRequestUserInputParams,
@@ -79,6 +92,8 @@ import { itemSummary } from "./tools.js";
 import { CodexTranslator, type TurnEnd } from "./translate.js";
 
 const LABEL = "Codex";
+/** Output kept per stream of a `!cmd` (`command/exec`'s `outputBytesCap`). */
+const SHELL_OUTPUT_CAP = 1024 * 1024;
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
 
 /** One of Glade's own tools, run in the Glade server when Codex calls it. */
@@ -100,6 +115,8 @@ export interface CodexSessionOptions {
   developerInstructions?: string;
   /** Glade's tools for this chat (dynamic tools), read when a thread starts. */
   gladeTools?: () => CodexGladeTool[];
+  /** The user's shell for `!cmd` (default: `/bin/zsh`). */
+  shell?: string;
   /** How long to wait for an interrupted turn's `turn/completed`. */
   cancelGraceMs?: number;
   log?: (msg: string) => void;
@@ -134,6 +151,11 @@ export class CodexSession implements HarnessSession {
   private contextWindow = DEFAULT_CONTEXT_WINDOW;
   private models: CodexModel[] = [];
   private tools: CodexGladeTool[] = [];
+  /** Shared `!cmd` records not in Codex's history yet (sent with the next message). */
+  private readonly shellContext: string[] = [];
+  /** Running `!cmd`s: Glade's shell id → `command/exec` process id. */
+  private readonly shells = new Map<string, string>();
+  private readonly stoppedShells = new Set<string>();
   /** The error Codex reported for the running turn (`error` notification), for `turn/completed`. */
   private lastError: CodexTurn["error"] = null;
 
@@ -257,7 +279,7 @@ export class CodexSession implements HarnessSession {
     const turn = this.turn;
     if (turn?.compact) throw new Error("Wait for the compaction to finish");
     if (turn) {
-      if (request.behavior === "followUp" || !turn.id) {
+      if (request.behavior === "followUp" || !turn.id || parseSlashText(request.text)?.name === "review") {
         this.queue.push(request);
         this.emitQueue();
         return;
@@ -271,7 +293,14 @@ export class CodexSession implements HarnessSession {
   /** Add a message to the running turn (`turn/steer`); when Codex can't, it waits as a follow-up. */
   private async steer(turn: Turn, request: PromptRequest): Promise<void> {
     try {
-      await this.options.server.request("turn/steer", { threadId: this.ref, input: userInput(request), expectedTurnId: turn.id });
+      const { input } = await this.resolveInput(request);
+      const context = this.takeShellContext();
+      try {
+        await this.options.server.request("turn/steer", { threadId: this.ref, input: [...context, ...input], expectedTurnId: turn.id });
+      } catch (err) {
+        this.restoreShellContext(context);
+        throw err;
+      }
       for (const event of this.translator.userMessage(request.text, request.images)) this.emit(event);
     } catch (err) {
       this.options.log?.(`codex: steering failed (${(err as Error).message}); queued as a follow-up`);
@@ -325,6 +354,109 @@ export class CodexSession implements HarnessSession {
     pending.resolve(response);
   }
 
+  /** Codex's commands and the skills of the chat's folder (`commands.ts`). */
+  async listCommands(): Promise<SlashCommand[]> {
+    return codexSlashCommands(await this.skills());
+  }
+
+  private skills() {
+    return this.options.server.skills(this.options.cwd).catch((err: Error) => {
+      this.options.log?.(`codex: listing skills failed: ${err.message}`);
+      return [];
+    });
+  }
+
+  /** What a prompt sends: a `/review`, a `/<skill>` (skill item), or the text and images. */
+  private async resolveInput(request: PromptRequest): Promise<{ input: UserInput[]; review?: ReviewTarget }> {
+    const slash = parseSlashText(request.text);
+    if (slash?.name === "review") return { input: [], review: reviewTarget(slash.args) };
+    const skill = slash ? (await this.skills()).find((s) => s.name === slash.name) : undefined;
+    if (!slash || !skill) return { input: userInput(request) };
+    return { input: [...skillInput(skill, slash.args), ...userInput({ ...request, text: "" }).filter((i) => i.type !== "text")] };
+  }
+
+  /**
+   * `!cmd` / `!!cmd`: `command/exec` in the chat's folder with the chat's sandbox (see the
+   * header). Never rejects.
+   */
+  async runShell({ id, command, shareWithAgent }: ShellRunRequest): Promise<ShellResult> {
+    const startedAt = Date.now();
+    this.emit({ type: "shell_start", id, command, shared: shareWithAgent, at: startedAt });
+    const processId = `glade-${id}`;
+    this.shells.set(id, processId);
+    let output = "";
+    let truncated = false;
+    const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+    let result: ShellResult;
+    try {
+      const response = await this.options.server.exec(
+        {
+          command: shellArgv(command, this.options.shell),
+          processId,
+          cwd: this.options.cwd,
+          disableTimeout: true,
+          outputBytesCap: SHELL_OUTPUT_CAP,
+          sandboxPolicy: turnPermissions(this.mode()).sandboxPolicy,
+        },
+        (delta) => {
+          if (delta.capReached) truncated = true;
+          const text = decoders[delta.stream].write(Buffer.from(delta.deltaBase64, "base64"));
+          if (!text || this.disposed) return;
+          output += text;
+          this.emit({ type: "shell_update", id, delta: text });
+        },
+      );
+      const tail = decoders.stdout.end() + decoders.stderr.end() + response.stdout + response.stderr;
+      if (tail) {
+        output += tail;
+        this.emit({ type: "shell_update", id, delta: tail });
+      }
+      const cancelled = this.stoppedShells.has(id);
+      result = { output, exitCode: cancelled ? null : response.exitCode, cancelled, truncated };
+    } catch (err) {
+      result = { output, exitCode: null, cancelled: this.stoppedShells.has(id), truncated, error: (err as Error).message };
+    } finally {
+      this.shells.delete(id);
+      this.stoppedShells.delete(id);
+    }
+    this.emit({ type: "shell_end", id, result, at: Date.now() });
+    if (shareWithAgent && !result.error) await this.shareShell(userShellRecord(command, result.exitCode, Date.now() - startedAt, result.output));
+    return result;
+  }
+
+  async abortShell(): Promise<void> {
+    await Promise.all(
+      [...this.shells].map(([id, processId]) => {
+        this.stoppedShells.add(id);
+        return this.options.server.terminate(processId).catch((err: Error) => this.options.log?.(`codex: stopping ${id} failed: ${err.message}`));
+      }),
+    );
+  }
+
+  /** Put a shared `!cmd` into Codex's history now when idle, else with the next message. */
+  private async shareShell(record: string): Promise<void> {
+    if (this.turn || this.disposed) {
+      this.shellContext.push(record);
+      return;
+    }
+    try {
+      const threadId = await this.ensureThread();
+      await this.options.server.request("thread/inject_items", { threadId, items: [userShellItem(record)] });
+    } catch (err) {
+      this.options.log?.(`codex: couldn't add the command to the thread (${(err as Error).message}); it goes with the next message`);
+      this.shellContext.push(record);
+    }
+  }
+
+  /** Shared `!cmd`s waiting for the next message, as its first input items. */
+  private takeShellContext(): UserInput[] {
+    return this.shellContext.splice(0).map((text) => ({ type: "text", text, text_elements: [] }));
+  }
+
+  private restoreShellContext(items: UserInput[]): void {
+    this.shellContext.unshift(...items.map((i) => (i.type === "text" ? i.text : "")).filter(Boolean));
+  }
+
   async compact(): Promise<CompactResult> {
     if (this.turn) throw new Error("Wait for the current reply to finish before compacting");
     const turn: Turn = { id: null, aborted: false, done: false };
@@ -363,6 +495,7 @@ export class CodexSession implements HarnessSession {
     if (this.cancelTimer) clearTimeout(this.cancelTimer);
     const turn = this.turn;
     if (turn && !turn.done && turn.id) this.interrupt(turn);
+    for (const processId of this.shells.values()) void this.options.server.terminate(processId).catch(() => {});
     this.unregister?.();
     this.unregister = null;
     // Let the app-server unload the thread (it stays saved).
@@ -386,21 +519,31 @@ export class CodexSession implements HarnessSession {
         return this.finishTurn(turn, { stopReason: "error", errorMessage: usageLimitMessage(blocked.rateLimits), errorDetails: `Codex reports no usage left on this account${plan}; nothing was sent.` });
       }
       if (turn.aborted) return this.finishTurn(turn, { stopReason: "aborted" });
-      const threadId = await this.ensureThread();
-      const params = {
-        threadId,
-        input: userInput(request),
-        ...(codexModelId(this.state.model) ? { model: codexModelId(this.state.model) } : {}),
-        effort: levelToEffort(this.state.thinkingLevel),
-        ...turnPermissions(this.mode()),
-      };
-      let started: TurnStartResponse;
+      const { input, review } = await this.resolveInput(request);
+      if (turn.aborted) return this.finishTurn(turn, { stopReason: "aborted" });
+      const context = review ? [] : this.takeShellContext();
+      const start = (threadId: string): Promise<TurnStartResponse | ReviewStartResponse> =>
+        review
+          ? server.request<ReviewStartResponse>("review/start", { threadId, target: review, delivery: "inline" })
+          : server.request<TurnStartResponse>("turn/start", {
+              threadId,
+              input: [...context, ...input],
+              ...(codexModelId(this.state.model) ? { model: codexModelId(this.state.model) } : {}),
+              effort: levelToEffort(this.state.thinkingLevel),
+              ...turnPermissions(this.mode()),
+            });
+      let started: TurnStartResponse | ReviewStartResponse;
       try {
-        started = await server.request<TurnStartResponse>("turn/start", params);
+        try {
+          started = await start(await this.ensureThread());
+        } catch (err) {
+          if (!isMissingThread(err)) throw err;
+          this.loaded = false; // Codex unloaded it: resume and try once more
+          started = await start(await this.ensureThread());
+        }
       } catch (err) {
-        if (!isMissingThread(err)) throw err;
-        this.loaded = false; // Codex unloaded it: resume and try once more
-        started = await server.request<TurnStartResponse>("turn/start", { ...params, threadId: await this.ensureThread() });
+        this.restoreShellContext(context);
+        throw err;
       }
       if (turn.done) return;
       turn.id ??= started.turn.id;

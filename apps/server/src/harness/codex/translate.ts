@@ -10,7 +10,8 @@
  * - Tool calls start complete (`item/started` has the arguments); command output streams as
  *   `tool_update`s; `item/completed` ends them (exit code, diffs, MCP results, declines).
  * - `turn/plan/updated` is the plan card (one notice per turn, updated in place); context
- *   compaction and review mode are notices.
+ *   compaction and entering review mode are notices; a review's result (`exitedReviewMode`) is
+ *   the reply text (Codex's agent message repeating it after that is skipped).
  * - `finish` ends the turn: it closes the message with the stop reason / error and settles tool
  *   calls that never completed.
  *
@@ -66,6 +67,9 @@ export class CodexTranslator {
   private readonly items = new Map<string, ThreadItem>();
   private readonly rejected = new Set<string>();
   private planId: string | null = null;
+  /** A review's result was shown this turn; the agent messages after it repeat it. */
+  private reviewShown = false;
+  private readonly echoes = new Set<string>();
 
   constructor(
     /** Prefix for message ids, unique per session object so ids never clash with saved history. */
@@ -118,6 +122,7 @@ export class CodexTranslator {
       case "userMessage":
         return [];
       case "agentMessage":
+        if (this.isReviewEcho(item)) return [];
         return item.text ? this.setText(item.id, "text", item.text) : [];
       case "plan":
         return item.text ? this.setText(item.id, "text", item.text) : [];
@@ -138,6 +143,8 @@ export class CodexTranslator {
       case "userMessage":
         return [];
       case "agentMessage":
+        if (this.isReviewEcho(item)) return [];
+        return this.setText(item.id, "text", item.text, true);
       case "plan":
         return this.setText(item.id, "text", item.text, true);
       case "reasoning": {
@@ -147,7 +154,11 @@ export class CodexTranslator {
       case "contextCompaction":
         return this.notice("compaction", "Context compacted");
       case "exitedReviewMode":
-        return item.review ? this.notice("info", item.review) : [];
+        // The review is the turn's reply (I-178). Codex then records it as an agent message too
+        // (the review's last item), which is skipped.
+        if (!item.review?.trim()) return [];
+        this.reviewShown = true;
+        return this.setText(item.id, "text", item.review, true);
       case "enteredReviewMode":
         return [];
       default:
@@ -156,6 +167,7 @@ export class CodexTranslator {
   }
 
   agentDelta(itemId: string, delta: string): AgentEvent[] {
+    if (this.echoes.has(itemId)) return [];
     return this.appendText(itemId, "text", delta);
   }
 
@@ -236,7 +248,17 @@ export class CodexTranslator {
     this.items.clear();
     this.rejected.clear();
     this.planId = null;
+    this.reviewShown = false;
+    this.echoes.clear();
     return events;
+  }
+
+  /** Codex's agent message repeating a review already shown (`exitedReviewMode`). */
+  private isReviewEcho(item: { id: string }): boolean {
+    if (this.echoes.has(item.id)) return true;
+    if (!this.reviewShown) return false;
+    this.echoes.add(item.id);
+    return true;
   }
 
   // Blocks --------------------------------------------------------------------------------------

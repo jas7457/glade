@@ -8,7 +8,7 @@
  *   const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("Hello") });
  *   new CodexHarness({ connect: () => codex.connect(), … });
  */
-import type { CodexModel, GetAccountRateLimitsResponse, GetAccountResponse, RequestId, RpcMessage, ThreadItem, TurnError } from "../../src/harness/codex/protocol.js";
+import type { CodexModel, CommandExecResponse, GetAccountRateLimitsResponse, GetAccountResponse, RequestId, RpcMessage, SkillMetadata, ThreadItem, TurnError } from "../../src/harness/codex/protocol.js";
 import type { CodexTransport } from "../../src/harness/codex/rpc.js";
 
 export const FAKE_MODELS: CodexModel[] = [
@@ -59,8 +59,39 @@ export const USAGE_LIMIT_ERROR: TurnError = {
   additionalDetails: null,
 };
 
+/** Skills as the real `skills/list` returns them (shapes captured 2026-09-29). */
+export const FAKE_SKILLS: SkillMetadata[] = [
+  { name: "issue-queue", description: "Collect issues into the Inbox.", path: "/repo/.agents/skills/issue-queue/SKILL.md", scope: "repo", enabled: true, pluginId: null },
+  {
+    name: "pdf:pdf",
+    description: "Read, create, inspect, render, and verify PDF files where visual layout matters.",
+    interface: { displayName: "PDF", shortDescription: "Read, create, render, and verify PDF files" },
+    path: "/Users/me/.codex/plugins/cache/pdf/skills/pdf/SKILL.md",
+    scope: "user",
+    enabled: true,
+    pluginId: "pdf@openai-primary-runtime",
+  },
+  { name: "review", description: "A skill clashing with /review.", path: "/Users/me/.agents/skills/review/SKILL.md", scope: "user", enabled: true, pluginId: null },
+  { name: "off", description: "Disabled.", path: "/Users/me/.agents/skills/off/SKILL.md", scope: "user", enabled: false, pluginId: null },
+];
+
+/** A running `command/exec` of the fake. */
+export interface FakeExec {
+  params: Record<string, unknown>;
+  /** Stream output (base64 like Codex). */
+  output(text: string, stream?: "stdout" | "stderr", capReached?: boolean): void;
+  /** Resolves when `command/exec/terminate` stops it. */
+  terminated: Promise<void>;
+}
+
 export interface FakeCodexOptions {
   onTurn?: (turn: FakeTurn) => void | Promise<void>;
+  /** A `review/start` turn (default: Codex's review items, then the end). */
+  onReview?: (turn: FakeTurn) => void | Promise<void>;
+  /** `skills/list` per folder (default {@link FAKE_SKILLS}). */
+  skills?: (cwd: string) => SkillMetadata[];
+  /** `command/exec` (default: `fake output of: <command>` in two chunks, exit 0). */
+  onExec?: (exec: FakeExec) => Promise<CommandExecResponse>;
   /** A steered message arrived (`turn/steer`). */
   onSteer?: (turn: FakeTurn, text: string) => void;
   account?: GetAccountResponse;
@@ -77,6 +108,8 @@ export interface FakeThread {
   /** Codex saved it (a turn ran). */
   saved: boolean;
   turns: FakeTurn[];
+  /** Items added with `thread/inject_items`. */
+  injected: unknown[];
 }
 
 let threadSeq = 0;
@@ -106,7 +139,7 @@ export class FakeCodexAppServer {
 
   /** A saved thread Codex knows (as if from an earlier run). */
   addThread(id: string): FakeThread {
-    const thread: FakeThread = { id, params: {}, saved: true, turns: [] };
+    const thread: FakeThread = { id, params: {}, saved: true, turns: [], injected: [] };
     this.threads.set(id, thread);
     return thread;
   }
@@ -132,7 +165,7 @@ export class FakeCodexAppServer {
         return o.rateLimits ?? { ordinaryUsageAllowed: true, rateLimits: { limitId: "codex", limitName: null, primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1791922639 }, secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: 1792000000 }, credits: null, planType: "plus", rateLimitReachedType: null }, rateLimitsByLimitId: null };
       case "thread/start": {
         const id = `thr-${++threadSeq}`;
-        this.threads.set(id, { id, params, saved: false, turns: [] });
+        this.threads.set(id, { id, params, saved: false, turns: [], injected: [] });
         conn.loaded.add(id);
         return { thread: { id }, model: (params.model as string) ?? "gpt-6-luna", reasoningEffort: (o.config?.model_reasoning_effort as string) ?? "medium", approvalPolicy: params.approvalPolicy, sandbox: { type: "readOnly", networkAccess: false } };
       }
@@ -179,6 +212,60 @@ export class FakeCodexAppServer {
         });
         return {};
       }
+      case "review/start": {
+        const thread = this.threads.get(params.threadId as string);
+        if (!thread || !conn.loaded.has(thread.id)) throw rpcError(-32600, `thread not found: ${params.threadId}`);
+        thread.saved = true;
+        const turn = new FakeTurn(this, conn, thread, params);
+        thread.turns.push(turn);
+        setImmediate(() => {
+          turn.notify("turn/started", { threadId: thread.id, turn: { id: turn.id, status: "inProgress", error: null } });
+          void (o.onReview ?? ((t: FakeTurn) => t.review("No issues found.")))(turn);
+        });
+        return { turn: { id: turn.id, status: "inProgress", error: null, items: [] }, reviewThreadId: thread.id };
+      }
+      case "skills/list": {
+        const cwds = (params.cwds as string[] | undefined) ?? ["/"];
+        return { data: cwds.map((cwd) => ({ cwd, skills: o.skills ? o.skills(cwd) : FAKE_SKILLS, errors: [] })) };
+      }
+      case "command/exec": {
+        const processId = params.processId as string;
+        let stop = () => {};
+        const terminated = new Promise<void>((resolve) => (stop = resolve));
+        conn.execs.set(processId, stop);
+        const exec: FakeExec = {
+          params,
+          output: (text, stream = "stdout", capReached = false) =>
+            conn.deliver({ method: "command/exec/outputDelta", params: { processId, stream, deltaBase64: Buffer.from(text).toString("base64"), capReached } }),
+          terminated,
+        };
+        const run =
+          o.onExec ??
+          (async (e: FakeExec) => {
+            const command = (e.params.command as string[]).at(-1)!;
+            e.output("fake output of: ");
+            e.output(`${command}\n`);
+            return { exitCode: 0, stdout: "", stderr: "" };
+          });
+        try {
+          return await run(exec);
+        } finally {
+          conn.execs.delete(processId);
+        }
+      }
+      case "command/exec/terminate": {
+        const stop = conn.execs.get(params.processId as string);
+        if (!stop) throw rpcError(-32600, `no process ${params.processId}`);
+        stop();
+        return {};
+      }
+      case "thread/inject_items": {
+        const thread = this.threads.get(params.threadId as string);
+        if (!thread) throw rpcError(-32600, `thread not found: ${params.threadId}`);
+        thread.saved = true;
+        thread.injected.push(...(params.items as unknown[]));
+        return {};
+      }
       case "thread/delete":
         this.deleted.push(params.threadId as string);
         this.threads.delete(params.threadId as string);
@@ -202,6 +289,8 @@ export class FakeConnection implements CodexTransport {
   private nextId = 1000;
   closed = false;
   readonly loaded = new Set<string>();
+  /** Running `command/exec`s: process id → terminate. */
+  readonly execs = new Map<string, () => void>();
 
   constructor(private readonly server: FakeCodexAppServer) {}
 
@@ -276,6 +365,14 @@ export class FakeTurn {
     readonly thread: FakeThread,
     readonly params: Record<string, unknown>,
   ) {}
+
+  /** Codex's review: entered review mode, the result, the same text as an agent message, the end. */
+  review(text: string, hint = "current changes"): void {
+    this.item({ type: "enteredReviewMode", id: `rev-${++itemSeq}`, review: hint });
+    this.item({ type: "exitedReviewMode", id: `rev-${++itemSeq}`, review: text });
+    this.item({ type: "agentMessage", id: `msg-${++itemSeq}`, text });
+    this.complete();
+  }
 
   /** The prompt text sent with `turn/start`. */
   get text(): string {

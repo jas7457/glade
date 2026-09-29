@@ -161,7 +161,9 @@ export type ThreadResumeResponse = ThreadStartResponse;
 export type UserInput =
   | { type: "text"; text: string; text_elements: unknown[] }
   | { type: "image"; url: string }
-  | { type: "localImage"; path: string };
+  | { type: "localImage"; path: string }
+  /** A skill the user invoked (`$name` in Codex's TUI): Codex adds its SKILL.md to the turn. */
+  | { type: "skill"; name: string; path: string };
 
 export interface TurnStartParams {
   threadId: string;
@@ -193,6 +195,92 @@ export interface Turn {
 
 export interface TurnStartResponse {
   turn: Turn;
+}
+
+// Skills, review, commands (I-178) -------------------------------------------------------------------
+
+export type SkillScope = "user" | "repo" | "system" | "admin";
+
+export interface SkillMetadata {
+  name: string;
+  description: string;
+  /** Legacy `short_description` of SKILL.md. */
+  shortDescription?: string;
+  interface?: { displayName?: string; shortDescription?: string; defaultPrompt?: string };
+  path: string;
+  scope: SkillScope;
+  enabled: boolean;
+  pluginId: string | null;
+}
+
+/** `skills/list` (`cwds` empty: the server's cwd; `forceReload` re-scans the disk). */
+export interface SkillsListParams {
+  cwds?: string[];
+  forceReload?: boolean;
+}
+
+export interface SkillsListResponse {
+  data: Array<{ cwd: string; skills: SkillMetadata[]; errors: Array<{ path: string; message: string }> }>;
+}
+
+export type ReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title: string | null }
+  | { type: "custom"; instructions: string };
+
+/** `review/start`: Codex's /review as a turn of the thread (`inline`) or a new thread (`detached`, deprecated). */
+export interface ReviewStartParams {
+  threadId: string;
+  target: ReviewTarget;
+  delivery?: "inline" | "detached" | null;
+}
+
+export interface ReviewStartResponse {
+  turn: Turn;
+  reviewThreadId: string;
+}
+
+/**
+ * `command/exec`: a standalone command (argv) in the server's sandbox, no thread or turn. With a
+ * `processId` and `streamStdoutStderr` the output arrives as `command/exec/outputDelta`
+ * notifications and the reply (after the process exits) has empty stdout/stderr.
+ */
+export interface CommandExecParams {
+  command: string[];
+  processId?: string | null;
+  tty?: boolean;
+  streamStdin?: boolean;
+  streamStdoutStderr?: boolean;
+  outputBytesCap?: number | null;
+  disableOutputCap?: boolean;
+  disableTimeout?: boolean;
+  timeoutMs?: number | null;
+  cwd?: string | null;
+  env?: Record<string, string | null> | null;
+  sandboxPolicy?: SandboxPolicy | null;
+  permissionProfile?: string | null;
+}
+
+export interface CommandExecResponse {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** Connection-scoped (no thread id): routed by `processId`. */
+export interface CommandExecOutputDeltaNotification {
+  processId: string;
+  stream: "stdout" | "stderr";
+  deltaBase64: string;
+  /** The last chunk of a stream cut by `outputBytesCap`. */
+  capReached: boolean;
+}
+
+/** `thread/inject_items`: raw Responses API items appended to the thread's model-visible history. */
+export interface ThreadInjectItemsParams {
+  threadId: string;
+  items: JsonValue[];
 }
 
 // Items ---------------------------------------------------------------------------------------------

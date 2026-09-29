@@ -4,7 +4,8 @@
  * translator (streaming, tools, diffs, plan), models, errors and limits (the real usage-limit
  * payloads), permissions, sessions (threads, turns, steer/follow-up, stop, approvals, questions,
  * Glade's tools, compaction, crashes), the harness and a chat through the app service, plus the
- * JSONL framing against a real child process.
+ * JSONL framing against a real child process. I-178: skills and /review in the slash menu, skill
+ * items, reviews as the reply, and `!cmd` / `!!cmd` via `command/exec`.
  */
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,11 +21,12 @@ import type { ThreadItem } from "../src/harness/codex/protocol.js";
 import { CodexRpc, spawnCodexTransport } from "../src/harness/codex/rpc.js";
 import { codexDiff } from "../src/harness/codex/tools.js";
 import { CodexTranslator } from "../src/harness/codex/translate.js";
+import { codexSlashCommands, parseSlashText, reviewTarget, shellArgv, skillInput, userShellRecord, SHELL_RECORD_MAX_CHARS } from "../src/harness/codex/commands.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
-import { FAKE_MODELS, FakeCodexAppServer, LIMIT_REACHED, USAGE_LIMIT_ERROR, type FakeCodexOptions } from "./fixtures/fake-codex-app-server.js";
+import { FAKE_MODELS, FAKE_SKILLS, FakeCodexAppServer, LIMIT_REACHED, USAGE_LIMIT_ERROR, type FakeCodexOptions } from "./fixtures/fake-codex-app-server.js";
 import { until } from "./helpers.js";
 
 let dir: string;
@@ -569,6 +571,180 @@ process.stdin.on("data", (d) => {
     const pending = rpc.request("quit", {});
     await expect(pending).rejects.toThrow(/exited \(code 3\)/);
     expect(await closed).toBeInstanceOf(Error);
+  });
+});
+
+describe("Codex slash commands and ! commands (I-178)", () => {
+  it("maps skills and /review to slash commands and parses their arguments", () => {
+    expect(codexSlashCommands(FAKE_SKILLS)).toEqual([
+      { name: "review", source: "extension", description: "Ask Codex to review your changes (uncommitted by default)", argsHint: "[base <branch> | commit <sha> | instructions]" },
+      { name: "issue-queue", source: "skill", description: "Collect issues into the Inbox." },
+      { name: "pdf:pdf", source: "skill", description: "Read, create, render, and verify PDF files" },
+    ]);
+    expect(parseSlashText("/pdf:pdf  read a.pdf ")).toEqual({ name: "pdf:pdf", args: "read a.pdf" });
+    expect(parseSlashText("hello /x")).toBeNull();
+    expect(reviewTarget("")).toEqual({ type: "uncommittedChanges" });
+    expect(reviewTarget("base main")).toEqual({ type: "baseBranch", branch: "main" });
+    expect(reviewTarget("--base=origin/dev")).toEqual({ type: "baseBranch", branch: "origin/dev" });
+    expect(reviewTarget("commit abc1234 Fix it")).toEqual({ type: "commit", sha: "abc1234", title: "Fix it" });
+    expect(reviewTarget("look at the error handling")).toEqual({ type: "custom", instructions: "look at the error handling" });
+    expect(skillInput(FAKE_SKILLS[1]!, "")).toEqual([
+      { type: "text", text: "$pdf:pdf", text_elements: [] },
+      { type: "skill", name: "pdf:pdf", path: FAKE_SKILLS[1]!.path },
+    ]);
+    expect(shellArgv("ls | wc", "/bin/bash")).toEqual(["/bin/bash", "-lc", "ls | wc"]);
+    expect(shellArgv("ls", undefined)).toEqual(["/bin/zsh", "-lc", "ls"]);
+    expect(userShellRecord("echo hi", 0, 12, "hi\n")).toBe("<user_shell_command>\n<command>\necho hi\n</command>\n<result>\nExit code: 0\nDuration: 0.0120 seconds\nOutput:\nhi\n\n</result>\n</user_shell_command>");
+    expect(userShellRecord("x", 0, 0, "a".repeat(SHELL_RECORD_MAX_CHARS + 50)).length).toBeLessThan(SHELL_RECORD_MAX_CHARS + 300);
+  });
+
+  it("lists the folder's skills (cached until skills/changed) for chats and the new-chat composer", async () => {
+    let skills = FAKE_SKILLS.slice(0, 1);
+    const codex = new FakeCodexAppServer({ skills: () => skills });
+    const h = harness(codex);
+    expect((await h.listFolderCommands(cwd)).map((c) => c.name)).toEqual(["review", "issue-queue"]);
+    expect(codex.sent("skills/list")[0]).toEqual({ cwds: [cwd] });
+    const { session } = await openSession(h);
+    skills = FAKE_SKILLS;
+    expect((await session.listCommands()).map((c) => c.name)).toEqual(["review", "issue-queue"]); // cached
+    expect(codex.sent("skills/list")).toHaveLength(1);
+    codex.live.deliver({ method: "skills/changed", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    expect((await session.listCommands()).map((c) => c.name)).toEqual(["review", "issue-queue", "pdf:pdf"]);
+    expect(codex.sent("skills/list")).toHaveLength(2);
+    expect(h.info.capabilities).toMatchObject({ commands: true, shell: true });
+  });
+
+  it("sends /<skill> as a skill item with the rest as text; other slash text goes as is", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const { run, transcript } = await openSession(harness(codex));
+    await run("/pdf:pdf summarize report.pdf");
+    expect(codex.sent("turn/start")[0]!.input).toEqual([
+      { type: "text", text: "$pdf:pdf summarize report.pdf", text_elements: [] },
+      { type: "skill", name: "pdf:pdf", path: FAKE_SKILLS[1]!.path },
+    ]);
+    await run("/nope hi");
+    expect(codex.sent("turn/start")[1]!.input).toEqual([{ type: "text", text: "/nope hi", text_elements: [] }]);
+    expect(transcript().messages.filter((m) => m.role === "user").map(messageText)).toEqual(["/pdf:pdf summarize report.pdf", "/nope hi"]);
+  });
+
+  it("runs /review with review/start and shows the review as the reply (once)", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: () => {}, onReview: (t) => t.review("- [P1] Null check missing in a.ts:3") });
+    const { session, run, transcript, events } = await openSession(harness(codex));
+    await run("/review base main");
+    expect(codex.sent("review/start")[0]).toEqual({ threadId: session.sessionRef, target: { type: "baseBranch", branch: "main" }, delivery: "inline" });
+    expect(codex.sent("turn/start")).toHaveLength(0);
+    const t = transcript();
+    expect(t.messages.map((m) => [m.role, messageText(m)])).toEqual([
+      ["user", "/review base main"],
+      ["notice", "Reviewing: current changes"],
+      ["assistant", "- [P1] Null check missing in a.ts:3"],
+    ]);
+    expect(assistants(t)[0]!.stopReason).toBe("stop");
+
+    // A review sent while a turn runs waits for it (never steered).
+    await session.prompt({ text: "work" });
+    await until(() => codex.sent("turn/start").length === 1 && !!codex.lastTurn());
+    await new Promise((r) => setTimeout(r, 20));
+    await session.prompt({ text: "/review" });
+    expect(codex.lastTurn().steered).toEqual([]);
+    expect(session.getState().queue.followUp).toEqual(["/review"]);
+    const ends = events.filter((e) => e.type === "run_end").length;
+    codex.lastTurn().reply("done");
+    await until(() => codex.sent("review/start").length === 2);
+    expect(codex.sent("review/start")[1]!.target).toEqual({ type: "uncommittedChanges" });
+    await until(() => events.filter((e) => e.type === "run_end").length >= ends + 2);
+  });
+
+  it("runs !cmd with command/exec in the folder and sandbox, streams it, and shares it with Codex", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const h = harness(codex, { env: { PATH: "/usr/bin", HOME: "/Users/me", SHELL: "/bin/bash" } });
+    const { session, events, run, transcript } = await openSession(h, null, { permissionMode: "read-only" });
+    const result = await session.runShell({ id: "s1", command: "echo hi", shareWithAgent: true });
+    expect(result).toEqual({ output: "fake output of: echo hi\n", exitCode: 0, cancelled: false, truncated: false });
+    expect(codex.sent("command/exec")[0]).toMatchObject({
+      command: ["/bin/bash", "-lc", "echo hi"],
+      cwd,
+      streamStdoutStderr: true,
+      disableTimeout: true,
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+    });
+    expect(events.filter((e) => e.type.startsWith("shell_")).map((e) => e.type)).toEqual(["shell_start", "shell_update", "shell_update", "shell_end"]);
+    const shell = transcript().messages.find((m) => m.role === "shell")!;
+    expect(shell).toMatchObject({ command: "echo hi", shared: true, running: false, exitCode: 0, output: "fake output of: echo hi\n" });
+    // Idle: added to Codex's history right away, in Codex's own record.
+    const thread = codex.threads.get(session.sessionRef!)!;
+    expect(thread.injected).toHaveLength(1);
+    expect(JSON.stringify(thread.injected[0])).toContain("<user_shell_command>\\n<command>\\necho hi");
+    expect(thread.injected[0]).toMatchObject({ type: "message", role: "user", content: [{ type: "input_text" }] });
+
+    // !! is never shared.
+    await session.runShell({ id: "s2", command: "secret", shareWithAgent: false });
+    expect(thread.injected).toHaveLength(1);
+    await run("next");
+    expect(codex.sent("turn/start")[0]!.input).toEqual([{ type: "text", text: "next", text_elements: [] }]);
+  });
+
+  it("shares a !cmd run during a turn with the next message, reports failures and stops commands", async () => {
+    let release = () => {};
+    const codex = new FakeCodexAppServer({
+      onTurn: (t) => {
+        if (t.text.includes("first")) release = () => t.reply("done");
+        else t.reply("ok");
+      },
+      onExec: async (e) => {
+        const command = (e.params.command as string[]).at(-1)!;
+        if (command === "sleep 9") {
+          e.output("waiting\n", "stderr");
+          await e.terminated;
+          return { exitCode: 137, stdout: "", stderr: "" };
+        }
+        if (command === "big") {
+          e.output("é".repeat(2).slice(0, 1), "stdout", true);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        e.output("boom\n", "stderr");
+        return { exitCode: 2, stdout: "", stderr: "" };
+      },
+    });
+    const { session, run } = await openSession(harness(codex));
+    await session.prompt({ text: "first" });
+    await until(() => codex.sent("turn/start").length === 1 && session.getState().isRunning);
+    const failed = await session.runShell({ id: "s1", command: "false", shareWithAgent: true });
+    expect(failed).toMatchObject({ output: "boom\n", exitCode: 2, cancelled: false });
+    expect(codex.sent("thread/inject_items")).toHaveLength(0); // a turn runs: waits for the next message
+    release();
+    await until(() => !session.getState().isRunning);
+    await run("second");
+    const input = codex.sent("turn/start")[1]!.input as Array<{ type: string; text: string }>;
+    expect(input).toHaveLength(2);
+    expect(input[0]!.text).toContain("<command>\nfalse\n</command>\n<result>\nExit code: 2");
+    expect(input[1]!.text).toBe("second");
+
+    const running = session.runShell({ id: "s2", command: "sleep 9", shareWithAgent: false });
+    await until(() => codex.sent("command/exec").length === 2);
+    await new Promise((r) => setTimeout(r, 10));
+    await session.abortShell();
+    expect(await running).toEqual({ output: "waiting\n", exitCode: null, cancelled: true, truncated: false });
+    expect(codex.sent("command/exec/terminate")[0]).toEqual({ processId: expect.stringContaining("s2") });
+
+    expect(await session.runShell({ id: "s3", command: "big", shareWithAgent: false })).toMatchObject({ output: "é", truncated: true });
+  });
+
+  it("runs ! commands in a Codex chat through the app service", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const store = new Store(join(dir, "data"), 0);
+    const service = new AppService({ store, harnesses: new HarnessRegistry([harness(codex)]), scratchDir: cwd });
+    try {
+      const created = await service.createWorkspace({ projectId: null, harness: "codex" });
+      const id = created.session.session.id;
+      await service.runShell(id, { command: "echo hi", shareWithAgent: false });
+      await until(() => store.loadTranscript(id).messages.some((m) => m.role === "shell" && !m.running));
+      expect(store.loadTranscript(id).messages[0]).toMatchObject({ role: "shell", command: "echo hi", output: "fake output of: echo hi\n", shared: false });
+      expect((await service.listCommands(id)).map((c) => c.name)).toContain("pdf:pdf");
+    } finally {
+      await service.dispose();
+    }
   });
 });
 

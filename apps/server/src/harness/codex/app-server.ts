@@ -11,12 +11,21 @@
  * - When the process ends every registered thread hears about it (`closed`); the next call starts
  *   a new process (chats resume their threads there).
  * - Requests Codex sends for threads nobody registered are refused with a JSON-RPC error.
+ * - Skills (I-178): `skills/list` per folder, cached until Codex says they changed
+ *   (`skills/changed`, then the next call re-reads them).
+ * - `command/exec` (I-178, `!cmd`): its output notifications are per connection, not per thread;
+ *   `exec` routes them to the caller by `processId`.
  */
 import { isLimitReached } from "./errors.js";
 import { CodexRpc, CodexRpcError, type CodexTransport } from "./rpc.js";
 import type {
   CodexConfig,
   CodexModel,
+  CommandExecOutputDeltaNotification,
+  CommandExecParams,
+  CommandExecResponse,
+  SkillMetadata,
+  SkillsListResponse,
   GetAccountRateLimitsResponse,
   GetAccountResponse,
   InitializeResponse,
@@ -57,6 +66,8 @@ export class CodexAppServer {
   private readonly threads = new Map<string, ThreadListener>();
   private models: { at: number; value: Promise<CodexModel[]> } | null = null;
   private limits: GetAccountRateLimitsResponse | null = null;
+  private readonly skillCache = new Map<string, Promise<SkillMetadata[]>>();
+  private readonly execs = new Map<string, (delta: CommandExecOutputDeltaNotification) => void>();
   private disposed = false;
 
   constructor(private readonly options: CodexAppServerOptions) {}
@@ -107,6 +118,7 @@ export class CodexAppServer {
       this.live = null;
       this.connection = null;
       this.models = null;
+      this.skillCache.clear();
     }
     if (error) this.options.log?.(`codex: ${error.message}`);
     for (const listener of [...this.threads.values()]) listener.closed(error ?? new Error("codex app-server exited"));
@@ -157,6 +169,40 @@ export class CodexAppServer {
     return value;
   }
 
+  /** The enabled skills Codex offers in `cwd` (`skills/list`), cached until `skills/changed`. */
+  skills(cwd: string, force = false): Promise<SkillMetadata[]> {
+    const hit = this.skillCache.get(cwd);
+    if (hit && !force) return hit;
+    const value = this.request<SkillsListResponse>("skills/list", { cwds: [cwd], ...(force ? { forceReload: true } : {}) }, 30_000).then((res) => {
+      const entry = res.data.find((e) => e.cwd === cwd) ?? res.data[0];
+      return (entry?.skills ?? []).filter((s) => s.enabled);
+    });
+    this.skillCache.set(cwd, value);
+    value.catch(() => {
+      if (this.skillCache.get(cwd) === value) this.skillCache.delete(cwd);
+    });
+    return value;
+  }
+
+  /**
+   * Run a command with `command/exec`, streaming its output to `onOutput` (needs a unique
+   * `processId`). Runs until it exits (no request timeout); `terminate` stops it.
+   */
+  async exec(params: CommandExecParams & { processId: string }, onOutput: (delta: CommandExecOutputDeltaNotification) => void): Promise<CommandExecResponse> {
+    this.execs.set(params.processId, onOutput);
+    try {
+      return await this.request<CommandExecResponse>("command/exec", { ...params, streamStdoutStderr: true }, 0);
+    } finally {
+      this.execs.delete(params.processId);
+    }
+  }
+
+  /** Stop a running `exec` (`command/exec/terminate`). */
+  async terminate(processId: string): Promise<void> {
+    if (!this.execs.has(processId)) return;
+    await this.request("command/exec/terminate", { processId }, 15_000);
+  }
+
   /** The account's rate limits (`account/rateLimits/read`); the last known ones when that fails. */
   async rateLimits(): Promise<GetAccountRateLimitsResponse | null> {
     try {
@@ -188,6 +234,12 @@ export class CodexAppServer {
   private onNotification(method: string, raw: unknown): void {
     const params = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
     if (method === "account/rateLimits/updated") return this.mergeLimits(params.rateLimits as RateLimitSnapshot | undefined);
+    if (method === "skills/changed") return this.skillCache.clear();
+    if (method === "command/exec/outputDelta") {
+      const delta = params as unknown as CommandExecOutputDeltaNotification;
+      this.execs.get(delta.processId)?.(delta);
+      return;
+    }
     if (method === "account/updated" && this.live) {
       // Signed in or out elsewhere: read the account again.
       const live = this.live;
