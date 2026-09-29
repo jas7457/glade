@@ -24,18 +24,18 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Notifications: when a chat needs your input, finishes or fails while Glade is in the background,
   macOS shows a banner ("On Mac Studio" for remote chats); clicking it opens the chat. Choose which
   in Settings → General → Notifications.
-- Tailscale: with "Allow other devices to connect" on, Glade shares itself on your tailnet over
+- Tailscale: with "Let other devices use this device" on, Glade shares itself on your tailnet over
   HTTPS (`https://<your-mac>.<tailnet>.ts.net`, only your devices, never public) and turns the
   share off again with the switch. Settings shows Tailscale's status and how to fix it (install,
-  sign in, enable HTTPS), and Connect to Environment lists Glade Macs found on your tailnet.
-- Pair devices: Settings → Remote Access → Add Device shows a QR code, a link and a short code.
-  The other Mac enters it under Connect to Environment, you click Allow, and it sees this Mac's
+  sign in, enable HTTPS), and Connect to a Device lists Glade devices found on your tailnet.
+- Pair devices: Settings → Remote Access → Share This Device shows a QR code, a link and a short
+  code. The other device enters it under Connect to a Device, you click Allow, and it sees this Mac's
   projects and chats. Paired devices are listed with Rename and Revoke; revoking cuts them off at
-  once. Other devices can't connect at all unless you turn on "Allow other devices to connect".
+  once. Other devices can't connect at all unless you turn on "Let other devices use this device".
 - Environments: every Glade is an environment, and projects belong to the machine whose files
   they are. Settings → Remote Access (off by default) lets this app show other Glade environments
   next to this Mac's projects in one list, marked with a globe. Pickers and agent settings follow
-  the chat's machine. For now you connect by address on the same Mac; pairing and Tailscale come next.
+  the chat's machine.
 - Glade's own folder browser in Add Project: type a path with autocomplete, browse with the
   keyboard, see git repos, create folders. It works for remote machines too.
 - ACP agents: add any agent that speaks the Agent Client Protocol (Gemini CLI, Claude Code via an
