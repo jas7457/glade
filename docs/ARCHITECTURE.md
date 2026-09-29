@@ -679,7 +679,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **Environments (2026-09-27, I-123/I-124).**
   - **Identity:** every server is an environment with a permanent ULID (`meta.environment_id`) and an editable name (the Mac's computer name by default). `GET`/`PATCH /api/environment`.
   - **Projects** carry `environmentId`: backfilled by migration 003, set at creation, never changed.
-  - **The web app is a multi-environment client.** Each environment gets an `EnvironmentConnection` (`state/env-registry.ts`, `environments.ts`, `env-api.ts`): an absolute base URL, its own socket and I-122 sync state, status, and shell data. It works with no local environment at all (the future phone app, F-022).
+  - **The web app is a multi-environment client.** Each environment gets an `EnvironmentConnection` (`state/env-registry.ts`, `environments.ts`, `env-api.ts`): an absolute base URL, its own socket and I-122 sync state, status, and shell data. It works with no local environment at all (the future iPhone app, F-022).
   - **Sidebar:** one merged, ungrouped list with a per-device order (`envId:id` keys). Remote rows and the chat header carry `ui/RemoteBadge`.
   - **Routes:** `/e/:envId/…` for remote environments; plain routes mean this machine.
   - **Pickers and host settings** (Models, Agents, Slash commands, Prompts) follow the environment. Appearance and General stay on the client.
