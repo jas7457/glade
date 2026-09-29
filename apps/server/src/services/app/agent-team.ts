@@ -93,7 +93,8 @@ export class AgentTeam {
     if (active.length >= MAX_ACTIVE_AGENTS) {
       throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
     }
-    const identity = pickAgentIdentity(active);
+    // I-144: avoid names this chat's sub-agents (closed ones too) have already had.
+    const identity = pickAgentIdentity(active, ctx.agents.childrenOf(caller.id).map((r) => r.displayName));
     const agent = req.agent?.trim() || null;
     const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
     const systemPrompt = buildRolePrompt({

@@ -150,6 +150,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agents draw from 316 names, and a chat doesn't reuse a name until it has used them all.
 - Remote devices show their status as a coloured dot (connected, connecting, off, needs
   attention) in Connections, the globe popover and the sidebar, and a device that turns remote
   access back on is noticed within seconds (instantly when you switch back to Glade).
