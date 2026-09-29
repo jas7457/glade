@@ -8,6 +8,9 @@ import { models, projects, sessions, settings, workspaces } from "@glade/app-cor
 import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
 import { harnesses } from "@glade/app-core/state/harnesses";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
+import { fakeEnv } from "~/test/fake-env";
 import { ChatScreen } from "./ChatScreen";
 
 vi.mock("@glade/app-core/lib/api", () => ({
@@ -100,5 +103,14 @@ describe("ChatScreen", () => {
     store.state.value = { ...defaultSessionState(), model: { provider: "anthropic", id: "opus" } };
     renderAt("/e/env1/chats/w");
     expect(screen.queryByRole("button", { name: /^Model/ })).toBeNull();
+  });
+  it("when the chat's Mac drops (its chats leave the store), says so with Retry instead of an empty screen", () => {
+    connections.value = [fakeEnv("m2", "MacBook Air", "offline")];
+    savedEnvironments.value = [{ id: "m2", name: "MacBook Air", urls: ["http://m2.test:4327"], token: "t" }];
+    renderAt("/e/m2/chats/gone");
+    expect(screen.getByText("Can't reach MacBook Air")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    connections.value = [];
+    savedEnvironments.value = [];
   });
 });

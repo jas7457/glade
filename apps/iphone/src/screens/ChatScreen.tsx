@@ -31,6 +31,7 @@ import { useKeyboardViewport } from "~/chat/keyboard";
 import { SubagentCards } from "~/chat/SubagentCards";
 import { SidebarOverlay } from "~/chats/SidebarOverlay";
 import { SheetList } from "~/ui/SheetList";
+import { MacStatusNotice } from "~/ui/MacStatus";
 import { NavBar, NavIconButton } from "~/ui/phone";
 
 /** History state when a sub-agent was opened from its parent (Back then pops instead of pushing). */
@@ -94,7 +95,15 @@ export function ChatScreen() {
           }
         />
         <div class="min-h-0 flex-1 border-t-[0.5px] border-separator">
-          {sessionId ? <PhoneChatPane key={sessionId} sessionId={sessionId} keyboardOpen={keyboardOpen} onOpenSubagent={openSubagent} /> : null}
+          {sessionId ? (
+            <PhoneChatPane key={sessionId} envId={envId} sessionId={sessionId} keyboardOpen={keyboardOpen} onOpenSubagent={openSubagent} />
+          ) : (
+            // The chat's Mac dropped (its chats leave the store until it reconnects): say so,
+            // with Retry, instead of an empty screen (I-170).
+            <div class="flex h-full items-center justify-center px-6">
+              <MacStatusNotice envId={envId} class="w-full" />
+            </div>
+          )}
         </div>
       </div>
       {!subagent && <SidebarOverlay open={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
@@ -139,7 +148,7 @@ function TitleModelLine({ sessionId }: { sessionId: string }) {
 }
 
 /** Transcript + sub-agent cards + composer, full width (the phone's ChatPane). */
-function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId: string; keyboardOpen: boolean; onOpenSubagent: (id: string) => void }) {
+function PhoneChatPane({ envId, sessionId, keyboardOpen, onOpenSubagent }: { envId: string; sessionId: string; keyboardOpen: boolean; onOpenSubagent: (id: string) => void }) {
   // Marks the session as viewed (so finished runs don't turn unread) and loads it.
   useChatSession(sessionId);
   const subagents = subagentSessionsOf(sessions.value, sessionId);
@@ -176,6 +185,8 @@ function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId:
             keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_+_4px),16px)]",
           )}
         >
+          {/* The chat's Mac dropped (I-170): say what to check, with Retry. */}
+          <MacStatusNotice envId={envId} class="mx-1 mb-2 shadow-sm" />
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />
           <Composer chatId={sessionId} autoFocus={false} />
         </div>
