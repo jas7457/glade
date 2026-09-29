@@ -11,14 +11,14 @@
  */
 import jsQR from "jsqr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PairTarget } from "@/lib/pairing-link";
-import { qrPath } from "@/ui/QrCode";
-import { runPairing } from "@/state/pairing";
+import type { PairTarget } from "@glade/app-core/lib/pairing-link";
+import { qrPath } from "@glade/app-core/ui/QrCode";
+import { runPairing } from "@glade/app-core/state/pairing";
 import { cancelPairing, pairState, startPairing } from "~/state/connect";
 import { HTTPS_ONLY_MESSAGE } from "~/lib/address-policy";
 import pairingQrPng from "./fixtures/pairing-qr.png?inline";
 
-vi.mock("@/state/pairing", () => ({ runPairing: vi.fn(async () => ({ step: "cancelled" })) }));
+vi.mock("@glade/app-core/state/pairing", () => ({ runPairing: vi.fn(async () => ({ step: "cancelled" })) }));
 vi.mock("~/lib/secrets", () => ({ deviceId: async () => "iphone-test" }));
 
 const runPairingMock = vi.mocked(runPairing);

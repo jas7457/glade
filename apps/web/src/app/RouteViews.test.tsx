@@ -8,8 +8,8 @@ vi.mock("@/features/workspace", () => ({
   WorkspaceView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
 }));
 
-import { projects, sessions, workspaces } from "@/state/store";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
+import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { ChatRoute } from "./RouteViews";
 
 function renderAt(url: string) {

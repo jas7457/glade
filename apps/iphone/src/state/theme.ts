@@ -3,7 +3,7 @@
  * on any Mac), applied as <html data-theme> like the desktop (app/appearance.ts).
  */
 import { effect, signal } from "@preact/signals";
-import { resolveTheme } from "@/app/appearance";
+import { resolveTheme } from "@glade/app-core/app/appearance";
 
 export type PhoneTheme = "system" | "light" | "dark";
 const KEY = "glade.iphone.theme";

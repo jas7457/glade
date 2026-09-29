@@ -5,11 +5,11 @@
  *   - <ChatView workspaceId sessionId>: header + one pane (a single session, no tabs).
  */
 import type { ComponentChildren } from "preact";
-import { useChatSession } from "@/state/chat-session";
-import { workspacesById } from "@/state/store";
+import { useChatSession } from "@glade/app-core/state/chat-session";
+import { workspacesById } from "@glade/app-core/state/store";
 import { ChatHeader } from "./ChatHeader";
-import { Composer } from "./Composer";
-import { Transcript, columnClass } from "./Transcript";
+import { Composer } from "@glade/app-core/features/chat/Composer";
+import { Transcript, columnClass } from "@glade/app-core/features/chat/Transcript";
 
 /**
  * `autoFocus` (default true): focus the composer when the pane mounts. `aboveComposer`: shown

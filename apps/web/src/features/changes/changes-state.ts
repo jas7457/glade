@@ -11,7 +11,7 @@
 import { signal, type Signal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import type { GitChangesResponse } from "@glade/protocol";
-import { changesApi } from "./api";
+import { changesApi } from "@glade/app-core/features/changes/api";
 
 export interface ChangesEntry {
   /** `null` until the first status arrives. */

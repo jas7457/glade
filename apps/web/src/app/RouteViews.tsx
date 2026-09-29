@@ -8,11 +8,11 @@
 import { Navigate, useParams, useSearchParams } from "react-router";
 import { NewChatView } from "@/features/chat";
 import { WorkspaceView } from "@/features/workspace";
-import { connectionFor, isLocalEnvironment } from "@/state/env-registry";
-import { envIdOfProject, envIdOfWorkspace, projectsById, resolveSessionId, workspacesById } from "@/state/store";
-import { Spinner } from "@/ui";
+import { connectionFor, isLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { envIdOfProject, envIdOfWorkspace, projectsById, resolveSessionId, workspacesById } from "@glade/app-core/state/store";
+import { Spinner } from "@glade/app-core/ui";
 import { NotFound } from "./NotFound";
-import { TAB_PARAM, chatPath, envPrefix, routes } from "./routes";
+import { TAB_PARAM, chatPath, envPrefix, routes } from "@glade/app-core/app/routes";
 
 /** The URL names this environment (no `/e/` = local). */
 function sameEnv(urlEnv: string | undefined, itemEnv: string): boolean {

@@ -5,8 +5,8 @@
  * and Connections list show a phone.
  */
 import { signal } from "@preact/signals";
-import { parsePairInput } from "@/lib/pairing-link";
-import { runPairing, type PairState } from "@/state/pairing";
+import { parsePairInput } from "@glade/app-core/lib/pairing-link";
+import { runPairing, type PairState } from "@glade/app-core/state/pairing";
 import { HTTPS_ONLY_MESSAGE, allowedAddresses } from "~/lib/address-policy";
 import { deviceId } from "~/lib/secrets";
 

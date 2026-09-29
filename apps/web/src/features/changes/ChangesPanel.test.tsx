@@ -2,12 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import type { GitChangesResponse, Transcript } from "@glade/protocol";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { sessions } from "@/state/store";
-import { makeSession } from "@/test/fixtures";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
+import { sessions } from "@glade/app-core/state/store";
+import { makeSession } from "@glade/app-core/test/fixtures";
 
-vi.mock("./api", () => ({
+vi.mock("@glade/app-core/features/changes/api", () => ({
   changesApi: {
     status: vi.fn(),
     diff: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("./api", () => ({
   },
 }));
 
-import { changesApi } from "./api";
+import { changesApi } from "@glade/app-core/features/changes/api";
 import { agentEditedPaths } from "./agent-edits";
 import { resetChangesState } from "./changes-state";
 import { ChangesPanel } from "./ChangesPanel";

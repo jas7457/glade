@@ -2,9 +2,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { initialized, projects, workspaces, projectsById, workspacesById } from "@/state/store";
-import { previousRoute, readStored } from "@/state/ui";
-import { makeProject, makeWorkspace } from "@/test/fixtures";
+import { initialized, projects, workspaces, projectsById, workspacesById } from "@glade/app-core/state/store";
+import { previousRoute, readStored } from "@glade/app-core/state/ui";
+import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { resetLastRouteForTests, restorableRoute, startupRoute, useLastRoute } from "./lastRoute";
 
 beforeEach(() => {

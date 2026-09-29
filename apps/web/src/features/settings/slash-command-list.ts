@@ -6,8 +6,8 @@
  * "Project folders". Pure, for tests.
  */
 import type { SlashCommand } from "@glade/protocol";
-import { GROUP_LABELS, GROUP_ORDER, compareCommandNames } from "@/features/chat/slash/match";
-import { slashCommandKey } from "@/state/slash-visibility";
+import { GROUP_LABELS, GROUP_ORDER, compareCommandNames } from "@glade/app-core/features/chat/slash/match";
+import { slashCommandKey } from "@glade/app-core/state/slash-visibility";
 
 export interface ListedCommand {
   key: string;

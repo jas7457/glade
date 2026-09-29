@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     reorderProjects: vi.fn(async () => []),
     reorderPinnedWorkspaces: vi.fn(async () => []),
@@ -10,14 +10,14 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-import { api } from "@/lib/api";
-import { TooltipProvider, sidebarClass } from "@/ui";
-import { projects, sessions, workspaces } from "@/state/store";
-import { closedProjects } from "@/state/ui";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
+import { api } from "@glade/app-core/lib/api";
+import { TooltipProvider, sidebarClass } from "@glade/app-core/ui";
+import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { closedProjects } from "@glade/app-core/state/ui";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { Sidebar } from "./Sidebar";
 import { visibleChatCount } from "./ChatList";
-import { formatRelativeTime } from "./time";
+import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 
 function renderSidebar(path = "/") {
   return render(

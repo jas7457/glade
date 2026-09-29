@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
-import { projects, workspaces } from "@/state/store";
-import { makeWorkspace } from "@/test/fixtures";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
+import { projects, workspaces } from "@glade/app-core/state/store";
+import { makeWorkspace } from "@glade/app-core/test/fixtures";
 import { paths } from "~/app/routes";
 import { fakeEnv } from "~/test/fake-env";
 import { SidebarOverlay } from "./SidebarOverlay";

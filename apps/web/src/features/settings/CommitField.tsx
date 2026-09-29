@@ -3,7 +3,7 @@
  * settings aren't saved on every keystroke.
  */
 import { useEffect, useState } from "preact/hooks";
-import { TextField, type TextFieldProps } from "@/ui";
+import { TextField, type TextFieldProps } from "@glade/app-core/ui";
 
 export interface CommitFieldProps extends Omit<TextFieldProps, "value" | "onInput" | "onBlur" | "onKeyDown"> {
   value: string;

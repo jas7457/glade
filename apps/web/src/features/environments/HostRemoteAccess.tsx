@@ -7,9 +7,9 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import type { AuditAction, AuditEntry } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
-import { hostRemote, hostRemoteError, hostRemoteSwitchError, setHostRemote } from "@/state/remote-host";
-import { Disclosure, FormRow, Switch } from "@/ui";
+import { hostAuth } from "@glade/app-core/lib/api-auth";
+import { hostRemote, hostRemoteError, hostRemoteSwitchError, setHostRemote } from "@glade/app-core/state/remote-host";
+import { Disclosure, FormRow, Switch } from "@glade/app-core/ui";
 /** "now", "5 min ago", "3 h ago", then a date. */
 export function formatLastSeen(at: number | null, now = Date.now()): string {
   if (at === null) return "never";

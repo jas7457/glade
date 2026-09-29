@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { defaultSettings } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({ api: { updateSettings: vi.fn() }, request: vi.fn() }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { updateSettings: vi.fn() }, request: vi.fn() }));
 
-import { api, request } from "@/lib/api";
-import { settings } from "@/state/store";
+import { api, request } from "@glade/app-core/lib/api";
+import { settings } from "@glade/app-core/state/store";
 import { KeepAwakeRows } from "./KeepAwakeRows";
 
 describe("KeepAwakeRows", () => {

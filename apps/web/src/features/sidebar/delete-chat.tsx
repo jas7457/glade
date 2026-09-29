@@ -9,9 +9,9 @@
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import type { WorkspaceSummary, WorkspaceWorktree, WorktreeRemoval, WorktreeStatus } from "@glade/protocol";
-import { apiForWorkspace } from "@/state/env-api";
-import { Button, Dialog, SegmentedControl, Spinner, confirm, shortenSubject } from "@/ui";
-import { deleteWorkspace } from "@/state/actions";
+import { apiForWorkspace } from "@glade/app-core/state/env-api";
+import { Button, Dialog, SegmentedControl, Spinner, confirm, shortenSubject } from "@glade/app-core/ui";
+import { deleteWorkspace } from "@glade/app-core/state/actions";
 
 export interface DeleteChatOptions {
   /** Text after the quoted title (default "will be permanently deleted. This can't be undone."). */

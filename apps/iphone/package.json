@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The Glade iPhone app: phone layout (src/) over the web client core + a Tauri 2 iOS shell (src-tauri/). See docs/design/iphone-app.md.",
+  "description": "The Glade iPhone app: phone layout (src/) over the shared client core (@glade/app-core) + a Tauri 2 iOS shell (src-tauri/). See docs/design/iphone-app.md.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,6 +12,7 @@
     "sim": "node scripts/sim.mjs"
   },
   "dependencies": {
+    "@glade/app-core": "workspace:*",
     "@glade/protocol": "workspace:*",
     "@preact/signals": "^2.11.2",
     "@tauri-apps/api": "^2.11.1",

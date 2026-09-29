@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { SecretStore } from "@/lib/secret-store";
+import type { SecretStore } from "@glade/app-core/lib/secret-store";
 import { deviceId, resetDeviceIdCache } from "./secrets";
 
 function memoryStore(): SecretStore & { data: Map<string, string> } {

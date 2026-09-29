@@ -7,8 +7,8 @@
  */
 import { Check } from "lucide-preact";
 import { useEffect } from "preact/hooks";
-import type { OptionSheetProps } from "@/features/chat/option-sheet";
-import { cn } from "@/lib/cn";
+import type { OptionSheetProps } from "@glade/app-core/features/chat/option-sheet";
+import { cn } from "@glade/app-core/lib/cn";
 import { Sheet } from "./phone";
 
 export function SheetList({ open, onClose, title, sections }: OptionSheetProps) {

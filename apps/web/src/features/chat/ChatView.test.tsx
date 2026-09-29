@@ -2,15 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, type AssistantMessage, type Transcript } from "@glade/protocol";
-import { TooltipProvider } from "@/ui";
-import { models, projects, sessions, settings, workspaces } from "@/state/store";
-import { makeSession, makeWorkspace } from "@/test/fixtures";
-import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { toasts } from "@/state/toasts";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { models, projects, sessions, settings, workspaces } from "@glade/app-core/state/store";
+import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
+import { toasts } from "@glade/app-core/state/toasts";
 import { ChatView } from "./ChatView";
-import { shortenPath } from "./NewChatView";
+import { shortenPath } from "@glade/app-core/features/chat/NewChatView";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     getSession: vi.fn(() => new Promise(() => {})),
     updateWorkspace: vi.fn(async () => ({})),
@@ -20,8 +20,8 @@ vi.mock("@/lib/api", () => ({
     openWorkspace: vi.fn(async () => undefined),
   },
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
-const { api } = await import("@/lib/api");
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
+const { api } = await import("@glade/app-core/lib/api");
 
 Element.prototype.scrollTo ??= function () {};
 

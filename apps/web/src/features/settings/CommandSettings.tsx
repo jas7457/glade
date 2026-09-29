@@ -6,9 +6,9 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import { RefreshCw, Search } from "lucide-preact";
-import { builtinCommands } from "@/features/chat/slash/builtins";
-import { listFolderCommands } from "@/lib/api-folder";
-import { Button, FormGroup, FormRow, Spinner, Switch, TextField } from "@/ui";
+import { builtinCommands } from "@glade/app-core/features/chat/slash/builtins";
+import { listFolderCommands } from "@glade/app-core/lib/api-folder";
+import { Button, FormGroup, FormRow, Spinner, Switch, TextField } from "@glade/app-core/ui";
 import {
   hostDefaultHarness,
   hostEnvId,
@@ -16,9 +16,9 @@ import {
   hostProjects as projects,
   hostSettings as settings,
   updateHostSettings as updateSettings,
-} from "@/state/host-settings";
-import { requestFor } from "@/state/env-api";
-import { setSlashCommandsHidden } from "@/state/slash-visibility";
+} from "@glade/app-core/state/host-settings";
+import { requestFor } from "@glade/app-core/state/env-api";
+import { setSlashCommandsHidden } from "@glade/app-core/state/slash-visibility";
 import { listSlashCommands, type FolderCommands } from "./slash-command-list";
 
 type Load = { status: "loading" } | { status: "done"; folders: FolderCommands[]; failed: number };

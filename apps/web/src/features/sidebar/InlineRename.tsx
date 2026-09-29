@@ -2,7 +2,7 @@
  * Text field used for renaming a row in place. Enter or blur commits, Escape cancels.
  */
 import { useEffect, useRef } from "preact/hooks";
-import { TextField } from "@/ui";
+import { TextField } from "@glade/app-core/ui";
 
 export interface InlineRenameProps {
   value: string;

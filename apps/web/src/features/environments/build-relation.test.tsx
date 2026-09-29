@@ -4,8 +4,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/preact";
 import type { BuildComparison, BuildInfo } from "@glade/protocol";
 
 const server = vi.hoisted(() => ({ comparisons: {} as Record<string, unknown> }));
-vi.mock("@/lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api")>();
+vi.mock("@glade/app-core/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/api")>();
   return {
     ...actual,
     request: vi.fn(async (_method: string, path: string) => {
@@ -17,10 +17,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 vi.mock("./use-discovery", () => ({ useDiscovery: () => ({ found: [], refreshing: false, refresh: () => {} }) }));
 
-import { TooltipProvider } from "@/ui";
-import { saveEnvironments } from "@/state/saved-environments";
-import { versionStatus } from "@/state/version";
-import { fakeEnv, resetEnvironmentsForTest, useEnvironments } from "@/test/env-fixtures";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { saveEnvironments } from "@glade/app-core/state/saved-environments";
+import { versionStatus } from "@glade/app-core/state/version";
+import { fakeEnv, resetEnvironmentsForTest, useEnvironments } from "@glade/app-core/test/env-fixtures";
 import { Connections } from "./Connections";
 
 const OURS: BuildInfo = { commit: "a".repeat(40), shortCommit: "aaaaaaa", builtAt: "2026-09-27T10:00:00.000Z", dirty: false, repoPath: "/src/glade", kind: "release" };

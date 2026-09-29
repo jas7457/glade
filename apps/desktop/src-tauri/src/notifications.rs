@@ -9,7 +9,7 @@
 //!   - `notify_request`: shows the system prompt the first time
 //!   - `notify_show`: `{ id, title, subtitle?, body, data }`
 //!   - `notify_ready`: the page listens for clicks now
-//!   The web side is apps/web/src/lib/desktop.ts + lib/system-notifications.ts.
+//!   The web side is packages/app-core/src/lib/desktop.ts + lib/system-notifications.ts.
 //! - A banner with the same `id` replaces the earlier one. `data` (the chat to open, JSON) travels
 //!   in the notification's userInfo, so a click still routes after a relaunch.
 //! - Clicking a banner focuses the window and emits `glade:notification-click` with `data`. A click

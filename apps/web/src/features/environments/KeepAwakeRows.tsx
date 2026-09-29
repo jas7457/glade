@@ -6,9 +6,9 @@
  */
 import { useEffect } from "preact/hooks";
 import { defaultSettings } from "@glade/protocol";
-import { FormRow, Switch } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
+import { FormRow, Switch } from "@glade/app-core/ui";
+import { settings } from "@glade/app-core/state/store";
+import { updateSettings } from "@glade/app-core/state/actions";
 import { LID_HINT, powerStatus, powerStatusText, watchPower } from "@/state/power";
 
 export function KeepAwakeRows() {

@@ -5,8 +5,8 @@
  */
 import { signal } from "@preact/signals";
 import type { PowerStatus, ServerMessage } from "@glade/protocol";
-import { request } from "@/lib/api";
-import { socket as localSocket, type Socket } from "@/lib/socket";
+import { request } from "@glade/app-core/lib/api";
+import { socket as localSocket, type Socket } from "@glade/app-core/lib/socket";
 
 /** `null` until loaded, or on servers without it. */
 export const powerStatus = signal<PowerStatus | null>(null);

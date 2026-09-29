@@ -1,7 +1,7 @@
 /** I-054: what a sub-agent tab shows from `SessionSummary.agent`. */
 import { describe, expect, it } from "vitest";
 import type { SessionAgentState } from "@glade/protocol";
-import { makeSession } from "@/test/fixtures";
+import { makeSession } from "@glade/app-core/test/fixtures";
 import { agentDisplay } from "./agent-status";
 
 const agent = (over: Partial<SessionAgentState> = {}): SessionAgentState => ({

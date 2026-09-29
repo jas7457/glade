@@ -5,9 +5,9 @@
  */
 import { Bot } from "lucide-preact";
 import { isAcpHarnessId } from "@glade/protocol";
-import { defaultHarnessOf, harnessesOf } from "@/state/harnesses";
-import { envIdOfSession, sessionsById } from "@/state/store";
-import { Badge } from "@/ui";
+import { defaultHarnessOf, harnessesOf } from "@glade/app-core/state/harnesses";
+import { envIdOfSession, sessionsById } from "@glade/app-core/state/store";
+import { Badge } from "@glade/app-core/ui";
 
 export function ChatAgentBadge({ sessionId, class: className }: { sessionId: string; class?: string }) {
   const harnessId = sessionsById.value.get(sessionId)?.harness;

@@ -8,9 +8,9 @@
  */
 import { useEffect } from "preact/hooks";
 import { Laptop } from "lucide-preact";
-import { hasLocalEnvironment } from "@/state/env-registry";
-import { answerPairing, pendingPairings, watchHostPairing } from "@/state/remote-host";
-import { Button, Dialog } from "@/ui";
+import { hasLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { answerPairing, pendingPairings, watchHostPairing } from "@glade/app-core/state/remote-host";
+import { Button, Dialog } from "@glade/app-core/ui";
 import { DeviceKindIcon, deviceKindLabel } from "./device-kind";
 
 export function PendingPairingHost() {

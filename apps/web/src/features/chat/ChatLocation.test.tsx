@@ -7,25 +7,25 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact
 import { MemoryRouter } from "react-router";
 import { defaultSessionState, type GitChangesResponse, type WorkspaceSummary } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     openProject: vi.fn(async () => undefined),
     openWorkspace: vi.fn(async () => undefined),
   },
 }));
-vi.mock("@/features/changes/api", () => ({ changesApi: { status: vi.fn() } }));
+vi.mock("@glade/app-core/features/changes/api", () => ({ changesApi: { status: vi.fn() } }));
 
-import { api } from "@/lib/api";
-import { changesApi } from "@/features/changes/api";
+import { api } from "@glade/app-core/lib/api";
+import { changesApi } from "@glade/app-core/features/changes/api";
 import { refreshChanges, useChangesAutoRefresh } from "@/features/changes";
 import { resetChangesState } from "@/features/changes/changes-state";
-import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { projects, sessions, workspaces } from "@/state/store";
-import { harnesses } from "@/state/harnesses";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
-import { TooltipProvider } from "@/ui";
+import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
+import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { harnesses } from "@glade/app-core/state/harnesses";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { TooltipProvider } from "@glade/app-core/ui";
 import { ChatHeader } from "./ChatHeader";
-import { OpenInButton } from "./OpenInButton";
+import { OpenInButton } from "@glade/app-core/features/chat/OpenInButton";
 
 const status = vi.mocked(changesApi.status);
 const repo = (branch: string | null, head = "abc1234"): GitChangesResponse => ({

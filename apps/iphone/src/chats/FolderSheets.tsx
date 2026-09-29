@@ -7,8 +7,8 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Folder, Project } from "@glade/protocol";
 import { Check } from "lucide-preact";
-import { createFolder, deleteFolder, moveProjectToFolder, renameFolder } from "@/state/folder-actions";
-import { envIdOf, folders, foldersForProject, sidebarEntries } from "@/state/store";
+import { createFolder, deleteFolder, moveProjectToFolder, renameFolder } from "@glade/app-core/state/folder-actions";
+import { envIdOf, folders, foldersForProject, sidebarEntries } from "@glade/app-core/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
 
 /** Top-level folders of an environment in their order. */

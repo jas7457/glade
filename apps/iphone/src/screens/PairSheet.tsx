@@ -6,7 +6,7 @@
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { CircleAlert, CircleCheck } from "lucide-preact";
-import { Spinner } from "@/ui";
+import { Spinner } from "@glade/app-core/ui";
 import { cancelPairing, pairState, startPairing } from "~/state/connect";
 import { cancelScan, scanPairingLink } from "~/lib/scan";
 import { PhoneButton, PhoneInput, PhoneTextArea, Sheet } from "~/ui/phone";

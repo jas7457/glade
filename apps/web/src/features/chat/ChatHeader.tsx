@@ -9,19 +9,19 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Ellipsis, FileDiff, Pencil, Pin, PinOff, Trash2 } from "lucide-preact";
 import { deriveChatStatus, type WorkspaceSummary } from "@glade/protocol";
-import { cn } from "@/lib/cn";
-import { routes } from "@/app/routes";
-import { getChatSession } from "@/state/chat-session";
-import { renameWorkspace, setWorkspacePinned } from "@/state/actions";
-import { envIdOf, projectsById } from "@/state/store";
+import { cn } from "@glade/app-core/lib/cn";
+import { routes } from "@glade/app-core/app/routes";
+import { getChatSession } from "@glade/app-core/state/chat-session";
+import { renameWorkspace, setWorkspacePinned } from "@glade/app-core/state/actions";
+import { envIdOf, projectsById } from "@glade/app-core/state/store";
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
-import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, statusLabel } from "@/ui";
+import { IconButton, Menu, MenuItem, MenuSeparator, StatusIndicator, TITLEBAR_HEIGHT, ToolbarToggle, statusLabel } from "@glade/app-core/ui";
 import { changedCount } from "@/features/changes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { setChangesPanelOpen } from "@/features/workspace/layout-actions";
 import { ChatAgentBadge } from "./ChatAgentBadge";
 import { ChatLocation } from "./ChatLocation";
-import { OpenInButton } from "./OpenInButton";
+import { OpenInButton } from "@glade/app-core/features/chat/OpenInButton";
 
 export function ChatHeader({ workspace: chat, sessionId }: { workspace: WorkspaceSummary | undefined; sessionId: string }) {
   const navigate = useNavigate();

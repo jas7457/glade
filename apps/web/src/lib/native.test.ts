@@ -4,7 +4,7 @@ const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
 
 const desktop = vi.hoisted(() => ({ isDesktop: vi.fn(() => false), pickFolderNative: vi.fn() }));
-vi.mock("./desktop", () => desktop);
+vi.mock("@glade/app-core/lib/desktop", () => desktop);
 
 import { pickFolder } from "./native";
 

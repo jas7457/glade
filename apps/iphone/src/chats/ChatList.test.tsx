@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
-import { projects, workspaces } from "@/state/store";
-import { closedProjects } from "@/state/ui";
-import { makeProject, makeWorkspace } from "@/test/fixtures";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
+import { projects, workspaces } from "@glade/app-core/state/store";
+import { closedProjects } from "@glade/app-core/state/ui";
+import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { fakeEnv } from "~/test/fake-env";
 import { ChatList, PHONE_PROJECT_LIMIT } from "./ChatList";
 import { chatGroups, matchesQuery } from "./chat-groups";

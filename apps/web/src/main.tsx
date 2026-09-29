@@ -1,12 +1,12 @@
 import { render } from "preact";
 import "./styles.css";
 import { App } from "./app/App";
-import { startAppearanceSync } from "./app/appearance";
+import { startAppearanceSync } from "@glade/app-core/app/appearance";
 import { installExternalLinks } from "./lib/external-links";
-import { startAttentionSync } from "./state/attention";
-import { startEnvironments } from "./state/environments";
-import { startNotifications } from "./state/notifications";
-import { startVersionSync } from "./state/version";
+import { startAttentionSync } from "@glade/app-core/state/attention";
+import { startEnvironments } from "@glade/app-core/state/environments";
+import { startNotifications } from "@glade/app-core/state/notifications";
+import { startVersionSync } from "@glade/app-core/state/version";
 
 startAppearanceSync();
 // The page's own server is the local environment (I-123); remote ones follow the saved list.

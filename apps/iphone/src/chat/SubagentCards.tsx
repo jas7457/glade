@@ -6,12 +6,12 @@
  */
 import { ChevronRight } from "lucide-preact";
 import type { SessionSummary } from "@glade/protocol";
-import { cn } from "@/lib/cn";
-import { useChatSession } from "@/state/chat-session";
-import { envIdOfSession, shellOf } from "@/state/store";
-import { useNow } from "@/features/chat/duration";
-import { agentChip, chipKind } from "@/features/workspace/agent-chips";
-import { AgentStatusMarker } from "@/features/workspace/SubagentStrip";
+import { cn } from "@glade/app-core/lib/cn";
+import { useChatSession } from "@glade/app-core/state/chat-session";
+import { envIdOfSession, shellOf } from "@glade/app-core/state/store";
+import { useNow } from "@glade/app-core/features/chat/duration";
+import { agentChip, chipKind } from "@glade/app-core/features/workspace/agent-chips";
+import { AgentStatusMarker } from "@glade/app-core/features/workspace/SubagentStrip";
 
 export function SubagentCards({ subagents, onOpen }: { subagents: readonly SessionSummary[]; onOpen: (sessionId: string) => void }) {
   if (subagents.length === 0) return null;

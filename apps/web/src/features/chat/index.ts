@@ -7,10 +7,10 @@
  *   - DEFAULT_GROUPING_OPTIONS controls how tool calls are grouped
  */
 export { ChatView } from "./ChatView";
-export { NewChatView } from "./NewChatView";
-export { Transcript, type TranscriptProps } from "./Transcript";
-export { Composer, ComposerBox, type ComposerProps, type ComposerBoxProps } from "./Composer";
-export { Markdown, CodeView, type MarkdownProps } from "./Markdown";
-export { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "./grouping";
-export { toolRenderers, type ToolRenderer, type ToolBodyProps } from "./tools/renderers";
-export { toolSummarizers } from "./tools/summaries";
+export { NewChatView } from "@glade/app-core/features/chat/NewChatView";
+export { Transcript, type TranscriptProps } from "@glade/app-core/features/chat/Transcript";
+export { Composer, ComposerBox, type ComposerProps, type ComposerBoxProps } from "@glade/app-core/features/chat/Composer";
+export { Markdown, CodeView, type MarkdownProps } from "@glade/app-core/features/chat/Markdown";
+export { DEFAULT_GROUPING_OPTIONS, groupTranscript, type GroupingOptions, type RenderItem, type TurnPart } from "@glade/app-core/features/chat/grouping";
+export { toolRenderers, type ToolRenderer, type ToolBodyProps } from "@glade/app-core/features/chat/tools/renderers";
+export { toolSummarizers } from "@glade/app-core/features/chat/tools/summaries";

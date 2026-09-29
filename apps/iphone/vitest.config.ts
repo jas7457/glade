@@ -1,29 +1,21 @@
 import { defineConfig } from "vitest/config";
 import preact from "@preact/preset-vite";
 import { fileURLToPath } from "node:url";
-
-const web = (p: string) => fileURLToPath(new URL(`../web/${p}`, import.meta.url));
+import { dedupe, testAliases, testInlineDeps, testSetupFile } from "../../packages/app-core/vite.shared.ts";
 
 export default defineConfig({
   plugins: [preact()],
   resolve: {
-    alias: [
-      { find: "@", replacement: web("src") },
-      { find: "~", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
-      // Same ESM/one-preact setup as apps/web/vitest.config.ts.
-      { find: /^react-router$/, replacement: web("node_modules/react-router/dist/development/index.mjs") },
-      { find: /^react$/, replacement: "preact/compat" },
-      { find: /^react-dom$/, replacement: "preact/compat" },
-      { find: /^react\/jsx-runtime$/, replacement: "preact/jsx-runtime" },
-    ],
+    // `~/…` = this app; the rest (app core, one preact/react-router) is shared with the app core's tests.
+    alias: [{ find: "~", replacement: fileURLToPath(new URL("./src", import.meta.url)) }, ...testAliases],
     mainFields: ["module", "jsnext:main", "jsnext"],
-    dedupe: ["preact", "@preact/signals"],
+    dedupe,
   },
   test: {
     name: "iphone",
     environment: "jsdom",
-    setupFiles: [web("src/test/setup.ts")],
+    setupFiles: [testSetupFile],
     css: false,
-    server: { deps: { inline: ["react-router", /@radix-ui\//, /@floating-ui\/react/, /react-remove-scroll/, /react-style-singleton/, /use-callback-ref/, /use-sidecar/, /aria-hidden/] } },
+    server: { deps: { inline: testInlineDeps } },
   },
 });

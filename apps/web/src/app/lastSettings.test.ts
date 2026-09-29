@@ -1,8 +1,8 @@
 /** I-133: `/settings` reopens the last settings section (and a host section's environment). */
 import { beforeEach, describe, expect, it } from "vitest";
-import { readStored } from "@/state/ui";
+import { readStored } from "@glade/app-core/state/ui";
 import { lastSettings, rememberSettings, resolveLastSettings } from "./lastSettings";
-import { routes } from "./routes";
+import { routes } from "@glade/app-core/app/routes";
 
 beforeEach(() => localStorage.clear());
 

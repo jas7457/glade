@@ -2,17 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, type ModelInfo, type SlashCommand } from "@glade/protocol";
-import { TooltipProvider } from "@/ui";
-import { models, sessions, settings, workspaces } from "@/state/store";
-import { makeSession, makeWorkspace } from "@/test/fixtures";
-import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { harnesses } from "@/state/harnesses";
-import { toasts } from "@/state/toasts";
-import { Composer } from "../Composer";
-import { resetFolderCommands } from "./folder-commands";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { models, sessions, settings, workspaces } from "@glade/app-core/state/store";
+import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
+import { harnesses } from "@glade/app-core/state/harnesses";
+import { toasts } from "@glade/app-core/state/toasts";
+import { Composer } from "@glade/app-core/features/chat/Composer";
+import { resetFolderCommands } from "@glade/app-core/features/chat/slash/folder-commands";
 import { SettingsIndexRoute } from "@/features/settings";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     createWorkspace: vi.fn(),
     prompt: vi.fn(async () => undefined),
@@ -29,12 +29,12 @@ vi.mock("@/lib/api", () => ({
     revealFile: vi.fn(async () => undefined),
   },
 }));
-vi.mock("@/lib/api-folder", () => ({
+vi.mock("@glade/app-core/lib/api-folder", () => ({
   listFolderCommands: vi.fn(async () => FOLDER),
   searchFiles: vi.fn(async () => ({ entries: [], truncated: false })),
   getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 const HARNESS: SlashCommand[] = [
   { name: "mcp", source: "extension", description: "Manage MCP servers" },
@@ -50,8 +50,8 @@ const FOLDER: SlashCommand[] = [
   { name: "skill:web-design", source: "skill", description: "Design websites" },
 ];
 
-const { api } = await import("@/lib/api");
-const folderApi = await import("@/lib/api-folder");
+const { api } = await import("@glade/app-core/lib/api");
+const folderApi = await import("@glade/app-core/lib/api-folder");
 
 const MODELS: ModelInfo[] = [
   { provider: "anthropic", id: "haiku", name: "Claude Haiku", thinkingLevels: ["off", "low", "medium", "high"], input: ["text"] },

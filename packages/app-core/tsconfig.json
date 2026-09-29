@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    // Vite configs import packages/app-core/vite.shared.ts with its extension (Vite's native config loader wants it).
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@glade/app-core/*": ["src/*"],
+      "react": ["./node_modules/preact/compat/"],
+      "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"],
+      "react-dom": ["./node_modules/preact/compat/"],
+      "react-dom/*": ["./node_modules/preact/compat/*"]
+    }
+  },
+  "include": ["src", "vite.shared.ts", "vitest.config.ts"]
+}

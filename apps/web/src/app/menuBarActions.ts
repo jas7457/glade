@@ -8,8 +8,8 @@
  */
 import { useEffect, useRef } from "preact/hooks";
 import { needsAttention, type WorkspaceSummary } from "@glade/protocol";
-import { onMenuAction } from "@/lib/desktop";
-import { chatPath, routes } from "./routes";
+import { onMenuAction } from "@glade/app-core/lib/desktop";
+import { chatPath, routes } from "@glade/app-core/app/routes";
 
 export type ChatFilter = "working" | "needs-you";
 

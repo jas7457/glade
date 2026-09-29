@@ -4,11 +4,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/pre
 import { MemoryRouter, Route, Routes } from "react-router";
 import { defaultSettings, type SavedPrompt } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({ api: { updateSettings: vi.fn() } }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { updateSettings: vi.fn() } }));
 
-import { api } from "@/lib/api";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { projects, settings } from "@/state/store";
+import { api } from "@glade/app-core/lib/api";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { projects, settings } from "@glade/app-core/state/store";
 import { SettingsRoute } from "./SettingsView";
 import { groupPrompts } from "./PromptSettings";
 

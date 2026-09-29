@@ -1,13 +1,13 @@
 /** Command registry: chat actions for the current chat (I-073 Mark as Unread / Read). */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: { updateSession: vi.fn(async (id: string, patch: object) => ({ ...sessions.value.find((s) => s.id === id), ...patch })) },
 }));
 
-import { api } from "@/lib/api";
-import { projects, sessions, workspaces } from "@/state/store";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
+import { api } from "@glade/app-core/lib/api";
+import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { buildCommands, isAvailable } from "./commands";
 
 const build = (workspaceId: string | null) =>

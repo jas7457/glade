@@ -6,8 +6,11 @@
     "jsxImportSource": "preact",
     "types": ["vite/client"],
     "baseUrl": ".",
+    // Vite configs import packages/app-core/vite.shared.ts with its extension (Vite's native config loader wants it).
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["src/*"],
+      "@glade/app-core/*": ["../../packages/app-core/src/*"],
       "react": ["./node_modules/preact/compat/"],
       "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"],
       "react-dom": ["./node_modules/preact/compat/"],

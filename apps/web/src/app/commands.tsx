@@ -33,16 +33,16 @@ import {
   Trash2,
   X,
 } from "lucide-preact";
-import { StatusIndicator } from "@/ui";
+import { StatusIndicator } from "@glade/app-core/ui";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
-import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@/state/store";
-import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
-import { notify } from "@/state/toasts";
-import { openAddProject, toggleSidebar } from "@/state/ui";
+import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@glade/app-core/state/actions";
+import { notify } from "@glade/app-core/state/toasts";
+import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
 import { closeTab, openNewTab, renameWithAi, toggleSubagentPane } from "@/features/workspace";
 import type { RouteContext } from "./paths";
-import { SETTINGS_SECTIONS, chatPath, routes } from "./routes";
+import { SETTINGS_SECTIONS, chatPath, routes } from "@glade/app-core/app/routes";
 import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
 
 export type CommandGroup = "Chats" | "Projects" | "Actions";

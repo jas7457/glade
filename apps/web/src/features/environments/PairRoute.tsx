@@ -3,8 +3,8 @@
  * future phone app, F-022). Opens Settings → Remote Access with the connect dialog filled in.
  */
 import { Navigate, useLocation } from "react-router";
-import { routes } from "@/app/routes";
-import { pairDialogRequest } from "@/state/pairing";
+import { routes } from "@glade/app-core/app/routes";
+import { pairDialogRequest } from "@glade/app-core/state/pairing";
 
 export function PairRoute() {
   const { search, hash } = useLocation();

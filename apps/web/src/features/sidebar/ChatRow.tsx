@@ -7,19 +7,19 @@
  * Chats working in their own git worktree (I-096) show a small branch glyph.
  */
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
-import { envIdOf, folderOfWorkspace } from "@/state/store";
-import { moveWorkspaceToFolder } from "@/state/folder-actions";
+import { envIdOf, folderOfWorkspace } from "@glade/app-core/state/store";
+import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
 import { MoveToFolderMenu } from "./folder-menu";
 import { useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { GitBranch, MoreHorizontal, Pin } from "lucide-preact";
 import type { WorkspaceSummary } from "@glade/protocol";
-import { chatPath } from "@/app/routes";
-import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, type SidebarIndent } from "@/ui";
-import { markWorkspaceRead, markWorkspaceUnread, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@/state/actions";
+import { chatPath } from "@glade/app-core/app/routes";
+import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, type SidebarIndent } from "@glade/app-core/ui";
+import { markWorkspaceRead, markWorkspaceUnread, movePinnedWorkspace, renameWorkspace, setWorkspacePinned } from "@glade/app-core/state/actions";
 import { confirmDeleteChat } from "./delete-chat";
 import { InlineRename } from "./InlineRename";
-import { formatRelativeTime } from "./time";
+import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 
 export interface ChatRowProps {
   chat: WorkspaceSummary;

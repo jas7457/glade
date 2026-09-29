@@ -5,7 +5,7 @@
  */
 import { MessageSquare, MessageSquareText, Sparkles } from "lucide-preact";
 import type { AskMatch, SearchHit } from "@glade/protocol";
-import { TextHighlight, type CommandPaletteSection } from "@/ui";
+import { TextHighlight, type CommandPaletteSection } from "@glade/app-core/ui";
 
 /** Row ids: `msg:<sessionId>`, `ask:<sessionId>`, and the entry row. */
 export const ASK_ENTRY_ID = "ask-mode";

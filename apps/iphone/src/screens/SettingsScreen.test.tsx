@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { paths } from "~/app/routes";
 import { phoneTheme } from "~/state/theme";
 import { fakeEnv } from "~/test/fake-env";

@@ -4,4 +4,4 @@
 export { Sidebar } from "./Sidebar";
 export { ChatRow } from "./ChatRow";
 export { confirmDeleteChat, DeleteChatHost, type DeleteChatOptions } from "./delete-chat";
-export { formatRelativeTime } from "./time";
+export { formatRelativeTime } from "@glade/app-core/features/sidebar/time";

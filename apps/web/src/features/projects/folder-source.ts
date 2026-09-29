@@ -4,9 +4,9 @@
  * environment; {@link localFolderSource} is the server this web app was loaded from.
  */
 import type { FsBrowseEntry, FsBrowseResult } from "@glade/protocol";
-import { request } from "@/lib/api";
-import { isLocalEnvironment } from "@/state/env-registry";
-import { isThisMachine, requestFor } from "@/state/env-api";
+import { request } from "@glade/app-core/lib/api";
+import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { isThisMachine, requestFor } from "@glade/app-core/state/env-api";
 
 export interface ProjectFolderSource {
   /** `GET /api/fs/browse` of that environment. */

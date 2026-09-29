@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
+import { appCoreAlias, dedupe } from "../../packages/app-core/vite.shared.ts";
 
 /** `GLADE_<name>`, else the pre-rename `PI_UI_<name>` (I-059; see apps/server/src/config.ts `env`). */
 const env = (name: string): string | undefined => process.env[`GLADE_${name}`] || process.env[`PI_UI_${name}`] || undefined;
@@ -13,7 +14,9 @@ const webPort = Number(env("WEB_PORT") ?? 5317);
 export default defineConfig({
   plugins: [preact(), tailwindcss()],
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    // `@/…` = this app (the desktop layout); `@glade/app-core/…` = the shared client core.
+    alias: [{ find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) }, appCoreAlias],
+    dedupe,
   },
   server: {
     host: "127.0.0.1",

@@ -7,7 +7,7 @@
  * palette and `shortcutFor` all read it.
  */
 import { useEffect, useRef } from "preact/hooks";
-import { onMenuAction, type MenuAction } from "@/lib/desktop";
+import { onMenuAction, type MenuAction } from "@glade/app-core/lib/desktop";
 
 /** Commands with a global shortcut, keyed by command id, as `formatShortcut` key strings. */
 export const SHORTCUTS = {

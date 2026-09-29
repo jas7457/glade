@@ -5,9 +5,9 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import type { WorkspaceSummary } from "@glade/protocol";
-import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, renameWorkspace, setWorkspacePinned } from "@/state/actions";
-import { moveWorkspaceToFolder } from "@/state/folder-actions";
-import { envIdOf, folderOfWorkspace } from "@/state/store";
+import { deleteWorkspace, markWorkspaceRead, markWorkspaceUnread, renameWorkspace, setWorkspacePinned } from "@glade/app-core/state/actions";
+import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
+import { envIdOf, folderOfWorkspace } from "@glade/app-core/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
 import { MoveToFolderSheet } from "./FolderSheets";
 

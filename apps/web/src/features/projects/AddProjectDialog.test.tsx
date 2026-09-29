@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import type { FsBrowseResult } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({ api: { createProject: vi.fn() }, request: vi.fn() }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { createProject: vi.fn() }, request: vi.fn() }));
 vi.mock("@/lib/native", () => ({ pickFolder: vi.fn() }));
 
-import { api, request as localRequest } from "@/lib/api";
+import { api, request as localRequest } from "@glade/app-core/lib/api";
 import { pickFolder } from "@/lib/native";
-import { TooltipProvider } from "@/ui";
-import { projects } from "@/state/store";
-import { makeProject } from "@/test/fixtures";
-import { fakeEnv, resetEnvironmentsForTest, useEnvironments } from "@/test/env-fixtures";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { projects } from "@glade/app-core/state/store";
+import { makeProject } from "@glade/app-core/test/fixtures";
+import { fakeEnv, resetEnvironmentsForTest, useEnvironments } from "@glade/app-core/test/env-fixtures";
 import { AddProjectDialog } from "./AddProjectDialog";
 import type { ProjectFolderSource } from "./folder-source";
 import { folderName, nameAfterPick, validateProjectPath } from "./validation";

@@ -3,8 +3,8 @@
  * an item (the item must be `relative`). It starts where the dragged rows' content starts
  * (`indent`, see sidebar-metrics.ts), so it lines up with the sidebar grid.
  */
-import { cn } from "@/lib/cn";
-import { sidebarClass, type SidebarIndent } from "@/ui";
+import { cn } from "@glade/app-core/lib/cn";
+import { sidebarClass, type SidebarIndent } from "@glade/app-core/ui";
 
 export function DropLine({ edge, indent = 0 }: { edge: "top" | "bottom" | null; indent?: SidebarIndent }) {
   if (!edge) return null;

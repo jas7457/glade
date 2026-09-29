@@ -10,10 +10,10 @@
 import { useEffect } from "preact/hooks";
 import { matchPath, useLocation, useNavigate } from "react-router";
 import type { Project, WorkspaceSummary } from "@glade/protocol";
-import { connectionFor, isLocalEnvironment } from "@/state/env-registry";
-import { initialized, projectsById, workspacesById } from "@/state/store";
-import { previousRoute, rememberRoute } from "@/state/ui";
-import { SETTINGS_SECTIONS, parseEnvPath } from "./routes";
+import { connectionFor, isLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { initialized, projectsById, workspacesById } from "@glade/app-core/state/store";
+import { previousRoute, rememberRoute } from "@glade/app-core/state/ui";
+import { SETTINGS_SECTIONS, parseEnvPath } from "@glade/app-core/app/routes";
 
 export interface RouteData {
   workspacesById: ReadonlyMap<string, WorkspaceSummary>;

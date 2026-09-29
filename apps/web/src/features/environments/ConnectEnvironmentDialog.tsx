@@ -22,14 +22,14 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Check, Monitor, RefreshCw } from "lucide-preact";
-import { cn } from "@/lib/cn";
-import { parsePairInput, parsePairingLink } from "@/lib/pairing-link";
-import { connectionName } from "@/state/connections";
-import { connectionFor, localEnvironmentId } from "@/state/env-registry";
-import { remoteMaster, setRemoteMaster } from "@/state/remote-master";
-import { adoptDeviceName } from "@/state/remote-host";
-import { defaultDeviceName, isTailnetAddress, runPairing, runTailnetPairing, savedEnvironment, type PairState } from "@/state/pairing";
-import { Button, Dialog, Spinner, TextField } from "@/ui";
+import { cn } from "@glade/app-core/lib/cn";
+import { parsePairInput, parsePairingLink } from "@glade/app-core/lib/pairing-link";
+import { connectionName } from "@glade/app-core/state/connections";
+import { connectionFor, localEnvironmentId } from "@glade/app-core/state/env-registry";
+import { remoteMaster, setRemoteMaster } from "@glade/app-core/state/remote-master";
+import { adoptDeviceName } from "@glade/app-core/state/remote-host";
+import { defaultDeviceName, isTailnetAddress, runPairing, runTailnetPairing, savedEnvironment, type PairState } from "@glade/app-core/state/pairing";
+import { Button, Dialog, Spinner, TextField } from "@glade/app-core/ui";
 import { useDiscovery } from "./use-discovery";
 
 export interface ConnectEnvironmentDialogProps {

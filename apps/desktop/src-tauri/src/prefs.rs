@@ -9,7 +9,7 @@
 //!
 //! Commands (main window only): `desktop_prefs_get`, `desktop_prefs_set` (a partial patch),
 //! `login_item_get` / `login_item_set` ("Open at login", the system's login item, `login_item.rs`).
-//! The web side is apps/web/src/lib/desktop.ts.
+//! The web side is packages/app-core/src/lib/desktop.ts.
 
 use std::path::PathBuf;
 use std::sync::Mutex;

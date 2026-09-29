@@ -3,7 +3,7 @@
 //! - Release builds start the bundled Node server (`server.rs`) and point the window at it;
 //!   `tauri dev` loads the Vite dev server instead (devUrl) and starts nothing.
 //! - Native chrome: overlay titlebar (tauri.conf.json), sidebar vibrancy, app menu whose custom
-//!   items are forwarded to the web app as `glade:menu` events (see apps/web/src/lib/desktop.ts).
+//!   items are forwarded to the web app as `glade:menu` events (see packages/app-core/src/lib/desktop.ts).
 //! - Links never navigate the window away: external ones open in the default browser (`links.rs`,
 //!   I-129).
 //! - Closing the window hides it (chats keep running, the Dock badge keeps updating); clicking the

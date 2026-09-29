@@ -3,7 +3,7 @@
  * the Remote Access settings (host + client parts), pairing dialogs and the `/pair` route.
  */
 export { RemoteMarker } from "./RemoteMarker";
-export { EnvironmentPicker } from "./EnvironmentPicker";
+export { EnvironmentPicker } from "@glade/app-core/features/environments/EnvironmentPicker";
 export { RemoteAccessSettings } from "./RemoteAccessSettings";
 export { SettingsDeviceSwitcher } from "./SettingsDeviceSwitcher";
 export { PendingPairingHost } from "./PendingPairingHost";

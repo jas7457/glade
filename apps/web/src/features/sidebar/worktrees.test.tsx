@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { MemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     getProjectGit: vi.fn(),
     getWorktreeStatus: vi.fn(),
@@ -15,11 +15,11 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import type { WorkspaceWorktree, WorktreeStatus } from "@glade/protocol";
-import { api } from "@/lib/api";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { projects, workspaces } from "@/state/store";
-import { newChatWorktree, projectGit } from "@/state/worktrees";
-import { makeProject, makeWorkspace } from "@/test/fixtures";
+import { api } from "@glade/app-core/lib/api";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { projects, workspaces } from "@glade/app-core/state/store";
+import { newChatWorktree, projectGit } from "@glade/app-core/state/worktrees";
+import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { ChatRow } from "./ChatRow";
 import { confirmDeleteChat, DeleteChatHost } from "./delete-chat";
 

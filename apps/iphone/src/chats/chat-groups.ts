@@ -8,7 +8,7 @@
  * chats. While searching, only folders and projects with matching chats are kept.
  */
 import type { Folder, Project, WorkspaceSummary } from "@glade/protocol";
-import { foldersForProject, looseWorkspaces, sidebarEntries, workspacesInFolder } from "@/state/store";
+import { foldersForProject, looseWorkspaces, sidebarEntries, workspacesInFolder } from "@glade/app-core/state/store";
 
 /** A project's folder and the chats in it. */
 export interface FolderChats {

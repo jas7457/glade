@@ -8,11 +8,11 @@
  */
 import { computed, effect, signal, type ReadonlySignal } from "@preact/signals";
 import type { ServerMessage, SessionSummary, UpdateJobStatus } from "@glade/protocol";
-import { request } from "@/lib/api";
-import { isDesktop, relaunchApp } from "@/lib/desktop";
-import { socket as localSocket, type Socket } from "@/lib/socket";
-import { isLocalEnvironment } from "./env-registry";
-import { sessions } from "./store";
+import { request } from "@glade/app-core/lib/api";
+import { isDesktop, relaunchApp } from "@glade/app-core/lib/desktop";
+import { socket as localSocket, type Socket } from "@glade/app-core/lib/socket";
+import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { sessions } from "@glade/app-core/state/store";
 
 /** `null` until loaded, or on servers without Update Now. */
 export const updateJob = signal<UpdateJobStatus | null>(null);

@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import type { PairedDevice, PendingPairing, RemoteAccessState, TransportStatus } from "@glade/protocol";
 
-vi.mock("@/lib/api-auth", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api-auth")>();
+vi.mock("@glade/app-core/lib/api-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/api-auth")>();
   return {
     ...actual,
     hostAuth: {
@@ -28,17 +28,17 @@ vi.mock("@/lib/api-auth", async (importOriginal) => {
     },
   };
 });
-vi.mock("@/lib/socket", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/socket")>();
+vi.mock("@glade/app-core/lib/socket", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/socket")>();
   return { ...actual, socket: { onMessage: () => () => {}, onOpen: () => () => {}, watch: () => () => {}, send: () => {} } };
 });
 
-import { hostAuth } from "@/lib/api-auth";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { hostRemote, receiveHostMessage, resetRemoteHost } from "@/state/remote-host";
-import { localEnvironmentId } from "@/state/env-registry";
-import { remoteMaster, resetRemoteMaster } from "@/state/remote-master";
-import { saveEnvironments } from "@/state/saved-environments";
+import { hostAuth } from "@glade/app-core/lib/api-auth";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { hostRemote, receiveHostMessage, resetRemoteHost } from "@glade/app-core/state/remote-host";
+import { localEnvironmentId } from "@glade/app-core/state/env-registry";
+import { remoteMaster, resetRemoteMaster } from "@glade/app-core/state/remote-master";
+import { saveEnvironments } from "@glade/app-core/state/saved-environments";
 import { RemoteAccessSettings } from "./RemoteAccessSettings";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { PendingPairingHost } from "./PendingPairingHost";
@@ -320,8 +320,8 @@ describe("connect dialog", () => {
 
   it("a found device on another Tailscale account: falls back to the code with a reason; the pair request sends this device's own name", async () => {
     localEnvironmentId.value = "ENV-A";
-    const { connections } = await import("@/state/env-registry");
-    const { EnvironmentConnection } = await import("@/state/environments");
+    const { connections } = await import("@glade/app-core/state/env-registry");
+    const { EnvironmentConnection } = await import("@glade/app-core/state/environments");
     const local = new EnvironmentConnection("ENV-A", "http://127.0.0.1:1/api", true);
     local.info.value = { id: "ENV-A", name: "MacBook Air" } as never;
     connections.value = [local];
@@ -467,7 +467,7 @@ describe("/pair deep link", () => {
   it("opens Settings → Remote Access with the link filled in", async () => {
     const { MemoryRouter, Routes, Route } = await import("react-router");
     const { PairRoute } = await import("./PairRoute");
-    const { pairDialogRequest } = await import("@/state/pairing");
+    const { pairDialogRequest } = await import("@glade/app-core/state/pairing");
     render(
       <MemoryRouter initialEntries={[`/pair?link=${encodeURIComponent(LINK)}`]}>
         <Routes>
@@ -629,7 +629,7 @@ describe("connections (I-136)", () => {
     fireEvent.input(field, { target: { value: "Work Mac" } });
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(mocked.renameDevice).toHaveBeenCalledWith("d1", "Work Mac"));
-    const { environmentAlias } = await import("@/state/saved-environments");
+    const { environmentAlias } = await import("@glade/app-core/state/saved-environments");
     await waitFor(() => expect(environmentAlias("ENV-S")).toBe("Work Mac"));
     expect(within(row("ENV-S")).getByText("Work Mac")).toBeTruthy();
   });

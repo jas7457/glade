@@ -1,6 +1,6 @@
 //! Update Now's restart (I-154): quit Glade completely and start the newly installed bundle.
 //!
-//! The web asks for it (`relaunch` command, apps/web/src/lib/desktop.ts) after the update job
+//! The web asks for it (`relaunch` command, packages/app-core/src/lib/desktop.ts) after the update job
 //! installed the new version and the page already dealt with running chats, so:
 //! - no running-chats prompt and no ⌘Q-to-menu-bar: `quit::allow()`, then `app.exit(0)`, which
 //!   stops our server cleanly (SIGTERM, like Quit Glade Completely; `RunEvent::Exit` in lib.rs);

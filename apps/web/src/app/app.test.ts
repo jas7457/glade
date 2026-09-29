@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { makeWorkspace } from "@/test/fixtures";
-import { resolveTheme } from "./appearance";
+import { makeWorkspace } from "@glade/app-core/test/fixtures";
+import { resolveTheme } from "@glade/app-core/app/appearance";
 import { routeContext } from "./paths";
-import { chatPath, routes } from "./routes";
-import { formatShortcut } from "@/ui/Kbd";
+import { chatPath, routes } from "@glade/app-core/app/routes";
+import { formatShortcut } from "@glade/app-core/ui/Kbd";
 import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, paneShortcutFor, shortcutFor, tabShortcutFor } from "./shortcuts";
 
 describe("resolveTheme", () => {

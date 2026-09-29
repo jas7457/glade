@@ -8,10 +8,10 @@
 import { useEffect, useState } from "preact/hooks";
 import { Check, Copy, Monitor, Moon, RefreshCw, Sun } from "lucide-preact";
 import { UPDATE_COMMAND } from "@glade/protocol";
-import { Button, FormGroup, FormRow, SegmentedControl, Spinner, StatusDot } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
-import { buildLine, checkText, checkVersionNow, loadVersion, versionChecking, versionError, versionStatus } from "@/state/version";
+import { Button, FormGroup, FormRow, SegmentedControl, Spinner, StatusDot } from "@glade/app-core/ui";
+import { settings } from "@glade/app-core/state/store";
+import { updateSettings } from "@glade/app-core/state/actions";
+import { buildLine, checkText, checkVersionNow, loadVersion, versionChecking, versionError, versionStatus } from "@glade/app-core/state/version";
 import { canUpdateHere, updateJob, watchUpdateJob } from "@/state/update";
 import { UpdateNow } from "./UpdateNow";
 

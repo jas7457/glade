@@ -4,10 +4,10 @@
  * that runs the agents (I-123 §5.3); this picks which device's they show. Another device's are
  * view only (you change them on that device). Shown whenever another device is connected.
  */
-import { connections, primaryEnvironmentId, settingsEnvironmentId, THIS_MACHINE_LABEL } from "@/state/env-registry";
-import { hostEnvId } from "@/state/host-settings";
-import { Select } from "@/ui";
-import { remoteStateOf, remoteStateShort } from "@/state/remote-status";
+import { connections, primaryEnvironmentId, settingsEnvironmentId, THIS_MACHINE_LABEL } from "@glade/app-core/state/env-registry";
+import { hostEnvId } from "@glade/app-core/state/host-settings";
+import { Select } from "@glade/app-core/ui";
+import { remoteStateOf, remoteStateShort } from "@glade/app-core/state/remote-status";
 
 export function SettingsDeviceSwitcher() {
   const list = connections.value;

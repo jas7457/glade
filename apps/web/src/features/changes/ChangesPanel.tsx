@@ -10,16 +10,16 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { ChevronRight, GitBranch, PanelRightClose, RefreshCw, Undo2 } from "lucide-preact";
 import type { GitChangedFile, GitChangeKind, GitFileDiffResponse } from "@glade/protocol";
-import { cn } from "@/lib/cn";
-import { getChatSession } from "@/state/chat-session";
-import { sessions } from "@/state/store";
-import { notify } from "@/state/toasts";
-import { Button, Checkbox, IconButton, Spinner, TAB_STRIP_HEIGHT, confirm } from "@/ui";
-import { DiffView } from "@/features/chat/tools/renderers";
+import { cn } from "@glade/app-core/lib/cn";
+import { getChatSession } from "@glade/app-core/state/chat-session";
+import { sessions } from "@glade/app-core/state/store";
+import { notify } from "@glade/app-core/state/toasts";
+import { Button, Checkbox, IconButton, Spinner, TAB_STRIP_HEIGHT, confirm } from "@glade/app-core/ui";
+import { DiffView } from "@glade/app-core/features/chat/tools/renderers";
 import { agentEditedPaths } from "./agent-edits";
-import { changesApi } from "./api";
+import { changesApi } from "@glade/app-core/features/changes/api";
 import { changesEntry, refreshChanges, setChanges } from "./changes-state";
-import { CommitDialog } from "./CommitDialog";
+import { CommitDialog } from "@glade/app-core/features/changes/CommitDialog";
 
 export interface ChangesPanelProps {
   workspaceId: string;

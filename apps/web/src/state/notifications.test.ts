@@ -6,20 +6,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signal } from "@preact/signals";
 import type { ServerMessage, SessionSummary } from "@glade/protocol";
-import { makeSession, makeWorkspace } from "@/test/fixtures";
-import type { NotificationTarget, NotifierBackend, SystemNotification } from "@/lib/system-notifications";
-import type { EnvHandle } from "./env-registry";
+import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import type { NotificationTarget, NotifierBackend, SystemNotification } from "@glade/app-core/lib/system-notifications";
+import type { EnvHandle } from "@glade/app-core/state/env-registry";
 
-vi.mock("@/lib/socket", () => ({ socket: { send() {}, watch: () => () => {}, onMessage() {}, onOpen() {}, onClose() {}, connect() {} } }));
-vi.mock("./harnesses", async () => ({ harnesses: (await import("@preact/signals")).signal(null), loadHarnesses: vi.fn(async () => {}) }));
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send() {}, watch: () => () => {}, onMessage() {}, onOpen() {}, onClose() {}, connect() {} } }));
+vi.mock("@glade/app-core/state/harnesses", async () => ({ harnesses: (await import("@preact/signals")).signal(null), loadHarnesses: vi.fn(async () => {}) }));
 
-const n = await import("./notifications");
-const { attachSync } = await import("./sync");
-const store = await import("./store");
-const registry = await import("./env-registry");
-const { openChatRequest } = await import("./open-chat");
+const n = await import("@glade/app-core/state/notifications");
+const { attachSync } = await import("@glade/app-core/state/sync");
+const store = await import("@glade/app-core/state/store");
+const registry = await import("@glade/app-core/state/env-registry");
+const { openChatRequest } = await import("@glade/app-core/state/open-chat");
 const { openChatPath } = await import("@/app/openChatRequests");
-const { currentWorkspaceId } = await import("./attention");
+const { currentWorkspaceId } = await import("@glade/app-core/state/attention");
 
 const base = (o: Partial<SessionSummary> = {}) => makeSession({ id: "s1", workspaceId: "w1", ...o });
 const running = base({ running: true, status: "working" });

@@ -12,9 +12,9 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DiscoveredEnvironment } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
-import { hasLocalEnvironment } from "@/state/env-registry";
-import { retryWaitingRemotes, savedEnvironments, type SavedEnvironment } from "@/state/environments";
+import { hostAuth } from "@glade/app-core/lib/api-auth";
+import { hasLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { retryWaitingRemotes, savedEnvironments, type SavedEnvironment } from "@glade/app-core/state/environments";
 
 export const DISCOVERY_POLL_MS = 10_000;
 

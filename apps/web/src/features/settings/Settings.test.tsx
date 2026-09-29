@@ -3,22 +3,22 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact
 import { MemoryRouter, Route, Routes, createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSettings, type HarnessCapabilities, type HarnessInfo } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: { updateSettings: vi.fn(), listModels: vi.fn(), updateChat: vi.fn() },
 }));
 
-import { api } from "@/lib/api";
-import { TooltipProvider } from "@/ui";
-import { models, settings, workspaces } from "@/state/store";
-import { harnesses } from "@/state/harnesses";
-import { makeWorkspace } from "@/test/fixtures";
+import { api } from "@glade/app-core/lib/api";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { models, settings, workspaces } from "@glade/app-core/state/store";
+import { harnesses } from "@glade/app-core/state/harnesses";
+import { makeWorkspace } from "@glade/app-core/test/fixtures";
 import { SettingsIndexRoute, SettingsRoute } from "./SettingsView";
 import { groupModels } from "./ModelSettings";
 import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_GROUPS } from "./sections";
-import { SETTINGS_SECTIONS, routes } from "@/app/routes";
-import { settingsEnvironmentId } from "@/state/env-registry";
-import { notificationPermission, notificationPrefs, updateNotificationPrefs } from "@/state/notifications";
+import { SETTINGS_SECTIONS, routes } from "@glade/app-core/app/routes";
+import { settingsEnvironmentId } from "@glade/app-core/state/env-registry";
+import { notificationPermission, notificationPrefs, updateNotificationPrefs } from "@glade/app-core/state/notifications";
 
 const mocked = vi.mocked(api);
 

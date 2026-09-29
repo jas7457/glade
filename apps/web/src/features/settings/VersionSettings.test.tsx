@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/pr
 import type { BuildInfo, VersionStatus } from "@glade/protocol";
 
 const server = vi.hoisted(() => ({ status: null as unknown, afterCheck: null as unknown, calls: [] as string[] }));
-vi.mock("@/lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api")>();
+vi.mock("@glade/app-core/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/api")>();
   return {
     ...actual,
     request: vi.fn(async (method: string, path: string) => {
@@ -17,9 +17,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 import { MemoryRouter } from "react-router";
-import { TooltipProvider } from "@/ui";
+import { TooltipProvider } from "@glade/app-core/ui";
 import { SettingsNav } from "./SettingsNav";
-import { versionStatus } from "@/state/version";
+import { versionStatus } from "@glade/app-core/state/version";
 import { VersionSettings } from "./VersionSettings";
 
 const BUILD: BuildInfo = { commit: "1f00e8a".padEnd(40, "0"), shortCommit: "1f00e8a", builtAt: "2026-09-27T10:00:00.000Z", dirty: true, repoPath: "/src/glade", kind: "release" };

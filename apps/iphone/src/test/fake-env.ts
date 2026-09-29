@@ -4,8 +4,8 @@
  */
 import { computed, signal } from "@preact/signals";
 import { defaultSettings, type EnvironmentInfo, type HarnessDefaults, type HarnessInfo, type ModelInfo } from "@glade/protocol";
-import type { EnvHandle, EnvShell, EnvStatus } from "@/state/env-registry";
-import { environmentAlias } from "@/state/saved-environments";
+import type { EnvHandle, EnvShell, EnvStatus } from "@glade/app-core/state/env-registry";
+import { environmentAlias } from "@glade/app-core/state/saved-environments";
 
 export function fakeShell(): EnvShell {
   return {

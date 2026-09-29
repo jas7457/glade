@@ -1,8 +1,8 @@
 /** Friendly empty state for unknown chats/projects/pages. */
 import { useNavigate } from "react-router";
 import { SearchX } from "lucide-preact";
-import { Button, Titlebar } from "@/ui";
-import { routes } from "./routes";
+import { Button, Titlebar } from "@glade/app-core/ui";
+import { routes } from "@glade/app-core/app/routes";
 
 export function NotFound({ title = "Page not found", message }: { title?: string; message?: string }) {
   const navigate = useNavigate();

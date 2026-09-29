@@ -24,15 +24,15 @@
 import { useEffect, useState } from "preact/hooks";
 import { Monitor, Plus, RefreshCw, Share } from "lucide-preact";
 import type { DiscoveredEnvironment, PairedDevice } from "@glade/protocol";
-import { mergeConnections, nameOfConnection, type Connection } from "@/state/connections";
-import { connectionFor, localEnvironmentId } from "@/state/env-registry";
-import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@/state/environments";
-import { hostRemote, pairedDevices, renameConnection, revokeAllDevices, revokeDevice } from "@/state/remote-host";
-import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { Badge, Button, FormGroup, FormRow, Spinner, StatusDot, TextField, confirm, remoteStatusTone } from "@/ui";
+import { mergeConnections, nameOfConnection, type Connection } from "@glade/app-core/state/connections";
+import { connectionFor, localEnvironmentId } from "@glade/app-core/state/env-registry";
+import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@glade/app-core/state/environments";
+import { hostRemote, pairedDevices, renameConnection, revokeAllDevices, revokeDevice } from "@glade/app-core/state/remote-host";
+import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
+import { Badge, Button, FormGroup, FormRow, Spinner, StatusDot, TextField, confirm, remoteStatusTone } from "@glade/app-core/ui";
 import { formatLastSeen } from "./HostRemoteAccess";
 import { DeviceKindIcon } from "./device-kind";
-import { BUILD_MISMATCH_HINT, buildComparisons, buildRelation, buildRelationText, compareBuild, ownBuild } from "@/state/version";
+import { BUILD_MISMATCH_HINT, buildComparisons, buildRelation, buildRelationText, compareBuild, ownBuild } from "@glade/app-core/state/version";
 import { useDiscovery } from "./use-discovery";
 
 export interface ConnectionsProps {

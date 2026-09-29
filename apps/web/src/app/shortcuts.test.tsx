@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook } from "@testing-library/preact";
-import type { MenuAction } from "@/lib/desktop";
+import type { MenuAction } from "@glade/app-core/lib/desktop";
 
 // Capture the desktop menu listeners so the test can play menu clicks.
 const listeners = new Set<(action: MenuAction) => void>();
-vi.mock("@/lib/desktop", () => ({
+vi.mock("@glade/app-core/lib/desktop", () => ({
   onMenuAction: (handler: (action: MenuAction) => void) => {
     listeners.add(handler);
     return () => listeners.delete(handler);

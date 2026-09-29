@@ -8,7 +8,7 @@
 import { GitBranch, GitCommitHorizontal } from "lucide-preact";
 import type { WorkspaceSummary } from "@glade/protocol";
 import { changesEntry, currentHead } from "@/features/changes";
-import { Badge } from "@/ui";
+import { Badge } from "@glade/app-core/ui";
 
 /** The location line's tooltip (and accessible text). */
 export function chatLocationTitle(workspace: WorkspaceSummary, head: { name: string; detached: boolean }): string {

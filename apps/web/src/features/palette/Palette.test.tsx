@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 
-vi.mock("@/lib/api", () => ({ api: { generateSessionTitle: vi.fn() }, request: vi.fn() }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { generateSessionTitle: vi.fn() }, request: vi.fn() }));
 vi.mock("@/lib/api-search", () => ({
   searchChats: vi.fn(async (q: string) => ({ query: q, hits: [] })),
   askChats: vi.fn(),
 }));
-vi.mock("@/state/actions", () => ({
+vi.mock("@glade/app-core/state/actions", () => ({
   renameWorkspace: vi.fn(async () => true),
   setChatPinned: vi.fn(async () => true),
   deleteChat: vi.fn(async () => true),
@@ -14,16 +14,16 @@ vi.mock("@/state/actions", () => ({
 }));
 
 import type { AskResponse, SearchHit } from "@glade/protocol";
-import { api } from "@/lib/api";
+import { api } from "@glade/app-core/lib/api";
 import { askChats, searchChats } from "@/lib/api-search";
-import { renameWorkspace, updateSettings } from "@/state/actions";
-import { projects, sessions, workspaces } from "@/state/store";
-import { toasts } from "@/state/toasts";
-import { paletteOpen, sidebarCollapsed } from "@/state/ui";
+import { renameWorkspace, updateSettings } from "@glade/app-core/state/actions";
+import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { toasts } from "@glade/app-core/state/toasts";
+import { paletteOpen, sidebarCollapsed } from "@glade/app-core/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
 import type { RouteContext } from "@/app/paths";
-import { makeWorkspace, makeProject, makeSession } from "@/test/fixtures";
-import { pendingJump } from "@/features/chat/jump-to-message";
+import { makeWorkspace, makeProject, makeSession } from "@glade/app-core/test/fixtures";
+import { pendingJump } from "@glade/app-core/features/chat/jump-to-message";
 import { Palette } from "./Palette";
 
 const noRoute: RouteContext = { workspaceId: null, projectId: null, isSettings: false, envId: null };

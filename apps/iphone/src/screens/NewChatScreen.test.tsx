@@ -2,15 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { RouterProvider, createMemoryRouter } from "react-router";
 
-vi.mock("@/state/actions", () => ({
+vi.mock("@glade/app-core/state/actions", () => ({
   createWorkspace: vi.fn(async () => ({ workspace: { id: "new-ws" }, session: { session: { id: "s1" } } })),
 }));
 
-import { createWorkspace } from "@/state/actions";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
-import { projects } from "@/state/store";
-import { makeProject } from "@/test/fixtures";
+import { createWorkspace } from "@glade/app-core/state/actions";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
+import { projects } from "@glade/app-core/state/store";
+import { makeProject } from "@glade/app-core/test/fixtures";
 import { paths } from "~/app/routes";
 import { fakeEnv } from "~/test/fake-env";
 import { NewChatScreen, defaultNewChatEnv } from "./NewChatScreen";

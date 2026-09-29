@@ -6,16 +6,16 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings, type EnvironmentInfo } from "@glade/protocol";
-import { localBaseUrl } from "@/lib/api";
-import { makeProject } from "@/test/fixtures";
-import { resetEnvironmentsForTest } from "@/test/env-fixtures";
-import { connectionFor } from "./env-registry";
-import { resetEnvironments, startEnvironments } from "./environments";
-import { LEGACY_REMOTE_ACCESS_KEY, remoteMaster, resetRemoteMaster, setRemoteMaster } from "./remote-master";
-import { resetRemoteHost } from "./remote-host";
-import { deriveRemoteState, remoteStateOf, remoteStateText, tailnetPeers } from "./remote-status";
-import { saveEnvironments, savedEnvironments } from "./saved-environments";
-import * as store from "./store";
+import { localBaseUrl } from "@glade/app-core/lib/api";
+import { makeProject } from "@glade/app-core/test/fixtures";
+import { resetEnvironmentsForTest } from "@glade/app-core/test/env-fixtures";
+import { connectionFor } from "@glade/app-core/state/env-registry";
+import { resetEnvironments, startEnvironments } from "@glade/app-core/state/environments";
+import { LEGACY_REMOTE_ACCESS_KEY, remoteMaster, resetRemoteMaster, setRemoteMaster } from "@glade/app-core/state/remote-master";
+import { resetRemoteHost } from "@glade/app-core/state/remote-host";
+import { deriveRemoteState, remoteStateOf, remoteStateText, tailnetPeers } from "@glade/app-core/state/remote-status";
+import { saveEnvironments, savedEnvironments } from "@glade/app-core/state/saved-environments";
+import * as store from "@glade/app-core/state/store";
 
 const info = (id: string, name: string): EnvironmentInfo => ({
   id,
@@ -177,7 +177,7 @@ describe("remote environment status", () => {
     const conn = await start(net);
     await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("host-offline"), { timeout: 3000 });
     net.peers = [{ dnsName: "studio.tail.ts.net", name: "studio", online: true }];
-    const { refreshPeers } = await import("./remote-status");
+    const { refreshPeers } = await import("@glade/app-core/state/remote-status");
     await refreshPeers();
     expect(remoteStateOf("ENV-B")).toBe("unreachable");
     conn.retry!();
@@ -221,7 +221,7 @@ describe("coming back sooner (I-142)", () => {
   it("retries only the environments asked for, and only while they wait", async () => {
     const net: Net = { bUp: true, master: true, peers: [], patches: [] };
     await start(net);
-    const { retryWaitingRemotes } = await import("./environments");
+    const { retryWaitingRemotes } = await import("@glade/app-core/state/environments");
     expect(retryWaitingRemotes(["OTHER"])).toEqual([]);
     expect(retryWaitingRemotes(["ENV-B"])).toEqual(["ENV-B"]);
     // Connecting now (not waiting): nothing more.

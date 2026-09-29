@@ -4,7 +4,7 @@
  */
 import type { ComponentChildren } from "preact";
 import { Check, Laptop, Search, X } from "lucide-preact";
-import { cn } from "@/lib/cn";
+import { cn } from "@glade/app-core/lib/cn";
 import { PhoneButton, Sheet } from "./phone";
 
 /** iOS search field (grey pill with a magnifier and a clear button). */

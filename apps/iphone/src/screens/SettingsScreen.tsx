@@ -5,9 +5,9 @@
  */
 import { ChevronLeft, Laptop, Plus } from "lucide-preact";
 import { useNavigate } from "react-router";
-import { connectionFor } from "@/state/env-registry";
-import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { savedEnvironments } from "@/state/saved-environments";
+import { connectionFor } from "@glade/app-core/state/env-registry";
+import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { paths } from "~/app/routes";
 import { phoneTheme, setPhoneTheme, type PhoneTheme } from "~/state/theme";
 import { ListGroup, ListRow, NavBar, NavIconButton, Screen, ScreenBody } from "~/ui/phone";

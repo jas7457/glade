@@ -17,7 +17,7 @@
  *   POST /api/version/update         → UpdateJobStatus (starts it; 409 with `error` when it can't)
  *   POST /api/version/update/cancel  → UpdateJobStatus (before the install step only)
  *
- * The Mac shell then relaunches the new bundle (the `relaunch` command, apps/web/src/lib/desktop.ts).
+ * The Mac shell then relaunches the new bundle (the `relaunch` command, packages/app-core/src/lib/desktop.ts).
  */
 
 /** Which commit a server was built from. */

@@ -3,9 +3,9 @@
  * (no paired Macs) goes to Connect to a Device.
  */
 import { Navigate, RouterProvider, createHashRouter, useParams, useSearchParams, type RouteObject } from "react-router";
-import { ConfirmHost, Toaster, TooltipProvider } from "@/ui";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
+import { ConfirmHost, Toaster, TooltipProvider } from "@glade/app-core/ui";
+import { connections } from "@glade/app-core/state/env-registry";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { ChatScreen } from "~/screens/ChatScreen";
 import { ConnectScreen } from "~/screens/ConnectScreen";
 import { DeviceScreen } from "~/screens/DeviceScreen";

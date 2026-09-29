@@ -5,10 +5,10 @@
  */
 import { useNavigate } from "react-router";
 import { Monitor } from "lucide-preact";
-import { routes } from "@/app/routes";
-import { connectionFor } from "@/state/env-registry";
-import { downEnvironments, remoteStateOf, remoteStateShort, remoteStateText } from "@/state/remote-status";
-import { SidebarItem } from "@/ui";
+import { routes } from "@glade/app-core/app/routes";
+import { connectionFor } from "@glade/app-core/state/env-registry";
+import { downEnvironments, remoteStateOf, remoteStateShort, remoteStateText } from "@glade/app-core/state/remote-status";
+import { SidebarItem } from "@glade/app-core/ui";
 import { RemoteMarker } from "./RemoteMarker";
 
 export function DownEnvironmentRows() {

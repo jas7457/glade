@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const runPairing = vi.fn();
-vi.mock("@/state/pairing", () => ({ runPairing: (...args: unknown[]) => runPairing(...args) }));
+vi.mock("@glade/app-core/state/pairing", () => ({ runPairing: (...args: unknown[]) => runPairing(...args) }));
 vi.mock("~/lib/secrets", () => ({ deviceId: async () => "iphone-test" }));
 
 const { pairState, startPairing } = await import("./connect");

@@ -6,9 +6,9 @@
  */
 import { signal } from "@preact/signals";
 import type { Folder } from "@glade/protocol";
-import { MenuCheckItem, MenuItem, MenuSeparator, MenuSub } from "@/ui";
-import { createFolder } from "@/state/folder-actions";
-import { envIdOf, folders, foldersForProject } from "@/state/store";
+import { MenuCheckItem, MenuItem, MenuSeparator, MenuSub } from "@glade/app-core/ui";
+import { createFolder } from "@glade/app-core/state/folder-actions";
+import { envIdOf, folders, foldersForProject } from "@glade/app-core/state/store";
 
 /** The folder whose name is being edited in place (a new folder, or "Rename"). */
 export const renamingFolderId = signal<string | null>(null);

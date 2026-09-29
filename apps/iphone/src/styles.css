@@ -1,6 +1,5 @@
-/* The iPhone app's styles: the shared design tokens + utilities from the web app, plus phone rules. */
-@import "../../web/src/styles.css";
-@source "../../web/src";
+/* The iPhone app's styles: the shared design tokens + utilities from the app core, plus phone rules. */
+@import "../../../packages/app-core/src/styles.css";
 @source "./";
 
 /*

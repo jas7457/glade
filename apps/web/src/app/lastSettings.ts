@@ -7,8 +7,8 @@
  * no longer exists (About, Appearance: folded into General by I-160/I-161) falls back to General;
  * a remembered environment that isn't connected falls back to this machine.
  */
-import { SETTINGS_SECTIONS, type SettingsSection } from "./routes";
-import { readStored, writeStored } from "@/state/ui";
+import { SETTINGS_SECTIONS, type SettingsSection } from "@glade/app-core/app/routes";
+import { readStored, writeStored } from "@glade/app-core/state/ui";
 
 const KEY_LAST_SETTINGS = "glade.lastSettings";
 

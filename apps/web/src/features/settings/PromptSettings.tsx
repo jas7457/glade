@@ -6,9 +6,9 @@
 import { useState } from "preact/hooks";
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from "lucide-preact";
 import { promptCommandName, type SavedPrompt } from "@glade/protocol";
-import { Button, FormGroup, FormRow, IconButton, confirm } from "@/ui";
-import { hostProjects as sortedProjects, hostSettings as settings } from "@/state/host-settings";
-import { deletePrompt, movePrompt } from "@/state/prompts";
+import { Button, FormGroup, FormRow, IconButton, confirm } from "@glade/app-core/ui";
+import { hostProjects as sortedProjects, hostSettings as settings } from "@glade/app-core/state/host-settings";
+import { deletePrompt, movePrompt } from "@glade/app-core/state/prompts";
 import { PromptEditorDialog } from "./PromptEditorDialog";
 
 interface PromptGroup {

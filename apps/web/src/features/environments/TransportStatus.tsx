@@ -8,7 +8,7 @@
 import type { ComponentChildren } from "preact";
 import { AlertTriangle, CheckCircle2 } from "lucide-preact";
 import type { TransportProblem, TransportStatus } from "@glade/protocol";
-import { FormRow } from "@/ui";
+import { FormRow } from "@glade/app-core/ui";
 
 export const TAILSCALE_ADMIN_DNS_URL = "https://login.tailscale.com/admin/dns";
 export const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";

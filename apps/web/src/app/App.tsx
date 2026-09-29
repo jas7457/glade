@@ -2,7 +2,7 @@
  * Root component: router (every screen is a URL, see routes.ts) + app-wide providers and hosts.
  */
 import { RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
-import { ConfirmHost, Toaster, TooltipProvider } from "@/ui";
+import { ConfirmHost, Toaster, TooltipProvider } from "@glade/app-core/ui";
 import { PairRoute, PendingPairingHost } from "@/features/environments";
 import { SettingsIndexRoute, SettingsRoute } from "@/features/settings";
 import { DeleteChatHost } from "@/features/sidebar";

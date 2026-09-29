@@ -2,8 +2,8 @@
  * Native OS integrations behind one client API, so features don't care whether we run in a
  * browser (talking to the local server) or inside the Tauri shell.
  */
-import { api, ApiRequestError } from "./api";
-import { isDesktop, pickFolderNative } from "./desktop";
+import { api, ApiRequestError } from "@glade/app-core/lib/api";
+import { isDesktop, pickFolderNative } from "@glade/app-core/lib/desktop";
 
 export interface PickFolderOptions {
   /** Text shown in the dialog. */

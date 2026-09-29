@@ -2,16 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { defaultSettings, type SlashCommand } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({ api: { updateSettings: vi.fn() } }));
-vi.mock("@/lib/api-folder", () => ({ listFolderCommands: vi.fn() }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { updateSettings: vi.fn() } }));
+vi.mock("@glade/app-core/lib/api-folder", () => ({ listFolderCommands: vi.fn() }));
 
-import { api } from "@/lib/api";
-import { listFolderCommands } from "@/lib/api-folder";
-import { projects, settings } from "@/state/store";
-import { harnesses } from "@/state/harnesses";
-import { isSlashCommandHidden, setSlashCommandsHidden, slashCommandKey } from "@/state/slash-visibility";
-import { makeProject } from "@/test/fixtures";
-import { TooltipProvider } from "@/ui";
+import { api } from "@glade/app-core/lib/api";
+import { listFolderCommands } from "@glade/app-core/lib/api-folder";
+import { projects, settings } from "@glade/app-core/state/store";
+import { harnesses } from "@glade/app-core/state/harnesses";
+import { isSlashCommandHidden, setSlashCommandsHidden, slashCommandKey } from "@glade/app-core/state/slash-visibility";
+import { makeProject } from "@glade/app-core/test/fixtures";
+import { TooltipProvider } from "@glade/app-core/ui";
 import { CommandSettings } from "./CommandSettings";
 import { listSlashCommands } from "./slash-command-list";
 

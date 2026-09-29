@@ -9,9 +9,9 @@
 import { useState } from "preact/hooks";
 import { Check, ChevronRight, CircleSlash, Ellipsis, Trash2 } from "lucide-preact";
 import type { SessionSummary } from "@glade/protocol";
-import { cn } from "@/lib/cn";
-import { IconButton, Menu, MenuItem, Spinner } from "@/ui";
-import { sessionAgentIdentity } from "@/features/chat/agent-identity";
+import { cn } from "@glade/app-core/lib/cn";
+import { IconButton, Menu, MenuItem, Spinner } from "@glade/app-core/ui";
+import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
 import { agentDisplay } from "./agent-status";
 import { removeSubagent } from "./layout-actions";
 

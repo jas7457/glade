@@ -144,15 +144,20 @@ So: keep orchestrating chats in the app, and don't quit it in the middle of a ro
   matters; the server is tested against `FakeHarness`, never a real LLM.
 - **Harness-agnostic UI.** Nothing outside `apps/server/src/harness/<name>/` may know about a
   specific agent's wire format. Everything crosses the boundary as `@glade/protocol` types.
-- **Reusable components.** UI primitives live in `apps/web/src/ui/` and are the only place raw
+- **Shared client core.** The desktop web UI (`apps/web`) and the iPhone app (`apps/iphone`) share
+  `packages/app-core` (`@glade/app-core`): UI primitives, state, the chat feature, the API client.
+  Import it as `@glade/app-core/<path under src>` (e.g. `@glade/app-core/state/store`); `@/…` in
+  `apps/web` is the desktop layout only. Desktop-only code (sidebar, tabs, settings, palette,
+  Mac-shell bridges) stays in `apps/web`; app-core never imports from an app.
+- **Reusable components.** UI primitives live in `packages/app-core/src/ui/` and are the only place raw
   styling decisions are made. Features compose primitives. If you need a new kind of control,
   add a primitive rather than one-off styling.
 - **Native look.** Follow macOS conventions: system font, 13px base, compact controls, no hover
   pointer cursors, subtle separators, chrome text not selectable. Use semantic color tokens from
-  `styles.css` (`bg-surface`, `text-fg-muted`, `border-separator`…), never raw colors.
-- **State** lives in Preact signals under `apps/web/src/state/`. Components read signals; side
+  `packages/app-core/src/styles.css` (`bg-surface`, `text-fg-muted`, `border-separator`…), never raw colors.
+- **State** lives in Preact signals under `packages/app-core/src/state/`. Components read signals; side
   effects go through the action functions there.
 - **Routing**: every screen is routable (refresh keeps you in place). Build paths with
-  `apps/web/src/app/routes.ts` helpers.
+  `packages/app-core/src/app/routes.ts` helpers.
 - Keep files focused; prefer small modules with a header comment explaining their role.
 - Commit messages: imperative, scoped, e.g. `chat: group consecutive tool calls`.

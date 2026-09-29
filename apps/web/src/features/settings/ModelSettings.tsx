@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
 import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@glade/protocol";
-import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@/ui";
+import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@glade/app-core/ui";
 import {
   hostEnvId,
   hostHarnessDefaults as harnessDefaults,
@@ -10,9 +10,9 @@ import {
   hostVisibleModels as visibleModels,
   loadHostModels as loadModels,
   updateHostSettings as updateSettings,
-} from "@/state/host-settings";
-import { harnessLabel } from "@/state/harnesses";
-import { hostDeviceName, hostHarnesses } from "@/state/host-settings";
+} from "@glade/app-core/state/host-settings";
+import { harnessLabel } from "@glade/app-core/state/harnesses";
+import { hostDeviceName, hostHarnesses } from "@glade/app-core/state/host-settings";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "Off",

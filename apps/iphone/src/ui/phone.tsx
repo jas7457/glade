@@ -1,12 +1,12 @@
 /**
  * iPhone UI primitives (I-164): the only place the phone layout makes raw styling decisions
- * (like apps/web/src/ui for the desktop). Native iOS feel: system font, 17px body, 44pt touch
+ * (like packages/app-core/src/ui for the shared core). Native iOS feel: system font, 17px body, 44pt touch
  * targets, inset grouped lists, bottom sheets, safe-area insets (the page draws under the status
  * bar and home indicator: index.html sets viewport-fit=cover).
  */
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect } from "preact/hooks";
-import { cn } from "@/lib/cn";
+import { cn } from "@glade/app-core/lib/cn";
 
 /** A full-height screen: nav bar on top, scrolling body. `grouped`: the tinted page behind inset grouped lists. */
 export function Screen({ children, class: className, grouped }: { children: ComponentChildren; class?: string; grouped?: boolean }) {

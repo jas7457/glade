@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSettings } from "@glade/protocol";
-import { TooltipProvider } from "@/ui";
-import { models, projects, sessions, settings, workspaces } from "@/state/store";
-import { resetChatSessions } from "@/state/chat-session";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { models, projects, sessions, settings, workspaces } from "@glade/app-core/state/store";
+import { resetChatSessions } from "@glade/app-core/state/chat-session";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { ChatScreen } from "./ChatScreen";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     getSession: vi.fn(() => new Promise(() => {})),
     listCommands: vi.fn(() => new Promise(() => {})),
@@ -18,7 +18,7 @@ vi.mock("@/lib/api", () => ({
   },
   request: vi.fn(async () => ({ isRepo: false })),
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
 Element.prototype.scrollTo ??= function () {};
 

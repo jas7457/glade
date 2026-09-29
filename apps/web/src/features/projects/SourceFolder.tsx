@@ -3,7 +3,7 @@
  * dialog, or the chosen folder (name + full path) with Change / Remove actions.
  */
 import { Folder, FolderPlus, X } from "lucide-preact";
-import { Button, IconButton } from "@/ui";
+import { Button, IconButton } from "@glade/app-core/ui";
 import { folderName } from "./validation";
 
 export interface SourceFolderProps {

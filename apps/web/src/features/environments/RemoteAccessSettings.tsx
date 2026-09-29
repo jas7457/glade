@@ -14,13 +14,13 @@
  * 5. **Recent activity** (local server only).
  */
 import { useEffect, useState } from "preact/hooks";
-import { hasLocalEnvironment } from "@/state/env-registry";
-import { retryWaitingRemotes } from "@/state/environments";
-import { pairDialogRequest } from "@/state/pairing";
-import { hostRemote, loadDevices, loadHostRemote, setHostRemote } from "@/state/remote-host";
-import { remoteMaster, remoteMasterError, setRemoteMaster } from "@/state/remote-master";
-import { refreshPeersIfNeeded } from "@/state/remote-status";
-import { FormGroup, FormRow, Switch, confirm } from "@/ui";
+import { hasLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { retryWaitingRemotes } from "@glade/app-core/state/environments";
+import { pairDialogRequest } from "@glade/app-core/state/pairing";
+import { hostRemote, loadDevices, loadHostRemote, setHostRemote } from "@glade/app-core/state/remote-host";
+import { remoteMaster, remoteMasterError, setRemoteMaster } from "@glade/app-core/state/remote-master";
+import { refreshPeersIfNeeded } from "@glade/app-core/state/remote-status";
+import { FormGroup, FormRow, Switch, confirm } from "@glade/app-core/ui";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { ConnectEnvironmentDialog } from "./ConnectEnvironmentDialog";
 import { Connections } from "./Connections";

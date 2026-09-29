@@ -1,6 +1,6 @@
 /** I-150: the menu bar's "N chats working" / "N chats need you" open one of them, cycling. */
 import { describe, expect, it } from "vitest";
-import { makeWorkspace } from "@/test/fixtures";
+import { makeWorkspace } from "@glade/app-core/test/fixtures";
 import { pickChat } from "./menuBarActions";
 
 describe("pickChat", () => {

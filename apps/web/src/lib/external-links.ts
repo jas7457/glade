@@ -11,7 +11,7 @@
  * - Internal links (app routes), `download` links and clicks another handler already handled
  *   (`defaultPrevented`, e.g. the router's <Link>) are left alone.
  */
-import { isDesktop, openExternal } from "./desktop";
+import { isDesktop, openExternal } from "@glade/app-core/lib/desktop";
 
 /** The absolute URL if `anchor` points outside the app, else null. */
 export function externalHref(anchor: HTMLAnchorElement, pageOrigin: string): string | null {

@@ -10,11 +10,11 @@
  */
 import { useState } from "preact/hooks";
 import type { WorkspaceSummary } from "@glade/protocol";
-import { cn } from "@/lib/cn";
-import { SidebarList, sidebarClass, type SidebarIndent } from "@/ui";
-import { reorderPinnedWorkspaces } from "@/state/actions";
-import { moveWorkspaceToFolder } from "@/state/folder-actions";
-import { envIdOf, folderOfWorkspace, foldersById, workspacesById, workspacesForProject } from "@/state/store";
+import { cn } from "@glade/app-core/lib/cn";
+import { SidebarList, sidebarClass, type SidebarIndent } from "@glade/app-core/ui";
+import { reorderPinnedWorkspaces } from "@glade/app-core/state/actions";
+import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
+import { envIdOf, folderOfWorkspace, foldersById, workspacesById, workspacesForProject } from "@glade/app-core/state/store";
 import { ChatRow } from "./ChatRow";
 import { DropLine } from "./DropLine";
 import { useSortable, type DropInto } from "./useSortable";

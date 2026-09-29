@@ -7,7 +7,7 @@
 import { useState } from "preact/hooks";
 import { Check, Circle, Minus, RotateCw, X } from "lucide-preact";
 import type { UpdateJobStatus, UpdateStep } from "@glade/protocol";
-import { Button, Disclosure, FormRow, Spinner } from "@/ui";
+import { Button, Disclosure, FormRow, Spinner } from "@glade/app-core/ui";
 import {
   busyChats,
   cancelRestartWait,

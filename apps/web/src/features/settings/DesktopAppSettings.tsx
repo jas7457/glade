@@ -8,11 +8,11 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import { defaultSettings } from "@glade/protocol";
-import { FormGroup, FormRow, Switch } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
+import { FormGroup, FormRow, Switch } from "@glade/app-core/ui";
+import { settings } from "@glade/app-core/state/store";
+import { updateSettings } from "@glade/app-core/state/actions";
 import { LID_HINT, powerStatus, powerStatusText, watchPower } from "@/state/power";
-import { getDesktopPrefs, getLoginItem, setDesktopPrefs, setLoginItem, type DesktopPrefs, type LoginItemStatus } from "@/lib/desktop";
+import { getDesktopPrefs, getLoginItem, setDesktopPrefs, setLoginItem, type DesktopPrefs, type LoginItemStatus } from "@glade/app-core/lib/desktop";
 
 export function KeepAwakeSettings() {
   useEffect(() => watchPower(), []);

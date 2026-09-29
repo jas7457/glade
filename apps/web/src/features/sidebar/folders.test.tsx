@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/pre
 import { MemoryRouter } from "react-router";
 import type { Folder } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     reorderProjects: vi.fn(async () => []),
     reorderPinnedWorkspaces: vi.fn(async () => []),
@@ -19,11 +19,11 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-import { api } from "@/lib/api";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { folders, projects, workspaces } from "@/state/store";
-import { closedProjects } from "@/state/ui";
-import { makeProject, makeWorkspace } from "@/test/fixtures";
+import { api } from "@glade/app-core/lib/api";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { folders, projects, workspaces } from "@glade/app-core/state/store";
+import { closedProjects } from "@glade/app-core/state/ui";
+import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { Sidebar } from "./Sidebar";
 import { renamingFolderId } from "./folder-menu";
 

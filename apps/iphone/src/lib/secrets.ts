@@ -4,7 +4,7 @@
  * the shell's `secret_*` commands (src-tauri/src/secrets.rs). Outside the app (Vite in Chrome at
  * phone size) it falls back to the web core's localStorage store, which is NOT secure.
  */
-import { localStorageSecretStore, type SecretStore } from "@/lib/secret-store";
+import { localStorageSecretStore, type SecretStore } from "@glade/app-core/lib/secret-store";
 
 /** Inside the Tauri shell (the real app or the simulator). */
 export function inShell(): boolean {

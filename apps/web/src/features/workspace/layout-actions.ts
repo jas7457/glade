@@ -9,13 +9,13 @@
 import { signal } from "@preact/signals";
 import type { SessionSummary, WorkspaceLayout } from "@glade/protocol";
 import { activeMainSessionId, subagentSessionsOf } from "@glade/protocol";
-import { chatPath, routes } from "@/app/routes";
+import { chatPath, routes } from "@glade/app-core/app/routes";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
-import { createSession, deleteSession, updateWorkspace } from "@/state/actions";
-import { getChatSession } from "@/state/chat-session";
-import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@/state/store";
-import { confirm } from "@/ui";
-import { sessionAgentIdentity } from "@/features/chat/agent-identity";
+import { createSession, deleteSession, updateWorkspace } from "@glade/app-core/state/actions";
+import { getChatSession } from "@glade/app-core/state/chat-session";
+import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { confirm } from "@glade/app-core/ui";
+import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
 import {
   activeSubagentId,
   isChangesPanelOpen,

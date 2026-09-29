@@ -6,10 +6,10 @@
  */
 import { useLocation, useNavigate } from "react-router";
 import { ChevronLeft } from "lucide-preact";
-import { routes } from "@/app/routes";
-import { cn } from "@/lib/cn";
-import { SidebarGroup, SidebarItem, SidebarList, StatusDot, sidebarClass } from "@/ui";
-import { updateAvailable } from "@/state/version";
+import { routes } from "@glade/app-core/app/routes";
+import { cn } from "@glade/app-core/lib/cn";
+import { SidebarGroup, SidebarItem, SidebarList, StatusDot, sidebarClass } from "@glade/app-core/ui";
+import { updateAvailable } from "@glade/app-core/state/version";
 import { SettingsDeviceSwitcher } from "@/features/environments";
 import { HOST_SECTIONS, SECTION_INFO, SETTINGS_GROUPS } from "./sections";
 

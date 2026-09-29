@@ -5,7 +5,7 @@
 import { useSignal } from "@preact/signals";
 import { Plus, Settings } from "lucide-preact";
 import { useNavigate } from "react-router";
-import { envIdOf } from "@/state/store";
+import { envIdOf } from "@glade/app-core/state/store";
 import { paths } from "~/app/routes";
 import { ChatList } from "~/chats/ChatList";
 import { NavBar, NavIconButton, Screen, ScreenBody } from "~/ui/phone";

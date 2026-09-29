@@ -4,12 +4,12 @@
  * `state/remote-status.ts`, with Retry or Pair Again… when that helps).
  */
 import { useNavigate } from "react-router";
-import { routes } from "@/app/routes";
-import { connectionFor, isLocalEnvironment } from "@/state/env-registry";
-import { environmentAddress } from "@/state/environments";
-import { pairDialogRequest } from "@/state/pairing";
-import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { RemoteBadge } from "@/ui";
+import { routes } from "@glade/app-core/app/routes";
+import { connectionFor, isLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { environmentAddress } from "@glade/app-core/state/environments";
+import { pairDialogRequest } from "@glade/app-core/state/pairing";
+import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
+import { RemoteBadge } from "@glade/app-core/ui";
 
 export function RemoteMarker({ envId, size, class: className }: { envId: string | null | undefined; size?: number; class?: string }) {
   const navigate = useNavigate();

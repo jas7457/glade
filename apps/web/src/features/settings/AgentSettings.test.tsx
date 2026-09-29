@@ -20,16 +20,16 @@ const CATALOG: AgentCatalogEntry[] = [
 ];
 let catalog = CATALOG;
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@glade/app-core/lib/api", () => ({
   api: { updateSettings: vi.fn(), listModels: vi.fn() },
   request: vi.fn(async (_method: string, path: string) => (path === "/agent-catalog" ? catalog : [])),
 }));
 
-import { api, request } from "@/lib/api";
-import { ConfirmHost, TooltipProvider } from "@/ui";
-import { models, settings } from "@/state/store";
-import { harnesses } from "@/state/harnesses";
-import { agentCatalogs } from "@/state/agent-catalog";
+import { api, request } from "@glade/app-core/lib/api";
+import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
+import { models, settings } from "@glade/app-core/state/store";
+import { harnesses } from "@glade/app-core/state/harnesses";
+import { agentCatalogs } from "@glade/app-core/state/agent-catalog";
 import { SettingsRoute } from "./SettingsView";
 import { groupModelsByAgent } from "./ModelSettings";
 import { fallbackCatalog } from "./AgentSettings";

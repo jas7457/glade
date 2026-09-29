@@ -10,8 +10,8 @@ import { UPDATE_STEPS, type SessionSummary, type UpdateJobStatus, type UpdateSte
 
 const server = vi.hoisted(() => ({ version: null as unknown, job: null as unknown, afterStart: null as unknown, calls: [] as string[] }));
 const shell = vi.hoisted(() => ({ relaunch: vi.fn(async (_route: string) => {}) }));
-vi.mock("@/lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api")>();
+vi.mock("@glade/app-core/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/api")>();
   return {
     ...actual,
     request: vi.fn(async (method: string, path: string) => {
@@ -22,14 +22,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
     }),
   };
 });
-vi.mock("@/lib/desktop", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/desktop")>();
+vi.mock("@glade/app-core/lib/desktop", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/desktop")>();
   return { ...actual, isDesktop: () => true, relaunchApp: shell.relaunch };
 });
 
-import { TooltipProvider } from "@/ui";
-import { sessions } from "@/state/store";
-import { versionStatus } from "@/state/version";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { sessions } from "@glade/app-core/state/store";
+import { versionStatus } from "@glade/app-core/state/version";
 import { busyLocalChats, cancelRestartWait, restartChoice, restartWaiting, restartWhenIdle, updateJob, whenIdle } from "@/state/update";
 import { VersionSettings } from "./VersionSettings";
 

@@ -6,7 +6,7 @@
 import { useSignal } from "@preact/signals";
 import { ClipboardPaste, KeyRound, QrCode, Smartphone } from "lucide-preact";
 import { useNavigate } from "react-router";
-import { savedEnvironments } from "@/state/saved-environments";
+import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { paths } from "~/app/routes";
 import { NavBar, PhoneButton, Screen, ScreenBody } from "~/ui/phone";
 import { PairSheet, type PairMode } from "./PairSheet";

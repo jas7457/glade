@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Regenerates pairing-qr.png (the fixture of pairing-qr.test.ts): the QR code the Mac's Share This
-// Device… dialog draws for PAIRING_QR_LINK (apps/web/src/ui/QrCode.tsx: uqr, ECC M, 4-module quiet
+// Device… dialog draws for PAIRING_QR_LINK (packages/app-core/src/ui/QrCode.tsx: uqr, ECC M, 4-module quiet
 // zone), as an 8-bit grayscale PNG with 4 px per module.
 //
 //   node apps/iphone/src/lib/fixtures/make-pairing-qr.mjs

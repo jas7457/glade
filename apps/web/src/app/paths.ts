@@ -3,7 +3,7 @@
  */
 import { matchPath } from "react-router";
 import type { WorkspaceSummary } from "@glade/protocol";
-import { parseEnvPath } from "./routes";
+import { parseEnvPath } from "@glade/app-core/app/routes";
 
 export interface RouteContext {
   /** Workspace (sidebar row) in view. `/chats/:chatId` URLs carry workspace ids (I-035). */

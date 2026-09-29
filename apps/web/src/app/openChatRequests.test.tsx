@@ -2,9 +2,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { act, render, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { handleServerMessage, workspaces, workspacesById } from "@/state/store";
-import { openChatRequest } from "@/state/open-chat";
-import { makeWorkspace } from "@/test/fixtures";
+import { handleServerMessage, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { openChatRequest } from "@glade/app-core/state/open-chat";
+import { makeWorkspace } from "@glade/app-core/test/fixtures";
 import { openChatPath, useOpenChatRequests } from "./openChatRequests";
 
 beforeEach(() => {

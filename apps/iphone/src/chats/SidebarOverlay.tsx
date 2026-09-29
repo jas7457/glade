@@ -8,7 +8,7 @@ import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import { Plus, Settings } from "lucide-preact";
 import { useNavigate, useParams } from "react-router";
-import { envIdOf } from "@/state/store";
+import { envIdOf } from "@glade/app-core/state/store";
 import { paths } from "~/app/routes";
 import { NavIconButton } from "~/ui/phone";
 import { SearchField } from "~/ui/phone-extra";

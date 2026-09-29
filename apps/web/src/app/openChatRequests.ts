@@ -4,9 +4,9 @@
  */
 import { useEffect } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { openChatRequest, type OpenChatRequest } from "@/state/open-chat";
-import { workspacesById } from "@/state/store";
-import { chatPath } from "./routes";
+import { openChatRequest, type OpenChatRequest } from "@glade/app-core/state/open-chat";
+import { workspacesById } from "@glade/app-core/state/store";
+import { chatPath } from "@glade/app-core/app/routes";
 
 /** Where a request leads, or `null` while its workspace isn't known yet. */
 export function openChatPath(request: OpenChatRequest, workspaces: ReadonlyMap<string, { id: string; projectId: string | null }>): string | null {

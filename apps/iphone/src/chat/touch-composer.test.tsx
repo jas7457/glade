@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/preact";
 import type { ComponentChildren } from "preact";
 import type { ModelInfo } from "@glade/protocol";
-import { TooltipProvider } from "@/ui";
-import { ComposerBox, SEND_LONG_PRESS_MS, type ComposerBoxProps } from "@/features/chat/Composer";
-import { OptionSheetContext } from "@/features/chat/option-sheet";
+import { TooltipProvider } from "@glade/app-core/ui";
+import { ComposerBox, SEND_LONG_PRESS_MS, type ComposerBoxProps } from "@glade/app-core/features/chat/Composer";
+import { OptionSheetContext } from "@glade/app-core/features/chat/option-sheet";
 import { SheetList } from "~/ui/SheetList";
 
 const MODELS: ModelInfo[] = [

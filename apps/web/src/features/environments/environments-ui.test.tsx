@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
 
-vi.mock("@/lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api")>();
+vi.mock("@glade/app-core/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glade/app-core/lib/api")>();
   return {
     ...actual,
     request: vi.fn(async () => []),
@@ -20,31 +20,31 @@ vi.mock("@/lib/api", async (importOriginal) => {
     },
   };
 });
-vi.mock("@/lib/api-folder", () => ({
+vi.mock("@glade/app-core/lib/api-folder", () => ({
   listFolderCommands: vi.fn(async () => []),
   searchFiles: vi.fn(async () => ({ entries: [], truncated: false })),
   getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
 }));
-vi.mock("@/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 vi.mock("@/features/workspace", () => ({
   WorkspaceView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
 }));
 
 import type { HarnessInfo } from "@glade/protocol";
-import { api } from "@/lib/api";
-import { TooltipProvider } from "@/ui";
+import { api } from "@glade/app-core/lib/api";
+import { TooltipProvider } from "@glade/app-core/ui";
 import { Sidebar } from "@/features/sidebar";
-import { ContextBar } from "@/features/chat/context-bar";
-import { Composer } from "@/features/chat/Composer";
+import { ContextBar } from "@glade/app-core/features/chat/context-bar";
+import { Composer } from "@glade/app-core/features/chat/Composer";
 import { ChatRoute, HomeRoute, ProjectRoute } from "@/app/RouteViews";
 import { restorableRoute } from "@/app/lastRoute";
-import { chatPath, parseEnvPath, routes } from "@/app/routes";
+import { chatPath, parseEnvPath, routes } from "@glade/app-core/app/routes";
 import { routeContext } from "@/app/paths";
-import { resetClientOrders } from "@/state/env-order";
-import { newChatHarness } from "@/state/harnesses";
-import { models, projects, projectsById, sessions, workspaces, workspacesById } from "@/state/store";
-import { makeProject, makeSession, makeWorkspace } from "@/test/fixtures";
-import { fakeEnv, makeModel, resetEnvironmentsForTest, useEnvironments } from "@/test/env-fixtures";
+import { resetClientOrders } from "@glade/app-core/state/env-order";
+import { newChatHarness } from "@glade/app-core/state/harnesses";
+import { models, projects, projectsById, sessions, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { fakeEnv, makeModel, resetEnvironmentsForTest, useEnvironments } from "@glade/app-core/test/env-fixtures";
 
 const harness = (id: string, label: string, isDefault = false): HarnessInfo =>
   ({ id, label, isDefault, capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: false, commands: true, subagents: true, shell: true } }) as HarnessInfo;
@@ -117,7 +117,7 @@ describe("merged sidebar", () => {
 
   it("keeps a remote project dragged between local ones in place (client-side order)", async () => {
     seedTwoEnvironments();
-    const { reorderProjects } = await import("@/state/actions");
+    const { reorderProjects } = await import("@glade/app-core/state/actions");
     renderSidebar();
     await reorderProjects(["pa1", "pb1", "pa2"]);
     await waitFor(() => expect([...document.querySelectorAll("[data-project-id]")].map((e) => e.getAttribute("data-project-id"))).toEqual(["pa1", "pb1", "pa2"]));
@@ -226,7 +226,7 @@ describe("settings", () => {
     const updateSettings = vi.fn(async (patch: object) => ({ ...b.shell.settings.value, ...patch }));
     (b.api as unknown as { updateSettings: unknown }).updateSettings = updateSettings;
     const { SettingsView, SettingsNav } = await import("@/features/settings");
-    const { settingsEnvironmentId } = await import("@/state/env-registry");
+    const { settingsEnvironmentId } = await import("@glade/app-core/state/env-registry");
     settingsEnvironmentId.value = "B";
     render(
       <TooltipProvider>
@@ -263,8 +263,8 @@ describe("settings", () => {
     const { b } = seedTwoEnvironments();
     const err = Object.assign(new Error("Change this on Studio."), { status: 403, code: "local_only" });
     (b.api as unknown as { updateSettings: unknown }).updateSettings = vi.fn(async () => Promise.reject(err));
-    const { updateSettings } = await import("@/state/actions");
-    const { toasts } = await import("@/state/toasts");
+    const { updateSettings } = await import("@glade/app-core/state/actions");
+    const { toasts } = await import("@glade/app-core/state/toasts");
     const before = b.shell.settings.value;
     expect(await updateSettings({ models: { hiddenModels: ["x/y"] } }, "B")).toBe(false);
     expect(b.shell.settings.value).toBe(before);
@@ -284,7 +284,7 @@ describe("settings", () => {
 
   it("Remote access (I-132/I-136): off shows only the master switch; on reveals sharing, then Connections", async () => {
     useEnvironments();
-    const { remoteMaster, resetRemoteMaster } = await import("@/state/remote-master");
+    const { remoteMaster, resetRemoteMaster } = await import("@glade/app-core/state/remote-master");
     resetRemoteMaster(false);
     await renderRemote();
     const master = screen.getByRole("switch", { name: /Remote access/ });
@@ -308,9 +308,9 @@ describe("settings", () => {
   });
 
   it("lists saved environments with their status, Retry and Pair Again", async () => {
-    const { saveEnvironments } = await import("@/state/saved-environments");
-    const { tailnetPeers } = await import("@/state/remote-status");
-    const { resetRemoteMaster } = await import("@/state/remote-master");
+    const { saveEnvironments } = await import("@glade/app-core/state/saved-environments");
+    const { tailnetPeers } = await import("@glade/app-core/state/remote-status");
+    const { resetRemoteMaster } = await import("@glade/app-core/state/remote-master");
     resetRemoteMaster(true);
     const retry = vi.fn();
     const off = fakeEnv({ id: "OFF", name: "Studio", baseUrl: "https://studio.tail.ts.net/api", status: "offline" });

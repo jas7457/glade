@@ -179,27 +179,50 @@ Leave Xcode itself running if another agent may need it.
 
 ## 4. Architecture
 
-### 4.1 Code layout (target)
+### 4.1 Code layout
+
+Done in step 7 (2026-09-29): the shared client core lives in `packages/app-core`
+(`@glade/app-core`); both apps import it and neither reaches into the other.
 
 ```
-packages/protocol      (exists) wire types
-packages/app-core      NEW: shared client core, moved out of apps/web/src
-  ui/                  primitives (Button, Select, Dialog, StatusDot, …)
-  state/               signals + actions (store, env-registry, environments, env-api,
-                       saved-environments, pairing, sync, chat-session, …)
-  chat/                Transcript, message/tool cards, Composer, SideQuestionCard, image-src
-  lib/                 api client, socket, secret-store interface, pairing-link, …
-apps/web               the desktop layout (sidebar + tabs + split panes), bundled into the Mac app
-apps/iphone            NEW: the iPhone layout + Tauri 2 iOS shell
-  src/                 phone screens (Preact), imports @glade/app-core
+packages/protocol      wire types
+packages/app-core      shared client core (moved out of apps/web/src, same relative layout)
+  src/ui/              primitives (Button, Select, Dialog, StatusDot, Sidebar, TabStrip, …)
+  src/state/           signals + actions (store, env-registry, environments, env-api,
+                       saved-environments, pairing, sync, chat-session, folders, …)
+  src/features/chat/   Transcript, message/tool cards, Composer, SideQuestionCard, image-src,
+                       tools/, mentions/, slash/, context-bar/, usage/
+  src/features/…       the few desktop-feature files the chat needs: workspace/agent-chips +
+                       SubagentStrip, changes/CommitDialog + api, environments/EnvironmentPicker,
+                       sidebar/time
+  src/app/             routes.ts (route builders), appearance.ts (theme sync)
+  src/lib/             api client, socket, secret-store, pairing-link, paths, cn, desktop bridge, …
+  src/test/            Vitest setup + fixtures shared by every jsdom project
+  src/styles.css       design tokens + Tailwind entry; each app imports it and adds `@source "./"`
+  vite.shared.ts       aliases/dedupe/test settings every consumer's vite + vitest config uses
+apps/web               the desktop layout: app/ (shell, shortcuts, commands, last route), sidebar,
+                       workspace (tabs, WorkspaceView, layout), settings, palette, projects,
+                       changes panel, environments UI, ChatView/ChatHeader/ChatLocation, and
+                       Mac-only bits (state/power, state/update, lib/native, lib/external-links,
+                       lib/api-search); bundled into the Mac app
+apps/iphone            the iPhone layout + Tauri 2 iOS shell
+  src/                 phone screens (Preact, `~/…`), imports @glade/app-core
   src-tauri/           Tauri iOS project (tauri ios init), Keychain + camera plugins
 ```
 
-**Phasing, to avoid a big-bang refactor:** in the first iteration, `apps/iphone` may import the
-web code directly through a path alias (`@web/*` → `apps/web/src/*`) and only the pieces it needs.
-Once the phone layout works, do the `packages/app-core` split as its own reviewed step: move
-files, fix imports, with no behaviour change, and `pnpm check` green. The split touches almost
-every web file, so do it when no other worker is editing `apps/web`.
+**Imports:** `@glade/app-core/<path under src>` everywhere (e.g. `@glade/app-core/state/store`,
+`@glade/app-core/ui`). It's an alias to `packages/app-core/src` (`appCoreAlias` in
+`vite.shared.ts`) plus a `paths` entry in each tsconfig; the apps also list the package as a
+`workspace:*` dependency. Inside app-core, files use relative imports or the same
+`@glade/app-core/…` form, never an app's alias. `@/…` in `apps/web` is the desktop layout only;
+`~/…` in `apps/iphone` is the phone layout. One copy of preact / signals / react-router: every
+config uses `dedupe` from `vite.shared.ts`, and tests alias `react`/`react-dom` → preact/compat and
+react-router → its ESM build (`testAliases`). app-core has its own Vitest project (`app-core`,
+jsdom, the same setup file).
+
+Three tests of core modules stay in `apps/web` because they exercise desktop code too:
+`features/chat/slash/SlashCommands.test.tsx` (settings), `state/notifications.test.ts`
+(`app/openChatRequests`) and `state/remote-status.test.ts` (`features/environments/use-discovery`).
 
 ### 4.2 Shell: Tauri 2 iOS (preferred) vs Capacitor
 
@@ -210,7 +233,7 @@ bundle id (e.g. `io.github.jas7457.glade.iphone`), no server sidecar, no tray, n
 
 Needed native bits:
 - **Secure storage:** device tokens per environment in the iOS Keychain. The web side already has
-  the seam: `apps/web/src/lib/secret-store.ts` (`SecretStore` interface, `setSecretStore()`, keys
+  the seam: `packages/app-core/src/lib/secret-store.ts` (`SecretStore` interface, `setSecretStore()`, keys
   `env:<id>`). Implement it with a Tauri plugin or command backed by the Keychain.
 - **QR scanning:** Tauri's barcode-scanner plugin (`@tauri-apps/plugin-barcode-scanner`, mobile only),
   plus the camera usage string in Info.plist. It feeds the same pairing-link parser
@@ -298,7 +321,7 @@ command palette, keyboard shortcuts.
 5. **Sidebar overlay, sub-agent cards, pickers as sheets, settings screen.**
 6. **QR scanning** (barcode-scanner plugin) + the camera permission string; test the parsing with a
    fixed image in unit tests. The real camera needs a device.
-7. **`packages/app-core` split** (separate step; see §4.1).
+7. **`packages/app-core` split** (separate step; see §4.1). Done 2026-09-29.
 8. **Device run** with the user (§7).
 
 Tests: the phone layout gets component tests like the desktop (@testing-library/preact), and

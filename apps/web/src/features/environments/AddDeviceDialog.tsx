@@ -12,9 +12,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Check } from "lucide-preact";
 import type { PairingInvite, PendingPairing } from "@glade/protocol";
-import { hostAuth } from "@/lib/api-auth";
-import { hostRemote, loadDevices, pairedDevices, pairingAnswers, pendingPairings } from "@/state/remote-host";
-import { Button, Dialog, QrCode, Spinner, TextField } from "@/ui";
+import { hostAuth } from "@glade/app-core/lib/api-auth";
+import { hostRemote, loadDevices, pairedDevices, pairingAnswers, pendingPairings } from "@glade/app-core/state/remote-host";
+import { Button, Dialog, QrCode, Spinner, TextField } from "@glade/app-core/ui";
 
 /** `4:05` */
 export function formatCountdown(ms: number): string {

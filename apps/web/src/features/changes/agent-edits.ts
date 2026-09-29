@@ -4,7 +4,7 @@
  * only; transcripts that aren't loaded (closed sub-agents, other tabs never opened) don't count.
  */
 import type { Transcript } from "@glade/protocol";
-import { homeOf, resolvePath } from "@/lib/paths";
+import { homeOf, resolvePath } from "@glade/app-core/lib/paths";
 
 /** Normalize `a/./b/../c` → `a/c`; `null` when it climbs above its start. */
 function normalize(path: string): string | null {

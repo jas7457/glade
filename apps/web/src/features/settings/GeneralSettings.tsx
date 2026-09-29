@@ -1,12 +1,12 @@
 /** Settings → General: Glade's version and updates, the theme, then chats, notifications and the app. */
-import { Button, FormGroup, FormRow, Switch } from "@/ui";
-import { settings } from "@/state/store";
-import { updateSettings } from "@/state/actions";
-import { hasLocalEnvironment } from "@/state/env-registry";
-import { isDesktop } from "@/lib/desktop";
+import { Button, FormGroup, FormRow, Switch } from "@glade/app-core/ui";
+import { settings } from "@glade/app-core/state/store";
+import { updateSettings } from "@glade/app-core/state/actions";
+import { hasLocalEnvironment } from "@glade/app-core/state/env-registry";
+import { isDesktop } from "@glade/app-core/lib/desktop";
 import { DesktopAppSettings, KeepAwakeSettings } from "./DesktopAppSettings";
 import { ThemeSettings, VersionSettings } from "./VersionSettings";
-import { notificationPermission, notificationPrefs, requestNotificationPermission, updateNotificationPrefs, type NotificationPrefs } from "@/state/notifications";
+import { notificationPermission, notificationPrefs, requestNotificationPermission, updateNotificationPrefs, type NotificationPrefs } from "@glade/app-core/state/notifications";
 
 export function GeneralSettings() {
   const g = settings.value.general;

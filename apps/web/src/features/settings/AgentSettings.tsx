@@ -11,7 +11,7 @@
  */
 import { useEffect } from "preact/hooks";
 import { PI_COMMAND, isCustomAcpHarness, knownAcpAgentFor, type AgentCatalogEntry } from "@glade/protocol";
-import { FormGroup, FormRow, Select, StatusDot, Switch } from "@/ui";
+import { FormGroup, FormRow, Select, StatusDot, Switch } from "@glade/app-core/ui";
 import {
   hostDefaultHarness as defaultHarness,
   hostEnvId,
@@ -19,9 +19,9 @@ import {
   hostSettings as settings,
   loadHostHarnesses,
   updateHostSettings as updateSettings,
-} from "@/state/host-settings";
-import { agentCatalogOf, loadAgentCatalog } from "@/state/agent-catalog";
-import { agentSettingsKey } from "@/state/store";
+} from "@glade/app-core/state/host-settings";
+import { agentCatalogOf, loadAgentCatalog } from "@glade/app-core/state/agent-catalog";
+import { agentSettingsKey } from "@glade/app-core/state/store";
 
 /** The catalog before `GET /api/agent-catalog` answers: the offered harnesses (never the user's own ACP agents). */
 export function fallbackCatalog(offered: readonly { id: string; label: string; isDefault: boolean }[] | null): AgentCatalogEntry[] {

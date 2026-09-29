@@ -1,6 +1,6 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
 import { BookText, Cpu, Globe, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
-import type { SettingsSection } from "@/app/routes";
+import type { SettingsSection } from "@glade/app-core/app/routes";
 
 export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Cpu }> = {
   general: { label: "General", Icon: Settings2 },
