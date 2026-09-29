@@ -870,9 +870,9 @@ export function runningPlaceholder(steering: boolean, askAside: boolean): string
 }
 
 /** The touch placeholder while the agent works (I-164): Send steers; hold it for more. */
-export function touchRunningPlaceholder(steering: boolean, askAside: boolean): string {
-  if (!steering) return askAside ? "Queue a message · hold Send to ask aside" : "Queue a message…";
-  return askAside ? "Steer · hold Send for follow-up or aside" : "Steer · hold Send for a follow-up";
+export function touchRunningPlaceholder(steering: boolean, _askAside: boolean): string {
+  // Short enough for one line in the slim pill; holding Send (follow-up, Ask Aside) is in its sheet.
+  return steering ? "Steer the agent…" : "Queue a message…";
 }
 
 // ---------------------------------------------------------------------------------------------

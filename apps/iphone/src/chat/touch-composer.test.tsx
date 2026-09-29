@@ -90,7 +90,7 @@ describe("touch composer", () => {
     const askAside = vi.fn(async () => true);
     const { onSend } = renderBox({ touch: true, isRunning: true, onStop: vi.fn(), askAside });
     expect(screen.queryByRole("button", { name: "Ask aside" })).toBeNull(); // in the Send options instead
-    expect(textarea().placeholder).toMatch(/hold Send/);
+    expect(textarea().placeholder).toBe("Steer the agent…");
     type("later please");
     const send = screen.getByRole("button", { name: "Steer" });
     fireEvent.touchStart(send);
