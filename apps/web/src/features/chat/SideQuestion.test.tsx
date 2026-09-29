@@ -128,6 +128,19 @@ describe("Ask Aside button (I-140)", () => {
   });
 });
 
+describe("composer buttons don't pop in and out (I-151)", () => {
+  it("keeps Send in place (disabled without text) while running; only Ask Aside appears", () => {
+    readyChat("c1", true);
+    renderComposer();
+    const send = () => screen.getByRole("button", { name: "Queue message" }) as HTMLButtonElement;
+    expect(send().disabled).toBe(true);
+    expect(slot().className).toContain("invisible");
+    fireEvent.input(box(), { target: { value: "hey" } });
+    expect(send().disabled).toBe(false);
+    expect(slot().className).not.toContain("invisible");
+  });
+});
+
 describe("/btw (I-140)", () => {
   it("asks a side question, also while running; needs a question", async () => {
     readyChat("c1", true);

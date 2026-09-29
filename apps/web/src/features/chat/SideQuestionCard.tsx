@@ -18,14 +18,15 @@ export const SideQuestionCard = memo(function SideQuestionCard({ message, chatId
 
   return (
     <div
-      class="mt-6 overflow-hidden rounded-[10px] border-[0.5px] border-accent/35 bg-accent/[0.04] first:mt-0"
+      class="mt-6 overflow-hidden rounded-[10px] border-[0.5px] border-agent/35 bg-agent/[0.05] first:mt-0"
+      data-agent-color="violet"
       data-role="side"
       data-status={message.status}
       aria-label="Side question"
     >
       <div class="flex min-h-8 items-center gap-2 py-1 pr-1.5 pl-2.5 select-none">
-        <MessageCircleQuestionMark size={13} strokeWidth={2.25} class="shrink-0 text-accent" aria-hidden="true" />
-        <span class="shrink-0 text-[0.88rem] font-semibold text-accent">Side question</span>
+        <MessageCircleQuestionMark size={13} strokeWidth={2.25} class="shrink-0 text-agent" aria-hidden="true" />
+        <span class="shrink-0 text-[0.88rem] font-semibold text-agent">Side question</span>
         <Tooltip content="Answered separately: the agent doesn't see this unless you pass it on">
           <span class="min-w-0 truncate text-[0.85rem] text-fg-subtle">Not seen by the agent</span>
         </Tooltip>
@@ -38,7 +39,7 @@ export const SideQuestionCard = memo(function SideQuestionCard({ message, chatId
           </IconButton>
         )}
       </div>
-      <div class="border-t-[0.5px] border-accent/20 px-3 pt-2 pb-2.5">
+      <div class="border-t-[0.5px] border-agent/20 px-3 pt-2 pb-2.5">
         <div class="selectable mb-1.5 text-[0.95rem] font-medium break-words whitespace-pre-wrap text-fg">{message.question}</div>
         {shown ? (
           <Markdown text={shown} streaming={streaming || shown.length < message.answer.length} class="my-0 text-fg" />

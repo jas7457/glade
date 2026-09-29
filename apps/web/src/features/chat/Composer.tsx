@@ -633,9 +633,10 @@ export function ComposerBox(props: ComposerBoxProps) {
                   tabIndex={canAskAside ? undefined : -1}
                   disabled={!canAskAside}
                   onClick={() => void askAside()}
-                  class="flex size-7 items-center justify-center rounded-full bg-accent/15 text-accent hover:bg-accent/25"
+                  data-agent-color="violet"
+                  class="flex size-7 items-center justify-center rounded-full bg-agent text-window hover:opacity-85"
                 >
-                  <MessageCircleQuestionMark size={15} strokeWidth={2.25} />
+                  <MessageCircleQuestionMark size={15} strokeWidth={2.5} />
                 </button>
               </Tooltip>
             </span>
@@ -652,17 +653,16 @@ export function ComposerBox(props: ComposerBoxProps) {
               </button>
             </Tooltip>
           )}
-          {(!isRunning || canSend) && (
-            <button
-              type="button"
-              aria-label={shellInput ? "Run command" : isRunning ? "Queue message" : "Send"}
-              disabled={!canSend}
-              onClick={() => void send()}
-              class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
-            >
-              <ArrowUp size={16} strokeWidth={2.5} />
-            </button>
-          )}
+          {/* Always there (I-151): disabled without text, so buttons don't pop in and out. */}
+          <button
+            type="button"
+            aria-label={shellInput ? "Run command" : isRunning ? "Queue message" : "Send"}
+            disabled={!canSend}
+            onClick={() => void send()}
+            class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
+          >
+            <ArrowUp size={16} strokeWidth={2.5} />
+          </button>
         </div>
       </div>
     </div>

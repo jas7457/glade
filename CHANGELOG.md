@@ -305,6 +305,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- The Send button stays in place while an agent works (disabled until you type), and Ask Aside
+  is a solid violet button that matches Stop and Send; side-question cards use the same violet.
 - Picking a device (or any option from a menu) inside a dialog no longer closes the dialog, so
   you can create a project on another device again.
 - Sub-agent cards and chips say "Thinking…" between steps instead of flashing "Starting…".
