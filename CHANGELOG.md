@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Codex chats: your Codex skills and `/review` (uncommitted changes, `base <branch>`, `commit <sha>`
+  or your own instructions) in the `/` menu, and `!cmd` / `!!cmd` shell commands in the chat's
+  folder; `!` output is shared with Codex.
 - Codex as an agent: when `codex` is installed, Settings → Agents offers it, using your own Codex
   login. Codex chats stream replies, commands, file edits with diffs, MCP calls, web searches and
   plans; pick Codex's models and reasoning effort, stop or steer a run, answer approval cards
