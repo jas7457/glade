@@ -183,6 +183,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- iPhone: New Chat now looks like a chat: the same floating text box (attachments, Model &
+  Thinking), a welcome in the middle, and Mac / Project chips above the text box; the agent is
+  picked in the Model & Thinking sheet.
 - On the iPhone: the text box is a slim pill until you tap it, then grows full width; model and
   thinking level share one button that opens one sheet; no more ↑ ↓ ✓ bar over the keyboard.
 - Tool rows show file paths relative to the chat's folder (e.g. "Edited packages/protocol/src/api.ts");
