@@ -20,6 +20,7 @@ import {
   Monitor,
   Moon,
   PanelLeft,
+  PanelRight,
   Pencil,
   Pin,
   PinOff,
@@ -34,15 +35,15 @@ import {
 } from "lucide-preact";
 import { StatusIndicator } from "@/ui";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
-import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessionsById, workspaces, workspacesById } from "@/state/store";
+import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@/state/store";
 import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@/state/actions";
 import { notify } from "@/state/toasts";
 import { openAddProject, toggleSidebar } from "@/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
-import { closeTab, openNewTab, renameWithAi } from "@/features/workspace";
+import { closeTab, openNewTab, renameWithAi, toggleSubagentPane } from "@/features/workspace";
 import type { RouteContext } from "./paths";
 import { SETTINGS_SECTIONS, chatPath, routes } from "./routes";
-import { SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
+import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
 
 export type CommandGroup = "Chats" | "Projects" | "Actions";
 export const COMMAND_GROUPS: readonly CommandGroup[] = ["Chats", "Projects", "Actions"];
@@ -156,6 +157,24 @@ export function buildCommands(ctx: CommandContext): Command[] {
       shortcut: SHORTCUTS["toggle-sidebar"],
       icon: <PanelLeft />,
       run: global["toggle-sidebar"],
+    },
+    {
+      // I-141: show/hide the focused tab's sub-agent pane (only when it has sub-agents).
+      id: "toggle-subagents",
+      title: "Toggle Sub-agents",
+      group: "Actions",
+      keywords: ["hide", "show", "pane", "agents"],
+      shortcut: PANE_SHORTCUTS["toggle-subagents"],
+      icon: <PanelRight />,
+      available: () => {
+        const id = route.workspaceId && resolveSessionId(route.workspaceId, new URLSearchParams(window.location.search).get("tab"));
+        return !!id && sessions.value.some((s) => s.parentSessionId === id);
+      },
+      run: () => {
+        if (!route.workspaceId) return;
+        const id = resolveSessionId(route.workspaceId, new URLSearchParams(window.location.search).get("tab"));
+        if (id) toggleSubagentPane(route.workspaceId, id);
+      },
     },
     {
       id: "new-tab",

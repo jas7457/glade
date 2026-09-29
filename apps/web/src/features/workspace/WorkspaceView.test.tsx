@@ -301,6 +301,89 @@ describe("WorkspaceView", () => {
       expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 
+    it("⌘W with several agents also just hides the pane (I-141)", async () => {
+      renderAt("/projects/p/chats/w");
+      within(subTablist()!).getAllByRole("tab")[1]!.focus();
+      fireEvent.keyDown(window, { key: "w", metaKey: true });
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("sub-agent tabs have no close button; main tabs keep theirs (I-141)", () => {
+      renderAt("/projects/p/chats/w");
+      expect(within(subTablist()!).queryAllByRole("button", { name: /^Close / })).toHaveLength(0);
+      expect(within(screen.getByRole("tablist", { name: "Conversations" })).getAllByRole("button", { name: /^Close / })).toHaveLength(2);
+      // Middle click doesn't close a sub-agent either.
+      fireEvent(within(subTablist()!).getAllByRole("tab")[0]!, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(api.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("a labelled Hide button at the right of the sub-agent tabs hides the pane (I-141)", async () => {
+      renderAt("/projects/p/chats/w");
+      const hide = screen.getByRole("button", { name: "Hide Sub-agents (Esc)" });
+      expect(hide.textContent).toBe("Hide");
+      fireEvent.click(hide);
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("Remove Sub-agent… in a sub-agent tab's menu always asks, then deletes it (I-141)", async () => {
+      renderAt("/projects/p/chats/w");
+      const tab = within(subTablist()!).getAllByRole("tab")[1]!;
+      expect(screen.queryByRole("menuitem", { name: "Close Tab" })).toBeNull();
+      fireEvent.contextMenu(tab);
+      expect(screen.queryByRole("menuitem", { name: "Close Tab" })).toBeNull();
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Remove Sub-agent…" }));
+      const dialog = await screen.findByRole("alertdialog");
+      expect(dialog.textContent).toContain("Remove tests?");
+      expect(dialog.textContent).toContain("Stops it if it's running and deletes its conversation. This can't be undone.");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+
+      fireEvent.contextMenu(tab);
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Remove Sub-agent…" }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("a2"));
+    });
+
+    it("the AgentBar's ⋯ menu offers Remove Sub-agent… with the same confirm (I-141)", async () => {
+      const agent = { agent: null, task: "t", keepOpenReason: null, userEngaged: false, closing: false, doneAt: null, result: null, status: "working" as const };
+      sessions.value = sessions.value.map((s) => (s.id === "a1" ? { ...s, agentDisplayName: "Leo", status: "working" as const, agent } : s));
+      renderAt("/projects/p/chats/w");
+      const more = screen.getByRole("button", { name: "Agent Actions" });
+      fireEvent.pointerDown(more, { button: 0, ctrlKey: false });
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Remove Sub-agent…" }));
+      const dialog = await screen.findByRole("alertdialog");
+      expect(dialog.textContent).toContain("Remove Leo?");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("a1"));
+    });
+
+    it("clicking the open agent's chip hides the pane; clicking another switches (I-141)", async () => {
+      renderAt("/projects/p/chats/w");
+      expect(within(strip()).getByRole("button", { name: /^Open reviewer/ }).getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(within(strip()).getByRole("button", { name: /^Open tests/ }));
+      await waitFor(() => expect(within(subTablist()!).getByRole("tab", { name: /tests/ }).getAttribute("aria-selected")).toBe("true"));
+      fireEvent.click(within(strip()).getByRole("button", { name: /^Open tests/ }));
+      await waitFor(() => expect(subTablist()).toBeNull());
+      expect(api.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("⌥⌘B toggles the pane (I-141)", async () => {
+      closedPane();
+      renderAt("/projects/p/chats/w");
+      expect(subTablist()).toBeNull();
+      fireEvent.keyDown(window, { key: "∫", code: "KeyB", metaKey: true, altKey: true });
+      await waitFor(() => expect(subTablist()).not.toBeNull());
+      fireEvent.keyDown(window, { key: "∫", code: "KeyB", metaKey: true, altKey: true });
+      await waitFor(() => expect(subTablist()).toBeNull());
+      // Plain ⌘B is the sidebar's, not the pane's.
+      fireEvent.keyDown(window, { key: "b", code: "KeyB", metaKey: true });
+      expect(subTablist()).toBeNull();
+    });
+
     it("shows compact chips side by side, attention tinted, with Stop All in an overflow menu", async () => {
       closedPane();
       const running = { agent: null, task: "t", keepOpenReason: null, userEngaged: false, closing: false, doneAt: null, result: null };

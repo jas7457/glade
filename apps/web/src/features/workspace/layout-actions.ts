@@ -15,7 +15,17 @@ import { createSession, deleteSession, updateWorkspace } from "@/state/actions";
 import { getChatSession } from "@/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@/state/store";
 import { confirm } from "@/ui";
-import { mergeLayout, neighbourAfterClose, openSubagentPatch, withoutSession, type TabGroupId } from "./layout";
+import { sessionAgentIdentity } from "@/features/chat/agent-identity";
+import {
+  activeSubagentId,
+  isChangesPanelOpen,
+  isSubagentPaneOpen,
+  mergeLayout,
+  neighbourAfterClose,
+  openSubagentPatch,
+  withoutSession,
+  type TabGroupId,
+} from "./layout";
 
 export type Navigate = (path: string, options?: { replace?: boolean }) => void;
 
@@ -62,10 +72,30 @@ export function setChangesPanelOpen(workspaceId: string, open: boolean): void {
   if ((layout?.changesPanelOpen === true) !== open) void saveLayout(workspaceId, { changesPanelOpen: open });
 }
 
-/** Hide the sub-agent pane (×, Esc, ⌘W on its last tab); its agents keep running. */
+/** Hide the sub-agent pane (its Hide button, Esc, ⌘W, ⌥⌘B, its chip); its agents keep running. */
 export function hideSubagentPane(workspaceId: string): void {
   if (maximizedGroup.value[workspaceId] === "subagents") toggleMaximized(workspaceId, "subagents");
   if (workspacesById.value.get(workspaceId)?.layout?.subagentPaneOpen) void saveLayout(workspaceId, { subagentPaneOpen: false });
+}
+
+/**
+ * Show/hide the sub-agent pane (I-141: ⌥⌘B, the command palette). Opening shows the main tab's
+ * focused sub-agent (and restores a maximized main group). Returns what it did: `"opened"`,
+ * `"hidden"`, or `null` when the tab has no sub-agents.
+ */
+export function toggleSubagentPane(workspaceId: string, mainSessionId: string): "opened" | "hidden" | null {
+  const layout = workspacesById.value.get(workspaceId)?.layout;
+  const maximized = maximizedGroup.value[workspaceId];
+  if (isSubagentPaneOpen(layout) && !isChangesPanelOpen(layout) && maximized !== "main") {
+    hideSubagentPane(workspaceId);
+    return "hidden";
+  }
+  const ids = subagentSessionsOf(sessions.value, mainSessionId).map((s) => s.id);
+  const id = activeSubagentId(layout, mainSessionId, ids);
+  if (!id) return null;
+  if (maximized === "main") toggleMaximized(workspaceId, "main");
+  openSubagent(workspaceId, mainSessionId, id);
+  return "opened";
 }
 
 /**
@@ -119,6 +149,28 @@ export async function closeTab(session: SessionSummary, navigate: Navigate, opts
     });
     if (!ok) return false;
   }
+  return deleteTab(session, navigate, opts);
+}
+
+/**
+ * Remove a sub-agent (I-141: its tab's menu or the AgentBar's ⋯ menu). Sub-agent tabs have no ×,
+ * so closing never looks like hiding the pane; this always asks first, even for an empty agent.
+ */
+export async function removeSubagent(session: SessionSummary): Promise<boolean> {
+  const ok = await confirm({
+    title: `Remove ${sessionAgentIdentity(session).displayName}?`,
+    message: "Stops it if it's running and deletes its conversation. This can't be undone.",
+    confirmLabel: "Remove",
+    destructive: true,
+  });
+  if (!ok) return false;
+  return deleteTab(session, () => {}, { focused: true });
+}
+
+/** Delete a tab's session (already confirmed) and fix up the saved layout / focus. */
+async function deleteTab(session: SessionSummary, navigate: Navigate, opts: { focused: boolean }): Promise<boolean> {
+  const { workspaceId } = session;
+  const main = mainSessionsFor(workspaceId);
   const workspace = workspacesById.value.get(workspaceId);
   const siblings = session.kind === "main" ? main : subagentSessionsOf(sessions.value, session.parentSessionId ?? "");
   const next = neighbourAfterClose(

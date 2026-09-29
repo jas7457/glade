@@ -32,6 +32,22 @@ export const TAB_SHORTCUTS = {
 } as const;
 
 export type TabCommandId = keyof typeof TAB_SHORTCUTS;
+
+/**
+ * Workspace pane shortcuts (I-141): ⌥⌘B shows/hides the sub-agent pane (like ⌘B for the
+ * sidebar). Bound by the workspace view while it's shown; web only (no desktop menu item).
+ */
+export const PANE_SHORTCUTS = {
+  "toggle-subagents": "alt+mod+b",
+} as const;
+
+export type PaneCommandId = keyof typeof PANE_SHORTCUTS;
+
+/** ⌥ changes `key` on macOS (⌥B = "∫"), so the physical key (`code`) decides. */
+export function paneShortcutFor(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): PaneCommandId | null {
+  if (!(e.metaKey || e.ctrlKey) || !e.altKey || e.shiftKey) return null;
+  return e.code === "KeyB" || e.key.toLowerCase() === "b" ? "toggle-subagents" : null;
+}
 export type TabShortcutHandlers = Record<TabCommandId, () => void>;
 
 export function tabShortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): TabCommandId | null {

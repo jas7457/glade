@@ -4,7 +4,7 @@ import { resolveTheme } from "./appearance";
 import { routeContext } from "./paths";
 import { chatPath, routes } from "./routes";
 import { formatShortcut } from "@/ui/Kbd";
-import { SHORTCUTS, TAB_SHORTCUTS, shortcutFor, tabShortcutFor } from "./shortcuts";
+import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, paneShortcutFor, shortcutFor, tabShortcutFor } from "./shortcuts";
 
 describe("resolveTheme", () => {
   it("follows the system only when set to system", () => {
@@ -76,5 +76,19 @@ describe("tabShortcutFor", () => {
   it("formats them natively", () => {
     expect(formatShortcut(TAB_SHORTCUTS["new-tab"])).toBe("⌘T");
     expect(formatShortcut(TAB_SHORTCUTS["previous-tab"])).toBe("⌃⇧⇥");
+  });
+});
+
+describe("paneShortcutFor (I-141)", () => {
+  const k = (key: string, code: string, mods: Partial<KeyboardEvent> = {}) =>
+    paneShortcutFor({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
+  it("maps ⌥⌘B (by physical key: ⌥B types ∫ on a Mac) and nothing else", () => {
+    expect(k("∫", "KeyB", { metaKey: true, altKey: true })).toBe("toggle-subagents");
+    expect(k("b", "KeyB", { ctrlKey: true, altKey: true })).toBe("toggle-subagents");
+    expect(k("b", "KeyB", { metaKey: true })).toBeNull();
+    expect(k("∫", "KeyB", { altKey: true })).toBeNull();
+    expect(k("B", "KeyB", { metaKey: true, altKey: true, shiftKey: true })).toBeNull();
+    expect(shortcutFor({ key: "∫", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false })).toBeNull();
+    expect(formatShortcut(PANE_SHORTCUTS["toggle-subagents"])).toBe("⌥⌘B");
   });
 });

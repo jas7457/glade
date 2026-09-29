@@ -150,6 +150,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sub-agent tabs can't be closed by accident any more: use Remove Sub-agent… (right-click the tab
+  or the ⋯ menu), which asks first. Hide the pane with the new Hide button, Esc, ⌥⌘B, or by
+  clicking the agent's chip again.
 - Connect to a Device shows who you're connecting to and no longer asks for your own name; each
   device names its connections itself (Rename in the Connections row), and that name is used
   everywhere. Devices found on your tailnet now show up on their own, with a Refresh button.

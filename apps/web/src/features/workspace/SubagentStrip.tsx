@@ -4,7 +4,8 @@
  * the agent's colour with its fun name, a tiny status marker (spinner / needs input / ✓ /
  * failed) and its latest activity truncated (full text, role and task in the tooltip). Needs
  * input / failed chips are tinted amber / red. Clicking a chip opens the agent in the
- * right-hand pane (which stays closed until then). While any agent runs, a small "…" button at
+ * right-hand pane (which stays closed until then); the caller hides the pane when it's the open
+ * one (I-141). While any agent runs, a small "…" button at
  * the end offers "Stop All" (aborts their current turns; they stay open).
  *
  *   <SubagentStrip subagents={…} openId={idShownInPane} onOpen={(id) => …} />
@@ -93,7 +94,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
     `${agentLabel(chip.identity)} — ${chip.label} · ${formatDuration(chip.elapsedMs)}${chip.model ? ` · ${chip.model}` : ""}`,
     chip.activity,
     chip.task && `Task: ${chip.task}`,
-    "Click to open",
+    selected ? "Click to hide" : "Click to open",
   ]
     .filter(Boolean)
     .join("\n");

@@ -4,8 +4,9 @@
  *
  * Sub-agents (I-080): the main chat shows a summary strip above its composer; the pane is
  * closed by default (even when agents spawn) and opens when an agent is clicked there or in a
- * report card. Hiding it (its × button, Esc inside it, ⌘W on its last tab) leaves the agents
- * running. Open state and width are saved in the workspace layout. Double-click a tab to maximize its group (again to restore). The layout (tab order,
+ * report card. Hiding it (its Hide button, Esc or ⌘W inside it, ⌥⌘B, clicking the open agent's
+ * chip) leaves the agents running. Sub-agent tabs have no × (I-141): removing one is "Remove
+ * Sub-agent…" in its tab's menu or the AgentBar's ⋯ menu, always confirmed. Open state and width are saved in the workspace layout. Double-click a tab to maximize its group (again to restore). The layout (tab order,
  * focused tabs, pane width) is saved with the workspace; the URL's `?tab=` is the focused main tab.
  *
  * Changes panel (I-097): the header's changes button opens it in the right pane, in place of the
@@ -13,16 +14,16 @@
  *
  * Tab shortcuts: ⌘T new tab, ⌘W close the focused group's tab, ⌃Tab / ⌃⇧Tab cycle the focused
  * group's tabs ("focused" = the group containing keyboard focus, else the main group).
- * Every tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
+ * Every main tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, Sparkles, X } from "lucide-preact";
+import { Check, CircleSlash, Mail, MailOpen, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, Sparkles, Trash2, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
-import { TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
+import { paneShortcutFor, TAB_SHORTCUTS, useTabShortcuts } from "@/app/shortcuts";
 import { markSessionRead, markSessionUnread, renameFromSession } from "@/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@/state/store";
-import { IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, formatShortcut, type TabStripTab } from "@/ui";
+import { Button, IconButton, MenuItem, MenuSeparator, SplitView, TabStrip, Tooltip, formatShortcut, type TabStripTab } from "@/ui";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
 import { AgentLinksContext, type AgentLinks } from "@/features/chat/agent-links";
@@ -41,10 +42,12 @@ import {
   maximizedGroup,
   openNewTab,
   openSubagent,
+  removeSubagent,
   saveLayout,
   setChangesPanelOpen,
   tabTitle,
   toggleMaximized,
+  toggleSubagentPane,
   type Navigate,
 } from "./layout-actions";
 
@@ -109,6 +112,22 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     openSubagent(workspaceId, sessionId, id);
   };
   const hidePane = () => hideSubagentPane(workspaceId);
+  // The strip's chip toggles (I-141): clicking the agent already shown in the pane hides it.
+  const onChip = (id: string) => (showSubagents && id === activeSub ? hidePane() : openSub(id));
+  // ⌥⌘B shows/hides the pane (I-141).
+  const togglePane = useRef(() => {});
+  togglePane.current = () => {
+    if (toggleSubagentPane(workspaceId, sessionId) === "opened") setSubagentFocus(true);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || paneShortcutFor(e) !== "toggle-subagents") return;
+      e.preventDefault();
+      togglePane.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const agentLinks: AgentLinks = {
     canOpen: (name) => subagents.some((s) => s.agentName === name),
     open: (name) => {
@@ -127,11 +146,8 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
   useTabShortcuts({
     "new-tab": newTab,
     "close-tab": () => {
-      // ⌘W on the pane's last tab hides the pane; the agent keeps running (I-080).
-      if (focusedGroup() === "subagents") {
-        if (subagents.length <= 1) hidePane();
-        else close(subagents.find((s) => s.id === activeSub), true);
-      }
+      // ⌘W in the pane hides it; its agents keep running (I-080, I-141: sub-agent tabs don't close).
+      if (focusedGroup() === "subagents") hidePane();
       else close(main.find((s) => s.id === sessionId), true);
     },
     "next-tab": () => cycle(1),
@@ -200,6 +216,14 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
               {isMax ? "Restore Layout" : "Maximize"}
             </MenuItem>
           )}
+          {group === "subagents" && (
+            <>
+              <MenuSeparator />
+              <MenuItem icon={<Trash2 />} destructive onSelect={() => void removeSubagent(s)}>
+                Remove Sub-agent…
+              </MenuItem>
+            </>
+          )}
           {closable && (
             <>
               <MenuSeparator />
@@ -241,7 +265,7 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
           <ChatPane
             key={sessionId}
             sessionId={sessionId}
-            aboveComposer={<SubagentStrip subagents={subagents} openId={showSubagents ? activeSub : null} onOpen={openSub} />}
+            aboveComposer={<SubagentStrip subagents={subagents} openId={showSubagents ? activeSub : null} onOpen={onChip} />}
           />
         </AgentLinksContext.Provider>
       </div>
@@ -263,18 +287,21 @@ export function WorkspaceView({ workspaceId, sessionId }: WorkspaceViewProps) {
     >
       <TabStrip
         label="Sub-agents"
-        tabs={subagents.map((s) => tabFor(s, "subagents", true))}
+        tabs={subagents.map((s) => tabFor(s, "subagents", false))}
         activeId={activeSub}
         panelId={`tabpanel-${workspaceId}-subagents`}
         onSelect={selectSub}
-        onClose={(id) => close(subagents.find((s) => s.id === id), id === activeSub)}
         onTabDoubleClick={() => toggleMaximized(workspaceId, "subagents")}
         renamingId={renaming}
         onRenameDone={onRenameDone}
         actions={
-          <IconButton size="sm" label="Hide Sub-agents (Esc)" onClick={hidePane}>
-            <PanelRightClose />
-          </IconButton>
+          // I-141: a labelled Hide (not an icon where a × is expected), so it can't pass for "close".
+          <Tooltip content="Hide Sub-agents (Esc)">
+            <Button variant="ghost" size="sm" aria-label="Hide Sub-agents (Esc)" onClick={hidePane} class="px-1.5 text-fg-muted hover:text-fg [&_svg]:size-3.5">
+              <PanelRightClose />
+              Hide
+            </Button>
+          </Tooltip>
         }
       />
       <div id={`tabpanel-${workspaceId}-subagents`} role="tabpanel" class="flex min-h-0 flex-1 flex-col">
