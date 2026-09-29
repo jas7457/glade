@@ -30,7 +30,7 @@ describe("saved prompts", () => {
     const reopened = new Store(join(env.dir, "data"), 0);
     expect(reopened.getSettings().prompts.map((p) => p.id)).toEqual(["p1"]);
     // Other patches leave them alone; a new list replaces the old one.
-    env.service.updateSettings({ general: { sendKey: "mod-enter" } });
+    env.service.updateSettings({ general: { generateTitles: false } });
     expect(env.service.getSettings().prompts).toHaveLength(1);
     env.service.updateSettings({ prompts: [] });
     expect(env.service.getSettings().prompts).toEqual([]);

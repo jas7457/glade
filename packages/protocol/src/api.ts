@@ -224,10 +224,7 @@ export interface WorkspaceSummary extends Workspace {
 
 export interface Settings {
   general: {
-    /** Which key sends a message. The other inserts a newline. */
-    sendKey: "enter" | "mod-enter";
-    /** What happens when sending while the agent is running. */
-    busyBehavior: "steer" | "followUp";
+    // `sendKey` and `busyBehavior` were removed in I-153: ↩ sends/steers, ⌘↩ sends a follow-up.
     /** Generate a title for new chats with a model (a quick title is always set first). */
     generateTitles: boolean;
     /**
@@ -319,8 +316,6 @@ export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] exte
 export function defaultSettings(): Settings {
   return {
     general: {
-      sendKey: "enter",
-      busyBehavior: "steer",
       generateTitles: true,
       generateSummaries: true,
     },
@@ -466,7 +461,7 @@ export interface PromptImage {
 export interface PromptRequest {
   text: string;
   images?: PromptImage[];
-  /** Required when the agent is running. */
+  /** While the agent is running: steer (default) or follow-up (⌘↩, I-153). */
   behavior?: "steer" | "followUp";
 }
 

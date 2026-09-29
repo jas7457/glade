@@ -164,6 +164,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Sending is simpler: ↩ sends (and steers a working agent), ⌘↩ sends a follow-up that waits
+  until it's done, ⌥↩ asks aside, ⇧↩ adds a line. Holding ⌘ shows the follow-up button. The
+  "Send message with" and "While the agent is working" settings are gone.
+- The README has a guide to remote access: setup, security, keeping a Mac available, updating
+  and troubleshooting.
 - Command rows no longer start with a long `cd /path/to/project &&`: a cd into the chat's folder
   is hidden, and a subfolder shows as a small label (e.g. `apps/web`) before the command.
 - Sub-agents get a short title when they start (shown in their tab), and hovering an agent's chip

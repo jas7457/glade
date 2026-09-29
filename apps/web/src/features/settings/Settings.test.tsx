@@ -55,13 +55,11 @@ describe("settings", () => {
     mocked.updateSettings.mockImplementation(async () => settings.value);
   });
 
-  it("General: toggles and segmented controls save via the api", () => {
+  it("General: toggles save via the api", () => {
     renderAt("/settings/general");
     fireEvent.click(screen.getByRole("switch", { name: "Generate chat titles" }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ general: { generateTitles: false } });
     expect(settings.value.general.generateTitles).toBe(false);
-    fireEvent.click(screen.getByRole("radio", { name: "Follow-up" }));
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ general: { busyBehavior: "followUp" } });
   });
 
   it("General: notification switches are stored on this device, not on the server (I-135)", () => {
@@ -76,11 +74,13 @@ describe("settings", () => {
     notificationPermission.value = "default";
   });
 
-  it("General: no busy behaviour for a default harness without steering (I-065)", () => {
-    harnesses.value = [harness("x", "X", { isDefault: true, capabilities: { ...ALL, steering: false } })];
+  it("General: no send key or busy behaviour settings; the keys are fixed (I-153)", () => {
     renderAt("/settings/general");
-    expect(screen.queryByRole("radio", { name: "Follow-up" })).toBeNull();
     expect(screen.getByRole("switch", { name: "Generate chat titles" })).toBeTruthy();
+    expect(screen.queryByText("Send message with")).toBeNull();
+    expect(screen.queryByText("While the agent is working")).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Send key" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Follow-up" })).toBeNull();
   });
 
   it("Appearance: theme", () => {

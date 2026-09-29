@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@glade/protocol";
@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/ui";
 import { harnessDefaults, models, sessions, settings, workspacesById } from "@/state/store";
 import { makeSession, makeWorkspace } from "@/test/fixtures";
 import { getChatSession, resetChatSessions } from "@/state/chat-session";
-import { isSendKey, parseShellInput } from "./composer-utils";
+import { enterAction, parseShellInput } from "./composer-utils";
 import { Composer } from "./Composer";
 import { harnesses } from "@/state/harnesses";
 
@@ -48,24 +48,23 @@ const MODELS: ModelInfo[] = [
   { provider: "openai", id: "mini", name: "GPT Mini", thinkingLevels: ["off"], input: ["text"] },
 ];
 
-const key = (k: Partial<Parameters<typeof isSendKey>[0]>) => ({ key: "Enter", shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...k });
+const key = (k: Partial<Parameters<typeof enterAction>[0]>) => ({ key: "Enter", shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...k });
 
-describe("isSendKey", () => {
-  it("enter mode: Enter sends, Shift+Enter doesn't, ⌘Enter does", () => {
-    expect(isSendKey(key({}), "enter")).toBe(true);
-    expect(isSendKey(key({ shiftKey: true }), "enter")).toBe(false);
-    expect(isSendKey(key({ altKey: true }), "enter")).toBe(false);
-    expect(isSendKey(key({ metaKey: true }), "enter")).toBe(true);
-    expect(isSendKey(key({ key: "a" }), "enter")).toBe(false);
-  });
-  it("mod-enter mode: only ⌘/Ctrl+Enter sends", () => {
-    expect(isSendKey(key({}), "mod-enter")).toBe(false);
-    expect(isSendKey(key({ metaKey: true }), "mod-enter")).toBe(true);
-    expect(isSendKey(key({ ctrlKey: true }), "mod-enter")).toBe(true);
+describe("enterAction (I-153)", () => {
+  it("↩ sends, ⌘↩/Ctrl↩ follow-up, ⌥↩ asks aside, ⇧↩ is a new line", () => {
+    expect(enterAction(key({}))).toBe("send");
+    expect(enterAction(key({ metaKey: true }))).toBe("followUp");
+    expect(enterAction(key({ ctrlKey: true }))).toBe("followUp");
+    expect(enterAction(key({ altKey: true }))).toBe("askAside");
+    expect(enterAction(key({ shiftKey: true }))).toBeNull();
+    expect(enterAction(key({ shiftKey: true, metaKey: true }))).toBeNull();
+    expect(enterAction(key({ altKey: true, metaKey: true }))).toBeNull();
+    expect(enterAction(key({ key: "a" }))).toBeNull();
   });
   it("ignores keys during IME composition", () => {
-    expect(isSendKey(key({ isComposing: true }), "enter")).toBe(false);
-    expect(isSendKey(key({ keyCode: 229 }), "enter")).toBe(false);
+    expect(enterAction(key({ isComposing: true }))).toBeNull();
+    expect(enterAction(key({ keyCode: 229 }))).toBeNull();
+    expect(enterAction(key({ keyCode: 229, metaKey: true }))).toBeNull();
   });
 });
 
@@ -109,18 +108,6 @@ describe("Composer (existing chat)", () => {
     expect(box.value).toBe("");
   });
 
-  it("respects the mod-enter setting", async () => {
-    settings.value = { ...defaultSettings(), general: { ...defaultSettings().general, sendKey: "mod-enter" } };
-    readyChat("c1");
-    renderAt(<Composer chatId="c1" />);
-    const box = screen.getByRole("textbox", { name: "Message" });
-    fireEvent.input(box, { target: { value: "hi" } });
-    fireEvent.keyDown(box, { key: "Enter" });
-    expect(api.prompt).not.toHaveBeenCalled();
-    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
-    await waitFor(() => expect(api.prompt).toHaveBeenCalledTimes(1));
-  });
-
   it("does not send empty messages", () => {
     readyChat("c1");
     renderAt(<Composer chatId="c1" />);
@@ -139,7 +126,7 @@ describe("Composer (existing chat)", () => {
     harnesses.value = null;
   });
 
-  it("queues with the busy behaviour while running, shows Stop, Escape aborts", async () => {
+  it("steers on ↩ while running, shows Stop, Escape aborts", async () => {
     const store = readyChat("c1", true);
     store.state.value = { ...store.state.value, queue: { steering: ["earlier steer"], followUp: [] } };
     renderAt(<Composer chatId="c1" />);
@@ -205,6 +192,119 @@ describe("Composer (existing chat)", () => {
     expect(screen.getByRole("alert").textContent).toContain("pi exited with code 1");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("Composer send keys (I-153)", () => {
+  const setSteering = (steering: boolean) => {
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...ALL_CAPS, steering } }];
+  };
+  afterEach(() => {
+    harnesses.value = null;
+  });
+
+  const cases: Array<{ steering: boolean; running: boolean }> = [
+    { steering: true, running: false },
+    { steering: true, running: true },
+    { steering: false, running: false },
+    { steering: false, running: true },
+  ];
+  it.each(cases)("key matrix: steering=$steering running=$running", async ({ steering, running }) => {
+    setSteering(steering);
+    readyChat("c1", running);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    const type = (value: string) => fireEvent.input(box, { target: { value } });
+    const choice = (behavior: "steer" | "followUp") => (running && steering ? behavior : undefined);
+
+    // ⇧↩: a new line (the textarea's default), nothing sent.
+    type("line");
+    expect(fireEvent.keyDown(box, { key: "Enter", shiftKey: true })).toBe(true);
+    // ⌥↩ without side questions: nothing sent.
+    fireEvent.keyDown(box, { key: "Enter", altKey: true });
+    // IME composition: nothing sent.
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true, keyCode: 229 });
+    expect(api.prompt).not.toHaveBeenCalled();
+    expect(box.value).toBe("line");
+
+    // ↩: send (steer while running).
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "line", images: undefined, behavior: choice("steer") }));
+    // ⌘↩ / Ctrl↩: follow-up while running, a plain send when idle.
+    type("later");
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "later", images: undefined, behavior: choice("followUp") }));
+    type("ctrl");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "ctrl", images: undefined, behavior: choice("followUp") }));
+    expect(api.prompt).toHaveBeenCalledTimes(3);
+  });
+
+  it("placeholder while running names the keys; harnesses without steering just queue", () => {
+    setSteering(true);
+    readyChat("c1", true);
+    renderAt(<Composer chatId="c1" />);
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).placeholder).toBe("↩ steer · ⌘↩ follow-up");
+  });
+
+  it("holding ⌘ while running switches the send button to its follow-up form (keydown/keyup/blur)", async () => {
+    setSteering(true);
+    readyChat("c1", true);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "after that" } });
+    const button = () => screen.getByRole("button", { name: /^(Steer|Send follow-up)$/ }) as HTMLButtonElement;
+    expect(button().getAttribute("aria-label")).toBe("Steer");
+    expect(button().dataset.sendBehavior).toBe("steer");
+    const steerIcon = button().innerHTML;
+    const classes = button().className;
+
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    expect(button().getAttribute("aria-label")).toBe("Send follow-up");
+    expect(button().dataset.sendBehavior).toBe("followUp");
+    expect(button().innerHTML).not.toBe(steerIcon);
+    expect(button().className).toBe(classes); // same size and slot
+    fireEvent.keyUp(window, { key: "Meta", metaKey: false });
+    expect(button().getAttribute("aria-label")).toBe("Steer");
+    expect(button().innerHTML).toBe(steerIcon);
+
+    // The keyup can get lost (⌘Tab): blur and hiding the window reset it.
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    expect(button().getAttribute("aria-label")).toBe("Send follow-up");
+    fireEvent.blur(window);
+    expect(button().getAttribute("aria-label")).toBe("Steer");
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(button().getAttribute("aria-label")).toBe("Steer");
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+
+    // Clicking while ⌘ is held sends a follow-up; a plain click steers.
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    fireEvent.click(button());
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "after that", images: undefined, behavior: "followUp" }));
+    fireEvent.keyUp(window, { key: "Meta", metaKey: false });
+    fireEvent.input(box, { target: { value: "now" } });
+    fireEvent.click(button());
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "now", images: undefined, behavior: "steer" }));
+  });
+
+  it("the button doesn't change with ⌘ when idle or without steering", async () => {
+    setSteering(false);
+    const store = readyChat("c1", true);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(box.placeholder).toBe("Queue a message…");
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
+    fireEvent.keyUp(window, { key: "Meta", metaKey: false });
+    setSteering(true);
+    store.state.value = { ...store.state.value, isRunning: false };
+    await waitFor(() => expect(box.placeholder).toBe("Ask anything…"));
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    expect(box.placeholder).toBe("Ask anything…");
   });
 });
 

@@ -2,7 +2,7 @@
  * Pure helpers for the composer: send-key handling, attachments (images inline, other files by
  * reference, I-090), labels.
  */
-import type { ImageLimits, PromptImage, Settings, ThinkingLevel } from "@glade/protocol";
+import type { ImageLimits, PromptImage, ThinkingLevel } from "@glade/protocol";
 import { prepareImage } from "./image-resize";
 
 export interface KeyLike {
@@ -16,17 +16,22 @@ export interface KeyLike {
 }
 
 /**
- * Whether a keydown should send the message.
- *  - "enter":     Enter sends; Shift/Alt+Enter insert a newline (⌘/Ctrl+Enter also send).
- *  - "mod-enter": ⌘/Ctrl+Enter sends; plain Enter inserts a newline.
+ * What Enter does in the composer (I-153; no settings):
+ *  - ↩ sends (steers while the agent is working),
+ *  - ⌘↩ / Ctrl↩ sends a follow-up (waits until the agent has finished; plain send when idle),
+ *  - ⌥↩ asks aside (I-140; the composer decides whether that applies),
+ *  - ⇧↩ inserts a new line (`null`: the textarea's default).
  * Never while an IME composition is active.
  */
-export function isSendKey(e: KeyLike, sendKey: Settings["general"]["sendKey"]): boolean {
-  if (e.key !== "Enter") return false;
-  if (e.isComposing || e.keyCode === 229) return false;
+export type EnterAction = "send" | "followUp" | "askAside";
+
+export function enterAction(e: KeyLike): EnterAction | null {
+  if (e.key !== "Enter") return null;
+  if (e.isComposing || e.keyCode === 229) return null;
+  if (e.shiftKey) return null;
   const mod = e.metaKey || e.ctrlKey;
-  if (sendKey === "mod-enter") return mod;
-  return !e.shiftKey && !e.altKey;
+  if (e.altKey) return mod ? null : "askAside";
+  return mod ? "followUp" : "send";
 }
 
 export interface Attachment extends PromptImage {

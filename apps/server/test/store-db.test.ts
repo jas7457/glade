@@ -158,6 +158,7 @@ describe("importing the JSON files (first start)", () => {
     expect(store.getWorkspace("w1")?.pinOrder).toBe(0); // I-019 upgrade applied on import
     expect(store.listSessions().map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
     expect(store.getSettings().harnesses.pi.piPath).toBe("/opt/pi"); // I-066 upgrade applied
+    expect(store.getSettingsOverrides().general).toEqual({}); // I-153: the old sendKey is dropped
     expect(store.getAgent("s3")?.systemPrompt).toBe("role");
     expect(store.getSummary("s1")?.text).toBe("Fixing things.");
     expect(store.summariesEnabledAt(999)).toBe(42);

@@ -80,11 +80,11 @@ describe("Ask Aside button (I-140)", () => {
     expect(askButton().disabled).toBe(true);
     expect(askButton().tabIndex).toBe(-1);
     expect(box().placeholder).toBe("Ask anything…");
-    // Running, empty: still hidden; the placeholder suggests ⌥↩.
+    // Running, empty: still hidden; the placeholder names the keys, ⌥↩ included (I-153).
     store.state.value = { ...store.state.value, isRunning: true };
     fireEvent.input(box(), { target: { value: "" } });
     expect(slot().className).toContain("invisible");
-    expect(box().placeholder).toBe("Queue a message, or ⌥↩ to ask aside");
+    expect(box().placeholder).toBe("↩ steer · ⌘↩ follow-up · ⌥↩ ask aside");
     // Running with text: shown.
     fireEvent.input(box(), { target: { value: "what now?" } });
     expect(slot().className).not.toContain("invisible");
@@ -124,7 +124,18 @@ describe("Ask Aside button (I-140)", () => {
     readyChat("c1", true);
     renderComposer();
     expect(screen.queryByTestId("ask-aside-slot")).toBeNull();
-    expect(box().placeholder).toBe("Queue a message…");
+    expect(box().placeholder).toBe("↩ steer · ⌘↩ follow-up");
+  });
+
+  it("without steering, the placeholder says messages are queued; ⌥↩ still asks aside (I-153)", async () => {
+    setCaps({ steering: false });
+    readyChat("c1", true);
+    renderComposer();
+    expect(box().placeholder).toBe("Queue a message, or ⌥↩ to ask aside");
+    fireEvent.input(box(), { target: { value: "quick one" } });
+    fireEvent.keyDown(box(), { key: "Enter", altKey: true });
+    await waitFor(() => expect(api.askSideQuestion).toHaveBeenCalledWith("c1", "quick one"));
+    expect(api.prompt).not.toHaveBeenCalled();
   });
 });
 
@@ -132,12 +143,19 @@ describe("composer buttons don't pop in and out (I-151)", () => {
   it("keeps Send in place (disabled without text) while running; only Ask Aside appears", () => {
     readyChat("c1", true);
     renderComposer();
-    const send = () => screen.getByRole("button", { name: "Queue message" }) as HTMLButtonElement;
+    const send = () => screen.getByRole("button", { name: "Steer" }) as HTMLButtonElement;
     expect(send().disabled).toBe(true);
     expect(slot().className).toContain("invisible");
     fireEvent.input(box(), { target: { value: "hey" } });
     expect(send().disabled).toBe(false);
     expect(slot().className).not.toContain("invisible");
+    // Holding ⌘ swaps the send button in place; Ask Aside's slot stays put (I-153).
+    const before = send();
+    fireEvent.keyDown(window, { key: "Meta", metaKey: true });
+    expect(screen.getByRole("button", { name: "Send follow-up" })).toBe(before);
+    expect(slot().className).not.toContain("invisible");
+    fireEvent.keyUp(window, { key: "Meta", metaKey: false });
+    expect(send()).toBe(before);
   });
 });
 

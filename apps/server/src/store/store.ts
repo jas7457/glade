@@ -37,7 +37,7 @@ import type { SessionTextMessage } from "../harness/types.js";
 import { DB_FILE, getMeta, getMetaJson, inTransaction, openDatabase, setMeta, setMetaJson, transaction, type Db } from "./db/database.js";
 import { ENVIRONMENT_ID_KEY, ensureEnvironmentId } from "./db/migrations/003-environment.js";
 import { ulid } from "./db/ids.js";
-import { migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
+import { dropRemovedGeneral, migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
 import {
   agentMessageMeta,
   mergeTranscripts,
@@ -823,7 +823,8 @@ export class Store {
     const next = transaction(this.db, () => {
       const row = this.db.prepare("SELECT data_json FROM settings WHERE id = 1").get() as { data_json: string } | undefined;
       const current = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
-      const merged = deepMerge(current as Settings, patch) as DeepPartial<Settings>;
+      // Removed settings (e.g. I-153's `sendKey`, also from an older client's patch) are dropped on write.
+      const merged = dropRemovedGeneral(deepMerge(current as Settings, patch) as DeepPartial<Settings>);
       this.putSettings(merged, Date.now());
       this.event("settings", null);
       return merged;

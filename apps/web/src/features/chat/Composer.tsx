@@ -31,11 +31,16 @@
  * there's text, a button next to Stop/Send (and ⌥↩) asks the text as a side question instead of
  * queueing it: answered now in a card, never seen by the agent. Its slot is always reserved so
  * nothing shifts when the chat goes idle; otherwise it's invisible. `/btw <question>` works anytime.
+ *
+ * Send keys (I-153, fixed, no settings): ↩ sends (steers while running), ⌘↩ sends a follow-up
+ * (after the agent finishes), ⌥↩ asks aside, ⇧↩ inserts a new line. While running, holding ⌘
+ * turns the send button into its follow-up form (icon, tooltip, label; same size and slot), and
+ * clicking it then sends a follow-up. Harnesses without steering queue either way.
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { ArrowUp, MessageCircleQuestionMark, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
+import { ArrowUp, ClockArrowUp, MessageCircleQuestionMark, Paperclip, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
   DEFAULT_IMAGE_LIMITS,
   MAX_ATTACHMENT_BYTES,
@@ -57,14 +62,14 @@ import { loadChatCommands, runAction, useChatSession } from "@/state/chat-sessio
 import { createWorkspace } from "@/state/actions";
 import { attachFilesToText } from "@/state/attachments";
 import { harnessCapabilities, newChatHarnessFor } from "@/state/harnesses";
-import { envIdOfProject, envIdOfSession, sessionsById, settings, shellOf, visibleModelsOf, workspacesById } from "@/state/store";
+import { envIdOfProject, envIdOfSession, sessionsById, shellOf, visibleModelsOf, workspacesById } from "@/state/store";
 import { isLocalEnvironment } from "@/state/env-registry";
 import { isSlashCommandHidden } from "@/state/slash-visibility";
 import { notify } from "@/state/toasts";
 import { Chip, Spinner, Tooltip } from "@/ui";
 import {
+  enterAction,
   formatBytes,
-  isSendKey,
   parseShellInput,
   readImageFile,
   splitAttachableFiles,
@@ -88,6 +93,7 @@ import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/Mentio
 import { useFileSearch } from "./mentions/useFileSearch";
 import { composerPrefill, withPrefill } from "./composer-prefill";
 import { askSideQuestion } from "./side-question-actions";
+import { useMetaHeld } from "./use-meta-held";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -130,8 +136,11 @@ export interface ComposerBoxProps {
   onThinkingChange: (level: ThinkingLevel) => void;
   /** Hide the model and thinking pickers (harnesses that choose their own model, e.g. ACP agents; I-119). */
   hideModelPickers?: boolean;
-  /** Resolve true to clear the input. `files` = attached by reference (I-090), in order. */
-  onSend: (text: string, images: PromptImage[], files: File[]) => Promise<boolean>;
+  /**
+   * Resolve true to clear the input. `files` = attached by reference (I-090), in order. `behavior`
+   * = what the user asked for while running (↩ steer, ⌘↩ follow-up, I-153); ignored when idle.
+   */
+  onSend: (text: string, images: PromptImage[], files: File[], behavior: SendBehavior) => Promise<boolean>;
   onStop?: () => void;
   /** Rendered above the input box (queue chips, dialogs, banners). */
   above?: ComponentChildren;
@@ -149,8 +158,15 @@ export interface ComposerBoxProps {
    * when it was asked.
    */
   askAside?: (question: string) => Promise<boolean>;
+  /**
+   * The harness can steer a running agent (I-065). Without it, ↩ and ⌘↩ both queue a message and
+   * there's no steer/follow-up choice. Default true.
+   */
+  steering?: boolean;
   class?: string;
 }
+
+export type SendBehavior = "steer" | "followUp";
 
 export function ComposerBox(props: ComposerBoxProps) {
   const { draftKey, isRunning = false, busy: loading = false, supportsImages, lockedReason } = props;
@@ -167,7 +183,6 @@ export function ComposerBox(props: ComposerBoxProps) {
   const pickerFromSlash = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const sendKey = settings.value.general.sendKey;
   const slash = props.slash;
 
   // Shell mode (I-076): `!cmd` / `!!cmd` runs a command instead of sending a message.
@@ -272,6 +287,10 @@ export function ComposerBox(props: ComposerBoxProps) {
   const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0);
   // Ask Aside (I-140): only while the agent works and there's a question typed.
   const canAskAside = !!props.askAside && isRunning && !busy && !shellInput && text.trim().length > 0;
+  // Steer vs follow-up (I-153): only while running, for harnesses that steer, and not in shell mode.
+  const steering = props.steering !== false;
+  const choosesBehavior = isRunning && steering && !busy && !shellInput;
+  const followUpHeld = useMetaHeld(choosesBehavior);
 
   /** Ask the typed text as a side question (a typed `/btw ` prefix is dropped); attachments stay. */
   const askAside = async () => {
@@ -359,7 +378,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
   };
 
-  const send = async () => {
+  const send = async (behavior: SendBehavior = "steer") => {
     if (!canSend) return;
     if (shellInput && props.shell) {
       // Runs in the chat's folder instead of being sent (attached images stay for the next message).
@@ -394,6 +413,7 @@ export function ComposerBox(props: ComposerBoxProps) {
       sentText,
       sentImages.map(({ mimeType, data }) => ({ mimeType, data })),
       sentFiles.map((f) => f.file),
+      behavior,
     );
     if (!ok) {
       updateText(sentText);
@@ -420,7 +440,7 @@ export function ComposerBox(props: ComposerBoxProps) {
         e.preventDefault();
         const command = flat[active]!;
         // Fully typed: run/send it. Otherwise complete the highlighted command first.
-        if (command.name === typingName) void send();
+        if (command.name === typingName) void send(e.metaKey || e.ctrlKey ? "followUp" : "steer");
         else complete(command);
         return;
       }
@@ -448,14 +468,15 @@ export function ComposerBox(props: ComposerBoxProps) {
         return;
       }
     }
-    if (e.key === "Enter" && e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey && !composing && canAskAside) {
+    const action = enterAction(e);
+    if (action === "askAside" && canAskAside) {
       e.preventDefault();
       void askAside();
       return;
     }
-    if (isSendKey(e, sendKey)) {
+    if (action === "send" || action === "followUp") {
       e.preventDefault();
-      void send();
+      void send(action === "followUp" ? "followUp" : "steer");
       return;
     }
     if (e.key === "Escape" && isRunning && props.onStop) {
@@ -463,6 +484,16 @@ export function ComposerBox(props: ComposerBoxProps) {
       props.onStop();
     }
   };
+
+  const sendButton = shellInput
+    ? { label: "Run command", tooltip: "Run command (↩)" }
+    : !isRunning
+      ? { label: "Send", tooltip: "Send (↩)" }
+      : !steering
+        ? { label: "Queue message", tooltip: "Queue message (↩): sent after the agent finishes" }
+        : followUpHeld
+          ? { label: "Send follow-up", tooltip: "Follow-up (⌘↩): sent after the agent finishes" }
+          : { label: "Steer", tooltip: "Steer (↩): delivered after the current step · hold ⌘ for a follow-up" };
 
   return (
     <div class={cn("w-full", props.class)}>
@@ -551,7 +582,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           value={text}
           disabled={busy}
           placeholder={
-            lockedReason ?? props.placeholder ?? (isRunning ? (props.askAside ? "Queue a message, or ⌥↩ to ask aside" : "Queue a message…") : "Ask anything…")
+            lockedReason ?? props.placeholder ?? (isRunning ? runningPlaceholder(steering, !!props.askAside) : "Ask anything…")
           }
           aria-label="Message"
           aria-autocomplete={slash || props.mentions ? "list" : undefined}
@@ -654,19 +685,28 @@ export function ComposerBox(props: ComposerBoxProps) {
             </Tooltip>
           )}
           {/* Always there (I-151): disabled without text, so buttons don't pop in and out. */}
-          <button
-            type="button"
-            aria-label={shellInput ? "Run command" : isRunning ? "Queue message" : "Send"}
-            disabled={!canSend}
-            onClick={() => void send()}
-            class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
-          >
-            <ArrowUp size={16} strokeWidth={2.5} />
-          </button>
+          <Tooltip content={sendButton.tooltip}>
+            <button
+              type="button"
+              aria-label={sendButton.label}
+              data-send-behavior={choosesBehavior ? (followUpHeld ? "followUp" : "steer") : undefined}
+              disabled={!canSend}
+              onClick={(e) => void send(choosesBehavior && (followUpHeld || e.metaKey || e.ctrlKey) ? "followUp" : "steer")}
+              class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
+            >
+              {choosesBehavior && followUpHeld ? <ClockArrowUp size={16} strokeWidth={2.25} /> : <ArrowUp size={16} strokeWidth={2.5} />}
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>
   );
+}
+
+/** The placeholder while the agent works (I-153): the keys that apply, short. */
+export function runningPlaceholder(steering: boolean, askAside: boolean): string {
+  if (!steering) return askAside ? "Queue a message, or ⌥↩ to ask aside" : "Queue a message…";
+  return askAside ? "↩ steer · ⌘↩ follow-up · ⌥↩ ask aside" : "↩ steer · ⌘↩ follow-up";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -734,14 +774,14 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
     ...state.queue.followUp.map((text) => ({ kind: "Follow-up", text })),
   ];
 
-  const onSend = (text: string, images: PromptImage[], files: File[]) =>
+  const onSend = (text: string, images: PromptImage[], files: File[], behavior: SendBehavior) =>
     runAction(
       async () =>
         apiForSession(chatId).prompt(chatId, {
           text: await attachFilesToText(chatId, text, files),
           images: images.length ? images : undefined,
           // Steer vs follow-up only exists for harnesses with message queues (I-065).
-          behavior: store.state.value.isRunning && capabilities.steering ? settings.value.general.busyBehavior : undefined,
+          behavior: store.state.value.isRunning && capabilities.steering ? behavior : undefined,
         }),
       "Could not send message",
     );
@@ -842,6 +882,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       mentions={{ projectId, envId }}
       shell={capabilities.shell ? { run: runShell } : undefined}
       askAside={capabilities.sideQuestions === true && !lockedReason ? (question) => askSideQuestion(chatId, question) : undefined}
+      steering={capabilities.steering !== false}
       class={className}
     />
   );

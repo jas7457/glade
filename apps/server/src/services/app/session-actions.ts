@@ -78,7 +78,8 @@ export class SessionActions {
     live.lastUsedAt = Date.now();
     live.lastPromptAt = Date.now();
     live.awaitingRun = true;
-    const behavior = req.behavior ?? this.ctx.store.getSettings().general.busyBehavior;
+    // ↩ steers while running; ⌘↩ sends a follow-up (I-153, no setting any more).
+    const behavior = req.behavior ?? "steer";
     await live.session.prompt({ ...req, behavior });
     const session = this.records.requireSession(id);
     const next: Session = { ...session, lastActivityAt: Date.now() };

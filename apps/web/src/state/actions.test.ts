@@ -16,8 +16,8 @@ const mocked = vi.mocked(api);
 describe("mergeSettings", () => {
   it("deep merges objects and replaces arrays/scalars", () => {
     const base = { ...defaultSettings(), models: { ...defaultSettings().models, hiddenModels: ["a/b"] } };
-    const out = mergeSettings(base, { general: { sendKey: "mod-enter" }, models: { hiddenModels: ["c/d"] } });
-    expect(out.general).toEqual({ ...base.general, sendKey: "mod-enter" });
+    const out = mergeSettings(base, { general: { generateTitles: false }, models: { hiddenModels: ["c/d"] } });
+    expect(out.general).toEqual({ ...base.general, generateTitles: false });
     expect(out.models.hiddenModels).toEqual(["c/d"]);
     expect(out.appearance).toBe(base.appearance);
   });

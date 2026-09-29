@@ -147,7 +147,7 @@ export function readLegacyData(dataDir: string): LegacyData {
 
 /** Stored-settings upgrades. Returns the same object when nothing changes. */
 export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  return migrateSmallModel(migratePiSettings(migrateNotifications(stored)));
+  return migrateSmallModel(migratePiSettings(dropRemovedGeneral(stored)));
 }
 
 /**
@@ -162,11 +162,21 @@ function migrateSmallModel(stored: DeepPartial<Settings>): DeepPartial<Settings>
   return { ...stored, models: next } as DeepPartial<Settings>;
 }
 
-/** I-028: system notifications were removed; drop the old toggle from stored settings. */
-function migrateNotifications(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+/**
+ * `general` settings that no longer exist: `notifyOnComplete` (I-028, system notifications were
+ * removed), `sendKey` and `busyBehavior` (I-153, the send keys are fixed).
+ */
+const REMOVED_GENERAL_KEYS = ["notifyOnComplete", "sendKey", "busyBehavior"] as const;
+
+/**
+ * Drop removed `general` settings from stored settings. Applied when reading (old values are
+ * tolerated, just ignored) and to the stored overrides before each write (so they go away).
+ */
+export function dropRemovedGeneral(stored: DeepPartial<Settings>): DeepPartial<Settings> {
   const general = (stored as { general?: Record<string, unknown> }).general;
-  if (!general || !("notifyOnComplete" in general)) return stored;
-  const { notifyOnComplete: _removed, ...rest } = general;
+  if (!general || !REMOVED_GENERAL_KEYS.some((k) => k in general)) return stored;
+  const rest: Record<string, unknown> = { ...general };
+  for (const key of REMOVED_GENERAL_KEYS) delete rest[key];
   return { ...stored, general: rest } as DeepPartial<Settings>;
 }
 

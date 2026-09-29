@@ -128,11 +128,9 @@ describe("REST API", () => {
   it("serves models and settings", async () => {
     const models = (await (await req("GET", "/api/models?refresh=1")).json()) as unknown[];
     expect(models.length).toBeGreaterThan(0);
-    const patched = await req("PATCH", "/api/settings", { general: { sendKey: "mod-enter" } });
-    expect(((await patched.json()) as { general: { sendKey: string } }).general.sendKey).toBe("mod-enter");
-    expect(((await (await req("GET", "/api/settings")).json()) as { general: { sendKey: string } }).general.sendKey).toBe(
-      "mod-enter",
-    );
+    const patched = await req("PATCH", "/api/settings", { general: { generateTitles: false } });
+    expect(((await patched.json()) as { general: { generateTitles: boolean } }).general.generateTitles).toBe(false);
+    expect(((await (await req("GET", "/api/settings")).json()) as { general: { generateTitles: boolean } }).general.generateTitles).toBe(false);
   });
 
   it("lists the installed harnesses with their capabilities (I-065)", async () => {

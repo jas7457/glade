@@ -24,11 +24,11 @@ describe("quickTitle", () => {
 describe("deepMerge", () => {
   it("merges nested sections and replaces arrays", () => {
     const merged = deepMerge(defaultSettings(), {
-      general: { sendKey: "mod-enter" },
+      general: { generateTitles: false },
       models: { hiddenModels: ["a/b"] },
     });
-    expect(merged.general.sendKey).toBe("mod-enter");
-    expect(merged.general.busyBehavior).toBe("steer");
+    expect(merged.general.generateTitles).toBe(false);
+    expect(merged.general.generateSummaries).toBe(true);
     expect(merged.models.hiddenModels).toEqual(["a/b"]);
   });
 });

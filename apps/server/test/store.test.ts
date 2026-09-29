@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Project, Session, Workspace } from "@glade/protocol";
 import type { LegacyChat } from "../src/store/migrate-workspaces.js";
+import { DB_FILE, openDatabase } from "../src/store/db/database.js";
 import { migrateSettings, Store } from "../src/store/store.js";
 
 const dirs: string[] = [];
@@ -58,7 +59,7 @@ describe("Store", () => {
     store.upsertSession({ ...session, id: "s3", kind: "subagent", parentSessionId: "s1", agentName: "reviewer" });
     store.upsertSession({ ...session, title: "Tab" });
     store.removeWorkspace("w2"); // takes its sessions along
-    store.updateSettings({ general: { sendKey: "mod-enter" }, models: { hiddenModels: ["a/b"] } });
+    store.updateSettings({ general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } });
     store.flush();
 
     const reloaded = new Store(dir);
@@ -71,11 +72,11 @@ describe("Store", () => {
     reloaded.removeSession("s3");
     expect(reloaded.listSessions().map((x) => x.id)).toEqual(["s1"]);
     const settings = reloaded.getSettings();
-    expect(settings.general.sendKey).toBe("mod-enter");
-    expect(settings.general.generateTitles).toBe(true); // default preserved
+    expect(settings.general.generateTitles).toBe(false);
+    expect(settings.general.generateSummaries).toBe(true); // default preserved
     expect(settings.models.hiddenModels).toEqual(["a/b"]);
     // Only overrides are stored (and exported as JSON for the desktop app).
-    const overrides = { general: { sendKey: "mod-enter" }, models: { hiddenModels: ["a/b"] } };
+    const overrides = { general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } };
     expect(reloaded.getSettingsOverrides()).toEqual(overrides);
     expect(JSON.parse(readFileSync(join(dir, "settings.export.json"), "utf8"))).toEqual(overrides);
     expect(existsSync(join(dir, "settings.json"))).toBe(false);
@@ -87,21 +88,41 @@ describe("Store", () => {
 });
 
 describe("settings migration", () => {
-  it("drops the removed notifyOnComplete setting", () => {
+  it("drops the removed notifyOnComplete, sendKey and busyBehavior settings (I-028, I-153)", () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ general: { notifyOnComplete: false, sendKey: "mod-enter" } }));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ general: { notifyOnComplete: false, sendKey: "mod-enter", busyBehavior: "followUp", generateTitles: false } }),
+    );
     const store = new Store(dir, 0);
-    expect(store.getSettings().general).not.toHaveProperty("notifyOnComplete");
-    expect(store.getSettings().general.sendKey).toBe("mod-enter");
-    expect(store.getSettingsOverrides().general).toEqual({ sendKey: "mod-enter" });
+    expect(store.getSettings().general).toEqual({ generateTitles: false, generateSummaries: true });
+    expect(store.getSettingsOverrides().general).toEqual({ generateTitles: false });
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads old sendKey/busyBehavior values in the database fine and drops them on the next write (I-153)", () => {
+    const dir = tempDir();
+    new Store(dir, 0).flush();
+    // Stored by an older Glade.
+    const db = openDatabase(join(dir, DB_FILE));
+    db.prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, 1) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json").run(
+      JSON.stringify({ general: { sendKey: "mod-enter", busyBehavior: "followUp", generateTitles: false } }),
+    );
+    db.close();
+    const store = new Store(dir, 0);
+    expect(store.getSettings().general).toEqual({ generateTitles: false, generateSummaries: true });
+    store.updateSettings({ models: { hiddenModels: ["a/b"] } });
+    expect(store.getSettingsOverrides()).toEqual({ general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } });
+    // An older client's patch doesn't bring them back either.
+    store.updateSettings({ general: { sendKey: "enter" } } as never);
+    expect(store.getSettingsOverrides().general).toEqual({ generateTitles: false });
   });
 
   it("moves pi's settings from agent to harnesses.pi (I-066)", () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ agent: { piPath: "/opt/pi", extraArgs: ["--x"], maxIdleProcesses: 2, autoRetry: false }, general: { sendKey: "mod-enter" } }),
+      JSON.stringify({ agent: { piPath: "/opt/pi", extraArgs: ["--x"], maxIdleProcesses: 2, autoRetry: false }, general: { generateTitles: false } }),
     );
     const store = new Store(dir, 0);
     const settings = store.getSettings();
@@ -110,7 +131,7 @@ describe("settings migration", () => {
     expect(store.getSettingsOverrides()).toEqual({
       agent: { maxIdleProcesses: 2 },
       harnesses: { pi: { piPath: "/opt/pi", extraArgs: ["--x"], autoRetry: false } },
-      general: { sendKey: "mod-enter" },
+      general: { generateTitles: false },
     });
     rmSync(dir, { recursive: true, force: true });
   });

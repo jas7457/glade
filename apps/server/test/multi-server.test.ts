@@ -100,9 +100,9 @@ describe("two servers on one data folder (I-062)", () => {
 
   it("settings changed in one server reach the other's clients", async () => {
     const { a, b } = pair();
-    a.service.updateSettings({ general: { sendKey: "mod-enter" } });
-    await until(() => b.messages.some((m) => m.type === "settings" && m.settings.general.sendKey === "mod-enter"), 4000);
-    expect(b.service.getSettings().general.sendKey).toBe("mod-enter");
+    a.service.updateSettings({ general: { generateTitles: false } });
+    await until(() => b.messages.some((m) => m.type === "settings" && m.settings.general.generateTitles === false), 4000);
+    expect(b.service.getSettings().general.generateTitles).toBe(false);
   });
 
   it("concurrent edits from both servers don't lose writes", async () => {
@@ -112,7 +112,7 @@ describe("two servers on one data folder (I-062)", () => {
     const wb = await b.service.createWorkspace({ projectId: null });
     await a.service.updateWorkspace(wa.workspace.id, { title: "From A" });
     await b.service.updateWorkspace(wb.workspace.id, { title: "From B" });
-    a.service.updateSettings({ general: { sendKey: "mod-enter" } });
+    a.service.updateSettings({ general: { generateTitles: false } });
     b.service.updateSettings({ models: { hiddenModels: ["fake/fast"] } });
     a.store.flush();
     b.store.flush();
@@ -121,7 +121,7 @@ describe("two servers on one data folder (I-062)", () => {
     const titles = Object.fromEntries(fresh.listWorkspaces().map((w) => [w.id, w.title]));
     expect(titles).toEqual({ [wa.workspace.id]: "From A", [wb.workspace.id]: "From B" });
     expect(fresh.listSessions().map((s) => s.id).sort()).toEqual([wa.session.session.id, wb.session.session.id].sort());
-    expect(fresh.getSettings().general.sendKey).toBe("mod-enter");
+    expect(fresh.getSettings().general.generateTitles).toBe(false);
     expect(fresh.getSettings().models.hiddenModels).toEqual(["fake/fast"]);
     // And each server ends up with the other's changes as well.
     await until(() => a.service.listWorkspaces().length === 2 && b.service.listWorkspaces().length === 2, 4000);
