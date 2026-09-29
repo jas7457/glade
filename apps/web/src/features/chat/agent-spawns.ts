@@ -19,7 +19,7 @@ import {
   type Transcript,
   type UserMessage,
 } from "@glade/protocol";
-import { CHIP_LABELS, chipKind, latestActivity, type ChipKind } from "@/features/workspace/agent-chips";
+import { CHIP_LABELS, chipKind, latestActivity, sessionCwd, type ChipKind } from "@/features/workspace/agent-chips";
 import { agentPreview } from "./AgentMessageCard";
 import { agentIdentity, sessionAgentIdentity, type AgentIdentityView } from "./agent-identity";
 
@@ -161,7 +161,7 @@ export function spawnCardState({ link, session, transcript, description, callAct
   if (kind === "blocked") latest = "Waiting for your input";
   else if (kind === "failed" && end?.kind === "exited") latest = agentPreview(end.body);
   else if (kind === "done" && report) latest = agentPreview(report);
-  else latest = latestActivity(transcript) || (last ? agentPreview(last.body) : "") || (running ? "Starting…" : "");
+  else latest = latestActivity(transcript, sessionCwd(session?.id)) || (last ? agentPreview(last.body) : "") || (running ? "Starting…" : "");
   const start = session?.createdAt ?? ref.spawnedAt;
   const stop = session?.agent?.doneAt ?? (running ? now : (end?.timestamp ?? session?.lastActivityAt ?? last?.timestamp ?? start));
   return {

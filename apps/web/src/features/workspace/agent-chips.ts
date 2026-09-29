@@ -13,6 +13,14 @@ import { agentPreview } from "@/features/chat/AgentMessageCard";
 import { sessionAgentIdentity, type AgentIdentityView } from "@/features/chat/agent-identity";
 import { formatDuration } from "@/features/chat/duration";
 import { summarizeToolCall } from "@/features/chat/tools/summaries";
+import { homeOf } from "@/lib/paths";
+import { sessionsById, workspacesById } from "@/state/store";
+
+/** The folder a session's chat works in (its workspace's cwd), for relative tool paths (I-158). */
+export function sessionCwd(sessionId: string | null | undefined): string | null {
+  const session = sessionId ? sessionsById.value.get(sessionId) : undefined;
+  return session ? (workspacesById.value.get(session.workspaceId)?.cwd ?? null) : null;
+}
 
 /**
  * - `working`: running a turn · `blocked`: waiting for the user's input · `done`: reported
@@ -107,36 +115,36 @@ export const THINKING_ACTIVITY = "Thinking…";
  * result), "Thinking…" (I-130). A finished message without text or calls is skipped. "" when the
  * agent hasn't produced anything (callers show "Starting…" then).
  */
-export function latestActivity(transcript: Transcript | null): string {
+export function latestActivity(transcript: Transcript | null, cwd?: string | null): string {
   if (!transcript) return "";
   for (const message of assistantsNewestFirst(transcript)) {
-    const line = messageActivity(transcript, message);
+    const line = messageActivity(transcript, message, cwd ?? null);
     if (line) return line;
     if (message.streaming) return THINKING_ACTIVITY;
   }
   return "";
 }
 
-function messageActivity(transcript: Transcript, message: AssistantMessage): string {
+function messageActivity(transcript: Transcript, message: AssistantMessage, cwd: string | null): string {
   const blocks = message.content;
   const calls = blocks.filter((b): b is ToolCallBlock => b.type === "toolCall");
   const running = [...calls].reverse().find((c) => {
     const r = transcript.toolResults[c.id];
     return r ? r.status === "running" : message.streaming;
   });
-  if (running) return summaryLine(running, true);
+  if (running) return summaryLine(running, true, cwd);
   // Whichever came last: reply text or a finished tool call (thinking blocks are skipped).
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i]!;
     if (b.type === "text" && b.text.trim()) return lastLine(b.text);
-    if (b.type === "toolCall") return summaryLine(b, false);
+    if (b.type === "toolCall") return summaryLine(b, false, cwd);
   }
   return "";
 }
 
-function summaryLine(call: ToolCallBlock, active: boolean): string {
+function summaryLine(call: ToolCallBlock, active: boolean, cwd: string | null): string {
   if (call.kind === "other") return toolInWords(call.name, active);
-  const s = summarizeToolCall(call, active);
+  const s = summarizeToolCall(call, active, undefined, cwd ? { cwd, home: homeOf(cwd) } : undefined);
   if (call.kind === "shell" && !s.subject) return active ? "Running a command" : "Ran a command";
   return [s.verb, s.subject].filter(Boolean).join(" ");
 }
@@ -187,7 +195,7 @@ export function agentChip(session: ChipSession, transcript: Transcript | null, m
         ? "Process stopped"
         : kind === "done" && result
         ? agentPreview(result)
-        : latestActivity(transcript) || (kind === "working" ? "Starting…" : "");
+        : latestActivity(transcript, sessionCwd(session.id)) || (kind === "working" ? "Starting…" : "");
   return {
     id: session.id,
     name: session.agentName || session.title || "Sub-agent",

@@ -47,6 +47,12 @@ describe("shortModelName", () => {
 });
 
 describe("latestActivity", () => {
+  it("shows tool paths relative to the chat's folder when it's known (I-158)", () => {
+    const edit = { type: "toolCall" as const, id: "t1", name: "edit", kind: "edit" as const, input: { path: "/Users/me/app/src/a.ts" }, args: {} };
+    expect(latestActivity(transcript([edit], { t1: result("done") }), "/Users/me/app")).toBe("Edited src/a.ts");
+    expect(latestActivity(transcript([edit], { t1: result("done") }))).toBe("Edited /Users/me/app/src/a.ts");
+  });
+
   it("shows the running tool call, else the latest reply line or finished call", () => {
     expect(latestActivity(null)).toBe("");
     expect(latestActivity(transcript([{ type: "text", text: "Checking." }, bash], { t1: result("running") }))).toBe("Running pnpm test");
