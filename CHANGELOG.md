@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Side questions: ask follow-ups right in the same card. Answers in long chats now see the start
+  of the chat and your earlier messages, not just the latest part, and the card says when an answer
+  only saw part of the chat. Tell the Agent / Add to Queue pass on the whole thread.
 - The Glade iPhone app (early, simulator only for now): it runs no server of its own and connects
   to your Macs. On first launch, Connect to a Device pairs it with a Mac from its Share This
   Device… link or code; the Mac sees an "iPhone" asking to connect, and the token is kept in the
