@@ -1,18 +1,19 @@
 /**
- * Home (I-164): the chats across all connected Macs. Until the chat list lands (step 4) it lists
- * the connected devices and their status.
+ * Home (I-164, doc §5.2): the chats across all connected Macs (`chats/ChatList`), with search.
+ * Nav bar: Settings on the left, New Chat (+) on the right, large title "Chats".
  */
-import { Laptop, Plus, Settings } from "lucide-preact";
+import { useSignal } from "@preact/signals";
+import { Plus, Settings } from "lucide-preact";
 import { useNavigate } from "react-router";
-import { remoteStateOf, remoteStateShort } from "@/state/remote-status";
-import { connections } from "@/state/env-registry";
-import { savedEnvironments } from "@/state/saved-environments";
+import { envIdOf } from "@/state/store";
 import { paths } from "~/app/routes";
-import { ListGroup, ListRow, NavBar, NavIconButton, Screen, ScreenBody } from "~/ui/phone";
+import { ChatList } from "~/chats/ChatList";
+import { NavBar, NavIconButton, Screen, ScreenBody } from "~/ui/phone";
+import { SearchField } from "~/ui/phone-extra";
 
 export function HomeScreen() {
   const navigate = useNavigate();
-  const byId = new Map(connections.value.map((c) => [c.id, c]));
+  const query = useSignal("");
   return (
     <Screen>
       <NavBar
@@ -24,18 +25,21 @@ export function HomeScreen() {
           </NavIconButton>
         }
         right={
-          <NavIconButton label="Connect to a Device" onClick={() => navigate(paths.connect())}>
+          <NavIconButton label="New Chat" onClick={() => navigate(paths.newChat())}>
             <Plus size={24} />
           </NavIconButton>
         }
       />
+      <div class="shrink-0 bg-window px-4 pb-3">
+        <SearchField value={query.value} onInput={(v) => (query.value = v)} />
+      </div>
       <ScreenBody>
-        <ListGroup header="Devices">
-          {savedEnvironments.value.map((env) => {
-            const c = byId.get(env.id);
-            return <ListRow key={env.id} icon={<Laptop size={20} />} title={c?.name.value ?? env.alias ?? env.name} detail={remoteStateShort(remoteStateOf(env.id))} />;
-          })}
-        </ListGroup>
+        <ChatList
+          query={query.value}
+          onOpen={(chat) => navigate(paths.chat(envIdOf(chat), chat.id))}
+          onOpenDevice={(id) => navigate(paths.device(id))}
+          onNewChat={() => navigate(paths.newChat())}
+        />
       </ScreenBody>
     </Screen>
   );
