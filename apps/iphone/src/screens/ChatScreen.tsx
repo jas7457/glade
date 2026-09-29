@@ -2,20 +2,23 @@
  * One chat, full screen (I-164, doc §5.3): `/e/:envId/chats/:chatId[?tab=<sessionId>]`.
  *
  * Nav bar: the menu button (the chat list over the chat, also a swipe from the left edge), the
- * chat's title and its working / needs-you indicator. Below: the shared transcript full width,
+ * chat's title and its working / needs-you indicator, and under it the model · thinking level
+ * (tap: the Model & Thinking sheet, I-172). Below: the shared transcript full width,
  * the sub-agents as cards, and the touch composer (↩ = new line, Send sends; holding Send offers
  * steer / follow-up / Ask Aside). Pickers open as sheets (`OptionSheetContext` → `SheetList`).
  *
  * `?tab=` a sub-agent's session: that agent's chat full screen with a back button to its parent.
  * The screen pins itself to the visible area above the keyboard (chat/keyboard.ts).
  */
-import { ChevronLeft, Menu as MenuIcon } from "lucide-preact";
+import { ChevronDown, ChevronLeft, Menu as MenuIcon } from "lucide-preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
 import { AgentLinksContext, type AgentLinks } from "@glade/app-core/features/chat/agent-links";
 import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
+import { chatModelPickerProps } from "@glade/app-core/features/chat/chat-model";
 import { Composer } from "@glade/app-core/features/chat/Composer";
+import { ModelThinkingPicker } from "@glade/app-core/features/chat/Pickers";
 import { OptionSheetContext } from "@glade/app-core/features/chat/option-sheet";
 import { Transcript } from "@glade/app-core/features/chat/Transcript";
 import { cn } from "@glade/app-core/lib/cn";
@@ -70,9 +73,12 @@ export function ChatScreen() {
       >
         <NavBar
           title={
-            <span class="inline-flex max-w-full items-center justify-center gap-1.5">
-              <span class="truncate">{title}</span>
-              <StatusIndicator session={session} />
+            <span class="flex max-w-full flex-col items-center">
+              <span class="inline-flex max-w-full items-center justify-center gap-1.5 leading-[21px]">
+                <span class="truncate">{title}</span>
+                <StatusIndicator session={session} />
+              </span>
+              {sessionId && <TitleModelLine sessionId={sessionId} />}
             </span>
           }
           left={
@@ -105,6 +111,31 @@ function StatusIndicator({ session }: { session: SessionSummary | undefined }) {
     );
   if (session?.status === "blocked") return <span role="img" aria-label="Needs you" class="size-2 shrink-0 rounded-full bg-warning" />;
   return null;
+}
+
+/**
+ * "Opus · Medium ▾" under the title (I-172): opens the composer's Model & Thinking sheet. Not
+ * shown for agents that pick their own model, or before the chat has loaded.
+ */
+function TitleModelLine({ sessionId }: { sessionId: string }) {
+  const picker = chatModelPickerProps(sessionId);
+  if (!picker?.model) return null;
+  return (
+    <ModelThinkingPicker
+      {...picker}
+      trigger={(open, label) => (
+        <button
+          type="button"
+          class="pointer-events-auto -mt-px inline-flex max-w-full items-center gap-0.5 rounded-full px-1.5 text-[12px] leading-4 font-normal text-fg-muted active:opacity-60"
+          aria-label={label.thinking ? `Model and thinking: ${label.model}, ${label.thinking}` : `Model: ${label.model}`}
+          onClick={open}
+        >
+          <span class="truncate">{label.thinking ? `${label.model} · ${label.thinking}` : label.model}</span>
+          <ChevronDown size={11} strokeWidth={2.5} class="shrink-0 opacity-70" />
+        </button>
+      )}
+    />
+  );
 }
 
 /** Transcript + sub-agent cards + composer, full width (the phone's ChatPane). */

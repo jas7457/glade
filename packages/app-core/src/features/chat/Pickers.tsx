@@ -199,6 +199,11 @@ export interface ModelThinkingPickerProps extends PickerOpenProps {
   agents?: { label: string; section: OptionSheetSection } | null;
   /** The agent chooses its own model (I-119): no Model/Thinking; the pill shows the agent. Needs `agents`. */
   hideModel?: boolean;
+  /**
+   * Sheet only: a different control that opens the same sheet (the iPhone chat's title line,
+   * I-172). `label`: the model's name and the thinking level (`null`: the model doesn't reason).
+   */
+  trigger?: (open: () => void, label: { model: string; thinking: string | null }) => ComponentChildren;
 }
 
 /**
@@ -261,7 +266,7 @@ export function ModelThinkingPicker(props: ModelThinkingPickerProps) {
       title={thinks ? "Model & Thinking" : "Model"}
       open={open}
       onOpenChange={onOpenChange}
-      trigger={(onClick) => (
+      trigger={props.trigger ? (onClick) => props.trigger!(onClick, { model: modelLabel, thinking: thinks ? thinkingLabel(thinkingLevel) : null }) : (onClick) => (
         <button
           type="button"
           class={cn(triggerClass, touchTriggerClass, "max-w-[14rem]")}
