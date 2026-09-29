@@ -36,6 +36,11 @@
  * (after the agent finishes), ⌥↩ asks aside, ⇧↩ inserts a new line. While running, holding ⌘
  * turns the send button into its follow-up form (icon, tooltip, label; same size and slot), and
  * clicking it then sends a follow-up. Harnesses without steering queue either way.
+ *
+ * Touch (the iPhone app, I-164; `touch` prop, default `isIphoneApp()`): ↩ inserts a new line and
+ * only the Send button sends (steers while running). Holding Send opens its options as a sheet
+ * (`OptionSheetContext`): Steer, Send as Follow-up, Ask Aside. Bigger buttons; no separate Ask
+ * Aside button.
  */
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -56,6 +61,7 @@ import {
   type ThinkingLevel,
 } from "@glade/protocol";
 import { cn } from "@/lib/cn";
+import { isIphoneApp } from "@/lib/desktop";
 import { apiForSession } from "@/state/env-api";
 import { chatPath } from "@/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@/state/chat-session";
@@ -94,6 +100,7 @@ import { useFileSearch } from "./mentions/useFileSearch";
 import { composerPrefill, withPrefill } from "./composer-prefill";
 import { askSideQuestion } from "./side-question-actions";
 import { useMetaHeld } from "./use-meta-held";
+import { useOptionSheet, type OptionSheetItem } from "./option-sheet";
 
 // ---------------------------------------------------------------------------------------------
 // Drafts survive switching chats (in memory).
@@ -163,8 +170,16 @@ export interface ComposerBoxProps {
    * there's no steer/follow-up choice. Default true.
    */
   steering?: boolean;
+  /**
+   * Touch composer (I-164): ↩ is a new line, the Send button sends, holding it offers steer /
+   * follow-up / Ask Aside. Default: `isIphoneApp()`.
+   */
+  touch?: boolean;
   class?: string;
 }
+
+/** How long Send must be held on touch to open its options (ms). */
+export const SEND_LONG_PRESS_MS = 450;
 
 export type SendBehavior = "steer" | "followUp";
 
@@ -172,6 +187,11 @@ export function ComposerBox(props: ComposerBoxProps) {
   const { draftKey, isRunning = false, busy: loading = false, supportsImages, lockedReason } = props;
   /** No typing or sending: loading, or locked (read-only). */
   const busy = loading || !!lockedReason;
+  const touch = props.touch ?? isIphoneApp();
+  const OptionSheet = useOptionSheet();
+  const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
   const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [images, setImages] = useState<Attachment[]>([]);
   const { open: openImage, lightbox: imageLightbox } = useImageLightbox(images);
@@ -468,7 +488,8 @@ export function ComposerBox(props: ComposerBoxProps) {
         return;
       }
     }
-    const action = enterAction(e);
+    // Touch (I-164): ↩ is a plain new line; only the Send button sends.
+    const action = touch ? null : enterAction(e);
     if (action === "askAside" && canAskAside) {
       e.preventDefault();
       void askAside();
@@ -484,6 +505,44 @@ export function ComposerBox(props: ComposerBoxProps) {
       props.onStop();
     }
   };
+
+  // Touch (I-164): holding Send offers steer / follow-up / Ask Aside.
+  const hasSendOptions = touch && !!OptionSheet && (choosesBehavior || canAskAside);
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+  const sendPressHandlers = touch
+    ? {
+        onTouchStart: () => {
+          longPressed.current = false;
+          cancelLongPress();
+          if (!hasSendOptions) return;
+          longPressTimer.current = setTimeout(() => {
+            longPressTimer.current = null;
+            longPressed.current = true;
+            setSendOptionsOpen(true);
+          }, SEND_LONG_PRESS_MS);
+        },
+        onTouchEnd: cancelLongPress,
+        onTouchMove: cancelLongPress,
+        onTouchCancel: cancelLongPress,
+        onContextMenu: (e: Event) => e.preventDefault(),
+        // Keep the keyboard up: tapping Send mustn't take the focus from the text.
+        onMouseDown: (e: Event) => e.preventDefault(),
+      }
+    : {};
+  useEffect(() => cancelLongPress, []);
+  const sendOptions: OptionSheetItem[] = [];
+  if (choosesBehavior) {
+    sendOptions.push(
+      { key: "steer", label: "Steer", description: "Delivered after the agent's current step", disabled: !canSend, onSelect: () => void send("steer") },
+      { key: "followUp", label: "Send as Follow-up", description: "Sent after the agent finishes", disabled: !canSend, onSelect: () => void send("followUp") },
+    );
+  }
+  if (props.askAside) {
+    sendOptions.push({ key: "askAside", label: "Ask Aside", description: "Answered now; the agent won't see it", disabled: !canAskAside, onSelect: () => void askAside() });
+  }
 
   const sendButton = shellInput
     ? { label: "Run command", tooltip: "Run command (↩)" }
@@ -547,7 +606,11 @@ export function ComposerBox(props: ComposerBoxProps) {
                   type="button"
                   aria-label={`Remove ${img.name}`}
                   onClick={() => setImages((prev) => prev.filter((i) => i.id !== img.id))}
-                  class="absolute -top-1.5 -right-1.5 flex size-[18px] items-center justify-center rounded-full bg-fg text-window opacity-0 shadow group-hover/att:opacity-100 focus-visible:opacity-100"
+                  class={cn(
+                    "absolute -top-1.5 -right-1.5 flex size-[18px] items-center justify-center rounded-full bg-fg text-window opacity-0 shadow group-hover/att:opacity-100 focus-visible:opacity-100",
+                    // No hover on touch: always shown, with a bigger target.
+                    touch && "size-6 opacity-100",
+                  )}
                 >
                   <X size={11} strokeWidth={3} />
                 </button>
@@ -582,7 +645,9 @@ export function ComposerBox(props: ComposerBoxProps) {
           value={text}
           disabled={busy}
           placeholder={
-            lockedReason ?? props.placeholder ?? (isRunning ? runningPlaceholder(steering, !!props.askAside) : "Ask anything…")
+            lockedReason ??
+            props.placeholder ??
+            (isRunning ? (touch ? touchRunningPlaceholder(steering, !!props.askAside) : runningPlaceholder(steering, !!props.askAside)) : "Ask anything…")
           }
           aria-label="Message"
           aria-autocomplete={slash || props.mentions ? "list" : undefined}
@@ -615,10 +680,13 @@ export function ComposerBox(props: ComposerBoxProps) {
               type="button"
               aria-label="Attach files"
               disabled={busy}
-              class="inline-flex size-6 items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40"
+              class={cn(
+                "inline-flex items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40",
+                touch ? "size-9" : "size-6",
+              )}
               onClick={() => fileRef.current?.click()}
             >
-              <Paperclip size={14} />
+              <Paperclip size={touch ? 18 : 14} />
             </button>
           </Tooltip>
           <input
@@ -653,7 +721,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           {props.toolbarExtra}
           <div class="flex-1" />
           {loading && <Spinner size={14} class="mr-1" />}
-          {props.askAside && (
+          {props.askAside && !touch && (
             // The slot is always there (no layout shift, I-140); the button only shows while it applies.
             <span class={cn("flex", !canAskAside && "invisible")} data-testid="ask-aside-slot">
               <Tooltip content="Ask aside (⌥↩): answered now, the agent won't see it">
@@ -678,9 +746,9 @@ export function ComposerBox(props: ComposerBoxProps) {
                 type="button"
                 aria-label="Stop"
                 onClick={props.onStop}
-                class="flex size-7 items-center justify-center rounded-full bg-fg text-window hover:opacity-85"
+                class={cn("flex items-center justify-center rounded-full bg-fg text-window hover:opacity-85", touch ? "size-9" : "size-7")}
               >
-                <Square size={10} fill="currentColor" strokeWidth={0} />
+                <Square size={touch ? 12 : 10} fill="currentColor" strokeWidth={0} />
               </button>
             </Tooltip>
           )}
@@ -690,13 +758,47 @@ export function ComposerBox(props: ComposerBoxProps) {
               type="button"
               aria-label={sendButton.label}
               data-send-behavior={choosesBehavior ? (followUpHeld ? "followUp" : "steer") : undefined}
+              aria-haspopup={hasSendOptions ? "dialog" : undefined}
               disabled={!canSend}
-              onClick={(e) => void send(choosesBehavior && (followUpHeld || e.metaKey || e.ctrlKey) ? "followUp" : "steer")}
-              class="flex size-7 items-center justify-center rounded-full bg-accent text-accent-fg hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window"
+              onClick={(e) => {
+                if (longPressed.current) {
+                  // The long press opened the options; this is its trailing click.
+                  longPressed.current = false;
+                  return;
+                }
+                void send(choosesBehavior && (followUpHeld || e.metaKey || e.ctrlKey) ? "followUp" : "steer");
+              }}
+              {...sendPressHandlers}
+              class={cn(
+                "flex items-center justify-center rounded-full bg-accent text-accent-fg select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
+                touch ? "size-9 touch-manipulation" : "size-7",
+              )}
             >
-              {choosesBehavior && followUpHeld ? <ClockArrowUp size={16} strokeWidth={2.25} /> : <ArrowUp size={16} strokeWidth={2.5} />}
+              {choosesBehavior && followUpHeld ? (
+                <ClockArrowUp size={16} strokeWidth={2.25} />
+              ) : (
+                <ArrowUp size={touch ? 20 : 16} strokeWidth={2.5} />
+              )}
             </button>
           </Tooltip>
+          {OptionSheet && touch && (
+            <OptionSheet
+              open={sendOptionsOpen}
+              onClose={() => setSendOptionsOpen(false)}
+              title="Send"
+              sections={[
+                {
+                  items: sendOptions.map((o) => ({
+                    ...o,
+                    onSelect: () => {
+                      setSendOptionsOpen(false);
+                      o.onSelect();
+                    },
+                  })),
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -707,6 +809,12 @@ export function ComposerBox(props: ComposerBoxProps) {
 export function runningPlaceholder(steering: boolean, askAside: boolean): string {
   if (!steering) return askAside ? "Queue a message, or ⌥↩ to ask aside" : "Queue a message…";
   return askAside ? "↩ steer · ⌘↩ follow-up · ⌥↩ ask aside" : "↩ steer · ⌘↩ follow-up";
+}
+
+/** The touch placeholder while the agent works (I-164): Send steers; hold it for more. */
+export function touchRunningPlaceholder(steering: boolean, askAside: boolean): string {
+  if (!steering) return askAside ? "Queue a message · hold Send to ask aside" : "Queue a message…";
+  return askAside ? "Steer · hold Send for follow-up or aside" : "Steer · hold Send for a follow-up";
 }
 
 // ---------------------------------------------------------------------------------------------
