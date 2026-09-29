@@ -8,7 +8,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 ### Added
 
 - Glade lives in the menu bar: ⌘Q closes the window but keeps chats, sub-agents and sharing
-  running; quit for real with Quit Glade Completely (menu bar or ⌥⌘Q). The menu bar leaf's menu shows
+  running; quit for real with Quit Glade Completely (menu bar or ⌥⌘Q). The menu bar leaf (with a small badge while chats work or need you) has a menu that shows
   working chats and sharing, and opens Glade, a new chat or Settings. New options: Show in Dock
   and Open at login.
 - Glade keeps your Mac awake while a chat is working, and while it's shared with a connected

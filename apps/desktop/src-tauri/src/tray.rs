@@ -1,4 +1,5 @@
-//! The menu bar icon (I-150): Glade's leaf as a template image (one icon, no status badges), and a menu:
+//! The menu bar icon (I-150): Glade's leaf as a template image, with a small badge while chats are
+//! working (ring) or need you (dot); no sharing mark (the user found the arcs confusing). The menu:
 //!
 //!   N chats working            (opens one)        ← from the server (`shell_state.rs`)
 //!   N chats need you           (opens one)
@@ -13,7 +14,7 @@
 //!   ─────
 //!   Quit Glade Completely                         (with the running-chats check)
 //!
-//! `menu_model` is pure (tested); `refresh` rebuilds the native menu from them.
+//! `menu_model` and `icon_name` are pure (tested); `refresh` rebuilds the native menu from them.
 //! Clicks arrive through the app-wide menu handler (`menu::handle` → `handle`, ids `tray-*`).
 
 use std::time::Duration;
@@ -96,9 +97,22 @@ pub fn menu_model(state: Option<&ShellState>) -> Vec<TrayItem> {
     items
 }
 
-/// The menu bar icon: Glade's leaf (a template image, so macOS tints it for light/dark menu bars).
-fn icon() -> Image<'static> {
-    tauri::include_image!("icons/tray/tray-idle.png")
+/// Icon file stem (icons/tray/tray-<name>.png): needs you > working > idle.
+pub fn icon_name(state: Option<&ShellState>) -> &'static str {
+    match state {
+        Some(s) if s.needs_you > 0 => "needs",
+        Some(s) if s.working > 0 => "working",
+        _ => "idle",
+    }
+}
+
+/// Template images, so macOS tints them for light/dark menu bars.
+fn icon(name: &str) -> Image<'static> {
+    match name {
+        "needs" => tauri::include_image!("icons/tray/tray-needs.png"),
+        "working" => tauri::include_image!("icons/tray/tray-working.png"),
+        _ => tauri::include_image!("icons/tray/tray-idle.png"),
+    }
 }
 
 fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::Wry>> {
@@ -117,7 +131,7 @@ fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app, &menu_model(None))?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon())
+        .icon(icon("idle"))
         .icon_as_template(true)
         .tooltip("Glade")
         .menu(&menu)
@@ -132,6 +146,8 @@ pub fn refresh(app: &AppHandle) {
     let _ = app.run_on_main_thread(move || {
         let Some(tray) = handle.tray_by_id(TRAY_ID) else { return };
         let state = shell_state::current();
+        let _ = tray.set_icon(Some(icon(icon_name(state.as_ref()))));
+        let _ = tray.set_icon_as_template(true);
         if let Ok(menu) = build_menu(&handle, &menu_model(state.as_ref())) {
             let _ = tray.set_menu(Some(menu));
         }
@@ -243,5 +259,14 @@ mod tests {
         assert_eq!(l[0], "1 chat working");
         assert_eq!(l[2], "✓ Sharing: on · iPad and 2 others connected");
         assert!(!l.iter().any(|s| s.starts_with("Keeping")), "not held: no awake line");
+    }
+
+    #[test]
+    fn icon_states() {
+        assert_eq!(icon_name(None), "idle");
+        assert_eq!(icon_name(Some(&state(0, 0, false, &[], false, ""))), "idle");
+        assert_eq!(icon_name(Some(&state(0, 0, true, &[], false, ""))), "idle", "sharing has no mark");
+        assert_eq!(icon_name(Some(&state(1, 0, true, &[], false, ""))), "working");
+        assert_eq!(icon_name(Some(&state(1, 1, false, &[], false, ""))), "needs");
     }
 }

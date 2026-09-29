@@ -101,6 +101,7 @@ func write(_ image: CGImage, _ name: String) {
 }
 
 try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
-// Only the plain leaf is used (the user preferred it to status badges); the badge drawing stays
-// in case status icons come back.
-write(draw(badge: .none, sharing: false), "idle")
+// No sharing mark (the user found the arcs confusing): the leaf, plus the working / needs-you badges.
+for (badge, name) in [(Badge.none, "idle"), (.working, "working"), (.needs, "needs")] {
+    write(draw(badge: badge, sharing: false), name)
+}
