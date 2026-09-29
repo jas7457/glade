@@ -141,8 +141,8 @@ function PhoneChatPane({ sessionId, keyboardOpen, onOpenSubagent }: { sessionId:
           ref={composerRef}
           class={cn(
             "pointer-events-none absolute inset-x-0 bottom-0 px-2 pt-1 [&>*]:pointer-events-auto",
-            // Under the composer: only part of the home-indicator inset (the pill overlaps its top).
-            keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_-_20px),8px)]",
+            // Above the home indicator with some air, like ChatGPT.
+            keyboardOpen ? "pb-2" : "pb-[max(calc(env(safe-area-inset-bottom)_+_4px),16px)]",
           )}
         >
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />

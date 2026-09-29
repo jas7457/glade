@@ -579,8 +579,8 @@ export function ComposerBox(props: ComposerBoxProps) {
           !touch && "flex-col",
           // items-center per wrapped line: +, the picker pill, the spinner and Send share one centre line.
           touch && "flex-wrap items-center rounded-[22px] transition-[margin,border-radius] duration-200 ease-out",
-          compact && "mx-3 rounded-[26px]",
-          touch && !compact && "px-1 pb-1",
+          compact && "mx-3 rounded-[29px]",
+          touch && !compact && "px-1.5 pb-1.5",
           dragging
             ? "shadow-[0_0_0_2px_var(--pi-accent)]"
             : touch && !shellInput
@@ -682,7 +682,10 @@ export function ComposerBox(props: ComposerBoxProps) {
             "selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60",
             shellInput && "font-mono text-[0.95rem]",
             // Touch: beside [+] and Send while compact, full width above the toolbar when not.
-            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-1.5 pt-[13px] pb-[13px]" : "order-1 basis-full"),
+            // Touch: 18px text. Compact: 58px pill; 1px less on top than below, because the text's
+            // x-height sits low in its line box and otherwise reads as off-centre.
+            touch && "text-[1.125rem]",
+            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-2 pt-[15px] pb-[16px]" : "order-1 basis-full px-3.5 pt-4"),
           )}
           onFocus={
             touch
@@ -728,7 +731,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               disabled={busy}
               class={cn(
                 "inline-flex items-center justify-center rounded-control text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40",
-                touch ? "order-1 m-1 size-9 shrink-0 rounded-full" : "size-6",
+                touch ? "order-1 m-[9px] size-10 shrink-0 rounded-full" : "size-6",
                 touch && !compact && "order-2",
               )}
               onClick={() => fileRef.current?.click()}
@@ -810,7 +813,7 @@ export function ComposerBox(props: ComposerBoxProps) {
                 type="button"
                 aria-label="Stop"
                 onClick={props.onStop}
-                class={cn("flex items-center justify-center rounded-full bg-fg text-window hover:opacity-85", touch ? "order-3 m-1 size-9 shrink-0" : "size-7")}
+                class={cn("flex items-center justify-center rounded-full bg-fg text-window hover:opacity-85", touch ? "order-3 m-[9px] size-10 shrink-0" : "size-7")}
               >
                 <Square size={touch ? 12 : 10} fill="currentColor" strokeWidth={0} />
               </button>
@@ -835,7 +838,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               {...sendPressHandlers}
               class={cn(
                 "flex items-center justify-center rounded-full bg-accent text-accent-fg select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
-                touch ? "order-3 m-1 size-9 shrink-0 touch-manipulation" : "size-7",
+                touch ? "order-3 m-[9px] size-10 shrink-0 touch-manipulation" : "size-7",
               )}
             >
               {choosesBehavior && followUpHeld ? (
