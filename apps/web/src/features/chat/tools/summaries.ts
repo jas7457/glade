@@ -4,6 +4,7 @@
  * the harness's tool name + a preview of the raw args.
  */
 import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
+import { displayPath, resolvePath } from "@/lib/paths";
 
 export interface ToolSummary {
   /** Leading verb, e.g. "Ran" / "Running". */
@@ -12,11 +13,19 @@ export interface ToolSummary {
   subject: string;
   /** Render the subject in monospace (commands, patterns, paths). */
   mono: boolean;
+  /** Tooltip for the subject: the full path when the subject shows a shortened one (I-158). */
+  title?: string;
+}
+
+/** The chat's folder and home, for showing tool paths relative to the chat (I-158). */
+export interface PathContext {
+  cwd?: string | null;
+  home?: string | null;
 }
 
 type Args = Record<string, unknown>;
 /** `output` is the call's result text once it has one (only the chat tools read it). */
-type Summarizer = (input: ToolInput, active: boolean, output?: string) => ToolSummary;
+type Summarizer = (input: ToolInput, active: boolean, output?: string, paths?: PathContext) => ToolSummary;
 
 const MAX_SUBJECT = 120;
 
@@ -27,21 +36,32 @@ export function truncate(text: string, max = MAX_SUBJECT): string {
 
 const verb = (active: boolean, past: string, present: string) => (active ? present : past);
 
+/** A path summary: shortened relative to the chat's folder, the full path as its tooltip. */
+function pathSummary(verbText: string, path: string | undefined, paths: PathContext | undefined, suffix = ""): ToolSummary {
+  if (!path) return { verb: verbText, subject: suffix, mono: true };
+  const full = resolvePath(path, paths?.cwd, paths?.home);
+  return { verb: verbText, subject: `${displayPath(path, paths?.cwd, paths?.home)}${suffix}`, mono: true, title: full };
+}
+
 /** Summaries per canonical kind; `other` has none (name + raw args preview). */
 export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
   shell: (i, active) => ({ verb: verb(active, "Ran", "Running"), subject: truncate(i.command ?? ""), mono: true }),
-  read: (i, active) => {
+  read: (i, active, _output, paths) => {
     const range = i.offset !== undefined ? `:${i.offset}${i.limit !== undefined ? `-${i.offset + i.limit - 1}` : ""}` : "";
-    return { verb: verb(active, "Read", "Reading"), subject: `${i.path ?? ""}${range}`, mono: true };
+    return pathSummary(verb(active, "Read", "Reading"), i.path, paths, range);
   },
-  write: (i, active) => ({ verb: verb(active, "Wrote", "Writing"), subject: i.path ?? "", mono: true }),
-  edit: (i, active) => ({ verb: verb(active, "Edited", "Editing"), subject: i.path ?? "", mono: true }),
-  search: (i, active) => ({
-    verb: verb(active, "Searched", "Searching"),
-    subject: truncate(`${i.pattern ?? ""}${i.path ? ` in ${i.path}` : ""}${i.glob ? ` (${i.glob})` : ""}`),
-    mono: true,
-  }),
-  list: (i, active) => ({ verb: verb(active, "Listed", "Listing"), subject: i.path ?? ".", mono: true }),
+  write: (i, active, _output, paths) => pathSummary(verb(active, "Wrote", "Writing"), i.path, paths),
+  edit: (i, active, _output, paths) => pathSummary(verb(active, "Edited", "Editing"), i.path, paths),
+  search: (i, active, _output, paths) => {
+    const where = i.path ? displayPath(i.path, paths?.cwd, paths?.home) : "";
+    return {
+      verb: verb(active, "Searched", "Searching"),
+      subject: truncate(`${i.pattern ?? ""}${where ? ` in ${where}` : ""}${i.glob ? ` (${i.glob})` : ""}`),
+      mono: true,
+      ...(i.path ? { title: resolvePath(i.path, paths?.cwd, paths?.home) } : {}),
+    };
+  },
+  list: (i, active, _output, paths) => (i.path ? pathSummary(verb(active, "Listed", "Listing"), i.path, paths) : { verb: verb(active, "Listed", "Listing"), subject: ".", mono: true }),
   web: (i, active) =>
     i.url
       ? { verb: verb(active, "Fetched", "Fetching"), subject: truncate(i.url), mono: true }
@@ -137,10 +157,12 @@ export function summarizeToolCall(
   active: boolean,
   /** The result's text, when the call has one (a few kinds summarize what they found). */
   output?: string,
+  /** The chat's folder/home: paths inside the folder show relative to it, others `~`-shortened (I-158). */
+  paths?: PathContext,
 ): ToolSummary {
   // Looked up defensively: a kind this build doesn't know renders like `other`.
   const summarizer = call.kind === "other" ? undefined : (toolSummarizers[call.kind] as Summarizer | undefined);
-  if (summarizer) return summarizer(call.input ?? {}, active, output);
+  if (summarizer) return summarizer(call.input ?? {}, active, output, paths);
   return { verb: call.name, subject: argsPreview(call.args ?? partialArgs(call.argsText)), mono: false };
 }
 

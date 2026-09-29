@@ -156,6 +156,43 @@ describe("ToolCallRow: leading cd (I-152)", () => {
   });
 });
 
+describe("ToolCallRow: paths relative to the chat's folder (I-158)", () => {
+  const cwd = "/Users/me/src/glade";
+  const pathRow = (kind: ToolKind, input: ToolInput, folder: string | null = cwd) => {
+    const p: ToolCallPart = { ...part("p"), call: call(kind, input) };
+    const { container } = render(
+      <ChatCwdContext.Provider value={folder}>
+        <ToolCallRow part={p} />
+      </ChatCwdContext.Provider>,
+    );
+    const subject = container.querySelector("button .font-mono")!;
+    return { text: container.querySelector("button")!.textContent, title: subject.getAttribute("title") };
+  };
+  it("shows paths inside the folder relative to it, with the full path as tooltip", () => {
+    const r = pathRow("edit", { path: `${cwd}/packages/protocol/src/api.ts`, edits: [] });
+    expect(r.text).toContain("Edited packages/protocol/src/api.ts");
+    expect(r.text).not.toContain("/Users/me");
+    expect(r.title).toBe(`${cwd}/packages/protocol/src/api.ts`);
+    expect(pathRow("read", { path: `${cwd}/a.ts`, offset: 3, limit: 2 }).text).toContain("Read a.ts:3-4");
+    expect(pathRow("list", { path: cwd }).text).toContain("Listed .");
+    expect(pathRow("search", { pattern: "TODO", path: `${cwd}/apps` }).text).toContain("Searched TODO in apps");
+  });
+  it("resolves relative paths for the tooltip and ~-shortens paths outside", () => {
+    expect(pathRow("write", { path: "./docs/x.md", content: "" }).title).toBe(`${cwd}/docs/x.md`);
+    expect(pathRow("write", { path: "./docs/x.md", content: "" }).text).toContain("Wrote docs/x.md");
+    expect(pathRow("read", { path: "/Users/me/src/ext-kit/a.ts" }).text).toContain("Read the extension kit/a.ts");
+    expect(pathRow("read", { path: "/tmp/x.log" }).text).toContain("Read /tmp/x.log");
+  });
+  it("is relative to a worktree chat's own folder", () => {
+    const wt = "/Users/me/src/glade-worktrees/feature";
+    expect(pathRow("edit", { path: `${wt}/src/a.ts`, edits: [] }, wt).text).toContain("Edited src/a.ts");
+    expect(pathRow("edit", { path: `${cwd}/src/a.ts`, edits: [] }, wt).text).toContain("Edited ~/src/glade/src/a.ts");
+  });
+  it("keeps paths as they are without a known folder", () => {
+    expect(pathRow("read", { path: "/Users/me/src/glade/a.ts" }, null).text).toContain("Read /Users/me/src/glade/a.ts");
+  });
+});
+
 describe("ToolGroup / ToolCallRow", () => {
   it("expands a group into its calls and collapses again", () => {
     const group: ToolGroupPart = {

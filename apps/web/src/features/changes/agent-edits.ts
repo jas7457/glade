@@ -4,6 +4,7 @@
  * only; transcripts that aren't loaded (closed sub-agents, other tabs never opened) don't count.
  */
 import type { Transcript } from "@glade/protocol";
+import { homeOf, resolvePath } from "@/lib/paths";
 
 /** Normalize `a/./b/../c` → `a/c`; `null` when it climbs above its start. */
 function normalize(path: string): string | null {
@@ -19,11 +20,13 @@ function normalize(path: string): string | null {
 }
 
 /**
- * Repository-relative paths edited in `transcripts`. Tool paths are absolute or relative to the
- * workspace folder `cwd`; `root` is the repository root and `prefix` the folder inside it.
+ * Repository-relative paths edited in `transcripts`. Tool paths are absolute, `~`-based or relative
+ * to the workspace folder `cwd` (the worktree for worktree chats); `root` is the repository root
+ * and `prefix` the folder inside it. Resolved like the tool rows show them (I-158).
  */
 export function agentEditedPaths(transcripts: readonly Transcript[], cwd: string, root: string, prefix: string): Set<string> {
   const out = new Set<string>();
+  const home = homeOf(cwd);
   const strip = (abs: string, base: string) => (base && abs.startsWith(`${base.replace(/\/$/, "")}/`) ? abs.slice(base.replace(/\/$/, "").length + 1) : null);
   for (const transcript of transcripts) {
     for (const message of transcript.messages) {
@@ -32,10 +35,11 @@ export function agentEditedPaths(transcripts: readonly Transcript[], cwd: string
         if (block.type !== "toolCall" || (block.kind !== "edit" && block.kind !== "write")) continue;
         const path = block.input?.path;
         if (!path) continue;
+        const abs = resolvePath(path, cwd, home);
         let rel: string | null;
-        if (path.startsWith("/")) {
-          const fromRoot = strip(path, root);
-          const fromCwd = strip(path, cwd);
+        if (abs.startsWith("/")) {
+          const fromRoot = strip(abs, root);
+          const fromCwd = strip(abs, cwd);
           rel = fromRoot !== null ? normalize(fromRoot) : fromCwd !== null ? normalize(prefix + fromCwd) : null;
         } else rel = normalize(prefix + path.replace(/^@/, ""));
         if (rel) out.add(rel);

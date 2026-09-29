@@ -191,4 +191,8 @@ describe("agentEditedPaths", () => {
     const t = transcriptEditing("/repo/sub/a.ts", "b.ts", "../c.ts", "/elsewhere/d.ts", "./x/../e.ts");
     expect([...agentEditedPaths([t], "/repo/sub", "/repo", "sub/")].sort()).toEqual(["c.ts", "sub/a.ts", "sub/b.ts", "sub/e.ts"]);
   });
+  it("expands ~ and @ paths like the tool rows show them (I-158)", () => {
+    const t = transcriptEditing("~/src/glade/apps/a.ts", "@apps/b.ts", "/Users/me/src/glade/./c.ts", "~/other/d.ts");
+    expect([...agentEditedPaths([t], "/Users/me/src/glade", "/Users/me/src/glade", "")].sort()).toEqual(["apps/a.ts", "apps/b.ts", "c.ts"]);
+  });
 });
