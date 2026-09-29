@@ -5,8 +5,12 @@
 import { Navigate, RouterProvider, createHashRouter, type RouteObject } from "react-router";
 import { ConfirmHost, Toaster, TooltipProvider } from "@/ui";
 import { savedEnvironments } from "@/state/saved-environments";
+import { ChatScreen } from "~/screens/ChatScreen";
 import { ConnectScreen } from "~/screens/ConnectScreen";
+import { DeviceScreen } from "~/screens/DeviceScreen";
 import { HomeScreen } from "~/screens/HomeScreen";
+import { NewChatScreen } from "~/screens/NewChatScreen";
+import { SettingsScreen } from "~/screens/SettingsScreen";
 import { paths } from "./routes";
 
 function Home() {
@@ -17,6 +21,10 @@ function Home() {
 export const iphoneRoutes: RouteObject[] = [
   { path: "/", element: <Home /> },
   { path: "/connect", element: <ConnectScreen /> },
+  { path: "/new", element: <NewChatScreen /> },
+  { path: "/e/:envId/chats/:chatId", element: <ChatScreen /> },
+  { path: "/settings", element: <SettingsScreen /> },
+  { path: "/settings/devices/:envId", element: <DeviceScreen /> },
   { path: "*", element: <Navigate to="/" replace /> },
 ];
 
