@@ -133,7 +133,12 @@ export class ClaudeHarness implements AgentHarness {
 
   async listModels(force = false): Promise<ModelInfo[]> {
     if (!this.isInstalled()) return [];
-    return translateClaudeModels(await this.claudeModels(force));
+    const models = translateClaudeModels(await this.claudeModels(force));
+    // Claude Code's own default first: a new chat without a Glade default starts on it, not on
+    // whichever model happens to be listed first (often the priciest).
+    const def = (await this.getDefaults().catch(() => null))?.model;
+    const at = def ? models.findIndex((m) => m.id === def.id) : -1;
+    return at > 0 ? [models[at]!, ...models.slice(0, at), ...models.slice(at + 1)] : models;
   }
 
   /** Claude Code's default model (its "default" entry, resolved to a listed alias when possible). */

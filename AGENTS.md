@@ -104,6 +104,9 @@ pnpm dev:agent --name <agent> --stop    # done: stops it and deletes everything 
   start with that name; otherwise swept after 24h). `pnpm dev:agent --sweep` removes every
   sandbox nobody uses.
 - Server tests still use `FakeHarness` in-process (`pnpm test`), no sandbox needed.
+- Claude Code (I-173) is offered in sandboxes too when `claude` is installed, and it is **real**
+  (it uses the user's login and costs money). Don't pick it unless the task needs a real Claude run;
+  then use `haiku`, thinking off, and `GLADE_CLAUDE_MAX_BUDGET_USD=0.05` / `GLADE_CLAUDE_MAX_TURNS=4`.
 
 ## Dogfooding: developing Glade from inside Glade (I-058)
 

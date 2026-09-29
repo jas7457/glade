@@ -558,6 +558,20 @@ describe("Claude harness", () => {
     expect(await missing.listModels()).toEqual([]);
   });
 
+  it("lists Claude Code's own default model first, so new chats don't start on the priciest", async () => {
+    const sdk = new FakeClaudeSdk();
+    sdk.init = {
+      ...FAKE_INIT,
+      models: [
+        { value: "default", displayName: "Default (recommended)", resolvedModel: "claude-sonnet-5" },
+        { value: "opus", displayName: "Opus", resolvedModel: "claude-opus-5" },
+        FAKE_INIT.models[1]!,
+        FAKE_INIT.models[2]!,
+      ],
+    };
+    expect((await harness(sdk).listModels()).map((m) => m.id)).toEqual(["sonnet", "opus", "haiku"]);
+  });
+
   it("names chats with Haiku, no tools, nothing saved", async () => {
     const sdk = new FakeClaudeSdk({ onString: (q) => q.emit(assistant("t", [{ type: "text", text: '"Fix the login bug."' }]), result()) });
     const h = harness(sdk);
