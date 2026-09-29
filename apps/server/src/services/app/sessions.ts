@@ -110,13 +110,16 @@ export class Sessions {
     const settings = this.ctx.store.getSettings();
     // Sub-agents run in their parent's harness; other new sessions in the chosen one, else the
     // harness of the workspace's focused tab (a new tab keeps the chat's agent), else the default.
+    // I-155: only harnesses this device offers (installed and turned on).
     const harness =
       how.kind === "subagent"
-        ? records.requireHarness(records.requireSession(how.parentSessionId))
+        ? records.requireOfferedHarness(records.requireSession(how.parentSessionId))
         : req.harness
           ? this.ctx.harnesses.get(req.harness)
           : this.workspaceHarness(workspace);
     if (!harness) throw new HttpError(400, `The agent "${req.harness}" isn't installed`);
+    if (!this.ctx.harnesses.isEnabled(harness.id)) throw new HttpError(400, `${harness.info.label} is turned off on ${this.ctx.deviceName()}`);
+    if (!this.ctx.harnesses.isInstalled(harness)) throw new HttpError(400, `${harness.info.label} isn't installed on ${this.ctx.deviceName()}`);
     // Harnesses without Glade's model picker (ACP agents, I-119) choose their own model.
     const usesModels = harness.info.capabilities.models !== false;
     const now = Date.now();
@@ -159,14 +162,15 @@ export class Sessions {
   private workspaceHarness(workspace: Workspace) {
     const focused = activeMainSessionId(workspace, this.ctx.store.listSessions(workspace.id));
     const harness = focused ? this.ctx.store.getSession(focused)?.harness : undefined;
-    return (harness ? this.ctx.harnesses.get(harness) : undefined) ?? this.ctx.harnesses.default();
+    const own = harness ? this.ctx.harnesses.get(harness) : undefined;
+    return (own && this.ctx.harnesses.isOffered(own) ? own : undefined) ?? this.ctx.harnesses.default();
   }
 
   async getSessionDetail(id: string): Promise<SessionDetail> {
     // Everything up to this seq is in the detail (later changes are replayed after it, I-122).
     const seq = this.ctx.store.headSeq;
     const session = this.records.requireSession(id);
-    const offline = (await this.closedAgentDetail(session)) ?? (await this.elsewhereDetail(session));
+    const offline = (await this.closedAgentDetail(session)) ?? (await this.harnessOffDetail(session)) ?? (await this.elsewhereDetail(session));
     if (offline) return { ...offline, seq };
     const live = await this.pool.ensureLive(id);
     return {
@@ -185,7 +189,10 @@ export class Sessions {
    */
   async prepareSync(id: string): Promise<() => SessionSyncView> {
     const session = this.records.requireSession(id);
-    const dormant = this.records.isDormantAgent(id) ? await this.transcripts.read(session).then(() => this.ctx.store.hasTranscript(id)) : false;
+    // I-155: a chat whose agent is turned off here is read from the store, never started.
+    const off = this.records.isHarnessOff(session);
+    if (off) await this.transcripts.read(session);
+    const dormant = off || (this.records.isDormantAgent(id) ? await this.transcripts.read(session).then(() => this.ctx.store.hasTranscript(id)) : false);
     const elsewhere = !dormant && !!this.ctx.leases && !this.ctx.live.has(id) && !this.ctx.opening.has(id) && !!this.ctx.leases.foreignLeaseNow(id);
     if (!dormant && !elsewhere) await this.pool.ensureLive(id);
     const offlineState = dormant || elsewhere || !this.ctx.live.has(id) ? await this.offlineState(session) : null;
@@ -227,6 +234,17 @@ export class Sessions {
     if (!this.records.isDormantAgent(session.id)) return null;
     const transcript = await this.transcripts.read(session);
     if (!this.ctx.store.hasTranscript(session.id)) return null;
+    const state = await this.offlineState(session);
+    return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [], offline: true };
+  }
+
+  /**
+   * A chat whose agent this device doesn't offer (I-155: turned off or uninstalled) is shown from
+   * the store without starting it; sending to it is refused. `null` when it should start as usual.
+   */
+  private async harnessOffDetail(session: Session): Promise<SessionDetail | null> {
+    if (!this.records.isHarnessOff(session)) return null;
+    const transcript = await this.transcripts.read(session);
     const state = await this.offlineState(session);
     return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [], offline: true };
   }

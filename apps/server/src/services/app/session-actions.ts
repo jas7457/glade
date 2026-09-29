@@ -59,7 +59,8 @@ export class SessionActions {
 
   /** A prompt from the user (the HTTP API). */
   async prompt(id: string, req: PromptRequest): Promise<void> {
-    this.records.requireSession(id);
+    // I-155: an agent turned off in Settings → Agents takes no messages (even one still running).
+    this.records.requireOfferedHarness(this.records.requireSession(id));
     this.leaseSync.assertNotBusyElsewhere(id);
     // Typing in a sub-agent's tab means the user is using it: never close it automatically.
     const agent = this.ctx.agents.get(id);

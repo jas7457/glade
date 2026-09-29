@@ -127,6 +127,11 @@ export interface AgentHarness {
   readonly id: string;
   /** Label + capabilities (I-065). */
   readonly info: HarnessDescription;
+  /**
+   * Whether the agent is installed on this device (I-155; a PATH lookup, nothing is started).
+   * Absent = always installed. Harnesses that aren't installed aren't offered for new chats.
+   */
+  isInstalled?(): boolean;
   /** Available models. Implementations may cache; `force` bypasses the cache. */
   listModels(force?: boolean): Promise<ModelInfo[]>;
   /** Model/thinking level the harness uses when none is given (I-050). `force` refreshes. */

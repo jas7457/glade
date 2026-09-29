@@ -19,6 +19,9 @@ import type { AcpResumeState } from "./harness/acp/resume-store.js";
 import { FakeHarness } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import { HarnessRegistry } from "./harness/registry.js";
+import { acpAgentConfigs } from "./harness/agent-catalog.js";
+import { cachedWhich } from "./harness/which.js";
+import { isAgentEnabled } from "@glade/protocol";
 import { createApp } from "./http/app.js";
 import { startBlockedServer } from "./http/blocked.js";
 import { AppService } from "./services/app-service.js";
@@ -111,7 +114,9 @@ if (store.jsonImport?.files.length) {
 // ACP agents the user added in Settings (I-119) are harnesses too, read from the settings on use;
 // none by default, and an agent's process only starts with a chat's first prompt.
 const acpResume = new Map<string, AcpResumeState>(); // until a new chat's record has its ref
-const acp = new AcpHarnessProvider(() => store.getSettings().harnesses.acp?.agents, {
+// I-155: plus the well-known ACP agents (Claude Code, Gemini CLI, Codex) found on the PATH.
+const which = cachedWhich();
+const acp = new AcpHarnessProvider(() => acpAgentConfigs(store.getSettings().harnesses.acp?.agents, which), {
   resume: {
     load: (ref) => store.getResumeByRef<AcpResumeState>(ref) ?? acpResume.get(ref) ?? null,
     save: (ref, state) => {
@@ -121,8 +126,13 @@ const acp = new AcpHarnessProvider(() => store.getSettings().harnesses.acp?.agen
     delete: (ref) => acpResume.delete(ref),
   },
   log: env("DEBUG") ? log : undefined,
+  which,
 });
-const harnesses = new HarnessRegistry([], { preferred: () => store.getSettings().agent.defaultHarness, dynamic: () => acp.list() });
+const harnesses = new HarnessRegistry([], {
+  preferred: () => store.getSettings().agent.defaultHarness,
+  dynamic: () => acp.list(),
+  enabled: (id) => isAgentEnabled(store.getSettings(), id),
+});
 harnesses.register(
   config.harness === "fake"
     ? new FakeHarness(undefined, 30)

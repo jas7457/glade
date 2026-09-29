@@ -10,7 +10,7 @@
 import { computed } from "@preact/signals";
 import type { DeepPartial, Settings } from "@glade/protocol";
 import { updateSettings } from "./actions";
-import { connectionFor, primaryEnvironmentId, settingsEnvironmentId } from "./env-registry";
+import { connectionFor, environmentLabel, isLocalEnvironment, primaryEnvironmentId, settingsEnvironmentId } from "./env-registry";
 import { defaultHarnessOf, harnessesOf, loadHarnesses } from "./harnesses";
 import { envIdOf, loadModels, shellOf, sortedProjects, visibleModelsOf } from "./store";
 
@@ -21,6 +21,14 @@ export function hostEnvId(): string | undefined {
 }
 
 const hostShell = () => shellOf(hostEnvId());
+
+/**
+ * Another device's settings are view only (I-155): you change them on that device. True when
+ * the edited environment isn't this machine (the host refuses the writes anyway, 403).
+ */
+export const hostReadOnly = computed(() => !isLocalEnvironment(hostEnvId()));
+/** The edited environment's name for headers ("This Mac", "MacBook Air"). */
+export const hostDeviceName = computed(() => environmentLabel(hostEnvId()));
 
 export const hostSettings = computed(() => hostShell().settings.value);
 export const hostModels = computed(() => hostShell().models.value);

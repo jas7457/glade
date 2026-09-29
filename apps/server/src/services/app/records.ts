@@ -50,6 +50,27 @@ export class Records {
     return harness;
   }
 
+  /**
+   * Like {@link requireHarness}, for starting or talking to the agent (I-155): 409 when this
+   * device doesn't offer the harness (turned off in Settings → Agents, or no longer installed).
+   */
+  requireOfferedHarness(session: Session): AgentHarness {
+    const harness = this.requireHarness(session);
+    const { harnesses } = this.ctx;
+    if (!harnesses.isEnabled(harness.id)) throw new HttpError(409, `${harness.info.label} is turned off on ${this.ctx.deviceName()}`);
+    if (!harnesses.isInstalled(harness)) throw new HttpError(409, `${harness.info.label} isn't installed on ${this.ctx.deviceName()}`);
+    return harness;
+  }
+
+  /**
+   * The session's harness is registered but not offered here (I-155) and it isn't running: its
+   * chat is shown from the store without starting the agent.
+   */
+  isHarnessOff(session: Session): boolean {
+    const harness = this.ctx.harnesses.get(session.harness);
+    return !!harness && !this.ctx.harnesses.isOffered(harness) && !this.ctx.live.has(session.id) && !this.ctx.opening.has(session.id);
+  }
+
   summarizeSession(session: Session): SessionSummary {
     const live = this.ctx.live.get(session.id);
     // Run by another server (I-062): its lease says whether it's working / waiting for input.

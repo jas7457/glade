@@ -15,6 +15,7 @@
 import { acpHarnessId, normalizeAcpAgents, type AcpAgentConfig, type HarnessCapabilities, type ModelInfo } from "@glade/protocol";
 import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 import { AcpSession, type AcpSessionOptions } from "./acp-session.js";
+import { cachedWhich, type WhichFn } from "../which.js";
 import { MemoryAcpResumeStore, newAcpSessionRef, type AcpResumeStore } from "./resume-store.js";
 
 export const ACP_CAPABILITIES: HarnessCapabilities = {
@@ -35,7 +36,11 @@ export interface AcpHarnessOptions {
   log?: (msg: string) => void;
   /** Test hooks passed to every session (e.g. a shorter cancel grace period). */
   session?: Partial<Pick<AcpSessionOptions, "cancelGraceMs" | "startProcess" | "clientVersion">>;
+  /** Is a command installed? (I-155; default: a cached PATH lookup.) */
+  which?: WhichFn;
 }
+
+const defaultWhich = cachedWhich();
 
 export class AcpHarness implements AgentHarness {
   readonly id: string;
@@ -49,6 +54,11 @@ export class AcpHarness implements AgentHarness {
     this.id = acpHarnessId(config.id);
     this.info = { label: config.name, capabilities: { ...ACP_CAPABILITIES } };
     this.store = options.resume ?? new MemoryAcpResumeStore();
+  }
+
+  /** The agent's command is on the PATH / exists (I-155). */
+  isInstalled(): boolean {
+    return (this.options.which ?? defaultWhich)(this.config.command);
   }
 
   /** ACP agents pick their own model; Glade's pickers are hidden (`capabilities.models`). */

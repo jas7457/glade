@@ -1,13 +1,14 @@
 /**
  * Settings → Agents → ACP agents (I-119): add, edit and remove Agent Client Protocol agents
- * (name, command, arguments, environment). Each becomes its own agent in the new-chat picker.
+ * (name, command, arguments, environment). Each becomes its own agent in the new-chat picker
+ * (when its command is installed and it's turned on, I-155).
  * Stored in `settings.harnesses.acp.agents`; none by default. Glade only starts an agent's
  * command when a chat with it gets a message.
  */
 import { useEffect, useState } from "preact/hooks";
-import { Pencil, Plus, Trash2 } from "lucide-preact";
+import { Plus } from "lucide-preact";
 import { acpAgentIdFor, type AcpAgentConfig } from "@glade/protocol";
-import { Button, Dialog, FormGroup, FormRow, IconButton, TextArea, TextField, confirm } from "@/ui";
+import { Button, Dialog, FormGroup, FormRow, TextArea, TextField, confirm } from "@/ui";
 import { hostSettings as settings, loadHostHarnesses as loadHarnesses, updateHostSettings as updateSettings } from "@/state/host-settings";
 
 export const ACP_COST_NOTE = "Glade starts this command when you use it; it may use your account/subscription.";
@@ -56,56 +57,50 @@ async function saveAgents(next: AcpAgentConfig[]): Promise<boolean> {
   return ok;
 }
 
-export function AcpSettings() {
-  const list = agents();
-  const [editing, setEditing] = useState<AcpAgentConfig | "new" | null>(null);
+/** Ask, then remove one of the user's ACP agents (its chats stay). */
+export async function removeAcpAgent(agentId: string): Promise<void> {
+  const agent = agents().find((a) => a.id === agentId);
+  if (!agent) return;
+  const ok = await confirm({
+    title: "Remove agent?",
+    subject: agent.name,
+    message: "will be removed from Glade. Its chats stay in the sidebar but can't continue until you add it again.",
+    confirmLabel: "Remove",
+    destructive: true,
+  });
+  if (ok) await saveAgents(agents().filter((a) => a.id !== agent.id));
+}
 
-  const remove = async (agent: AcpAgentConfig) => {
-    const ok = await confirm({
-      title: "Remove agent?",
-      subject: agent.name,
-      message: "will be removed from Glade. Its chats stay in the sidebar but can't continue until you add it again.",
-      confirmLabel: "Remove",
-      destructive: true,
-    });
-    if (ok) await saveAgents(agents().filter((a) => a.id !== agent.id));
-  };
+/** The user's ACP agent `id` (for the edit dialog). */
+export function acpAgentConfig(id: string): AcpAgentConfig | undefined {
+  return agents().find((a) => a.id === id);
+}
 
+/**
+ * The "Other ACP agents" group at the end of the Agents page (I-155): what ACP agents are and
+ * the Add Agent button. The agents the user added are listed above it like every other agent.
+ */
+export function AcpSettings({ onAdd, count }: { onAdd: () => void; count: number }) {
   return (
-    <>
-      <FormGroup
-        title="ACP agents"
-        footer={
-          <>
-            Any agent that speaks the Agent Client Protocol (for example with an <span class="font-mono">--acp</span> flag or an{" "}
-            <span class="font-mono">*-acp</span> adapter). Each one appears as its own agent for new chats. {ACP_COST_NOTE}
-          </>
-        }
-        actions={
-          <Button size="sm" variant="ghost" onClick={() => setEditing("new")}>
-            <Plus size={12} />
-            Add Agent
-          </Button>
-        }
-      >
-        {list.length === 0 && <FormRow label={<span class="text-fg-muted">No ACP agents yet.</span>} />}
-        {list.map((agent) => (
-          <FormRow
-            key={agent.id}
-            label={<span class="font-medium">{agent.name}</span>}
-            description={<span class="font-mono text-[0.9rem] [overflow-wrap:anywhere]">{joinArgs([agent.command, ...agent.args])}</span>}
-          >
-            <IconButton size="sm" label={`Edit ${agent.name}`} onClick={() => setEditing(agent)}>
-              <Pencil size={13} />
-            </IconButton>
-            <IconButton size="sm" label={`Remove ${agent.name}`} onClick={() => void remove(agent)}>
-              <Trash2 size={13} />
-            </IconButton>
-          </FormRow>
-        ))}
-      </FormGroup>
-      <AcpAgentDialog open={editing !== null} agent={editing === "new" ? null : editing} onOpenChange={(open) => !open && setEditing(null)} />
-    </>
+    <FormGroup
+      title="Other ACP agents"
+      footer={
+        <>
+          Any agent that speaks the Agent Client Protocol (for example with an <span class="font-mono">--acp</span> flag or an{" "}
+          <span class="font-mono">*-acp</span> adapter). Each one appears as its own agent for new chats. {ACP_COST_NOTE}
+        </>
+      }
+      actions={
+        <Button size="sm" variant="ghost" onClick={onAdd}>
+          <Plus size={12} />
+          Add Agent
+        </Button>
+      }
+    >
+      <FormRow
+        label={<span class="text-fg-muted">{count === 0 ? "No ACP agents yet." : "The ones you added are listed above."}</span>}
+      />
+    </FormGroup>
   );
 }
 

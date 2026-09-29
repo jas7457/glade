@@ -236,6 +236,11 @@ export async function loadModels(refresh = false, envId?: string): Promise<void>
   await defaults;
 }
 
+/** The settings that change which harnesses an environment offers (I-119, I-155). */
+export function agentSettingsKey(s: Settings): string {
+  return JSON.stringify([s.harnesses?.acp, s.agents ?? {}, s.agent?.defaultHarness ?? null, s.harnesses?.pi?.piPath]);
+}
+
 export function upsert<T extends { id: string }>(list: T[], item: T): T[] {
   const idx = list.findIndex((x) => x.id === item.id);
   if (idx === -1) return [...list, item];
@@ -252,7 +257,7 @@ export function applyShellSnapshot(shell: ShellSnapshot, envId?: string): void {
   projects.value = replaceEnv(projects.value, envId, tagAll(shell.projects, envId));
   workspaces.value = replaceEnv(workspaces.value, envId, tagAll(shell.workspaces, envId));
   sessions.value = replaceEnv(sessions.value, envId, tagAll(shell.sessions, envId));
-  const acpChanged = JSON.stringify(target.settings.value.harnesses.acp) !== JSON.stringify(shell.settings.harnesses.acp);
+  const acpChanged = agentSettingsKey(target.settings.value) !== agentSettingsKey(shell.settings);
   target.settings.value = shell.settings;
   if (shell.environment) {
     const conn = envId ? connectionFor(envId) : undefined;
@@ -322,9 +327,10 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
       projects.value = projects.value.filter((p) => p.id !== message.projectId);
       break;
     case "settings": {
-      // ACP agents added/removed (I-119), maybe in another window: they're harnesses too.
+      // ACP agents added/removed (I-119) or agents turned on/off (I-155), maybe in another
+      // window or on the host itself: the harness list changes with them.
       const target = shellOf(envId);
-      const acpChanged = JSON.stringify(target.settings.value.harnesses.acp) !== JSON.stringify(message.settings.harnesses.acp);
+      const acpChanged = agentSettingsKey(target.settings.value) !== agentSettingsKey(message.settings);
       target.settings.value = message.settings;
       if (acpChanged) void loadHarnesses(envId);
       break;

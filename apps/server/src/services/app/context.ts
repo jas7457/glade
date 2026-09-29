@@ -132,6 +132,8 @@ export interface AppContext {
   /** Session leases shared with other servers on the data folder (null = single server, tests). */
   leases: LeaseManager | null;
   serverUrl: string | null;
+  /** This device's name for messages (I-155, "pi is turned off on <device>"); set by `AppService`. */
+  deviceName: () => string;
   disposed: boolean;
   /** Push a message to every subscribed client. */
   broadcast(message: ServerMessage): void;
@@ -158,6 +160,7 @@ export function createAppContext(options: AppServiceOptions): AppContext {
     usage: null,
     leases: null,
     serverUrl: options.serverUrl ?? null,
+    deviceName: () => "this device",
     disposed: false,
     broadcast(message) {
       for (const listener of listeners) {

@@ -22,7 +22,7 @@ import type {
 import { activeMainSessionId } from "@glade/protocol";
 import { applySessionDetail } from "./chat-session";
 import { apiFor, apiForProject, apiForSession, apiForWorkspace } from "./env-api";
-import { connectionFor } from "./env-registry";
+import { connectionFor, environmentLabel } from "./env-registry";
 import { setClientOrder } from "./env-order";
 import {
   PROJECT_ORDER,
@@ -358,7 +358,9 @@ export async function updateSettings(patch: DeepPartial<Settings>, envId?: strin
     return true;
   } catch (err) {
     settings.value = previous;
-    fail("Could not save settings", err);
+    // I-155: another device's settings are view only (the host refuses: 403 `local_only`).
+    if ((err as { code?: string }).code === "local_only") notify("error", `View only. Change this on ${environmentLabel(envId)}.`);
+    else fail("Could not save settings", err);
     return false;
   }
 }

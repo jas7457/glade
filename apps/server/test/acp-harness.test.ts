@@ -394,7 +394,8 @@ describe("ACP agents in the registry", () => {
       { id: "bad id!", name: "Broken", command: "x" },
       { id: "nocmd", name: "No command", command: "" },
     ];
-    const provider = new AcpHarnessProvider(() => agents, {});
+    // Detection (I-155) is a PATH lookup; stub it so "gemini" counts as installed.
+    const provider = new AcpHarnessProvider(() => agents, { which: () => true });
     const pi = new FakeHarness(undefined, 0, { id: "pi" });
     const registry = new HarnessRegistry([pi], { dynamic: () => provider.list() });
     expect(registry.list().map((h) => h.id)).toEqual(["pi", "acp-gem"]);
@@ -415,7 +416,7 @@ describe("ACP agents in the registry", () => {
   });
 
   it("can be the default harness when the setting names one", () => {
-    const provider = new AcpHarnessProvider(() => [{ id: "gem", name: "Gemini", command: "gemini", args: [], env: {} }], {});
+    const provider = new AcpHarnessProvider(() => [{ id: "gem", name: "Gemini", command: "gemini", args: [], env: {} }], { which: () => true });
     const registry = new HarnessRegistry([new FakeHarness(undefined, 0, { id: "pi" })], { preferred: () => "acp-gem", dynamic: () => provider.list() });
     expect(registry.default().id).toBe("acp-gem");
   });

@@ -436,6 +436,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   // Models + settings -------------------------------------------------------------------------
   // Installed harnesses, the default first (I-065).
   api.get("/harnesses", (c) => c.json(service.listHarnesses()));
+  // Settings → Agents (I-155): every agent this device knows about, installed or not.
+  api.get("/agent-catalog", (c) => c.json(service.agentCatalog()));
   api.get("/models", async (c) => {
     const refresh = c.req.query("refresh");
     return c.json(await service.listModels(refresh === "1" || refresh === "true"));
@@ -448,6 +450,11 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   });
   api.patch("/settings", async (c) => {
     const body = await readBody<DeepPartial<Settings>>(c);
+    // I-155: a device's settings (agents, models, commands, prompts, …) are changed on that device
+    // only; other devices see them read-only. Only the look (appearance) may come from a client.
+    if (!isLocal(c) && Object.keys(body).some((key) => key !== "appearance")) {
+      return c.json({ code: "local_only", error: `Change this on ${service.getEnvironment().name}.` }, 403);
+    }
     return c.json(service.updateSettings(body));
   });
 

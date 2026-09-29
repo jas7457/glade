@@ -10,6 +10,11 @@
  *
  * Harnesses the user configures (ACP agents, I-119) come from `dynamic`, read on every lookup,
  * so adding/removing one in Settings takes effect without a restart. Static ones win on id clashes.
+ *
+ * I-155: the device *offers* only harnesses that are installed (`isInstalled`) and enabled (the
+ * `enabled` option: `Settings.agents.<id>.enabled`). `info()` (`GET /api/harnesses`) and
+ * `default()` consider only offered ones; `get()` still finds the others, so their chats stay
+ * readable (sending to them is refused by the service).
  */
 import type { HarnessInfo } from "@glade/protocol";
 import type { AgentHarness } from "./types.js";
@@ -19,6 +24,8 @@ export interface HarnessRegistryOptions {
   preferred?: () => string | null | undefined;
   /** Harnesses configured at runtime (ACP agents from the settings, I-119), after the static ones. */
   dynamic?: () => AgentHarness[];
+  /** Is the harness turned on (I-155, `Settings.agents`)? Default: all are. */
+  enabled?: (id: string) => boolean;
 }
 
 export class HarnessRegistry {
@@ -49,22 +56,53 @@ export class HarnessRegistry {
     return [...this.byId.values(), ...this.dynamic()];
   }
 
+  /** Installed on this device (I-155). */
+  isInstalled(harness: AgentHarness): boolean {
+    try {
+      return harness.isInstalled?.() ?? true;
+    } catch {
+      return false;
+    }
+  }
+
+  isEnabled(id: string): boolean {
+    return this.options.enabled?.(id) ?? true;
+  }
+
+  /** Installed and enabled: offered for new chats, sub-agents and other devices (I-155). */
+  isOffered(harness: AgentHarness): boolean {
+    return this.isEnabled(harness.id) && this.isInstalled(harness);
+  }
+
+  /** The offered harnesses, in {@link list} order. */
+  offered(): AgentHarness[] {
+    return this.list().filter((h) => this.isOffered(h));
+  }
+
   private dynamic(): AgentHarness[] {
     return (this.options.dynamic?.() ?? []).filter((h) => !this.byId.has(h.id));
   }
 
-  /** The harness new chats use. Throws when nothing is registered. */
+  /**
+   * The harness new chats use: the preferred one when offered, else the first offered one. When
+   * nothing is offered, the first registered (app-level things like model lists keep working;
+   * new chats are refused). Throws when nothing is registered.
+   */
   default(): AgentHarness {
     const preferred = this.options.preferred?.();
-    const harness = (preferred ? this.get(preferred) : undefined) ?? this.byId.values().next().value ?? this.dynamic()[0];
+    const pick = preferred ? this.get(preferred) : undefined;
+    const harness =
+      (pick && this.isOffered(pick) ? pick : undefined) ?? this.offered()[0] ?? this.byId.values().next().value ?? this.dynamic()[0];
     if (!harness) throw new Error("No harness is registered");
     return harness;
   }
 
-  /** `GET /api/harnesses`: the default harness first. */
+  /** `GET /api/harnesses`: the offered harnesses (I-155), the default first. */
   info(): HarnessInfo[] {
+    const offered = this.offered();
+    if (!offered.length) return [];
     const fallback = this.default();
-    const list = [fallback, ...this.list().filter((h) => h !== fallback)];
+    const list = [fallback, ...offered.filter((h) => h !== fallback)];
     return list.map((h) => ({ id: h.id, label: h.info.label, isDefault: h === fallback, capabilities: { ...h.info.capabilities } }));
   }
 

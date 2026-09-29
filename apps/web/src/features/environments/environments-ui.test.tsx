@@ -221,29 +221,54 @@ describe("pickers follow the host", () => {
 });
 
 describe("settings", () => {
-  it("host sections edit the environment picked in the switcher", async () => {
+  it("host sections show the device picked in the sidebar switcher; another device's are view only (I-155)", async () => {
     const { b } = seedTwoEnvironments();
     const updateSettings = vi.fn(async (patch: object) => ({ ...b.shell.settings.value, ...patch }));
     (b.api as unknown as { updateSettings: unknown }).updateSettings = updateSettings;
-    const { SettingsView } = await import("@/features/settings");
+    const { SettingsView, SettingsNav } = await import("@/features/settings");
     const { settingsEnvironmentId } = await import("@/state/env-registry");
     settingsEnvironmentId.value = "B";
     render(
       <TooltipProvider>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={["/settings/models"]}>
+          <SettingsNav />
           <SettingsView section="models" />
         </MemoryRouter>
       </TooltipProvider>,
     );
-    expect(screen.getByRole("button", { name: "Environment" }).textContent).toContain("Studio");
-    // B's models, not the local ones.
+    // One switcher, at the top of the AI group in the sidebar.
+    const ai = screen.getByRole("group", { name: "AI" });
+    const switcher = within(ai).getByRole("button", { name: "Settings for device" });
+    expect(switcher.textContent).toContain("Studio");
+    expect(within(screen.getByRole("group", { name: "App" })).queryByRole("button", { name: "Settings for device" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Settings for device" })).toHaveLength(1);
+    // B's models, not the local ones, under B's name, view only.
+    expect(screen.getByLabelText("Device").textContent).toContain("Studio");
+    expect(screen.getByRole("note").textContent).toContain("View only. Change this on Studio.");
     expect(screen.getByText("Only On B")).toBeTruthy();
     expect(screen.queryByText("Only On A")).toBeNull();
-    fireEvent.click(screen.getByRole("switch", { name: "Show Only On B" }));
-    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ models: { hiddenModels: ["remote/only-b"] } }));
-    // The page's own environment is "This Mac" ("Local" is the chat location, Local vs Worktree).
+    const toggle = screen.getByRole("switch", { name: "Show Only On B" });
+    expect(toggle.closest("fieldset")?.disabled).toBe(true);
+    // The page's own device is "This Mac" and editable.
     settingsEnvironmentId.value = null;
-    await waitFor(() => expect(screen.getByRole("button", { name: "Environment" }).textContent).toContain("This Mac"));
+    await waitFor(() => expect(switcher.textContent).toContain("This Mac"));
+    expect(screen.getByLabelText("Device").textContent).toContain("This Mac");
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(screen.getByText("Only On A")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Show Only On A" }).closest("fieldset")?.disabled).toBe(false);
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("a refused write from another device says where to change it (I-155)", async () => {
+    const { b } = seedTwoEnvironments();
+    const err = Object.assign(new Error("Change this on Studio."), { status: 403, code: "local_only" });
+    (b.api as unknown as { updateSettings: unknown }).updateSettings = vi.fn(async () => Promise.reject(err));
+    const { updateSettings } = await import("@/state/actions");
+    const { toasts } = await import("@/state/toasts");
+    const before = b.shell.settings.value;
+    expect(await updateSettings({ models: { hiddenModels: ["x/y"] } }, "B")).toBe(false);
+    expect(b.shell.settings.value).toBe(before);
+    expect(toasts.value.at(-1)?.message).toBe("View only. Change this on Studio.");
   });
 
   const renderRemote = async () => {

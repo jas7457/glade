@@ -1,6 +1,6 @@
 /**
- * pi's own settings (`Settings.harnesses.pi`, I-066), shown on the agent settings page when the
- * server has the pi harness.
+ * pi's own settings (`Settings.harnesses.pi`, I-066), shown in pi's card on the Agents page
+ * (I-155). `PiSettingsRows` are the rows alone (inside that card); `PiSettings` wraps them in a group.
  */
 import { FormGroup, FormRow, Switch } from "@/ui";
 import { hostSettings as settings, updateHostSettings as updateSettings } from "@/state/host-settings";
@@ -14,10 +14,20 @@ export function parseArgs(text: string): string[] {
 
 const save = (pi: Partial<PiHarnessSettings>) => void updateSettings({ harnesses: { pi } });
 
+export const PI_SETTINGS_FOOTER = "Changes apply to newly started chats. Chats that are already open keep their current agent process until it's restarted.";
+
 export function PiSettings({ title }: { title?: string }) {
+  return (
+    <FormGroup title={title} footer={PI_SETTINGS_FOOTER}>
+      <PiSettingsRows />
+    </FormGroup>
+  );
+}
+
+export function PiSettingsRows() {
   const pi = settings.value.harnesses.pi;
   return (
-    <FormGroup title={title} footer="Changes apply to newly started chats. Chats that are already open keep their current agent process until it's restarted.">
+    <>
       <FormRow label="pi executable" description="Path to pi, or just “pi” to find it on your PATH." htmlFor="pi-path">
         <CommitField
           id="pi-path"
@@ -44,6 +54,6 @@ export function PiSettings({ title }: { title?: string }) {
       <FormRow label="Auto-retry" description="Retry automatically after transient provider errors.">
         <Switch aria-label="Auto-retry" checked={pi.autoRetry} onCheckedChange={(autoRetry) => save({ autoRetry })} />
       </FormRow>
-    </FormGroup>
+    </>
   );
 }

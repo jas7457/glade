@@ -1,7 +1,8 @@
 /**
  * Settings section list shown in the sidebar while the settings screen is open
  * (like System Settings): a "Back to App" row, then the sections grouped by category
- * (`SETTINGS_GROUPS`).
+ * (`SETTINGS_GROUPS`). The AI group starts with the device switcher ("Settings for [This Mac ▾]",
+ * I-155) when another device is connected.
  */
 import { useLocation, useNavigate } from "react-router";
 import { ChevronLeft } from "lucide-preact";
@@ -9,7 +10,8 @@ import { routes } from "@/app/routes";
 import { cn } from "@/lib/cn";
 import { SidebarGroup, SidebarItem, SidebarList, StatusDot, sidebarClass } from "@/ui";
 import { updateAvailable } from "@/state/version";
-import { SECTION_INFO, SETTINGS_GROUPS } from "./sections";
+import { SettingsDeviceSwitcher } from "@/features/environments";
+import { HOST_SECTIONS, SECTION_INFO, SETTINGS_GROUPS } from "./sections";
 
 /** Where "Back to app" goes: the last non-settings location. */
 let lastAppPath = "/";
@@ -27,6 +29,7 @@ export function SettingsNav() {
       </SidebarList>
       {SETTINGS_GROUPS.map((group) => (
         <SidebarGroup key={group.title} title={group.title}>
+          {group.sections.some((s) => HOST_SECTIONS.includes(s)) && <SettingsDeviceSwitcher />}
           <SidebarList>
             {group.sections.map((section) => {
               const { label, Icon } = SECTION_INFO[section];

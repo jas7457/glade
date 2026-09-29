@@ -1,5 +1,6 @@
 /**
- * Settings → Slash Commands (I-048): show or hide each command in the composer's slash menu.
+ * Settings → Slash Commands (I-048): show or hide each command in the composer's slash menu,
+ * grouped by source (I-155: Glade's, the agent's own, project folders).
  * Hiding only declutters: a hidden command typed in full still runs. Stored as
  * `settings.slashCommands.hidden` (`<source>:<name>` keys, see state/slash-visibility.ts).
  */
@@ -8,7 +9,14 @@ import { RefreshCw, Search } from "lucide-preact";
 import { builtinCommands } from "@/features/chat/slash/builtins";
 import { listFolderCommands } from "@/lib/api-folder";
 import { Button, FormGroup, FormRow, Spinner, Switch, TextField } from "@/ui";
-import { hostEnvId, hostProjects as projects, hostSettings as settings, updateHostSettings as updateSettings } from "@/state/host-settings";
+import {
+  hostDefaultHarness,
+  hostEnvId,
+  hostHarnesses,
+  hostProjects as projects,
+  hostSettings as settings,
+  updateHostSettings as updateSettings,
+} from "@/state/host-settings";
 import { requestFor } from "@/state/env-api";
 import { setSlashCommandsHidden } from "@/state/slash-visibility";
 import { listSlashCommands, type FolderCommands } from "./slash-command-list";
@@ -40,7 +48,10 @@ export function CommandSettings() {
   const setHidden = (keys: string[], hide: boolean) =>
     void updateSettings({ slashCommands: { hidden: setSlashCommandsHidden(settings.value.slashCommands?.hidden ?? [], keys, hide) } });
 
-  const groups = listSlashCommands(builtinCommands(true), load.status === "done" ? load.folders : [], query);
+  // Folder commands come from the device's default agent; other agents' commands show in their chats.
+  const agent = hostDefaultHarness.value;
+  const groups = listSlashCommands(builtinCommands(true), load.status === "done" ? load.folders : [], query, agent?.label ?? "Agent");
+  const inChatOnly = (hostHarnesses.value ?? []).filter((h) => h.id !== agent?.id && h.capabilities.commands);
 
   return (
     <>
@@ -75,7 +86,7 @@ export function CommandSettings() {
         const allHidden = keys.every((k) => hiddenSet.has(k));
         return (
           <FormGroup
-            key={group.source}
+            key={group.id}
             title={group.label}
             actions={
               <>
@@ -112,6 +123,11 @@ export function CommandSettings() {
           </FormGroup>
         );
       })}
+      {inChatOnly.length > 0 && (
+        <p class="text-[0.92rem] text-fg-muted">
+          {inChatOnly.map((h) => h.label).join(", ")} {inChatOnly.length === 1 ? "offers its" : "offer their"} own commands in {inChatOnly.length === 1 ? "its" : "their"} chats.
+        </p>
+      )}
     </>
   );
 }

@@ -31,6 +31,7 @@ import { piSideQuestion } from "./side-question.js";
 import { PiRpcProcess } from "./rpc-process.js";
 import { piSessionReader } from "./session-reader.js";
 import { readPiTranscript } from "./transcript-file.js";
+import { cachedWhich, type WhichFn } from "../which.js";
 import {
   PiEventTranslator,
   translateCommands,
@@ -53,7 +54,11 @@ export interface PiHarnessOptions {
   subagents?: () => boolean;
   /** Glade's pi extension (I-116); defaults to {@link gladeExtensionPath}. `null` = don't load it. */
   extensionPath?: () => string | null;
+  /** Is a command installed? (I-155; default: a cached PATH lookup.) */
+  which?: WhichFn;
 }
+
+const defaultWhich = cachedWhich();
 
 export class PiHarness implements AgentHarness {
   readonly id = "pi";
@@ -70,6 +75,11 @@ export class PiHarness implements AgentHarness {
   private modelsInflight: Promise<ModelInfo[]> | null = null;
 
   constructor(private readonly options: PiHarnessOptions) {}
+
+  /** The pi executable (`piPath`) is on the PATH / exists (I-155). */
+  isInstalled(): boolean {
+    return (this.options.which ?? defaultWhich)(this.options.config().piPath || "pi");
+  }
 
   async listModels(force = false): Promise<ModelInfo[]> {
     if (!force && this.modelsCache && Date.now() - this.modelsCache.at < 60_000) return this.modelsCache.models;

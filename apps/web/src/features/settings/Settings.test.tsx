@@ -220,8 +220,11 @@ describe("settings navigation", () => {
     expect(app.textContent).toContain("General");
     expect(app.textContent).toContain("Appearance");
     expect(ai.textContent).toContain("Models");
-    expect(ai.textContent).toContain("pi");
-    expect(screen.getByRole("button", { name: "pi" }).getAttribute("aria-current")).toBe("page");
+    // Always "Agents" (I-155), not the harness's name.
+    expect(ai.textContent).toContain("Agents");
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-current")).toBe("page");
+    // One device: no device switcher.
+    expect(screen.queryByRole("button", { name: "Settings for device" })).toBeNull();
     expect(screen.getByRole("button", { name: "Back to App" })).toBeTruthy();
   });
 });

@@ -1,35 +1,24 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
 import { BookText, Cpu, Globe, Info, Palette, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
 import type { SettingsSection } from "@/app/routes";
-import { hostHarnesses as harnesses } from "@/state/host-settings";
-
-/**
- * The agent section is named after the installed harness ("pi"), or "Agents" when there are
- * several (I-065). Reads a signal, so labels rendered from it update once harnesses load.
- */
-export function agentSectionLabel(): string {
-  const list = harnesses.value;
-  if (!list?.length) return "Agent";
-  return list.length === 1 ? list[0]!.label : "Agents";
-}
 
 export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Cpu }> = {
   general: { label: "General", Icon: Settings2 },
   models: { label: "Models", Icon: Cpu },
   appearance: { label: "Appearance", Icon: Palette },
-  agent: {
-    get label() {
-      return agentSectionLabel();
-    },
-    Icon: SquareTerminal,
-  },
+  // Always "Agents" (I-155): the page lists every agent the device can run.
+  agent: { label: "Agents", Icon: SquareTerminal },
   commands: { label: "Slash Commands", Icon: SlashSquare },
   prompts: { label: "Prompts", Icon: BookText },
   remote: { label: "Remote Access", Icon: Globe },
   about: { label: "About", Icon: Info },
 };
 
-/** Sections that belong to the environment running the agents (I-123): they get an environment switcher. */
+/**
+ * Sections that belong to the environment running the agents (I-123): the AI group. The device
+ * switcher at the top of that group (I-155) picks whose settings they show; another device's are
+ * view only.
+ */
 export const HOST_SECTIONS: readonly SettingsSection[] = ["models", "agent", "commands", "prompts"];
 
 export interface SettingsGroup {

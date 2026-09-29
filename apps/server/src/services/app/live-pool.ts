@@ -77,7 +77,7 @@ export class LivePool {
   private async openLive(id: string): Promise<LiveSession> {
     const record = this.records.requireSession(id);
     const workspace = this.records.requireWorkspace(record.workspaceId);
-    const harness = this.records.requireHarness(record);
+    const harness = this.records.requireOfferedHarness(record);
     await this.acquireLease(id);
     try {
       return await this.startLive(id, record, workspace, harness);

@@ -5,6 +5,6 @@
 export { RemoteMarker } from "./RemoteMarker";
 export { EnvironmentPicker } from "./EnvironmentPicker";
 export { RemoteAccessSettings } from "./RemoteAccessSettings";
-export { SettingsEnvironmentSwitcher } from "./SettingsEnvironmentSwitcher";
+export { SettingsDeviceSwitcher } from "./SettingsDeviceSwitcher";
 export { PendingPairingHost } from "./PendingPairingHost";
 export { PairRoute } from "./PairRoute";

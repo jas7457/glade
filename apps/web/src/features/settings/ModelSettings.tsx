@@ -12,6 +12,7 @@ import {
   updateHostSettings as updateSettings,
 } from "@/state/host-settings";
 import { harnessLabel } from "@/state/harnesses";
+import { hostDeviceName, hostHarnesses } from "@/state/host-settings";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "Off",
@@ -30,6 +31,21 @@ export function groupModels(list: readonly ModelInfo[]): Array<[provider: string
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([p, ms]) => [p, ms.sort((a, b) => a.name.localeCompare(b.name))]);
+}
+
+/**
+ * Models grouped by agent, then provider (I-155): `[["pi · anthropic", […]], …]`. `labelOf` names
+ * a model's harness (`ModelInfo.harness`; older servers don't say, then it's the default one).
+ */
+export function groupModelsByAgent(list: readonly ModelInfo[], labelOf: (harness: string | undefined) => string): Array<[group: string, models: ModelInfo[]]> {
+  const byAgent = new Map<string, ModelInfo[]>();
+  for (const m of list) {
+    const label = labelOf(m.harness);
+    byAgent.set(label, [...(byAgent.get(label) ?? []), m]);
+  }
+  return [...byAgent.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([agent, ms]) => groupModels(ms).map(([provider, pms]) => [`${agent} · ${provider}`, pms] as [string, ModelInfo[]]));
 }
 
 /** The server's default small model when it's available (`DEFAULT_SMALL_MODEL`). */
@@ -53,6 +69,11 @@ export function ModelSettings() {
   // I-050: name the harness's own default so "Default" isn't a mystery.
   const harnessModel = harnessDefaults.value?.model;
   const harnessModelName = harnessModel ? (all.find((m) => m.provider === harnessModel.provider && m.id === harnessModel.id)?.name ?? harnessModel.id) : null;
+
+  const env = hostEnvId();
+  const labelOf = (harness: string | undefined) => harnessLabel(harness ?? null, env);
+  // Agents that choose their own model (ACP agents) have no list here.
+  const ownModel = (hostHarnesses.value ?? []).filter((h) => h.capabilities.models === false);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -130,7 +151,7 @@ export function ModelSettings() {
 
       <FormGroup
         title="Available models"
-        footer="Hidden models don't appear in the model picker."
+        footer={`The models ${hostDeviceName.value}'s agents can use, by agent and provider. Hidden models don't appear in the model picker.`}
         actions={
           <Button size="sm" onClick={() => void refresh()} disabled={refreshing}>
             {refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
@@ -141,9 +162,9 @@ export function ModelSettings() {
         {all.length === 0 ? (
           <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${harnessLabel(null, hostEnvId())} is configured with a provider.`}</span>} />
         ) : (
-          groupModels(all).map(([provider, ms]) => (
-            <div key={provider}>
-              <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{provider}</div>
+          groupModelsByAgent(all, labelOf).map(([group, ms]) => (
+            <div key={group}>
+              <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{group}</div>
               {ms.map((m) => {
                 const key = modelKey(m);
                 return (
@@ -158,6 +179,12 @@ export function ModelSettings() {
             </div>
           ))
         )}
+        {ownModel.map((h) => (
+          <div key={h.id}>
+            <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{h.label}</div>
+            <div class="flex h-8 items-center border-t border-separator px-3 text-fg-muted">Chooses its own model</div>
+          </div>
+        ))}
       </FormGroup>
     </>
   );

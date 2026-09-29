@@ -10,6 +10,7 @@ import type {
   DeepPartial,
   EnvironmentInfo,
   GenerateTitleResponse,
+  AgentCatalogEntry,
   HarnessInfo,
   ListAgentsResponse,
   MessageAgentRequest,
@@ -45,6 +46,7 @@ import type {
   WorktreeStatus,
 } from "@glade/protocol";
 import type { SessionText } from "../harness/types.js";
+import { buildAgentCatalog } from "../harness/agent-catalog.js";
 import { AgentTeam } from "./app/agent-team.js";
 import { createAppContext, type AppContext, type AppServiceOptions, type Listener } from "./app/context.js";
 import { LeaseSync } from "./app/lease-sync.js";
@@ -104,6 +106,7 @@ export class AppService {
     const ctx = createAppContext(options);
     this.ctx = ctx;
     this.environment = new Environment(ctx.store, options.environment);
+    ctx.deviceName = () => this.environment.info().name;
     this.attachments = ctx.attachments;
     mkdirSync(options.scratchDir, { recursive: true });
     // Usage limits are the default harness's account (the gauge is app-wide).
@@ -275,9 +278,20 @@ export class AppService {
     return this.ctx.harnesses.info();
   }
 
-  /** The default harness's models (what the model settings and new chats offer). */
+  /** Every agent this device knows about, installed or not (Settings → Agents, I-155). */
+  agentCatalog(): AgentCatalogEntry[] {
+    return buildAgentCatalog({ harnesses: this.ctx.harnesses, settings: this.ctx.store.getSettings() });
+  }
+
+  /**
+   * The models of the harness with Glade's model picker (the default one, else the first offered
+   * one that has models), tagged with its id (I-155). What the model settings and new chats offer.
+   */
   async listModels(force = false): Promise<ModelInfo[]> {
-    const models = await this.ctx.harnesses.default().listModels(force);
+    const { harnesses } = this.ctx;
+    const fallback = harnesses.default();
+    const harness = fallback.info.capabilities.models !== false ? fallback : (harnesses.offered().find((h) => h.info.capabilities.models !== false) ?? fallback);
+    const models = (await harness.listModels(force)).map((m) => ({ ...m, harness: harness.id }));
     // A forced refresh may have changed the list; let every client know.
     if (force) this.ctx.broadcast({ type: "models", models });
     return models;

@@ -2,9 +2,10 @@
  * The list behind Settings → Slash Commands (I-048): Glade's built-ins plus the union of the
  * harness commands of the scratch folder and every project. Commands missing from the scratch
  * folder are project-specific (project skills/prompts) and list the projects that have them.
- * Pure, for tests.
+ * Grouped by source (I-155): "Glade" (built-ins), the agent's own ("pi · Extensions", …), then
+ * "Project folders". Pure, for tests.
  */
-import type { SlashCommand, SlashCommandSource } from "@glade/protocol";
+import type { SlashCommand } from "@glade/protocol";
 import { GROUP_LABELS, GROUP_ORDER, compareCommandNames } from "@/features/chat/slash/match";
 import { slashCommandKey } from "@/state/slash-visibility";
 
@@ -16,7 +17,8 @@ export interface ListedCommand {
 }
 
 export interface ListedGroup {
-  source: SlashCommandSource;
+  /** Stable key: `glade`, `agent-<source>` or `projects`. */
+  id: string;
   label: string;
   commands: ListedCommand[];
 }
@@ -27,7 +29,7 @@ export interface FolderCommands {
   commands: readonly SlashCommand[];
 }
 
-export function listSlashCommands(builtins: readonly SlashCommand[], folders: readonly FolderCommands[], query = ""): ListedGroup[] {
+export function listSlashCommands(builtins: readonly SlashCommand[], folders: readonly FolderCommands[], query = "", agent = "Agent"): ListedGroup[] {
   const byKey = new Map<string, { command: SlashCommand; projects: Set<string>; global: boolean }>();
   const builtinNames = new Set(builtins.map((c) => c.name));
   for (const command of builtins) byKey.set(slashCommandKey(command), { command, projects: new Set(), global: true });
@@ -44,12 +46,16 @@ export function listSlashCommands(builtins: readonly SlashCommand[], folders: re
   }
   const q = query.trim().toLowerCase();
   const matches = (c: SlashCommand) => !q || c.name.toLowerCase().includes(q) || !!c.description?.toLowerCase().includes(q);
-  return GROUP_ORDER.map((source) => ({
-    source,
-    label: GROUP_LABELS[source],
-    commands: [...byKey.entries()]
-      .filter(([, e]) => e.command.source === source && matches(e.command))
-      .sort(([, a], [, b]) => compareCommandNames(a.command, b.command))
-      .map(([key, e]) => ({ key, command: e.command, projects: e.global ? null : [...e.projects].sort((a, b) => a.localeCompare(b)) })),
-  })).filter((g) => g.commands.length > 0);
+  const sourceOrder = (c: SlashCommand) => GROUP_ORDER.indexOf(c.source);
+  const listed = [...byKey.entries()]
+    .filter(([, e]) => matches(e.command))
+    .sort(([, a], [, b]) => sourceOrder(a.command) - sourceOrder(b.command) || compareCommandNames(a.command, b.command))
+    .map(([key, e]) => ({ key, command: e.command, projects: e.global ? null : [...e.projects].sort((a, b) => a.localeCompare(b)) }));
+  const groups: ListedGroup[] = [{ id: "glade", label: "Glade", commands: listed.filter((c) => c.command.source === "builtin") }];
+  for (const source of GROUP_ORDER) {
+    if (source === "builtin") continue;
+    groups.push({ id: `agent-${source}`, label: `${agent} · ${GROUP_LABELS[source]}`, commands: listed.filter((c) => c.command.source === source && c.projects === null) });
+  }
+  groups.push({ id: "projects", label: "Project folders", commands: listed.filter((c) => c.command.source !== "builtin" && c.projects !== null) });
+  return groups.filter((g) => g.commands.length > 0);
 }

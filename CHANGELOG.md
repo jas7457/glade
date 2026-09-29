@@ -166,6 +166,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Settings → Agents lists every supported agent (pi, Claude Code, Gemini CLI, Codex, your own
+  ACP agents) with whether it's installed, an Enable switch, its settings and install links.
+  Only enabled agents are offered, also to other devices. A "Settings for" switcher picks the
+  device, and another device's settings are view-only: change them on that device.
 - Sending is simpler: ↩ sends (and steers a working agent), ⌘↩ sends a follow-up that waits
   until it's done, ⌥↩ asks aside, ⇧↩ adds a line. Holding ⌘ shows the follow-up button. The
   "Send message with" and "While the agent is working" settings are gone.

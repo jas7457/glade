@@ -8,6 +8,7 @@ vi.mock("@/lib/api-folder", () => ({ listFolderCommands: vi.fn() }));
 import { api } from "@/lib/api";
 import { listFolderCommands } from "@/lib/api-folder";
 import { projects, settings } from "@/state/store";
+import { harnesses } from "@/state/harnesses";
 import { isSlashCommandHidden, setSlashCommandsHidden, slashCommandKey } from "@/state/slash-visibility";
 import { makeProject } from "@/test/fixtures";
 import { TooltipProvider } from "@/ui";
@@ -37,12 +38,19 @@ describe("slash visibility helpers", () => {
         { projectName: "app", commands: [cmd("skill", "skill:deploy"), cmd("prompt", "review")] },
       ],
     );
+    // I-155: grouped by source: Glade's, the agent's own, project folders.
     expect(groups.map((g) => [g.label, g.commands.map((c) => [c.command.name, c.projects])])).toEqual([
-      ["Built-in", [["compact", null], ["new", null]]],
-      ["Extensions", [["powerline", null]]],
-      ["Skills", [["skill:deploy", ["app", "shop"]]]],
-      ["Prompts", [["review", ["app"]]]], // the "compact" prompt is shadowed by the built-in
+      ["Glade", [["compact", null], ["new", null]]],
+      ["Agent · Extensions", [["powerline", null]]],
+      [
+        "Project folders",
+        [
+          ["skill:deploy", ["app", "shop"]],
+          ["review", ["app"]], // the "compact" prompt is shadowed by the built-in
+        ],
+      ],
     ]);
+    expect(listSlashCommands([], [{ projectName: null, commands: [cmd("skill", "skill:x")] }], "", "pi").map((g) => g.label)).toEqual(["pi · Skills"]);
     expect(listSlashCommands([cmd("builtin", "new", "Start over")], [], "over").map((g) => g.commands.length)).toEqual([1]);
   });
 });
@@ -51,6 +59,11 @@ describe("Settings → Slash Commands", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settings.value = defaultSettings();
+    const caps = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
+    harnesses.value = [
+      { id: "pi", label: "pi", isDefault: true, capabilities: caps },
+      { id: "acp-claude-code", label: "Claude Code", isDefault: false, capabilities: { ...caps, models: false } },
+    ];
     projects.value = [makeProject({ id: "p1", name: "shop", sortOrder: 0 })];
     vi.mocked(api.updateSettings).mockImplementation(async () => settings.value);
     vi.mocked(listFolderCommands).mockImplementation(async (projectId) =>
@@ -68,18 +81,20 @@ describe("Settings → Slash Commands", () => {
     expect(listFolderCommands).toHaveBeenCalledWith(null, false, undefined);
     expect(listFolderCommands).toHaveBeenCalledWith("p1", false, undefined);
     expect(screen.getByText("Only in shop")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Project folders" })).toBeTruthy();
+    expect(screen.getByText(/Claude Code offers its own commands in its chats/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("switch", { name: "Show /powerline" }));
     expect(api.updateSettings).toHaveBeenLastCalledWith({ slashCommands: { hidden: ["extension:powerline"] } });
     expect(screen.getByRole("switch", { name: "Show /powerline" }).getAttribute("aria-checked")).toBe("false");
 
-    fireEvent.click(screen.getByRole("button", { name: "Hide all Built-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide all Glade" }));
     expect(settings.value.slashCommands.hidden).toContain("builtin:compact");
-    fireEvent.click(screen.getByRole("button", { name: "Show all Extensions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show all pi · Extensions" }));
     expect(settings.value.slashCommands.hidden).not.toContain("extension:powerline");
 
     fireEvent.input(screen.getByRole("textbox", { name: "Filter commands" }), { target: { value: "deploy" } });
     expect(screen.getAllByRole("switch").map((s) => s.getAttribute("aria-label"))).toEqual(["Show /skill:deploy"]);
-    expect(within(document.body).queryByText("Built-in")).toBeNull();
+    expect(within(document.body).queryByText("Glade")).toBeNull();
   });
 });
