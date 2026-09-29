@@ -17,12 +17,13 @@
 //! `menu_model` and `icon_name` are pure (tested); `refresh` rebuilds the native menu from them.
 //! Clicks arrive through the app-wide menu handler (`menu::handle` → `handle`, ids `tray-*`).
 
+use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::menu::MENU_EVENT;
 use crate::shell_state::{self, ShellState};
@@ -117,6 +118,11 @@ fn icon(name: &str) -> Image<'static> {
 
 fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
+    append_items(app, &menu, items)?;
+    Ok(menu)
+}
+
+fn append_items(app: &AppHandle, menu: &Menu<tauri::Wry>, items: &[TrayItem]) -> tauri::Result<()> {
     for item in items {
         match item {
             TrayItem::Action { id, label, enabled } => menu.append(&MenuItemBuilder::with_id(*id, label).enabled(*enabled).build(app)?)?,
@@ -124,12 +130,60 @@ fn build_menu(app: &AppHandle, items: &[TrayItem]) -> tauri::Result<Menu<tauri::
             TrayItem::Separator => menu.append(&PredefinedMenuItem::separator(app)?)?,
         }
     }
-    Ok(menu)
+    Ok(())
+}
+
+/// The tray's one menu and the model it shows. Updates change it in place: replacing the menu
+/// (`set_menu`) closes it while it's open, e.g. when a chat finishes as you look at it.
+struct TrayMenu {
+    menu: Menu<tauri::Wry>,
+    shown: Mutex<Vec<TrayItem>>,
+}
+
+/// Same items in the same order (only labels / enabled / checked may differ).
+fn same_shape(a: &[TrayItem], b: &[TrayItem]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| match (x, y) {
+            (TrayItem::Action { id: i, .. }, TrayItem::Action { id: j, .. }) => i == j,
+            (TrayItem::Check { id: i, .. }, TrayItem::Check { id: j, .. }) => i == j,
+            (TrayItem::Separator, TrayItem::Separator) => true,
+            _ => false,
+        })
+}
+
+/// Bring the open-or-closed menu up to date without replacing it.
+fn update_menu(app: &AppHandle, tray_menu: &TrayMenu, next: Vec<TrayItem>) -> tauri::Result<()> {
+    let mut shown = tray_menu.shown.lock().unwrap_or_else(|e| e.into_inner());
+    if *shown == next {
+        return Ok(());
+    }
+    if same_shape(&shown, &next) {
+        for (item, kind) in next.iter().zip(tray_menu.menu.items()?) {
+            match (item, kind) {
+                (TrayItem::Action { label, enabled, .. }, MenuItemKind::MenuItem(m)) => {
+                    m.set_text(label)?;
+                    m.set_enabled(*enabled)?;
+                }
+                (TrayItem::Check { label, checked, .. }, MenuItemKind::Check(m)) => {
+                    m.set_text(label)?;
+                    m.set_checked(*checked)?;
+                }
+                _ => {}
+            }
+        }
+    } else {
+        while tray_menu.menu.remove_at(0)?.is_some() {}
+        append_items(app, &tray_menu.menu, &next)?;
+    }
+    *shown = next;
+    Ok(())
 }
 
 /// Create the menu bar icon. Call once from `setup`.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
-    let menu = build_menu(app, &menu_model(None))?;
+    let model = menu_model(None);
+    let menu = build_menu(app, &model)?;
+    app.manage(TrayMenu { menu: menu.clone(), shown: Mutex::new(model) });
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon("idle"))
         .icon_as_template(true)
@@ -148,8 +202,8 @@ pub fn refresh(app: &AppHandle) {
         let state = shell_state::current();
         let _ = tray.set_icon(Some(icon(icon_name(state.as_ref()))));
         let _ = tray.set_icon_as_template(true);
-        if let Ok(menu) = build_menu(&handle, &menu_model(state.as_ref())) {
-            let _ = tray.set_menu(Some(menu));
+        if let Some(tray_menu) = handle.try_state::<TrayMenu>() {
+            let _ = update_menu(&handle, &tray_menu, menu_model(state.as_ref()));
         }
         let tooltip = match state.as_ref().filter(|s| s.held && !s.awake_text.is_empty()) {
             Some(s) => format!("Glade — keeping this Mac awake: {}", s.awake_text),
@@ -268,5 +322,15 @@ mod tests {
         assert_eq!(icon_name(Some(&state(0, 0, true, &[], false, ""))), "idle", "sharing has no mark");
         assert_eq!(icon_name(Some(&state(1, 0, true, &[], false, ""))), "working");
         assert_eq!(icon_name(Some(&state(1, 1, false, &[], false, ""))), "needs");
+    }
+
+    #[test]
+    fn updates_in_place_when_only_labels_change() {
+        let a = menu_model(Some(&state(1, 0, true, &[], false, "")));
+        let b = menu_model(Some(&state(3, 0, false, &["iPad"], false, "")));
+        assert!(same_shape(&a, &b), "counts and sharing text change in place");
+        let c = menu_model(Some(&state(1, 1, true, &[], false, "")));
+        assert!(!same_shape(&a, &c), "a new 'needs you' line changes the shape");
+        assert!(!same_shape(&menu_model(None), &a));
     }
 }

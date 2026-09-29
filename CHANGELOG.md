@@ -315,6 +315,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- The menu bar menu stays open while it updates (e.g. when a chat finishes as you look at it).
 - The Send button stays in place while an agent works (disabled until you type), and Ask Aside
   is a solid violet button that matches Stop and Send; side-question cards use the same violet.
 - Picking a device (or any option from a menu) inside a dialog no longer closes the dialog, so
