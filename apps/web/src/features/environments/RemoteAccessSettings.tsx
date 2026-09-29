@@ -14,9 +14,11 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import { hasLocalEnvironment } from "@/state/env-registry";
+import { retryWaitingRemotes } from "@/state/environments";
 import { pairDialogRequest } from "@/state/pairing";
 import { hostRemote, loadDevices, loadHostRemote, setHostRemote } from "@/state/remote-host";
 import { remoteMaster, remoteMasterError, setRemoteMaster } from "@/state/remote-master";
+import { refreshPeersIfNeeded } from "@/state/remote-status";
 import { FormGroup, FormRow, Switch, confirm } from "@/ui";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { ConnectEnvironmentDialog } from "./ConnectEnvironmentDialog";
@@ -63,6 +65,12 @@ export function RemoteAccessSettings() {
     setDialog(request);
     pairDialogRequest.value = null;
   }, [request]);
+
+  // I-142: opening this page retries devices waiting to reconnect and refreshes the tailnet peers.
+  useEffect(() => {
+    retryWaitingRemotes();
+    void refreshPeersIfNeeded();
+  }, []);
 
   // The switches, Tailscale's state and the devices' last seen change without pushes: refresh while shown.
   useEffect(() => {

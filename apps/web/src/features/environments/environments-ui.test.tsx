@@ -315,6 +315,10 @@ describe("settings", () => {
       "pro.tail.ts.net · Needs pairing",
       "book.tail.ts.net · Connected",
     ]);
+    // I-142: a status dot per row (grey off/offline, red can't reach / needs pairing, green connected).
+    const dots = [...document.querySelectorAll('[data-line="uses"] [data-status-dot]')];
+    expect(dots.map((d) => d.getAttribute("data-status-dot"))).toEqual(["off", "off", "error", "error", "on"]);
+    expect(dots.map((d) => d.getAttribute("aria-label"))).toEqual(["Remote access turned off on Studio", "Air is offline", "Can't reach Mini", "Needs pairing", "Connected"]);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalled();
     expect(screen.getAllByRole("button", { name: "Pair Again…" })).toHaveLength(1);

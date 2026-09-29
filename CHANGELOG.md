@@ -150,6 +150,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Remote devices show their status as a coloured dot (connected, connecting, off, needs
+  attention) in Connections, the globe popover and the sidebar, and a device that turns remote
+  access back on is noticed within seconds (instantly when you switch back to Glade).
 - Sub-agent tabs can't be closed by accident any more: use Remove Sub-agent… (right-click the tab
   or the ⋯ menu), which asks first. Hide the pane with the new Hide button, Esc, ⌥⌘B, or by
   clicking the agent's chip again.

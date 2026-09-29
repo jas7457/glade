@@ -124,4 +124,52 @@ describe("Socket auth (I-125)", () => {
       teardown();
     }
   });
+
+  it("retries every ~5 s while remote access is off (I-142)", async () => {
+    setup();
+    try {
+      expect(REMOTE_DISABLED_RETRY_MS).toBeLessThanOrEqual(5_000);
+      let calls = 0;
+      const socket = new Socket(async () => {
+        calls++;
+        throw new ApiRequestError(403, "off", "remote_disabled");
+      });
+      socket.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(calls).toBe(4);
+      socket.disconnect();
+    } finally {
+      teardown();
+    }
+  });
+
+  it("retryNow skips the wait while waiting; does nothing when open or stopped (I-142)", async () => {
+    setup();
+    try {
+      let disabled = true;
+      let calls = 0;
+      const socket = new Socket(async () => {
+        calls++;
+        if (disabled) throw new ApiRequestError(403, "off", "remote_disabled");
+        return "ws://h/ws?ticket=x";
+      });
+      socket.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(socket.waiting).toBe(true);
+      disabled = false;
+      expect(socket.retryNow()).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toBe(2);
+      FakeWs.instances[0]!.open();
+      expect(socket.status.value).toBe("open");
+      expect(socket.retryNow()).toBe(false);
+      socket.disconnect();
+      expect(socket.retryNow()).toBe(false);
+      expect(calls).toBe(2);
+    } finally {
+      teardown();
+    }
+  });
 });

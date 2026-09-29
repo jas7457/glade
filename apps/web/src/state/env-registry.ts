@@ -59,6 +59,11 @@ export interface EnvHandle {
   readonly shell: EnvShell;
   /** Reconnect now instead of waiting for the backoff (remote ones). */
   retry?(): void;
+  /**
+   * Light retry (I-142): if the socket is waiting to reconnect (backoff, remote access off), try
+   * now; nothing is torn down. Returns whether it retried.
+   */
+  retryNow?(): boolean;
 }
 
 /** Connected environments, local first. Only these are shown (remote ones when remote access is on). */

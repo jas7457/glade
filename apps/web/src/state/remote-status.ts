@@ -134,14 +134,28 @@ export const downEnvironments = computed(() => new Set(connections.value.filter(
 
 const PEERS_POLL_MS = 20_000;
 
+/** Some remote environment is unreachable (only then do the tailnet peers matter). */
+function anyUnreachable(): boolean {
+  return connections.value.some((c) => !c.isLocal && (c.status.value === "offline" || c.status.value === "error"));
+}
+
+/**
+ * Refresh the peers now if they matter (I-142: window focus / visible, Settings → Remote Access
+ * opening), without waiting for the 20 s poll.
+ */
+export function refreshPeersIfNeeded(): Promise<void> {
+  return anyUnreachable() ? refreshPeers() : Promise.resolve();
+}
+
 /**
  * While any remote environment is unreachable, ask the local server for tailnet peers now and
- * every 20 s (to tell "offline" from "can't reach"). Call once with a local server; returns stop.
+ * every 20 s (to tell "offline" from "can't reach"); also on focus / visibility and when Settings →
+ * Remote Access opens (`refreshPeersIfNeeded`, I-142). Call once with a local server; returns stop.
  */
 export function watchPeers(): () => void {
   let timer: ReturnType<typeof setInterval> | null = null;
   const stop = effect(() => {
-    const unreachable = connections.value.some((c) => !c.isLocal && (c.status.value === "offline" || c.status.value === "error"));
+    const unreachable = anyUnreachable();
     if (unreachable && !timer) {
       void refreshPeers();
       timer = setInterval(() => void refreshPeers(), PEERS_POLL_MS);

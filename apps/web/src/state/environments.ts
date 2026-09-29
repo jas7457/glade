@@ -54,7 +54,7 @@ import {
   type EnvStatus,
 } from "./env-registry";
 import { loadRemoteMaster, remoteMaster, setRemoteMaster, useServerMaster } from "./remote-master";
-import { downEnvironments, watchPeers } from "./remote-status";
+import { downEnvironments, refreshPeersIfNeeded, watchPeers } from "./remote-status";
 import { environmentAlias, loadSavedEnvironments, savedEnvironments, setRemoteDisabled, type SavedEnvironment } from "./saved-environments";
 import { envIdOfSession, initialized, loadAll, localShell, removeEnvironmentItems } from "./store";
 import { attachSync, type SyncStatus } from "./sync";
@@ -201,6 +201,12 @@ export class EnvironmentConnection implements EnvHandle {
     this.start();
   }
 
+  /** If the socket waits to reconnect (backoff, remote access off), try now (I-142). */
+  retryNow(): boolean {
+    if (this.isLocal || this.stopped || this.status.value === "needs-pairing" || this.status.value === "live") return false;
+    return this.socket.retryNow();
+  }
+
   /** Close the socket and hide this environment's items (nothing is deleted). */
   stop(): void {
     this.stopped = true;
@@ -275,7 +281,6 @@ export async function startEnvironments(options: StartOptions = { localBaseUrl: 
     useServerMaster();
     void loadRemoteMaster();
     stopPeers = watchPeers();
-    if (typeof window !== "undefined") window.addEventListener("focus", onFocus);
   } else {
     // Zero local environments (F-022): nothing to wait for; remote ones fill in as they connect.
     hasLocalEnvironment.value = false;
@@ -286,9 +291,39 @@ export async function startEnvironments(options: StartOptions = { localBaseUrl: 
   if (!started) return; // reset meanwhile (tests)
   stopReconcile = effect(() => reconcileRemotes(remoteMaster.value, savedEnvironments.value));
   stopHiding = effect(() => hideDown(downEnvironments.value));
+  if (typeof window !== "undefined") window.addEventListener("focus", onFocus);
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
 }
 
-const onFocus = () => void loadRemoteMaster();
+/**
+ * I-142: remote environments waiting to reconnect (remote access off there, unreachable) try
+ * again right away; `ids` limits it to those environments. Returns the ids that retried.
+ */
+export function retryWaitingRemotes(ids?: Iterable<string>): string[] {
+  const only = ids ? new Set(ids) : null;
+  const retried: string[] = [];
+  for (const c of connections.value) {
+    if (c.isLocal || (only && !only.has(c.id))) continue;
+    if (c.retryNow?.()) retried.push(c.id);
+  }
+  return retried;
+}
+
+/**
+ * The window came back (focus / visible): re-read the master switch (local server), retry
+ * waiting remotes and refresh the tailnet peers (I-142).
+ */
+function onWindowBack(): void {
+  if (hasLocalEnvironment.value) {
+    void loadRemoteMaster();
+    void refreshPeersIfNeeded();
+  }
+  retryWaitingRemotes();
+}
+const onFocus = () => onWindowBack();
+const onVisibility = () => {
+  if (typeof document === "undefined" || document.visibilityState !== "hidden") onWindowBack();
+};
 let stopPeers: (() => void) | null = null;
 let stopHiding: (() => void) | null = null;
 let hidden = new Set<string>();
@@ -329,6 +364,7 @@ export function resetEnvironments(): void {
   stopPeers?.();
   stopPeers = null;
   if (typeof window !== "undefined") window.removeEventListener("focus", onFocus);
+  if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
   for (const c of connections.value) if (c instanceof EnvironmentConnection && !c.isLocal) c.stop();
   connections.value = [];
   localEnvironmentId.value = null;

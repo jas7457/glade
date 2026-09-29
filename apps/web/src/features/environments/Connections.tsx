@@ -8,6 +8,9 @@
  *   Pair Again… / Disconnect… (removes it from this device's list).
  * - **Uses this device**: a paired device, last seen and a connected dot, Revoke….
  *
+ * I-142: the "You use it" line starts with a status dot (green connected, amber connecting, grey
+ * remote access off / offline, red needs pairing / can't reach); the text stays as label + tooltip.
+ *
  * I-138: one name per row, set by this device (`nameOfConnection`); Rename (or double-click the
  * name) sets it for both directions at once (`renameConnection`).
  *
@@ -22,7 +25,7 @@ import { connectionFor, localEnvironmentId } from "@/state/env-registry";
 import { removeSavedEnvironment, savedEnvironments, type SavedEnvironment } from "@/state/environments";
 import { hostRemote, pairedDevices, renameConnection, revokeAllDevices, revokeDevice } from "@/state/remote-host";
 import { remoteStateOf, remoteStateText } from "@/state/remote-status";
-import { Badge, Button, FormGroup, FormRow, Spinner, TextField, confirm } from "@/ui";
+import { Badge, Button, FormGroup, FormRow, Spinner, StatusDot, TextField, confirm, remoteStatusTone } from "@/ui";
 import { formatLastSeen } from "./HostRemoteAccess";
 import { DeviceKindIcon } from "./device-kind";
 import { useDiscovery } from "./use-discovery";
@@ -207,7 +210,7 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
               {name}
             </span>
           )}
-          {device?.connected && <span aria-label="Connected" class="size-1.5 shrink-0 rounded-full bg-success" />}
+          {device?.connected && <StatusDot tone="on" label="Connected" />}
         </span>
       }
       description={
@@ -215,7 +218,8 @@ function ConnectionRow({ connection, onPair }: { connection: Connection; onPair:
           {env && state && (
             <span class="flex min-w-0 items-center gap-1.5" data-line="uses">
               <Badge>You use it</Badge>
-              <span class="min-w-0 flex-1 truncate" data-testid="environment-status">{`${hostOf(env.urls[0] ?? "")} · ${remoteStateText(state, name)}`}</span>
+              <StatusDot tone={remoteStatusTone(state)} label={remoteStateText(state, name)} />
+              <span class="min-w-0 flex-1 truncate" data-testid="environment-status" title={remoteStateText(state, name)}>{`${hostOf(env.urls[0] ?? "")} · ${remoteStateText(state, name)}`}</span>
               <span class="flex shrink-0 items-center gap-1.5" data-actions="uses">
                 {state === "needs-pairing" && (
                   <Button size="sm" onClick={onPair}>

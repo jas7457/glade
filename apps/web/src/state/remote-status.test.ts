@@ -185,6 +185,76 @@ describe("remote environment status", () => {
   });
 });
 
+describe("coming back sooner (I-142)", () => {
+  const start = async (net: Net) => {
+    stubNetwork(net);
+    saveEnvironments([{ id: "ENV-B", name: "Studio", urls: ["http://studio.tail.ts.net"], token: "TOKEN" }]);
+    await startEnvironments({ localBaseUrl: localBaseUrl() });
+    await vi.waitFor(() => expect(connectionFor("ENV-B")).toBeTruthy());
+    await vi.waitFor(() => expect(socketsTo(B)).toHaveLength(1));
+    socketsTo(B)[0]!.accept();
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("connected"));
+    socketsTo(B)[0]!.shut(4403);
+    expect(remoteStateOf("ENV-B")).toBe("remote-disabled");
+  };
+
+  it("retries a remote-disabled environment at once on window focus and when the window becomes visible", async () => {
+    const net: Net = { bUp: true, master: true, peers: [], patches: [] };
+    await start(net);
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(socketsTo(B)).toHaveLength(2));
+    socketsTo(B)[1]!.accept();
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("connected"));
+
+    socketsTo(B)[1]!.shut(4403);
+    expect(remoteStateOf("ENV-B")).toBe("remote-disabled");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(socketsTo(B)).toHaveLength(3));
+    // Connected meanwhile: focus doesn't open another socket.
+    socketsTo(B)[2]!.accept();
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("connected"));
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(socketsTo(B)).toHaveLength(3);
+  });
+
+  it("retries only the environments asked for, and only while they wait", async () => {
+    const net: Net = { bUp: true, master: true, peers: [], patches: [] };
+    await start(net);
+    const { retryWaitingRemotes } = await import("./environments");
+    expect(retryWaitingRemotes(["OTHER"])).toEqual([]);
+    expect(retryWaitingRemotes(["ENV-B"])).toEqual(["ENV-B"]);
+    // Connecting now (not waiting): nothing more.
+    expect(retryWaitingRemotes()).toEqual([]);
+    await vi.waitFor(() => expect(socketsTo(B)).toHaveLength(2));
+  });
+
+  it("retries at once when discovery finds that device reachable", async () => {
+    const net: Net = { bUp: true, master: true, peers: [], patches: [] };
+    await start(net);
+    const { retryFound, savedAmongFound } = await import("@/features/environments/use-discovery");
+    const found = (address: string, environmentId?: string) => ({ name: "x", address, environmentId, reachable: true });
+    expect(savedAmongFound([found("https://other.ts.net")], savedEnvironments.value)).toEqual([]);
+    expect(savedAmongFound([found("http://studio.tail.ts.net")], savedEnvironments.value)).toEqual(["ENV-B"]);
+    expect(retryFound([found("https://other.ts.net", "ENV-C")])).toEqual([]);
+    expect(retryFound([found("https://moved.ts.net", "ENV-B")])).toEqual(["ENV-B"]);
+    await vi.waitFor(() => expect(socketsTo(B)).toHaveLength(2));
+    socketsTo(B)[1]!.accept();
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("connected"));
+  });
+
+  it("refreshes the tailnet peers on focus while a remote is unreachable", async () => {
+    const net: Net = { bUp: false, master: true, peers: [{ dnsName: "studio.tail.ts.net", name: "studio", online: false }], patches: [] };
+    stubNetwork(net);
+    saveEnvironments([{ id: "ENV-B", name: "Studio", urls: ["http://studio.tail.ts.net"], token: "TOKEN" }]);
+    await startEnvironments({ localBaseUrl: localBaseUrl() });
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("host-offline"), { timeout: 3000 });
+    net.peers = [{ dnsName: "studio.tail.ts.net", name: "studio", online: true }];
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(remoteStateOf("ENV-B")).toBe("unreachable"));
+  });
+});
+
 describe("master switch storage", () => {
   it("lives on the local server; the legacy per-device switch turns it on once", async () => {
     localStorage.setItem(LEGACY_REMOTE_ACCESS_KEY, "true");

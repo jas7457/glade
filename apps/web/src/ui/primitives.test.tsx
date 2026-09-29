@@ -11,6 +11,8 @@ import { TextField } from "./TextField";
 import { Menu, MenuItem } from "./Menu";
 import { floatingSurfaceClass } from "./floating";
 import { showToast, toasts } from "@/state/toasts";
+import { StatusDot } from "./StatusDot";
+import { RemoteBadge, remoteStatusTone } from "./RemoteBadge";
 
 describe("confirm()", () => {
   it("resolves true on confirm and false on cancel", async () => {
@@ -192,5 +194,36 @@ describe("floating surfaces", () => {
     );
     const menu = screen.getByRole("menu");
     for (const c of floatingSurfaceClass.split(" ")) expect(menu.className.split(" ")).toContain(c);
+  });
+});
+
+describe("StatusDot (I-142)", () => {
+  it("colours each tone with a semantic token; the label is its name and tooltip", () => {
+    const { container } = render(
+      <>
+        <StatusDot tone="on" label="Connected" />
+        <StatusDot tone="pending" />
+        <StatusDot tone="off" />
+        <StatusDot tone="error" />
+      </>,
+    );
+    const dots = [...container.querySelectorAll("[data-status-dot]")];
+    expect(dots.map((d) => d.className.match(/bg-[a-z-]+/)?.[0])).toEqual(["bg-success", "bg-warning", "bg-fg-subtle", "bg-danger"]);
+    expect(screen.getByRole("img", { name: "Connected" }).getAttribute("title")).toBe("Connected");
+    expect(dots[1]!.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("maps remote states: green connected, amber connecting, grey off/offline, red can't reach / needs pairing", () => {
+    expect(remoteStatusTone("connected")).toBe("on");
+    expect(remoteStatusTone("connecting")).toBe("pending");
+    expect(remoteStatusTone("remote-disabled")).toBe("off");
+    expect(remoteStatusTone("host-offline")).toBe("off");
+    expect(remoteStatusTone("unreachable")).toBe("error");
+    expect(remoteStatusTone("needs-pairing")).toBe("error");
+  });
+
+  it("the remote badge's globe carries the status dot", () => {
+    const { container } = render(<RemoteBadge name="Studio" address="https://studio" status="remote-disabled" />);
+    expect(container.querySelector("[data-remote-badge] [data-status-dot]")!.getAttribute("data-status-dot")).toBe("off");
   });
 });

@@ -24,8 +24,11 @@ export type SocketAuthError = "unauthorized" | "remote_disabled";
 /** Close codes the server uses for open remote sockets (revoked / remote access turned off). */
 export const CLOSE_UNAUTHORIZED = 4401;
 export const CLOSE_REMOTE_DISABLED = 4403;
-/** Retry delay while the host has remote access off. */
-export const REMOTE_DISABLED_RETRY_MS = 30_000;
+/**
+ * Retry delay while the host has remote access off (I-142: short, so a device that turns it back
+ * on shows up within seconds; focus / Settings / discovery also retry at once via `retryNow`).
+ */
+export const REMOTE_DISABLED_RETRY_MS = 5_000;
 
 /** Nothing received for this long (the server pings every 20 s): the connection is dead (I-122). */
 const DEAD_AFTER_MS = 45_000;
@@ -167,6 +170,24 @@ export class Socket {
       this.retryTimer = null;
       if (!this.stopped) this.connect();
     }, delay);
+  }
+
+  /**
+   * Waiting to reconnect (backoff or remote access off): try now instead (I-142: window focus,
+   * Settings → Remote Access opening, discovery finding the host). Returns whether it retried;
+   * does nothing while connected, connecting or stopped.
+   */
+  retryNow(): boolean {
+    if (this.stopped || !this.retryTimer) return false;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.connect();
+    return true;
+  }
+
+  /** Waiting for a reconnect timer. */
+  get waiting(): boolean {
+    return !this.stopped && this.retryTimer !== null;
   }
 
   /** A socket that received nothing (not even a ping) for a while is dead: drop it now. */

@@ -6,11 +6,15 @@
  * visible, when the window gets focus or becomes visible again, and on Refresh. Never two at
  * once: a refresh while one is running waits for that one. Hidden windows and unmounted views
  * don't poll.
+ *
+ * I-142: a saved environment that discovery finds reachable while it waits to reconnect (remote
+ * access was off there, unreachable) is retried right away (`retryFound`).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DiscoveredEnvironment } from "@glade/protocol";
 import { hostAuth } from "@/lib/api-auth";
 import { hasLocalEnvironment } from "@/state/env-registry";
+import { retryWaitingRemotes, savedEnvironments, type SavedEnvironment } from "@/state/environments";
 
 export const DISCOVERY_POLL_MS = 10_000;
 
@@ -76,6 +80,17 @@ export function startDiscoveryPoller({ discover, onResult, intervalMs = DISCOVER
   };
 }
 
+/** Saved environments among the found hosts (by environment id or address). */
+export function savedAmongFound(found: readonly DiscoveredEnvironment[], saved: readonly SavedEnvironment[]): string[] {
+  return saved.filter((s) => found.some((d) => d.environmentId === s.id || s.urls.includes(d.address))).map((s) => s.id);
+}
+
+/** Retry the saved environments discovery just found reachable (only those waiting to reconnect). */
+export function retryFound(found: readonly DiscoveredEnvironment[]): string[] {
+  const ids = savedAmongFound(found, savedEnvironments.value);
+  return ids.length > 0 ? retryWaitingRemotes(ids) : [];
+}
+
 export interface Discovery {
   /** Reachable Glade hosts on the tailnet (unfiltered: callers drop this device and known ones). */
   found: DiscoveredEnvironment[];
@@ -92,7 +107,13 @@ export function useDiscovery(enabled = true): Discovery {
   const on = enabled && hasLocalEnvironment.value;
   useEffect(() => {
     if (!on) return;
-    const p = startDiscoveryPoller({ discover: () => hostAuth.discover(), onResult: setFound });
+    const p = startDiscoveryPoller({
+      discover: () => hostAuth.discover(),
+      onResult: (list) => {
+        setFound(list);
+        retryFound(list);
+      },
+    });
     poller.current = p;
     return () => {
       p.stop();

@@ -2,6 +2,7 @@
  * RemoteBadge: the small, muted globe marking something that lives on *another* environment
  * (I-123 §5.1/§5.7: sidebar rows and the chat header; local items show nothing). Hovering or
  * clicking it shows a small popover with the environment's name, address and connection status.
+ * A tiny status dot on the globe tells the status at a glance (I-142, {@link remoteStatusTone}).
  *
  *   <RemoteBadge name="Studio" address="http://127.0.0.1:5418" status="connected" />
  *
@@ -14,6 +15,7 @@ import { Globe } from "lucide-preact";
 import { cn } from "@/lib/cn";
 import { Button } from "./Button";
 import { floatingSurfaceClass } from "./floating";
+import { StatusDot, type StatusTone } from "./StatusDot";
 
 /** The environment's state as the user sees it (I-132: `state/remote-status.ts`). */
 export type RemoteStatus = "connecting" | "connected" | "remote-disabled" | "host-offline" | "unreachable" | "needs-pairing";
@@ -27,14 +29,19 @@ const STATUS_LABEL: Record<RemoteStatus, string> = {
   "needs-pairing": "Needs pairing",
 };
 
-const STATUS_DOT: Record<RemoteStatus, string> = {
-  connecting: "bg-fg-subtle",
-  connected: "bg-success",
-  "remote-disabled": "bg-warning",
-  "host-offline": "bg-fg-subtle",
-  unreachable: "bg-danger",
-  "needs-pairing": "bg-danger",
+const STATUS_TONE: Record<RemoteStatus, StatusTone> = {
+  connecting: "pending",
+  connected: "on",
+  "remote-disabled": "off",
+  "host-offline": "off",
+  unreachable: "error",
+  "needs-pairing": "error",
 };
+
+/** The status dot's colour for a remote status (I-142): green / amber / grey / red. */
+export function remoteStatusTone(status: RemoteStatus): StatusTone {
+  return STATUS_TONE[status];
+}
 
 export interface RemoteBadgeProps {
   /** The environment's name. */
@@ -87,9 +94,9 @@ export function RemoteBadge({ name, address, status, statusText, action, size = 
           tabIndex={-1}
           aria-label={`On ${name}`}
           data-remote-badge
+          data-remote-status={status}
           class={cn(
-            "inline-flex shrink-0 items-center justify-center rounded-[4px] text-fg-subtle outline-none hover:text-fg-muted focus-visible:ring-2 focus-visible:ring-accent/50",
-            status !== "connected" && "opacity-60",
+            "relative inline-flex shrink-0 items-center justify-center rounded-[4px] text-fg-subtle outline-none hover:text-fg-muted focus-visible:ring-2 focus-visible:ring-accent/50",
             className,
           )}
           onPointerEnter={hoverOpen}
@@ -104,7 +111,8 @@ export function RemoteBadge({ name, address, status, statusText, action, size = 
             }
           }}
         >
-          <Globe size={size} strokeWidth={1.75} aria-hidden="true" />
+          <Globe size={size} strokeWidth={1.75} aria-hidden="true" class={cn(status !== "connected" && "opacity-60")} />
+          <StatusDot tone={STATUS_TONE[status]} size={Math.max(4, Math.round(size / 3))} class="absolute -right-px -bottom-px" />
         </span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -124,7 +132,7 @@ export function RemoteBadge({ name, address, status, statusText, action, size = 
           <div class="font-semibold text-fg-strong">{name}</div>
           <div class="selectable truncate text-fg-muted">{address}</div>
           <div class="mt-1 flex items-center gap-1.5 text-fg-muted">
-            <span aria-hidden="true" class={cn("size-1.5 rounded-full", STATUS_DOT[status])} />
+            <StatusDot tone={STATUS_TONE[status]} />
             {statusText ?? STATUS_LABEL[status]}
           </div>
           {action && (
