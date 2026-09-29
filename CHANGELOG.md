@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- iPhone: search now looks inside your chats too (showing the matching passage and opening at
+  that message), and an Ask row finds a chat from a description, across all your connected Macs.
 - Folders in the chat list: group projects and standalone chats in top-level folders, or a
   project's chats in folders inside it (one level deep). Create, rename and delete them; drag
   things in or use Move to Folder (on iPhone: long-press). Deleting a folder moves its contents
@@ -359,6 +361,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Opening a search result flashes the matching message again (it flashed an invisible timestamp).
 - The menu bar menu stays open while it updates (e.g. when a chat finishes as you look at it).
 - The Send button stays in place while an agent works (disabled until you type), and Ask Aside
   is a solid violet button that matches Stop and Send; side-question cards use the same violet.
