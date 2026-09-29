@@ -88,6 +88,22 @@ export interface DialogProps {
   onOpenAutoFocus?: (e: Event) => void;
 }
 
+/**
+ * A pointer/focus event "outside" the panel that actually landed in a menu, popover or tooltip
+ * opened from inside it (I-139). Radix tells those apart by bubbling through the React tree,
+ * but Preact portals only bubble through the DOM, so a pick in a Select inside the dialog
+ * (its menu is portaled to <body>) looked like a click outside and closed the dialog.
+ * Under a modal dialog nothing else outside the panel takes pointer events, so any Radix
+ * floating layer on screen was opened from within it.
+ */
+function isInNestedLayer(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest("[data-radix-popper-content-wrapper]");
+}
+
+const keepOpenForNestedLayers = (e: Event) => {
+  if (isInNestedLayer(e.target)) e.preventDefault();
+};
+
 export function Dialog({ open, onOpenChange, title, description, icon, iconTone, children, footer, width = 440, class: className, onOpenAutoFocus }: DialogProps) {
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -95,6 +111,7 @@ export function Dialog({ open, onOpenChange, title, description, icon, iconTone,
         <RadixDialog.Overlay class={dialogClass.overlay} />
         <RadixDialog.Content
           onOpenAutoFocus={onOpenAutoFocus}
+          onInteractOutside={keepOpenForNestedLayers}
           style={{ width: `min(${width}px, calc(100vw - 32px))` }}
           class={cn(dialogClass.panel, className)}
         >

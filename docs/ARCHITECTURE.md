@@ -702,3 +702,4 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   - The Mac app uses its own UNUserNotificationCenter module (`src-tauri/src/notifications.rs`), because the Tauri plugin can't route clicks or detect a denied permission on macOS.
   - Browsers use the Notification API.
   - Paired-device tokens live in the Keychain (`src-tauri/src/secrets.rs`, I-134) behind `lib/secret-store.ts`.
+- **Radix layers inside dialogs under Preact** (I-139): Preact portals don't bubble through the component tree, so Radix can't tell a nested Select/Menu/popover click from an outside click. `ui/Dialog` ignores outside clicks and focus changes that land in `[data-radix-popper-content-wrapper]`. Any new floating primitive must render inside such a wrapper, or be added to that check.

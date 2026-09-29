@@ -8,6 +8,7 @@
  * specific goes through it; `create` (below) is the one other place that talks to a server.
  * I-123: with several environments connected the sheet asks which one the project belongs to
  * (fixed after creation); the folders and the create request then go to that environment.
+ * The field is labelled "Device" (I-139, wording of I-136): "This Mac" and each device's name.
  */
 import { useState } from "preact/hooks";
 import { useNavigate } from "react-router";
@@ -135,16 +136,16 @@ export function AddProjectDialog({ open, onOpenChange, onAdded, folders: folders
       <div class="flex flex-col gap-4">
         {envChoices.length > 1 && (
           <div class="flex flex-col gap-1.5">
-            <span class="font-medium">Environment</span>
+            <span class="font-medium">Device</span>
             <Select
-              aria-label="Environment"
+              aria-label="Device"
               value={envId ?? primaryEnvironmentId()}
               onChange={(id) => {
                 setEnvId(id === primaryEnvironmentId() ? null : id);
                 setPath("");
                 setBrowsing(false);
               }}
-              options={envChoices.map((c) => ({ value: c.id, label: c.isLocal ? THIS_MACHINE_LABEL : c.name.value, detail: c.isLocal ? undefined : "remote" }))}
+              options={envChoices.map((c) => ({ value: c.id, label: c.isLocal ? THIS_MACHINE_LABEL : c.name.value }))}
             />
           </div>
         )}

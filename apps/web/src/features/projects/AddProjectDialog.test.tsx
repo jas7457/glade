@@ -1,15 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import type { FsBrowseResult } from "@glade/protocol";
 
-vi.mock("@/lib/api", () => ({ api: { createProject: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { createProject: vi.fn() }, request: vi.fn() }));
 vi.mock("@/lib/native", () => ({ pickFolder: vi.fn() }));
 
-import { api } from "@/lib/api";
+import { api, request as localRequest } from "@/lib/api";
 import { pickFolder } from "@/lib/native";
 import { TooltipProvider } from "@/ui";
 import { projects } from "@/state/store";
 import { makeProject } from "@/test/fixtures";
+import { fakeEnv, resetEnvironmentsForTest, useEnvironments } from "@/test/env-fixtures";
 import { AddProjectDialog } from "./AddProjectDialog";
 import type { ProjectFolderSource } from "./folder-source";
 import { folderName, nameAfterPick, validateProjectPath } from "./validation";
@@ -162,5 +163,80 @@ describe("AddProjectDialog", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(createButton());
     expect((await screen.findByRole("alert")).textContent).toContain("Folder does not exist");
+  });
+});
+
+/**
+ * I-139: picking another device in the sheet's "Device" select kept closing the whole sheet
+ * (the pick in the portaled menu counted as a click outside the dialog).
+ */
+describe("AddProjectDialog with several devices", () => {
+  const listing = (path: string, names: string[]): FsBrowseResult => ({
+    path,
+    parent: null,
+    entries: names.map((name) => ({ name, path: `${path}/${name}`, isGitRepo: false, hidden: false })),
+    isGitRepo: false,
+  });
+  const remoteRequest = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    projects.value = [];
+    vi.mocked(localRequest).mockResolvedValue(listing("/Users/me", ["local-only"]));
+    remoteRequest.mockResolvedValue(listing("/Users/air", ["remote-only"]));
+    useEnvironments(fakeEnv({ id: "B", name: "MacBook Air", api: { request: remoteRequest } }));
+  });
+  afterEach(() => {
+    cleanup();
+    resetEnvironmentsForTest();
+  });
+
+  const setup = () => {
+    const onOpenChange = vi.fn();
+    render(
+      <TooltipProvider>
+        <AddProjectDialog open onOpenChange={onOpenChange} />
+      </TooltipProvider>,
+    );
+    return { onOpenChange };
+  };
+  /** Pick a device with the mouse, the way the user does. */
+  const pickDevice = async (name: string) => {
+    // Radix registers its outside-pointer listeners a tick after the layers mount.
+    await new Promise((r) => setTimeout(r, 50));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Device" }), { button: 0, pointerType: "mouse" });
+    const item = await screen.findByRole("menuitemradio", { name, hidden: true });
+    await new Promise((r) => setTimeout(r, 50));
+    fireEvent.pointerDown(item, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(item, { button: 0, pointerType: "mouse" });
+    fireEvent.click(item);
+  };
+
+  it("lists This Mac and the device's name under Device", async () => {
+    setup();
+    expect(screen.getByText("Device")).toBeTruthy();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Device" }), { button: 0, pointerType: "mouse" });
+    const items = await screen.findAllByRole("menuitemradio", { hidden: true });
+    expect(items.map((i) => i.textContent)).toEqual(["This Mac", "MacBook Air"]);
+  });
+
+  it("stays open when another device is picked and browses that device's folders", async () => {
+    const { onOpenChange } = setup();
+    expect(await screen.findByRole("option", { name: /^local-only/ })).toBeTruthy();
+    await pickDevice("MacBook Air");
+    expect(await screen.findByRole("option", { name: /^remote-only/ })).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(screen.getByRole("heading", { name: "Create project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Device" }).textContent).toContain("MacBook Air");
+    expect(remoteRequest).toHaveBeenCalledWith("GET", "/fs/browse?path=%7E");
+  });
+
+  it("shows a failing remote browse inside the folder browser, not by closing", async () => {
+    remoteRequest.mockRejectedValue(new Error("MacBook Air can't be reached"));
+    const { onOpenChange } = setup();
+    await pickDevice("MacBook Air");
+    expect((await screen.findByRole("alert")).textContent).toContain("can't be reached");
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(screen.getByRole("heading", { name: "Create project" })).toBeTruthy();
   });
 });

@@ -288,6 +288,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Picking a device (or any option from a menu) inside a dialog no longer closes the dialog, so
+  you can create a project on another device again.
 - Sub-agent cards and chips say "Thinking…" between steps instead of flashing "Starting…".
 - Very wide images in chats shrink to fit instead of being cut off.
 - Links in the Mac app open in your default browser again (chats, tool output, settings, dialogs),
