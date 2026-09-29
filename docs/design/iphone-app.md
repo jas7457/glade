@@ -330,6 +330,22 @@ model or agent anywhere (fake harness sandboxes only).
 
 ## 7. What needs the user (can't be done unattended)
 
+**Status (2026-09-29): done once.** The user's Personal Team (`C8PPHFTYBR`) is committed in
+`apps/iphone/src-tauri/tauri.conf.json` (`bundle.iOS.developmentTeam`; `APPLE_DEVELOPMENT_TEAM`
+overrides it). Build and install on the plugged-in iPhone:
+
+```bash
+. "$HOME/.cargo/env"; export LANG=en_US.UTF-8; cd apps/iphone
+rm -rf src-tauri/gen/apple/build/arm64
+pnpm tauri ios build --target aarch64 --debug --ci > /tmp/glade-iphone-device-build.log 2>&1
+xcrun devicectl list devices                                  # the phone's identifier
+xcrun devicectl device install app --device <id> src-tauri/gen/apple/build/arm64/Glade.ipa
+xcrun devicectl device process launch --terminate-existing --device <id> io.github.jas7457.glade.iphone
+```
+
+Free provisioning expires after 7 days: rebuild + reinstall. A locked phone refuses the launch
+(install still works).
+
 - **Signing for a real iPhone:** Xcode → Settings → Accounts → add the Apple ID. Then in the
   generated Xcode project pick the team (Personal Team is fine). Free provisioning expires every
   7 days; TestFlight / App Store need the Apple Developer Program ($99/yr), not needed now.
