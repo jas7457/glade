@@ -12,18 +12,19 @@
  * Conversations") and an "✦ Ask" row follow (`ChatSearchResults`, `chat-search.ts`). Opening one
  * jumps to the matched message.
  */
+import { MacStatusRow } from "~/ui/MacStatus";
 import { useSignal } from "@preact/signals";
 import { useRef } from "preact/hooks";
-import { ChevronDown, ChevronRight, Folder as FolderIcon, Folders as FoldersIcon, Monitor, Pin } from "lucide-preact";
+import { ChevronDown, ChevronRight, Folder as FolderIcon, Folders as FoldersIcon, Pin } from "lucide-preact";
 import { aggregateChatStatus, type Folder, type Project, type WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 import { connectionFor, connections, multipleEnvironments } from "@glade/app-core/state/env-registry";
-import { remoteStateOf, remoteStateText } from "@glade/app-core/state/remote-status";
+import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { envIdOf, workspacesById } from "@glade/app-core/state/store";
 import { closedProjects, setProjectOpen } from "@glade/app-core/state/ui";
 import { requestJump } from "@glade/app-core/features/chat/jump-to-message";
-import { Spinner, StatusIndicator } from "@glade/app-core/ui";
+import { StatusIndicator } from "@glade/app-core/ui";
 import { DeviceMarker } from "~/ui/phone-extra";
 import { ChatActionsSheet } from "./ChatActionsSheet";
 import { FolderActionsSheet, ProjectActionsSheet } from "./FolderSheets";
@@ -401,17 +402,7 @@ function EnvironmentStatusRows({ onOpenDevice }: { onOpenDevice?: (envId: string
     <section class="mx-4 mb-5" aria-label="Devices">
       <div class="overflow-hidden rounded-xl bg-cell [&>*+*]:border-t [&>*+*]:border-separator">
         {rows.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            data-down-environment={r.id}
-            onClick={() => onOpenDevice?.(r.id)}
-            class="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left text-fg-muted select-none active:bg-hover"
-          >
-            <Monitor size={20} class="shrink-0" aria-hidden />
-            <span class="min-w-0 flex-1 truncate">{r.state === "connecting" ? `Connecting to ${r.name}…` : remoteStateText(r.state, r.name)}</span>
-            {r.state === "connecting" ? <Spinner size={14} /> : <span class="shrink-0 text-fg-subtle" aria-hidden>›</span>}
-          </button>
+          <MacStatusRow key={r.id} envId={r.id} onOpen={onOpenDevice} />
         ))}
       </div>
     </section>

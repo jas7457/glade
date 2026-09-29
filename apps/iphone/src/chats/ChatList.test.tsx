@@ -93,7 +93,8 @@ describe("iPhone chat list", () => {
     expect(within(alpha).getByTitle("Studio")).toBeTruthy();
     const down = container.querySelector("[data-down-environment=m2]") as HTMLElement;
     expect(down.textContent).toContain("Can't reach MacBook Air");
-    fireEvent.click(down);
+    expect(down.textContent).toContain("Retry");
+    fireEvent.click(down.querySelector("button") as HTMLElement);
     expect(onOpenDevice).toHaveBeenCalledWith("m2");
   });
 
