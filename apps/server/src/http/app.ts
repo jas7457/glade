@@ -65,6 +65,8 @@ import type { PowerTracker } from "../services/power.js";
 import { versionRoutes } from "./version.js";
 import { UpdateChecker } from "../services/update-check.js";
 import { UPDATE_UNAVAILABLE_DEV, UpdateJob } from "../services/update-job.js";
+import { TerminalService } from "../services/terminals.js";
+import { createTerminalWsHandler, terminalRoutes } from "./terminals.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -96,9 +98,11 @@ export interface CreateAppOptions {
   updates?: UpdateChecker;
   /** Update Now (I-154). Default: one that isn't available (tests, like `pnpm dev`). */
   updateJob?: UpdateJob;
+  /** Terminal tabs (I-187). Default: node-pty shells in the workspaces' folders. */
+  terminals?: TerminalService;
 }
 
-export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, updateJob, power }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, updateJob, power, terminals: givenTerminals }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -150,12 +154,22 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   );
   // Image files (I-157): content-addressed, immutable; same auth as other API reads.
   app.route("/api", blobRoutes(service.store.blobs));
+  // Terminal tabs (I-187): shells in a workspace's folder; closed with their tab or workspace.
+  const terminals = givenTerminals ?? new TerminalService({ cwdOf: (id) => service.store.getWorkspace(id)?.cwd ?? null });
+  service.subscribe(
+    (message) => {
+      if (message.type === "workspace_removed") terminals.killWorkspace(message.workspaceId);
+    },
+    { internal: true },
+  );
+  app.route("/api", terminalRoutes(terminals));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
+  app.get("/ws/terminal/:terminalId", nodeWs.upgradeWebSocket(createTerminalWsHandler(terminals, auth)));
 
   const snapshot = staticDir && snapshotStatic ? loadStaticSnapshot(staticDir) : null;
   if (snapshot) {
-    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws";
+    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws" || path.startsWith("/ws/");
     const send = (c: Context, file: StaticFile) => {
       c.header("Content-Type", file.type);
       return c.body(new Uint8Array(file.body));
@@ -174,7 +188,7 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
     const indexHtml = join(staticDir, "index.html");
     // serveStatic only accepts roots relative to the working directory.
     const serve = serveStatic({ root: relative(process.cwd(), staticDir) || "." });
-    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws";
+    const isApiPath = (path: string) => path.startsWith("/api/") || path === "/api" || path === "/ws" || path.startsWith("/ws/");
     app.use("*", async (c, next) => (isApiPath(c.req.path) || !existsSync(indexHtml) ? next() : serve(c, next)));
     app.get("*", async (c, next) => {
       if (isApiPath(c.req.path) || !existsSync(indexHtml)) return next();
@@ -184,7 +198,7 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
 
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-  return { app, injectWebSocket: nodeWs.injectWebSocket, auth };
+  return { app, injectWebSocket: nodeWs.injectWebSocket, auth, terminals };
 }
 
 function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {

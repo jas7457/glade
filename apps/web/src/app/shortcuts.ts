@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef } from "preact/hooks";
 import { onMenuAction, type MenuAction } from "@glade/app-core/lib/desktop";
+import { clearFocusedTerminal } from "@/features/terminal/focus";
 
 /** Commands with a global shortcut, keyed by command id, as `formatShortcut` key strings. */
 export const SHORTCUTS = {
@@ -42,6 +43,19 @@ export const PANE_SHORTCUTS = {
 } as const;
 
 export type PaneCommandId = keyof typeof PANE_SHORTCUTS;
+
+/**
+ * Terminal tabs (I-187): ⌃` opens a new terminal tab (VS Code's key; ⌃⇧` works too). Bound by the
+ * workspace view; a focused terminal lets it through instead of sending it to the shell.
+ */
+export const TERMINAL_SHORTCUTS = {
+  "new-terminal": "ctrl+`",
+} as const;
+
+export function terminalShortcutFor(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey">): "new-terminal" | null {
+  if (!e.ctrlKey || e.metaKey || e.altKey) return null;
+  return e.code === "Backquote" || e.key === "`" ? "new-terminal" : null;
+}
 
 /** ⌥ changes `key` on macOS (⌥B = "∫"), so the physical key (`code`) decides. */
 export function paneShortcutFor(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): PaneCommandId | null {
@@ -126,6 +140,8 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
   useEffect(
     () =>
       onMenuAction((action) => {
+        // I-187: the Mac app's ⌘K menu item clears a focused terminal instead.
+        if (action === "command-palette" && clearFocusedTerminal()) return;
         if (!isTabCommand(action) && action in MENU_ACTIONS) latest.current[MENU_ACTIONS[action as keyof typeof MENU_ACTIONS]]();
       }),
     [],

@@ -3,3 +3,4 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  node-pty: false # N-API prebuilds ship in the package (darwin arm64/x64); no node-gyp

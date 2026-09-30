@@ -174,7 +174,12 @@ function setCors(headers: Headers, origin: string): void {
 }
 
 function isApiPath(path: string): boolean {
-  return path === "/api" || path.startsWith("/api/") || path === "/ws";
+  return path === "/api" || path.startsWith("/api/") || isSocketPath(path);
+}
+
+/** WebSocket routes (`/ws`, and `/ws/terminal/:id`, I-187): remote clients authenticate with a one-time ticket. */
+function isSocketPath(path: string): boolean {
+  return path === "/ws" || path.startsWith("/ws/");
 }
 
 /** Default own ports when the caller doesn't know them: the web dev server's. */
@@ -228,8 +233,8 @@ export function securityMiddleware({ auth, ownPorts = defaultOwnPorts }: Securit
         ((path === "/api/auth/pair" || path === "/api/auth/pair/wait") && c.req.method === "POST") || (path === "/api/environment" && isGet) || (!isApiPath(path) && isGet);
       let device = null;
       // A token, when sent, is always checked (a bad one is 401 even where none is needed).
-      if (!unauthenticated || (path !== "/ws" && bearer(c) !== null)) {
-        device = path === "/ws" ? auth.redeemTicket(c.req.query("ticket") ?? null, meta) : auth.authenticate(bearer(c), meta);
+      if (!unauthenticated || (!isSocketPath(path) && bearer(c) !== null)) {
+        device = isSocketPath(path) ? auth.redeemTicket(c.req.query("ticket") ?? null, meta) : auth.authenticate(bearer(c), meta);
         if (!device) return refuse(401, "unauthorized", "This device isn't paired with the host (or was removed). Pair it again.");
       }
       c.set("identity", { kind: "remote", device, ...meta });

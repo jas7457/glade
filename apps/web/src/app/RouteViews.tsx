@@ -8,6 +8,7 @@
 import { Navigate, useParams, useSearchParams } from "react-router";
 import { NewChatView } from "@/features/chat";
 import { WorkspaceView } from "@/features/workspace";
+import { activeTerminalId } from "@/features/workspace/layout";
 import { connectionFor, isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { envIdOfProject, envIdOfWorkspace, projectsById, resolveSessionId, workspacesById } from "@glade/app-core/state/store";
 import { Spinner } from "@glade/app-core/ui";
@@ -67,13 +68,15 @@ export function ChatRoute() {
     return <NotFound title="Chat not found" message="It may have been deleted. Your other chats are in the sidebar." />;
   }
   // Keep the URL canonical (inside its project, or standalone, on its environment; drop a tab that isn't one).
-  const sessionId = resolveSessionId(workspaceId, tab);
-  const canonicalTab = tab && tab === sessionId ? tab : null;
+  // A terminal tab (I-187) is a tab too; the conversation behind it is the workspace's focused one.
+  const terminalId = activeTerminalId(workspace.layout, tab);
+  const sessionId = resolveSessionId(workspaceId, terminalId ? null : tab);
+  const canonicalTab = tab && (tab === sessionId || tab === terminalId) ? tab : null;
   if ((workspace.projectId ?? undefined) !== projectId || (tab && !canonicalTab && sessionId) || !sameEnv(envId, envIdOfWorkspace(workspaceId))) {
     return <Navigate to={chatPath(workspace, canonicalTab)} replace />;
   }
   if (!sessionId) {
     return <NotFound title="Chat not found" message="This chat has no conversation. Your other chats are in the sidebar." />;
   }
-  return <WorkspaceView key={workspaceId} workspaceId={workspaceId} sessionId={sessionId} />;
+  return <WorkspaceView key={workspaceId} workspaceId={workspaceId} sessionId={sessionId} terminalId={terminalId} />;
 }

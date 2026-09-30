@@ -29,6 +29,7 @@ import {
   Settings as SettingsIcon,
   Sparkles,
   SquarePen,
+  SquareTerminal,
   Sun,
   Trash2,
   X,
@@ -40,10 +41,10 @@ import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinn
 import { notify } from "@glade/app-core/state/toasts";
 import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
-import { closeTab, openNewTab, renameWithAi, toggleSubagentPane } from "@/features/workspace";
+import { activeTerminalId, closeTab, closeTerminalTab, openNewTab, openTerminalTab, renameWithAi, toggleSubagentPane } from "@/features/workspace";
 import type { RouteContext } from "./paths";
 import { SETTINGS_SECTIONS, chatPath, routes } from "@glade/app-core/app/routes";
-import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
+import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
 
 export type CommandGroup = "Chats" | "Projects" | "Actions";
 export const COMMAND_GROUPS: readonly CommandGroup[] = ["Chats", "Projects", "Actions"];
@@ -190,6 +191,20 @@ export function buildCommands(ctx: CommandContext): Command[] {
       },
     },
     {
+      // I-187: a login shell in the chat's folder, on the chat's Mac.
+      id: "new-terminal",
+      title: "New Terminal Tab",
+      group: "Actions",
+      keywords: ["shell", "console", "command line", "zsh"],
+      shortcut: TERMINAL_SHORTCUTS["new-terminal"],
+      icon: <SquareTerminal />,
+      available: hasChat,
+      run: async () => {
+        const chat = current();
+        if (chat) await openTerminalTab(chat.id, (path) => navigate(path));
+      },
+    },
+    {
       id: "close-tab",
       title: "Close Tab",
       group: "Actions",
@@ -200,6 +215,8 @@ export function buildCommands(ctx: CommandContext): Command[] {
       run: async () => {
         if (!route.workspaceId) return;
         const tab = new URLSearchParams(window.location.search).get("tab");
+        const terminal = activeTerminalId(workspacesById.value.get(route.workspaceId)?.layout, tab);
+        if (terminal) return closeTerminalTab(route.workspaceId, terminal, (path) => navigate(path), { focused: true });
         const id = resolveSessionId(route.workspaceId, tab);
         const session = id ? sessionsById.value.get(id) : undefined;
         if (session) await closeTab(session, (path) => navigate(path), { focused: true });

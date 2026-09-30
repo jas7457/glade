@@ -25,3 +25,4 @@ export * from "./auth.js";
 export * from "./side-questions.js";
 export * from "./power.js";
 export * from "./folders.js";
+export * from "./terminal.js";

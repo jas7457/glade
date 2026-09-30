@@ -15,15 +15,21 @@ import { createSession, deleteSession, updateWorkspace } from "@glade/app-core/s
 import { getChatSession } from "@glade/app-core/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@glade/app-core/state/store";
 import { confirm } from "@glade/app-core/ui";
+import { notify } from "@glade/app-core/state/toasts";
+import { closeTerminal, newTerminalId, startTerminal } from "@/features/terminal";
 import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
 import {
   activeSubagentId,
   isChangesPanelOpen,
   isSubagentPaneOpen,
+  addTerminalPatch,
+  mainTabsOf,
   mergeLayout,
   neighbourAfterClose,
   openSubagentPatch,
+  terminalsOf,
   withoutSession,
+  withoutTerminal,
   type TabGroupId,
 } from "./layout";
 
@@ -51,7 +57,9 @@ export function focusMainTab(workspaceId: string, sessionId: string, navigate: N
   const workspace = workspacesById.value.get(workspaceId);
   if (!workspace) return;
   navigate(chatPath(workspace, sessionId), { replace: true });
-  if (workspace.layout?.activeMainSessionId !== sessionId) void saveLayout(workspaceId, { activeMainSessionId: sessionId });
+  if (workspace.layout?.activeMainSessionId !== sessionId || workspace.layout?.activeTerminalId) {
+    void saveLayout(workspaceId, { activeMainSessionId: sessionId, ...(workspace.layout?.activeTerminalId ? { activeTerminalId: null } : {}) });
+  }
 }
 
 export function focusSubagentTab(workspaceId: string, mainSessionId: string, sessionId: string): void {
@@ -104,16 +112,83 @@ export function toggleSubagentPane(workspaceId: string, mainSessionId: string): 
  */
 export async function openNewTab(workspaceId: string, navigate: Navigate, fromSessionId?: string | null): Promise<string | null> {
   const main = mainSessionsFor(workspaceId);
-  const order = main.map((s) => s.id);
   const workspace = workspacesById.value.get(workspaceId);
+  // Every tab in the strip, terminals too (I-187), so their places are kept.
+  const order = mainTabsOf(
+    main.map((s) => s.id),
+    workspace?.layout,
+  ).map((t) => t.id);
   const fromId = fromSessionId ?? (workspace ? activeMainSessionId(workspace, main) : null);
   const harness = main.find((s) => s.id === fromId)?.harness;
   const detail = await createSession(workspaceId, harness ? { harness } : {});
   if (!detail) return null;
   const id = detail.session.id;
   if (workspace) navigate(chatPath(workspace, id), { replace: true });
-  void saveLayout(workspaceId, { mainOrder: [...order.filter((x) => x !== id), id], activeMainSessionId: id });
+  void saveLayout(workspaceId, {
+    mainOrder: [...order.filter((x) => x !== id), id],
+    activeMainSessionId: id,
+    ...(workspace?.layout?.activeTerminalId ? { activeTerminalId: null } : {}),
+  });
   return id;
+}
+
+// Terminal tabs (I-187) ---------------------------------------------------------------------
+
+/** A new terminal tab (⌃`, the New Tab menu): starts a login shell in the workspace's folder and focuses it. */
+export async function openTerminalTab(workspaceId: string, navigate: Navigate): Promise<string | null> {
+  const workspace = workspacesById.value.get(workspaceId);
+  if (!workspace) return null;
+  const id = newTerminalId();
+  try {
+    await startTerminal(workspaceId, id, { cols: 80, rows: 24 });
+  } catch (err) {
+    notify("error", `Couldn't open a terminal: ${(err as Error).message}`);
+    return null;
+  }
+  const order = mainTabsOf(
+    mainSessionsFor(workspaceId).map((s) => s.id),
+    workspace.layout,
+  ).map((t) => t.id);
+  navigate(chatPath(workspace, id), { replace: true });
+  void saveLayout(workspaceId, addTerminalPatch(workspace.layout, order, { id, createdAt: Date.now() }));
+  return id;
+}
+
+/** Focus a terminal tab (the URL's `?tab=` and the saved `activeTerminalId`). */
+export function focusTerminalTab(workspaceId: string, terminalId: string, navigate: Navigate): void {
+  const workspace = workspacesById.value.get(workspaceId);
+  if (!workspace) return;
+  navigate(chatPath(workspace, terminalId), { replace: true });
+  if (workspace.layout?.activeTerminalId !== terminalId) void saveLayout(workspaceId, { activeTerminalId: terminalId });
+}
+
+/**
+ * Close a terminal tab: its shell gets SIGHUP (like closing a terminal window; no confirm). When
+ * it was focused, its right (else left) neighbour in the strip takes focus.
+ */
+export async function closeTerminalTab(workspaceId: string, terminalId: string, navigate: Navigate, opts: { focused: boolean }): Promise<void> {
+  const workspace = workspacesById.value.get(workspaceId);
+  if (!workspace) return;
+  const tabs = mainTabsOf(
+    mainSessionsFor(workspaceId).map((s) => s.id),
+    workspace.layout,
+  );
+  const next = tabs.find((t) => t.id === neighbourAfterClose(tabs.map((x) => x.id), terminalId));
+  void closeTerminal(workspaceId, terminalId).catch(() => {});
+  const layout = withoutTerminal(workspace.layout, terminalId);
+  if (opts.focused && next) {
+    navigate(chatPath(workspace, next.id), { replace: true });
+    void saveLayout(workspaceId, next.kind === "terminal" ? { activeTerminalId: next.id } : { activeMainSessionId: next.id, activeTerminalId: null }, layout);
+  } else {
+    void saveLayout(workspaceId, {}, layout);
+  }
+}
+
+/** Rename a terminal tab (empty = back to "Terminal"). */
+export function renameTerminalTab(workspaceId: string, terminalId: string, title: string | null): void {
+  const layout = workspacesById.value.get(workspaceId)?.layout;
+  const terminals = terminalsOf(layout).map((t) => (t.id === terminalId ? { ...t, title: title?.trim() || null } : t));
+  void saveLayout(workspaceId, { terminals });
 }
 
 /** Whether closing a session loses a conversation (so we ask first). */

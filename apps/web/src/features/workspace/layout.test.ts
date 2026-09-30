@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { activeSubagentId, clampPaneSize, cycleTab, isSubagentPaneOpen, mergeLayout, openSubagentPatch, neighbourAfterClose, shouldClearSubagentPane, withoutSession } from "./layout";
+import {
+  activeSubagentId,
+  activeTerminalId,
+  addTerminalPatch,
+  clampPaneSize,
+  cycleTab,
+  isSubagentPaneOpen,
+  isTerminalTab,
+  mainTabsOf,
+  mergeLayout,
+  openSubagentPatch,
+  neighbourAfterClose,
+  shouldClearSubagentPane,
+  terminalsOf,
+  withoutSession,
+  withoutTerminal,
+} from "./layout";
 
 describe("workspace layout helpers", () => {
   it("clamps the pane size and defaults to half", () => {
@@ -67,5 +83,34 @@ describe("shouldClearSubagentPane (I-085)", () => {
     expect(shouldClearSubagentPane(open, false, 0)).toBe(false);
     expect(shouldClearSubagentPane({ subagentPaneOpen: false }, true, 0)).toBe(false);
     expect(shouldClearSubagentPane(undefined, true, 0)).toBe(false);
+  });
+});
+
+describe("terminal tabs (I-187)", () => {
+  const t = (id: string, title?: string) => ({ id, createdAt: 1, ...(title ? { title } : {}) });
+
+  it("places terminals among the conversations by mainOrder, new ones last", () => {
+    const layout = { mainOrder: ["s1", "t1", "s2"], terminals: [t("t1"), t("t2")] };
+    expect(mainTabsOf(["s1", "s2", "s3"], layout).map((x) => `${x.kind}:${x.id}`)).toEqual(["session:s1", "terminal:t1", "session:s2", "session:s3", "terminal:t2"]);
+    expect(mainTabsOf(["s1"], null).map((x) => x.id)).toEqual(["s1"]);
+    // Malformed layouts (another client, hand-edited) don't break the strip.
+    expect(terminalsOf({ terminals: "nope" as never })).toEqual([]);
+  });
+
+  it("the focused terminal: the URL's tab wins, else the saved one if it still exists", () => {
+    const layout = { terminals: [t("t1"), t("t2")], activeTerminalId: "t2" };
+    expect(activeTerminalId(layout, "t1")).toBe("t1");
+    expect(activeTerminalId(layout, "s1")).toBeNull();
+    expect(activeTerminalId(layout, null)).toBe("t2");
+    expect(activeTerminalId({ ...layout, activeTerminalId: "gone" }, null)).toBeNull();
+    expect(isTerminalTab(layout, "t1")).toBe(true);
+    expect(isTerminalTab(null, "t1")).toBe(false);
+  });
+
+  it("adds a terminal at the end and removes it with its place and focus", () => {
+    const added = mergeLayout({ mainOrder: ["s1"], terminals: [t("t1")] }, addTerminalPatch({ terminals: [t("t1")] }, ["s1", "t1"], t("t2")));
+    expect(added).toEqual({ mainOrder: ["s1", "t1", "t2"], terminals: [t("t1"), t("t2")], activeTerminalId: "t2" });
+    expect(withoutTerminal(added, "t2")).toEqual({ mainOrder: ["s1", "t1"], terminals: [t("t1")], activeTerminalId: null });
+    expect(withoutTerminal(added, "t1").activeTerminalId).toBe("t2");
   });
 });
