@@ -61,6 +61,12 @@ export interface SessionAgentState {
   doneAt: number | null;
   /** The report_done summary. */
   result: string | null;
+  /**
+   * The harness's own sub-agent (I-188: Claude Code's Task/Agent tool, Codex's `spawn_agent`),
+   * named by the harness's label ("Claude Code"). Glade mirrors its transcript read-only: it
+   * can't be messaged, and it isn't part of the agent API (list/message/close_agent).
+   */
+  native?: string;
 }
 
 export interface AgentInfo {
@@ -167,4 +173,11 @@ export interface SpawnedAgentRef {
   displayName?: string;
   color?: string;
   spawnedAt: number;
+  /**
+   * The parent's tool call that started it (I-188, native sub-agents): links that call's card to
+   * the agent directly (Glade's own spawns are matched by name).
+   */
+  toolCallId?: string;
+  /** The harness's own sub-agent (I-188; see `SessionAgentState.native`). */
+  native?: boolean;
 }

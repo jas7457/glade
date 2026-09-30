@@ -2,6 +2,8 @@
  * Links a main chat's `task` tool calls to the sub-agents they spawned (I-084), so the call can
  * render as the agent's card (`AgentSpawnCard.tsx`). Pure, so the rules are unit-tested.
  *
+ * - Native sub-agents (I-188, the harness's own: Claude's Task, Codex's spawn_agent) carry the
+ *   call that started them (`SpawnedAgentRef.toolCallId`) and link to it directly.
  * - Matching: the n-th-from-last spawn call with `input.agentName` X (errored calls skipped) ↔
  *   the n-th-from-last `SessionSummary.spawnedAgents` entry named X (aligned from the end, so
  *   history cut by compaction or older records still line up with the latest agents).
@@ -60,17 +62,24 @@ export function spawnedAgentName(call: Pick<ToolCallBlock, "kind" | "input">): s
 
 export function linkAgentSpawns(transcript: Transcript, refs: readonly SpawnedAgentRef[] | undefined): AgentSpawnLinks {
   if (!refs?.length) return NO_SPAWN_LINKS;
+  const byCall = new Map<string, SpawnLink>();
+  const direct = new Map(refs.filter((r) => r.toolCallId).map((r) => [r.toolCallId!, r]));
   // Spawn calls in transcript order, with the index of the message they're in.
   const calls: Array<{ id: string; name: string; at: number }> = [];
   transcript.messages.forEach((m, at) => {
     if (m.role !== "assistant") return;
     for (const b of m.content) {
       if (b.type !== "toolCall") continue;
+      const ref = direct.get(b.id);
+      if (ref) {
+        byCall.set(b.id, { ref, messages: [] });
+        continue;
+      }
       const name = spawnedAgentName(b);
       if (name && transcript.toolResults[b.id]?.status !== "error") calls.push({ id: b.id, name, at });
     }
   });
-  const byCall = new Map<string, SpawnLink>();
+  refs = refs.filter((r) => !r.toolCallId);
   const matched: Array<{ name: string; at: number; link: SpawnLink }> = [];
   for (const name of new Set(calls.map((c) => c.name))) {
     const named = calls.filter((c) => c.name === name);
@@ -141,7 +150,7 @@ export function spawnCardState({ link, session, transcript, description, callAct
   let label: string;
   if (session) {
     kind = chipKind(session);
-    label = kind === "failed" && session.agent?.status === "closed" ? "Exited" : CHIP_LABELS[kind];
+    label = kind === "failed" && session.agent?.status === "closed" ? (session.agent.native ? "Stopped" : "Exited") : CHIP_LABELS[kind];
   } else if (end?.kind === "exited") {
     kind = "failed";
     label = "Exited";

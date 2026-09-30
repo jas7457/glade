@@ -24,6 +24,36 @@ import type {
   UsageLimits,
 } from "@glade/protocol";
 
+/**
+ * A sub-agent the harness runs itself (I-188): Claude Code's Task/Agent tool, Codex's own
+ * `spawn_agent`. The session announces it, streams its conversation as ordinary `AgentEvent`s
+ * tagged with its id, and ends it; the server mirrors it as a read-only `subagent` session of the
+ * parent (tab, card, status), stored like any conversation.
+ *
+ * - `native_subagent_start`: `id` is the harness's (unique within the session); `toolCallId` is
+ *   the parent's tool call that started it (its card links to the agent); `name` its functional
+ *   name ("general-purpose", "explorer"); `displayName` a name the harness gave it (Codex's
+ *   nicknames; else Glade picks a fun one); `title` a short label (tab); `task` its prompt (shown
+ *   as its first message). Events for an id never started start it with defaults.
+ * - `native_subagent_event`: one event of its conversation (messages, tools, state). Run
+ *   boundaries are the server's: it's running from start to end.
+ * - `native_subagent_end`: finished (`done`, with its report as `result`), failed (`error`,
+ *   `result` = the error) or `stopped`. Later events for the id are dropped.
+ */
+export type NativeSubagentEvent =
+  | {
+      type: "native_subagent_start";
+      id: string;
+      toolCallId?: string;
+      name: string;
+      displayName?: string;
+      title?: string;
+      task: string;
+      model?: ModelRef | null;
+    }
+  | { type: "native_subagent_event"; id: string; event: AgentEvent }
+  | { type: "native_subagent_end"; id: string; status: "done" | "error" | "stopped"; result?: string };
+
 export interface OpenSessionOptions {
   /** Working directory for the agent. */
   cwd: string;
@@ -226,6 +256,13 @@ export interface HarnessSession {
   abortShell?(): Promise<void>;
   /** Subscribe to normalized events. Returns an unsubscribe function. */
   onEvent(listener: (event: AgentEvent) => void): () => void;
+  /**
+   * Subscribe to the harness's own sub-agents' events (I-188; harnesses that run sub-agents of
+   * their own). Returns an unsubscribe function.
+   */
+  onNativeSubagent?(listener: (event: NativeSubagentEvent) => void): () => void;
+  /** Stop one of its own sub-agents (I-188; Stop in the sub-agent's tab); it ends as usual. */
+  stopNativeSubagent?(id: string): Promise<void>;
   /** Called once if the underlying agent dies unexpectedly. */
   onExit(listener: (error: Error | null) => void): () => void;
   dispose(): Promise<void>;

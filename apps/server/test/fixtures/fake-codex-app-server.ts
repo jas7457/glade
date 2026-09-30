@@ -100,6 +100,10 @@ export interface FakeCodexOptions {
   rateLimits?: GetAccountRateLimitsResponse;
   /** `turn/interrupt` ends the turn as interrupted (default true). */
   interruptEnds?: boolean;
+  /** Codex's own sub-agents' threads (I-188): what `thread/read` says about them. */
+  subAgents?: Record<string, { preview?: string; agentNickname?: string | null; agentRole?: string | null; model?: string | null }>;
+  /** `turn/interrupt` of a sub-agent's thread (I-188). */
+  onChildInterrupt?: (threadId: string, turnId: string) => void;
   /** `collaborationMode/list` (default: the real 0.159.1 answer, Plan and Default); `null`: unknown method. */
   collaborationModes?: Array<{ name: string; mode: string | null; model: string | null; reasoning_effort: string | null }> | null;
 }
@@ -217,7 +221,18 @@ export class FakeCodexAppServer {
         o.onSteer?.(turn, turn.steered.at(-1)!);
         return { turnId: turn.id };
       }
+      case "thread/read": {
+        const id = params.threadId as string;
+        const sub = o.subAgents?.[id];
+        if (sub) return { thread: { id, parentThreadId: "parent", preview: sub.preview ?? "", agentNickname: sub.agentNickname ?? null, agentRole: sub.agentRole ?? null, model: sub.model ?? null } };
+        if (this.threads.has(id)) return { thread: { id } };
+        throw rpcError(-32600, `thread not found: ${id}`);
+      }
       case "turn/interrupt": {
+        if (o.subAgents?.[params.threadId as string]) {
+          o.onChildInterrupt?.(params.threadId as string, params.turnId as string);
+          return {};
+        }
         const turn = this.lastTurn();
         if (turn && !turn.done && o.interruptEnds !== false) setImmediate(() => turn.complete("interrupted"));
         return {};

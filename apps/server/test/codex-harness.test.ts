@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyAgentEvent, messageText, type AgentEvent, type AssistantMessage, type NoticeMessage, type Transcript, type UiRequest } from "@glade/protocol";
 import { CODEX_CAPABILITIES, CodexHarness } from "../src/harness/codex/codex-harness.js";
-import type { CodexSession } from "../src/harness/codex/codex-session.js";
+import { taskNameTitle, type CodexSession } from "../src/harness/codex/codex-session.js";
 import { NOT_INSTALLED, NOT_LOGGED_IN, codexUsageLimits, formatReset, friendlyTurnError, usageLimitMessage } from "../src/harness/codex/errors.js";
 import { codexThinkingLevels, effortToLevel, translateCodexModels } from "../src/harness/codex/models.js";
 import { codexPermissionModes, commandApproval, commandDecision, modeFromConfig, turnPermissions } from "../src/harness/codex/permissions.js";
@@ -26,6 +26,7 @@ import { CodexTranslator } from "../src/harness/codex/translate.js";
 import { codexSlashCommands, parseSlashText, reviewTarget, shellArgv, skillInput, userShellRecord, SHELL_RECORD_MAX_CHARS } from "../src/harness/codex/commands.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
+import type { NativeSubagentEvent } from "../src/harness/types.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
 import { FAKE_MODELS, FAKE_SKILLS, FakeCodexAppServer, type FakeTurn, LIMIT_REACHED, USAGE_LIMIT_ERROR, type FakeCodexOptions } from "./fixtures/fake-codex-app-server.js";
@@ -196,7 +197,7 @@ describe("Codex translator", () => {
       { name: "spawn_agent", kind: "task", input: { description: "Codex sub-agent /root/tiny" } },
     ]);
     expect(transcript.toolResults.s).toMatchObject({ status: "done", output: "All green." });
-    expect(transcript.toolResults.v).toMatchObject({ status: "done", output: expect.stringMatching(/isn't shown in Glade/) });
+    expect(transcript.toolResults.v).toMatchObject({ status: "done", output: "Started Codex sub-agent /root/tiny" });
     expect(transcript.toolResults.m).toMatchObject({ status: "done", output: "found" });
     expect(transcript.toolResults.d).toMatchObject({ status: "done", output: "Spawned" });
   });
@@ -533,24 +534,91 @@ describe("Codex sessions", () => {
     expect(reply).toMatchObject({ success: true, contentItems: [{ type: "inputText", text: expect.stringMatching(/Spawned Leo/) }] });
   });
 
-  it("shows Codex's own sub-agents: a card when one starts, a notice with its last message when it ends (I-179)", async () => {
+  it("mirrors Codex's own sub-agents as native sub-agents: task and nickname from thread/read, its thread's items, its report (I-188)", async () => {
+    const child = (t: FakeTurn, method: string, params: Record<string, unknown>) => t.notify(method, { threadId: "thr-child", turnId: "child-turn", ...params });
     const codex = new FakeCodexAppServer({
+      subAgents: { "thr-child": { preview: "Count the files in src", agentNickname: "Euclid", agentRole: "explorer", model: "gpt-6-luna" } },
       onTurn: (t) => {
-        const started: ThreadItem = { type: "subAgentActivity", id: "call_1", kind: "started", agentThreadId: "thr-child", agentPath: "/root/tiny" };
-        t.item(started);
+        t.item({ type: "subAgentActivity", id: "call_1", kind: "started", agentThreadId: "thr-child", agentPath: "/root/tiny" });
+        // Its thread starts at once (before thread/read answered: these wait).
+        t.notify("turn/started", { threadId: "thr-child", turn: { id: "child-turn", status: "inProgress", error: null } });
+        const cmd = { type: "commandExecution" as const, id: "c1", command: "ls src | wc -l", cwd: "/p", status: "inProgress" as const, commandActions: [], aggregatedOutput: null, exitCode: null, durationMs: null };
+        child(t, "item/started", { item: cmd });
+        child(t, "item/completed", { item: { ...cmd, status: "completed", aggregatedOutput: "3\n", exitCode: 0, durationMs: 4 } });
         t.reply("spawned");
-        // After the parent's turn: the child's own thread, then its end.
         setTimeout(() => {
-          t.notify("item/completed", { threadId: "thr-child", turnId: "child-turn", item: { type: "agentMessage", id: "cm", text: "PONG" } });
+          child(t, "item/started", { item: { type: "agentMessage", id: "cm", text: "" } });
+          child(t, "item/agentMessage/delta", { itemId: "cm", delta: "3 files." });
+          child(t, "item/completed", { item: { type: "agentMessage", id: "cm", text: "3 files." } });
+          t.notify("turn/completed", { threadId: "thr-child", turn: { id: "child-turn", status: "completed", error: null } });
           t.notify("item/completed", { threadId: t.thread.id, turnId: t.id, item: { type: "subAgentActivity", id: "done-1", kind: "completed", agentThreadId: "thr-child", agentPath: "/root/tiny" } });
         }, 20);
       },
     });
-    const { run, transcript } = await openSession(harness(codex));
+    const { session, run, transcript } = await openSession(harness(codex));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
     await run("spawn");
-    expect(assistants(transcript())[0]!.content[0]).toMatchObject({ kind: "task", input: { description: "Codex sub-agent /root/tiny" } });
-    await until(() => transcript().messages.some((m) => m.role === "notice"));
-    expect((transcript().messages.find((m) => m.role === "notice") as NoticeMessage).text).toBe("Codex sub-agent /root/tiny finished: PONG");
+    expect(assistants(transcript())[0]!.content[0]).toMatchObject({ id: "call_1", kind: "task", input: { description: "Codex sub-agent /root/tiny" } });
+    await until(() => natives.some((e) => e.type === "native_subagent_end"));
+    expect(codex.sent("thread/read")).toEqual([{ threadId: "thr-child" }]);
+    expect(natives[0]).toEqual({ type: "native_subagent_start", id: "thr-child", toolCallId: "call_1", name: "explorer", displayName: "Euclid", task: "Count the files in src", model: { provider: "codex", id: "gpt-6-luna" } });
+    const child_ = fold(natives.flatMap((e) => (e.type === "native_subagent_event" ? [e.event] : [])));
+    expect(assistants(child_).map((m) => m.content.map((b) => b.type))).toEqual([["toolCall"], ["text"]]);
+    expect(child_.toolResults.c1).toMatchObject({ status: "done", output: "3\n" });
+    expect(messageText(assistants(child_)[1]!)).toBe("3 files.");
+    expect(natives.at(-1)).toEqual({ type: "native_subagent_end", id: "thr-child", status: "done", result: "3 files." });
+    // The report goes into the parent's spawn call; no separate notice.
+    expect(transcript().toolResults.call_1).toMatchObject({ status: "done", output: "3 files." });
+    expect(transcript().messages.some((m) => m.role === "notice")).toBe(false);
+  });
+
+  it("Stop interrupts Codex's own sub-agents too, which ends them as stopped (I-188)", async () => {
+    let parentTurn: FakeTurn | null = null;
+    const codex = new FakeCodexAppServer({
+      subAgents: { "thr-a": { preview: "A" }, "thr-b": { preview: "B" } },
+      onTurn: (t) => {
+        parentTurn = t;
+        for (const id of ["thr-a", "thr-b"]) {
+          t.item({ type: "subAgentActivity", id: `call-${id}`, kind: "started", agentThreadId: id, agentPath: `/root/${id}` });
+          t.notify("turn/started", { threadId: id, turn: { id: `${id}-turn`, status: "inProgress", error: null } });
+        }
+        t.reply("spawned two"); // the parent's turn ends; the sub-agents work on
+      },
+      onChildInterrupt: (threadId, turnId) => setImmediate(() => parentTurn!.notify("turn/completed", { threadId, turn: { id: turnId, status: "interrupted", error: null } })),
+    });
+    const { session, run } = await openSession(harness(codex));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
+    await run("spawn two");
+    await until(() => natives.filter((e) => e.type === "native_subagent_start").length === 2);
+    await session.abort();
+    await until(() => natives.filter((e) => e.type === "native_subagent_end").length === 2);
+    expect(codex.sent("turn/interrupt")).toEqual(expect.arrayContaining([{ threadId: "thr-a", turnId: "thr-a-turn" }, { threadId: "thr-b", turnId: "thr-b-turn" }]));
+    expect(natives.filter((e) => e.type === "native_subagent_end").map((e) => (e as { status: string }).status)).toEqual(["stopped", "stopped"]);
+  });
+
+  it("follows multi-agent v1's spawnAgent calls: the prompt is the task, its turn ends it (I-188)", async () => {
+    const codex = new FakeCodexAppServer({
+      subAgents: { "thr-v1": {} },
+      onTurn: (t) => {
+        const call = { type: "collabAgentToolCall" as const, id: "collab-1", tool: "spawnAgent", status: "completed", prompt: "Check the tests", receiverThreadIds: ["thr-v1"], agentsStates: {} };
+        t.item(call);
+        setTimeout(() => {
+          t.notify("item/completed", { threadId: "thr-v1", turnId: "v1-turn", item: { type: "agentMessage", id: "vm", text: "All green." } });
+          t.notify("turn/completed", { threadId: "thr-v1", turn: { id: "v1-turn", status: "completed", error: null } });
+          t.reply("ok");
+        }, 20);
+      },
+    });
+    const { session, run } = await openSession(harness(codex));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
+    await run("check");
+    await until(() => natives.some((e) => e.type === "native_subagent_end"));
+    expect(natives[0]).toMatchObject({ type: "native_subagent_start", id: "thr-v1", toolCallId: "collab-1", task: "Check the tests" });
+    expect(taskNameTitle("src_file_count")).toBe("Src file count");
+    expect(natives.at(-1)).toEqual({ type: "native_subagent_end", id: "thr-v1", status: "done", result: "All green." });
   });
 
   it("sends model, thinking and permission mode changes with the next turn", async () => {

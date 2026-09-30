@@ -20,9 +20,10 @@ import { claudeToolBlock, structuredPatchDiff } from "../src/harness/claude/tool
 import { ClaudeTranslator } from "../src/harness/claude/translate.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
+import type { NativeSubagentEvent } from "../src/harness/types.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
-import { FAKE_INIT, FakeClaudeSdk, assistant, result, stream, toolResult } from "./fixtures/fake-claude-sdk.js";
+import { FAKE_INIT, FakeClaudeSdk, assistant, result, stream, subToolResult, toolResult } from "./fixtures/fake-claude-sdk.js";
 import { flush, until } from "./helpers.js";
 
 let dir: string;
@@ -641,6 +642,142 @@ describe("Claude harness", () => {
     const sdk = new FakeClaudeSdk();
     await harness(sdk).deleteSession("33333333-3333-3333-3333-333333333333");
     expect(sdk.deleted).toEqual(["33333333-3333-3333-3333-333333333333"]);
+  });
+});
+
+describe("Claude's own sub-agents (I-188)", () => {
+  const TASK = { type: "tool_use", id: "task1", name: "Task", input: { description: "Count files", prompt: "Count the files in src", subagent_type: "Explore" } };
+  /** The sub-agent's own traffic: streamed thinking + text, a Bash call and its result, its last reply. */
+  function subagentWork(q: import("./fixtures/fake-claude-sdk.js").FakeQuery, parent = "task1", report = "There are 3 files.") {
+    q.emit(
+      stream({ type: "message_start", message: { id: `${parent}-s1` } }, parent),
+      stream({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }, parent),
+      stream({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Listing." } }, parent),
+      stream({ type: "content_block_stop", index: 0 }, parent),
+      assistant(`${parent}-s1`, [{ type: "thinking", thinking: "Listing.", signature: "x" }], undefined, { parent_tool_use_id: parent }),
+      assistant(`${parent}-s1`, [{ type: "tool_use", id: `${parent}-b1`, name: "Bash", input: { command: "ls src | wc -l" } }], undefined, { parent_tool_use_id: parent }),
+      subToolResult(parent, `${parent}-b1`, "3"),
+      assistant(`${parent}-s2`, [{ type: "text", text: report }], undefined, { parent_tool_use_id: parent }),
+    );
+  }
+
+  it("mirrors a foreground Task sub-agent: its stream in its own tab, its report from the Task result", async () => {
+    const sdk = new FakeClaudeSdk({
+      onUser: (q) => {
+        q.emit({ type: "system", subtype: "init", model: "claude-sonnet-5", session_id: "s" }, assistant("m1", [TASK]));
+        q.emit({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "task1", description: "Count files", subagent_type: "Explore", task_type: "local_agent", is_backgrounded: false });
+        subagentWork(q);
+        q.emit(toolResult("task1", [{ type: "text", text: "There are 3 files.\nagentId: t1" }], { status: "completed", content: [{ type: "text", text: "There are 3 files." }], agentId: "t1", prompt: "Count the files in src" }));
+        q.emit({ type: "system", subtype: "task_notification", task_id: "t1", tool_use_id: "task1", status: "completed", summary: "done", output_file: "" });
+        q.reply("It has 3 files.");
+      },
+    });
+    const { session, run, events } = await openSession(harness(sdk));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
+    await run("count the files with a sub-agent");
+    expect(sdk.chats[0]!.options.forwardSubagentText).toBe(true);
+    expect(natives[0]).toEqual({ type: "native_subagent_start", id: "task1", toolCallId: "task1", name: "Explore", title: "Count files", task: "Count the files in src" });
+    const child = natives.flatMap((e) => (e.type === "native_subagent_event" ? [e.event] : [])).reduce(foldEvent, { messages: [], toolResults: {} } as Transcript);
+    expect(assistants(child).map((m) => m.content.map((b) => b.type))).toEqual([["thinking", "toolCall"], ["text"]]);
+    expect(child.toolResults["task1-b1"]).toMatchObject({ status: "done", output: "3" });
+    expect(natives.filter((e) => e.type === "native_subagent_end")).toEqual([{ type: "native_subagent_end", id: "task1", status: "done", result: "There are 3 files." }]);
+    // The parent shows the Task call (linked) and its own reply, not the sub-agent's messages.
+    const parent = events.reduce(foldEvent, { messages: [], toolResults: {} } as Transcript);
+    expect(assistants(parent).map((m) => messageText(m))).toEqual(["", "It has 3 files."]);
+    expect(assistants(parent)[0]!.content[0]).toMatchObject({ id: "task1", kind: "task" });
+  });
+
+  it("keeps a background sub-agent after the turn, ends it with task_notification, and Stop stops it", async () => {
+    let query: import("./fixtures/fake-claude-sdk.js").FakeQuery | null = null;
+    const sdk = new FakeClaudeSdk({
+      onUser: (q, msg) => {
+        query = q;
+        if (JSON.stringify(msg.message.content).includes("stop")) return;
+        q.emit(assistant("m1", [TASK, { ...TASK, id: "task2" }]));
+        q.emit({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "task1", description: "Count files", task_type: "local_agent", is_backgrounded: true });
+        q.emit({ type: "system", subtype: "task_started", task_id: "t2", tool_use_id: "task2", description: "Count files", task_type: "local_agent", is_backgrounded: true });
+        q.emit(toolResult("task1", "Async agent launched", { status: "async_launched", agentId: "t1", description: "Count files", prompt: "x", outputFile: "/tmp/o" }));
+        q.emit(toolResult("task2", "Async agent launched", { status: "async_launched", agentId: "t2", description: "Count files", prompt: "x", outputFile: "/tmp/o" }));
+        q.reply("Started two agents.");
+      },
+      onStopTask: (q, taskId) => q.emit({ type: "system", subtype: "task_notification", task_id: taskId, status: "stopped", summary: "", output_file: "" }),
+    });
+    const { session, run } = await openSession(harness(sdk));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
+    await run("two background agents");
+    expect(natives.filter((e) => e.type === "native_subagent_start").map((e) => e.id)).toEqual(["task1", "task2"]);
+    expect(natives.some((e) => e.type === "native_subagent_end")).toBe(false); // the turn's end doesn't end them
+    subagentWork(query!, "task1", "Three.");
+    query!.emit({ type: "system", subtype: "task_notification", task_id: "t1", tool_use_id: "task1", status: "completed", summary: "Agent finished", output_file: "" });
+    await until(() => natives.some((e) => e.type === "native_subagent_end"));
+    expect(natives.find((e) => e.type === "native_subagent_end")).toEqual({ type: "native_subagent_end", id: "task1", status: "done", result: "Three." });
+    // Stop: the parent is idle, the other agent still runs → stopTask.
+    await session.abort();
+    await until(() => natives.filter((e) => e.type === "native_subagent_end").length === 2);
+    expect(query!.stoppedTasks).toEqual(["t2"]);
+    expect(natives.at(-1)).toEqual({ type: "native_subagent_end", id: "task2", status: "stopped" });
+    // Stop from its tab: stopNativeSubagent (nothing left to stop here).
+    await session.stopNativeSubagent("task2");
+    expect(query!.stoppedTasks).toEqual(["t2"]);
+  });
+
+  it("ends a foreground sub-agent as stopped when the turn is stopped; its permission card asks in the parent", async () => {
+    let query: import("./fixtures/fake-claude-sdk.js").FakeQuery | null = null;
+    const sdk = new FakeClaudeSdk({
+      onUser: (q) => {
+        query = q;
+        q.emit(assistant("m1", [TASK]));
+        q.emit({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "task1", description: "Count files", task_type: "local_agent" });
+        q.emit(assistant("s1", [{ type: "tool_use", id: "w1", name: "Write", input: { file_path: "a.txt", content: "x" } }], undefined, { parent_tool_use_id: "task1" }));
+        void q.canUseTool("Write", { file_path: "a.txt", content: "x" }, "w1", { agentID: "t1" });
+      },
+      onInterrupt: (q) => q.emit(result({ subtype: "error_during_execution" })),
+    });
+    const { session, events } = await openSession(harness(sdk));
+    const natives: NativeSubagentEvent[] = [];
+    session.onNativeSubagent((e) => natives.push(e));
+    await session.prompt({ text: "go" });
+    await until(() => events.some((e) => e.type === "ui_request"));
+    const card = events.find((e): e is Extract<AgentEvent, { type: "ui_request" }> => e.type === "ui_request")!.request;
+    expect(card).toMatchObject({ kind: "permission", toolCallId: "w1" });
+    // The Write call is the sub-agent's, not the parent's.
+    const parent = events.reduce(foldEvent, { messages: [], toolResults: {} } as Transcript);
+    expect(assistants(parent).flatMap((m) => m.content).map((b) => (b.type === "toolCall" ? b.id : b.type))).toEqual(["task1"]);
+    await session.abort();
+    await until(() => natives.some((e) => e.type === "native_subagent_end"));
+    expect(query!.interrupts).toBe(1);
+    expect(natives.find((e) => e.type === "native_subagent_end")).toMatchObject({ id: "task1", status: "stopped" });
+  });
+
+  it("becomes a read-only sub-agent tab of the chat through the app service", async () => {
+    const sdk = new FakeClaudeSdk({
+      onUser: (q) => {
+        q.emit(assistant("m1", [TASK]));
+        subagentWork(q);
+        q.emit(toolResult("task1", "There are 3 files."));
+        q.reply("Done.");
+      },
+    });
+    const store = new Store(join(dir, "data"), 0);
+    const service = new AppService({ store, harnesses: new HarnessRegistry([harness(sdk)]), scratchDir: cwd });
+    try {
+      const created = await service.createWorkspace({ projectId: null, harness: "claude", prompt: "count" });
+      const wid = created.workspace.id;
+      await until(() => service.listSessions(wid).some((s) => s.agent?.status === "done") && !service.listSessions(wid)[0]!.running);
+      const child = service.listSessions(wid).find((s) => s.kind === "subagent")!;
+      expect(child).toMatchObject({ parentSessionId: created.session.session.id, agentName: "explore", title: "Count files", harness: "claude", agent: { native: "Claude Code", result: "There are 3 files." } });
+      expect(store.loadTranscript(child.id).messages.map((m) => [m.role, messageText(m)])).toEqual([
+        ["user", "Count the files in src"],
+        ["assistant", ""],
+        ["assistant", "There are 3 files."],
+      ]);
+      await expect(service.prompt(child.id, { text: "more" })).rejects.toMatchObject({ status: 409 });
+      expect(sdk.chats).toHaveLength(1);
+    } finally {
+      await service.dispose();
+    }
   });
 });
 

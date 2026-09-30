@@ -19,7 +19,8 @@ import type { AgentHarness, HarnessSession } from "../../harness/types.js";
 import { exitedText } from "../agents.js";
 import { externalizeImages } from "../../store/images.js";
 import { MAX_IDLE_PROCESSES, type AppContext, type LiveSession } from "./context.js";
-import { ActiveElsewhereError } from "./errors.js";
+import { ActiveElsewhereError, HttpError } from "./errors.js";
+import { NativeSubagents, nativeReadOnlyMessage } from "./native-subagents.js";
 import type { Records } from "./records.js";
 import { isFlushPoint, MessageIds, TranscriptWriter } from "./transcript-writer.js";
 import type { Transcripts } from "./transcripts.js";
@@ -33,12 +34,17 @@ export interface LivePoolHooks {
 }
 
 export class LivePool {
+  /** The harnesses' own sub-agents, mirrored as read-only sessions (I-188). */
+  readonly natives: NativeSubagents;
+
   constructor(
     private readonly ctx: AppContext,
     private readonly records: Records,
     private readonly transcripts: Transcripts,
     private readonly hooks: LivePoolHooks,
-  ) {}
+  ) {
+    this.natives = new NativeSubagents(ctx, records, this);
+  }
 
   /** Number of agent processes currently alive (for tests/diagnostics). */
   get liveCount(): number {
@@ -77,6 +83,9 @@ export class LivePool {
 
   private async openLive(id: string): Promise<LiveSession> {
     const record = this.records.requireSession(id);
+    // A harness's own sub-agent (I-188) has no process to start: it's read-only once it ended.
+    const native = this.ctx.agents.get(id)?.native;
+    if (native) throw new HttpError(409, nativeReadOnlyMessage(native));
     const workspace = this.records.requireWorkspace(record.workspaceId);
     const harness = this.records.requireOfferedHarness(record);
     await this.acquireLease(id);
@@ -143,9 +152,12 @@ export class LivePool {
     };
     const offEvent = session.onEvent((event) => this.handleEvent(id, live, event));
     const offExit = session.onExit((error) => this.handleExit(id, live, error));
+    // The harness's own sub-agents (I-188) become read-only sub-agent sessions.
+    const offNative = session.onNativeSubagent?.((event) => this.natives.handle(id, event));
     live.unsubscribe = () => {
       offEvent();
       offExit();
+      offNative?.();
     };
     this.ctx.live.set(id, live);
 
@@ -305,6 +317,7 @@ export class LivePool {
     live.writer.close();
     this.ctx.live.delete(id);
     this.ctx.tokens.revoke(id);
+    this.natives.endAll(id, "Stopped: its parent's agent exited");
     const wasRunning = live.running;
     const session = this.ctx.store.getSession(id);
     if (!session) {
@@ -361,6 +374,7 @@ export class LivePool {
     live.writer.flush();
     this.ctx.live.delete(id);
     this.ctx.tokens.revoke(id);
+    this.natives.endAll(id);
     const session = this.ctx.store.getSession(id);
     if (session && !quiet) {
       for (const dialog of dialogs) this.records.emitSessionEvent(session, { type: "ui_request_closed", id: dialog });
@@ -397,7 +411,18 @@ export class LivePool {
   private evictIdle(keepId?: string): void {
     const max = this.ctx.options.maxIdleProcesses ?? MAX_IDLE_PROCESSES;
     const idle = [...this.ctx.live.entries()]
-      .filter(([id, l]) => id !== keepId && !l.running && l.pendingUi.size === 0 && l.shells.size === 0 && l.sideQuestions.size === 0 && !this.ctx.viewers.has(id))
+      .filter(
+        ([id, l]) =>
+          id !== keepId &&
+          !l.running &&
+          !l.nativeParentId &&
+          l.pendingUi.size === 0 &&
+          l.shells.size === 0 &&
+          l.sideQuestions.size === 0 &&
+          !this.ctx.viewers.has(id) &&
+          // Its harness still runs sub-agents of its own (e.g. Codex's, after the turn ended).
+          !this.natives.hasRunning(id),
+      )
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
     const excess = idle.length - max;
     for (let i = 0; i < excess; i++) void this.closeLive(idle[i]![0]);

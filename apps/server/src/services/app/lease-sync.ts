@@ -29,6 +29,11 @@ export class LeaseSync {
    * Mark them interrupted; `unread` + `lastRunFailed` make the sidebar show the failed marker.
    */
   recoverInterruptedRuns(): void {
+    // Native sub-agents (I-188) cut off with their parent's process are over for good.
+    for (const record of this.ctx.store.listAgents()) {
+      if (!record.native || record.closed || this.ctx.leases?.isLeased(record.sessionId)) continue;
+      this.ctx.agents.update(record.sessionId, { closed: true, closing: false, result: record.result ?? "Stopped: Glade quit while it ran" });
+    }
     for (const session of this.ctx.store.listSessions()) {
       if (!session.runInProgress) continue;
       // Still running in another server on this data folder (I-062).

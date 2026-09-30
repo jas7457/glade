@@ -33,8 +33,16 @@ export function AgentBar({ session }: { session: SessionSummary }) {
     ) : display.kind === "closed" ? (
       <CircleSlash class="size-3.5 text-fg-muted" />
     ) : null;
+  // I-188: the harness's own sub-agent never starts again; say why it stopped instead.
+  const native = session.agent?.native;
   const note =
-    display.kind === "closed" ? "Its process stopped. Type a message to start it again." : display.kind === "closing" ? "This tab closes when its turn ends." : null;
+    display.kind === "closed"
+      ? native
+        ? session.agent?.result?.trim() || `${native} stopped it.`
+        : "Its process stopped. Type a message to start it again."
+      : display.kind === "closing"
+        ? "This tab closes when its turn ends."
+        : null;
   return (
     <div
       data-agent-bar={display.kind}

@@ -39,6 +39,7 @@ export function agentDisplay(session: Pick<SessionSummary, "title" | "agentName"
   const base = session.title || session.agentName || "Sub-agent";
   const name = session.agentDisplayName ? `${session.agentDisplayName} · ${base}` : base;
   const lines = [`${name}${agent.agent ? ` (${agent.agent})` : ""} — ${label}`];
+  if (agent.native) lines.push(`${agent.native}'s own sub-agent`);
   if (agent.keepOpenReason && kind === "done") lines.push(`Kept open for: ${agent.keepOpenReason}`);
   lines.push(`Task: ${clip(agent.task, 300)}`);
   if (agent.result) lines.push(`Result: ${clip(agent.result, 600)}`);

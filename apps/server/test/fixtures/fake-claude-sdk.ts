@@ -124,6 +124,14 @@ export class FakeQuery implements ClaudeQuery {
 
   async setModel(): Promise<void> {}
 
+  /** Tasks stopped (`stopTask`, I-188), in order. */
+  readonly stoppedTasks: string[] = [];
+
+  async stopTask(taskId: string): Promise<void> {
+    this.stoppedTasks.push(taskId);
+    await this.sdk.options.onStopTask?.(this, taskId);
+  }
+
   /** Modes switched to (`setPermissionMode`), in order. */
   readonly modes: string[] = [];
 
@@ -156,6 +164,8 @@ export interface FakeClaudeSdkOptions {
   onUser?: (query: FakeQuery, message: ClaudeUserInput) => void | Promise<void>;
   onString?: (query: FakeQuery, prompt: string) => void;
   onInterrupt?: (query: FakeQuery) => void | Promise<void>;
+  /** `stopTask` (I-188). */
+  onStopTask?: (query: FakeQuery, taskId: string) => void | Promise<void>;
   /** Throw to refuse a mode switch. */
   onSetPermissionMode?: (query: FakeQuery, mode: string) => void | Promise<void>;
   /** Sessions Claude Code "has on disk". */
@@ -212,6 +222,11 @@ export function toolResult(toolUseId: string, content: unknown, structured?: unk
     ...(structured !== undefined ? { tool_use_result: structured } : {}),
     session_id: "s",
   };
+}
+
+/** A tool result inside a sub-agent (`parent_tool_use_id`, I-188). */
+export function subToolResult(parent: string, toolUseId: string, content: unknown): ClaudeWire {
+  return { ...toolResult(toolUseId, content), parent_tool_use_id: parent };
 }
 
 export function result(extra: { cost?: number; subtype?: string; isError?: boolean; text?: string; queued?: number; errors?: string[] } = {}): ClaudeWire {

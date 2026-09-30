@@ -31,6 +31,7 @@ import type {
   GenerateTitleOptions,
   HarnessDescription,
   HarnessSession,
+  NativeSubagentEvent,
   OpenSessionOptions,
   ShellRunRequest,
   SideQuestionCall,
@@ -348,6 +349,12 @@ export class FakeSession implements HarnessSession {
 
   async prompt(request: PromptRequest): Promise<void> {
     this.prompts.push(request);
+    const native = /^native(?: (\d))? ([\s\S]+)$/.exec(request.text.trim());
+    if (native) {
+      this.emit({ type: "message_end", message: { id: `${this.sessionRef}-${this.idCounter++}`, role: "user", content: [{ type: "text", text: request.text }], timestamp: Date.now() } });
+      void this.nativeCall(Math.max(1, Number(native[1] ?? 1)), native[2]!.trim());
+      return;
+    }
     const stored = this.stored;
     stored.contextTokens = (stored.contextTokens ?? 4_000) + FAKE_TOKENS_PER_PROMPT;
     stored.totalTokens += FAKE_TOKENS_PER_PROMPT;
@@ -371,6 +378,82 @@ export class FakeSession implements HarnessSession {
       { type: "run_end" },
     ];
     void this.play(events).then(() => this.agentCommand(request.text));
+  }
+
+  /** Native sub-agents still running (`native …` prompts, I-188): stopped with the session. */
+  private readonly natives = new Set<string>();
+  /** How long a fake native sub-agent works (ms; tests lower it). */
+  nativeStepMs = 700;
+
+  /**
+   * The harness's own sub-agents without a model (I-188; tests and `GLADE_HARNESS=fake`
+   * sandboxes): `native <task>` / `native <n> <task>` runs n sub-agents of the fake's own (like
+   * Claude Code's Task tool): a task call in the chat, and each sub-agent streams a reply and a
+   * command in its own tab, then reports.
+   */
+  private async nativeCall(count: number, task: string): Promise<void> {
+    const id = `${this.sessionRef}-${this.idCounter++}`;
+    const step = () => new Promise((r) => setTimeout(r, this.nativeStepMs));
+    const calls = Array.from({ length: count }, (_, i) => ({ toolCallId: `task-${id}-${i}`, agent: `native-${id}-${i}` }));
+    const blocks = calls.map(({ toolCallId }, i) => ({
+      type: "toolCall" as const,
+      id: toolCallId,
+      name: "Task",
+      kind: "task" as const,
+      input: { description: count > 1 ? `${task} (${i + 1})` : task },
+      args: { description: task, prompt: task },
+    }));
+    this.emit({ type: "run_start" });
+    this.emit({ type: "state", state: { isRunning: true } });
+    this.emit({ type: "message_end", message: { id, role: "assistant", content: blocks, timestamp: Date.now(), stopReason: "toolUse" } });
+    await Promise.all(
+      calls.map(async ({ toolCallId, agent }, i) => {
+        this.emit({ type: "tool_start", toolCallId, toolName: "Task", args: { prompt: task } });
+        this.natives.add(agent);
+        this.events.native({ type: "native_subagent_start", id: agent, toolCallId, name: "general-purpose", title: blocks[i]!.input.description, task });
+        const sub = (event: AgentEvent) => this.natives.has(agent) && this.events.native({ type: "native_subagent_event", id: agent, event });
+        const m1 = `${agent}-a`;
+        const bash = `${agent}-bash`;
+        const call = { type: "toolCall" as const, id: bash, name: "Bash", kind: "shell" as const, input: { command: "ls src | wc -l" }, args: { command: "ls src | wc -l" } };
+        await step();
+        sub({ type: "message_start", message: { id: m1, role: "assistant", content: [], timestamp: Date.now(), streaming: true } });
+        sub({ type: "block_start", messageId: m1, index: 0, block: { type: "thinking", text: "" } });
+        sub({ type: "block_delta", messageId: m1, index: 0, delta: "Counting the files." });
+        sub({ type: "block_start", messageId: m1, index: 1, block: call });
+        sub({ type: "message_end", message: { id: m1, role: "assistant", content: [{ type: "thinking", text: "Counting the files." }, call], timestamp: Date.now(), stopReason: "toolUse" } });
+        sub({ type: "tool_start", toolCallId: bash, toolName: "Bash", args: call.args });
+        await step();
+        sub({ type: "tool_end", toolCallId: bash, result: { toolCallId: bash, toolName: "Bash", status: "done", output: `${3 + i}\n` } });
+        const m2 = `${agent}-b`;
+        const report = `There are ${3 + i} files in src.`;
+        sub({ type: "message_start", message: { id: m2, role: "assistant", content: [], timestamp: Date.now(), streaming: true } });
+        sub({ type: "block_start", messageId: m2, index: 0, block: { type: "text", text: "" } });
+        sub({ type: "block_delta", messageId: m2, index: 0, delta: report });
+        await step();
+        if (!this.natives.delete(agent)) return; // stopped meanwhile
+        this.events.native({ type: "native_subagent_event", id: agent, event: { type: "message_end", message: { id: m2, role: "assistant", content: [{ type: "text", text: report }], timestamp: Date.now(), stopReason: "stop" } } });
+        this.events.native({ type: "native_subagent_end", id: agent, status: "done", result: report });
+        this.emit({ type: "tool_end", toolCallId, result: { toolCallId, toolName: "Task", status: "done", output: report } });
+      }),
+    );
+    if (!this.state.isRunning) return; // stopped
+    const answer = `${this.sessionRef}-${this.idCounter++}`;
+    this.emit({ type: "message_end", message: { id: answer, role: "assistant", content: [{ type: "text", text: "The sub-agents are done." }], timestamp: Date.now(), stopReason: "stop" } });
+    this.emit({ type: "state", state: { isRunning: false } });
+    this.emit({ type: "run_end" });
+  }
+
+  /** Emit a native sub-agent event (tests). */
+  emitNative(event: NativeSubagentEvent): void {
+    this.events.native(event);
+  }
+
+  onNativeSubagent(listener: (event: NativeSubagentEvent) => void): () => void {
+    return this.events.onNativeSubagent(listener);
+  }
+
+  async stopNativeSubagent(id: string): Promise<void> {
+    if (this.natives.delete(id)) this.events.native({ type: "native_subagent_end", id, status: "stopped" });
   }
 
   /**
@@ -434,6 +517,8 @@ export class FakeSession implements HarnessSession {
   }
 
   async abort(): Promise<void> {
+    for (const agent of this.natives) this.events.native({ type: "native_subagent_end", id: agent, status: "stopped" });
+    this.natives.clear();
     this.emit({ type: "state", state: { isRunning: false } });
     this.emit({ type: "run_end" });
   }

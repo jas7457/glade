@@ -1003,7 +1003,13 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
 
   const interrupted = summary?.interrupted === true;
   // I-062: another Glade server (e.g. the dev server next to the installed app) runs it right now.
-  const lockedReason = summary?.activeElsewhere ? activeElsewhereMessage(summary.activeElsewhere) : undefined;
+  // I-188: the harness's own sub-agent is read-only (its harness runs it; it can't be messaged).
+  const native = summary?.agent?.native;
+  const lockedReason = native
+    ? nativeSubagentMessage(native)
+    : summary?.activeElsewhere
+      ? activeElsewhereMessage(summary.activeElsewhere)
+      : undefined;
   const projectId = (summary && workspacesById.value.get(summary.workspaceId)?.projectId) ?? null;
 
   const above = (
@@ -1056,7 +1062,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       envId={envId}
       placeholder={placeholder}
       autoFocus={autoFocus && !uiRequests[0]}
-      isRunning={state.isRunning && !lockedReason}
+      // A native sub-agent (I-188) can still be stopped from its tab.
+      isRunning={state.isRunning && (!lockedReason || !!native)}
       lockedReason={lockedReason}
       supportsImages={supportsImageInput(modelInfo(models, state.model))}
       model={state.model}
@@ -1065,8 +1072,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       thinkingLevel={state.thinkingLevel}
       thinkingLevels={state.thinkingLevels}
       onThinkingChange={onThinkingChange}
-      hideModelPickers={capabilities.models === false}
-      permissionModes={chatPermissionModes(chatId)}
+      hideModelPickers={capabilities.models === false || !!native}
+      permissionModes={native ? undefined : chatPermissionModes(chatId)}
       onSend={onSend}
       onStop={() => void runAction(() => apiForSession(chatId).abort(chatId), "Could not stop")}
       above={above}
@@ -1080,6 +1087,11 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       class={className}
     />
   );
+}
+
+/** The read-only composer's text in a harness's own sub-agent (I-188), e.g. Claude Code's Task agent. */
+export function nativeSubagentMessage(label: string): string {
+  return `Read-only: ${label}'s own sub-agent can't be messaged`;
 }
 
 // ---------------------------------------------------------------------------------------------

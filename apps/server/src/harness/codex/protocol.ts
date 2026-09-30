@@ -169,6 +169,18 @@ export interface Thread {
   model?: string | null;
   reasoningEffort?: string | null;
   path?: string | null;
+  /** Usually the thread's first user message (a sub-agent's task, I-188). */
+  preview?: string;
+  /** Set for a sub-agent's thread. */
+  parentThreadId?: string | null;
+  /** A spawned sub-agent's random nickname and role (I-188). */
+  agentNickname?: string | null;
+  agentRole?: string | null;
+}
+
+/** `thread/read` (metadata only without `includeTurns`). */
+export interface ThreadReadResponse {
+  thread: Thread;
 }
 
 export interface ThreadStartResponse {
@@ -390,6 +402,9 @@ export type ThreadItem =
       tool: string;
       status: string;
       prompt: string | null;
+      /** The agent issuing the call and the ones it's about (`spawnAgent`: the new agent). */
+      senderThreadId?: string;
+      receiverThreadIds?: string[];
       /** Per sub-agent thread: its status and last message. */
       agentsStates?: Record<string, { status: string; message: string | null } | undefined> | null;
     }

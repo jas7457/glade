@@ -195,7 +195,9 @@ export class Sessions {
     // I-155: a chat whose agent is turned off here is read from the store, never started.
     const off = this.records.isHarnessOff(session);
     if (off) await this.transcripts.read(session);
-    const dormant = off || (this.records.isDormantAgent(id) ? await this.transcripts.read(session).then(() => this.ctx.store.hasTranscript(id)) : false);
+    // A native sub-agent (I-188) has nothing to start: read from the store even when it's empty.
+    const native = !!this.ctx.agents.get(id)?.native;
+    const dormant = off || (this.records.isDormantAgent(id) ? await this.transcripts.read(session).then(() => native || this.ctx.store.hasTranscript(id)) : false);
     const elsewhere = !dormant && !!this.ctx.leases && !this.ctx.live.has(id) && !this.ctx.opening.has(id) && !!this.ctx.leases.foreignLeaseNow(id);
     if (!dormant && !elsewhere) await this.pool.ensureLive(id);
     const offlineState = dormant || elsewhere || !this.ctx.live.has(id) ? await this.offlineState(session) : null;
@@ -236,7 +238,7 @@ export class Sessions {
   private async closedAgentDetail(session: Session): Promise<SessionDetail | null> {
     if (!this.records.isDormantAgent(session.id)) return null;
     const transcript = await this.transcripts.read(session);
-    if (!this.ctx.store.hasTranscript(session.id)) return null;
+    if (!this.ctx.store.hasTranscript(session.id) && !this.ctx.agents.get(session.id)?.native) return null;
     const state = await this.offlineState(session);
     return { session: this.records.summarizeSession(session), transcript, state, pendingUiRequests: [], offline: true };
   }
@@ -318,7 +320,8 @@ export class Sessions {
       await this.pool.disposeSession(s);
       const agent = ctx.agents.get(s.id);
       if (agent && !doomedIds.has(agent.parentSessionId)) {
-        if (!agent.closed && agent.doneAt === null) {
+        // A native sub-agent (I-188) is the harness's: its parent isn't told.
+        if (!agent.closed && agent.doneAt === null && !agent.native) {
           this.hooks.deliver(agent.parentSessionId, exitedText(agent, "Exited before calling report_done (the user closed its tab)."), "followUp");
         }
         // Its parent keeps seeing it as closed (list_agents; close_agent says "already closed").

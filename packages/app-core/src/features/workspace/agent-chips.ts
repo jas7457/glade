@@ -192,7 +192,9 @@ export function agentChip(session: ChipSession, transcript: Transcript | null, m
     kind === "blocked"
       ? "Waiting for your input"
       : kind === "failed" && agent?.status === "closed"
-        ? "Process stopped"
+        ? agent.native
+          ? agentPreview(result ?? "Stopped")
+          : "Process stopped"
         : kind === "done" && result
         ? agentPreview(result)
         : latestActivity(transcript, sessionCwd(session.id)) || (kind === "working" ? "Starting…" : "");
@@ -201,7 +203,8 @@ export function agentChip(session: ChipSession, transcript: Transcript | null, m
     name: session.agentName || session.title || "Sub-agent",
     identity: sessionAgentIdentity(session),
     kind,
-    label: agent?.status === "closed" && kind === "failed" ? "Exited" : CHIP_LABELS[kind],
+    // I-188: the harness's own sub-agent was stopped (it has no process of its own to exit).
+    label: agent?.status === "closed" && kind === "failed" ? (agent.native ? "Stopped" : "Exited") : CHIP_LABELS[kind],
     running: kind === "working" || kind === "blocked",
     attention: kind === "blocked" ? "warning" : kind === "failed" ? "danger" : null,
     elapsedMs: Math.max(0, end - session.createdAt),

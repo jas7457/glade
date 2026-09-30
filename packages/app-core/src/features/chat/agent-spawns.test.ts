@@ -55,6 +55,26 @@ describe("linkAgentSpawns", () => {
     expect(links.byCall.has("c2")).toBe(false);
   });
 
+  it("links a native sub-agent to the call that started it, by id (I-188)", () => {
+    const task: AssistantMessage = {
+      id: "a-x",
+      role: "assistant",
+      timestamp: 1,
+      content: [
+        { type: "toolCall", id: "task1", name: "Task", kind: "task", input: { description: "Count files" }, args: {} },
+        { type: "toolCall", id: "task2", name: "Task", kind: "task", input: { description: "Count more" }, args: {} },
+      ],
+    };
+    const links = linkAgentSpawns(t([task, spawnCall("c1", "a")]), [
+      ref("explore", "n2", 2, { toolCallId: "task2", native: true }),
+      ref("explore", "n1", 1, { toolCallId: "task1", native: true }),
+      ref("a", "s", 3),
+    ]);
+    expect(links.byCall.get("task1")!.ref.sessionId).toBe("n1");
+    expect(links.byCall.get("task2")!.ref.sessionId).toBe("n2");
+    expect(links.byCall.get("c1")!.ref.sessionId).toBe("s");
+  });
+
   it("links nothing without refs; messages before any spawn stay", () => {
     expect(linkAgentSpawns(t([spawnCall("c1", "a")]), undefined).byCall.size).toBe(0);
     const links = linkAgentSpawns(t([user("u0", formatAgentFinished("a", "x")), spawnCall("c1", "a")]), [ref("a", "s", 1)]);

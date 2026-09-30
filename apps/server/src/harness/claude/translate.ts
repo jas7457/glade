@@ -10,8 +10,9 @@
  *   call to a message that the next Anthropic message id then adopts).
  * - `user` messages with `tool_result` blocks end tool calls (diffs from `tool_use_result`). An
  *   assistant message ends when the next one starts (`toolUse` when it ended with a tool call).
- * - Sub-agent traffic (`parent_tool_use_id` set) is Claude's own Task/Agent tool at work: it
- *   isn't shown; the Task call's result is the sub-agent's report.
+ * - Sub-agent traffic (`parent_tool_use_id` set) is Claude's own Task/Agent tool at work: the
+ *   session gives each sub-agent its own translator (`nested`) and shows it as a native
+ *   sub-agent (I-188); the main translator skips it.
  * - TodoWrite / TaskCreate / TaskUpdate become one `plan` notice per turn, updated in place.
  *
  * The user's own prompt is added by the session (`userMessage`); Claude Code doesn't echo it.
@@ -141,6 +142,8 @@ export class ClaudeTranslator {
     /** Prefix for message ids, unique per session object so ids never clash with saved history. */
     private readonly prefix: string,
     private readonly now: () => number = Date.now,
+    /** A sub-agent's own translator (I-188): reads the messages with `parent_tool_use_id`. */
+    private readonly nested = false,
   ) {}
 
   private nextId(kind: string): string {
@@ -189,7 +192,7 @@ export class ClaudeTranslator {
 
   /** Translate one SDK message (stream events, assistant messages, tool results). */
   message(wire: ClaudeWire): AgentEvent[] {
-    if (wire.parent_tool_use_id) return []; // a Task sub-agent's own traffic
+    if (wire.parent_tool_use_id && !this.nested) return []; // a Task sub-agent's own traffic
     switch (wire.type) {
       case "stream_event":
         return isJson(wire.event) ? this.streamEvent(wire.event) : [];

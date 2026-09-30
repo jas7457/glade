@@ -206,7 +206,12 @@ function PhoneChatPane({ envId, sessionId, keyboardOpen, onOpenSubagent }: { env
           {/* The chat's Mac dropped (I-170): say what to check, with Retry. */}
           <MacStatusNotice envId={envId} class="mx-1 mb-2 shadow-sm" />
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />
-          <Composer chatId={sessionId} autoFocus={false} sendAccessory={<VoiceButton onClick={() => openVoiceMode({ kind: "chat", sessionId })} />} />
+          {/* A harness's own sub-agent (I-188) is read-only: no voice mode. */}
+          <Composer
+            chatId={sessionId}
+            autoFocus={false}
+            sendAccessory={sessionsById.value.get(sessionId)?.agent?.native ? undefined : <VoiceButton onClick={() => openVoiceMode({ kind: "chat", sessionId })} />}
+          />
         </div>
       </div>
     </AgentLinksContext.Provider>

@@ -9,16 +9,34 @@
  * A throwing listener is logged and doesn't stop the others.
  */
 import type { AgentEvent } from "@glade/protocol";
+import type { NativeSubagentEvent } from "./types.js";
 
 export class SessionEvents {
   private readonly listeners = new Set<(event: AgentEvent) => void>();
   private readonly exitListeners = new Set<(error: Error | null) => void>();
+  private readonly nativeListeners = new Set<(event: NativeSubagentEvent) => void>();
 
   constructor(private readonly log?: (msg: string) => void) {}
 
   onEvent(listener: (event: AgentEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** The harness's own sub-agents' events (I-188). */
+  onNativeSubagent(listener: (event: NativeSubagentEvent) => void): () => void {
+    this.nativeListeners.add(listener);
+    return () => this.nativeListeners.delete(listener);
+  }
+
+  native(event: NativeSubagentEvent): void {
+    for (const listener of [...this.nativeListeners]) {
+      try {
+        listener(event);
+      } catch (err) {
+        this.log?.(`native sub-agent listener failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   onExit(listener: (error: Error | null) => void): () => void {

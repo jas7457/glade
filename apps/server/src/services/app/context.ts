@@ -80,6 +80,11 @@ export interface LiveSession {
   /** Writes the conversation to the store (coalesced). */
   writer: TranscriptWriter;
   unsubscribe: () => void;
+  /**
+   * A native sub-agent's mirror (I-188, `native-subagents.ts`): the parent session whose harness
+   * runs it. No process of its own; never evicted, ended by the parent.
+   */
+  nativeParentId?: string;
 }
 
 export type Listener = (message: ServerMessage) => void;

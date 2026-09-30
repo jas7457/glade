@@ -61,6 +61,8 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeWire> {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   initializationResult(): Promise<ClaudeInitResult>;
   supportedCommands(): Promise<ClaudeSlashCommand[]>;
+  /** Stop a running task, e.g. a background sub-agent (I-188); a `task_notification` follows. */
+  stopTask?(taskId: string): Promise<void>;
   close(): void;
 }
 

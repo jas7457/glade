@@ -7,8 +7,13 @@
  *   Codex no longer has starts fresh. Glade's sub-agent and chat tools go in as dynamic tools
  *   (Codex keeps them with the thread) and are answered here (`item/tool/call`); Codex's own
  *   sub-agents are turned off for the thread (`CODEX_THREAD_CONFIG`; GPT-6 models keep them, so
- *   Glade's tools sit in a `glade` namespace and the thread is told to use them; Codex's own
- *   sub-agents still show as a card and an end notice, `onSubAgent`).
+ *   Glade's tools sit in a `glade` namespace and the thread is told to use them).
+ * - **Codex's own sub-agents (I-188):** native sub-agents (`onNativeSubagent`): a sub-agent's
+ *   thread (multi-agent v2's `subAgentActivity`, or v1's `collabAgentToolCall` spawn) is listened
+ *   to in the shared app-server, its items translated by its own translator; `thread/read` gives
+ *   its task (`preview`) and nickname before it's announced (its notifications wait meanwhile).
+ *   v2 ends it with the `completed`/`interrupted` activity, v1 with its turn; its last message is
+ *   the report (also written into the parent's spawn call). Stop interrupts their turns too.
  * - **Turns:** `turn/start` with the chat's model, effort and permission mode (Codex applies them
  *   to this and later turns, so changes need no restart). `run_end` after `turn/completed` (unless
  *   queued follow-ups go on). A message sent while running steers (`turn/steer`); a follow-up
@@ -63,7 +68,7 @@ import {
   type UiResponse,
 } from "@glade/protocol";
 import { SessionEvents } from "../session-events.js";
-import type { HarnessSession, ShellRunRequest } from "../types.js";
+import type { HarnessSession, NativeSubagentEvent, ShellRunRequest } from "../types.js";
 import type { CodexAppServer, ThreadListener } from "./app-server.js";
 import { codexSlashCommands, parseSlashText, reviewTarget, shellArgv, skillInput, userShellItem, userShellRecord } from "./commands.js";
 import { NOT_LOGGED_IN, friendlyTurnError, usageLimitMessage } from "./errors.js";
@@ -103,6 +108,7 @@ import type {
   ServerNotifications,
   ThreadBackgroundTerminalsListResponse,
   ThreadItem,
+  ThreadReadResponse,
   ThreadResumeResponse,
   ThreadStartResponse,
   ToolRequestUserInputParams,
@@ -114,6 +120,31 @@ import { itemSummary } from "./tools.js";
 import { CodexTranslator, type TurnEnd } from "./translate.js";
 
 const LABEL = "Codex";
+/** How long a sub-agent's announcement waits for `thread/read` (its task and nickname). */
+const CHILD_READ_TIMEOUT_MS = 5_000;
+
+/** One of Codex's own sub-agents (I-188): its thread, mirrored as a native sub-agent. */
+interface CodexChild {
+  /** Codex's agent path (`/root/tiny`), or the thread id. */
+  path: string;
+  /** The parent's call that started it (its spawn card). */
+  callId: string;
+  /** Multi-agent v1 (`collabAgentToolCall`): it ends with its turn. */
+  v1: boolean;
+  translator: CodexTranslator;
+  /** Its running turn (for Stop). */
+  turnId: string | null;
+  lastError: CodexTurn["error"];
+  /** Its latest agent message (the report). */
+  last: string | null;
+  /** `native_subagent_start` was sent; until then its notifications wait in `pending`. */
+  announced: boolean;
+  pending: Array<[string, Record<string, unknown>]>;
+  /** The parent was stopped: its interrupted turn ends it. */
+  stopping: boolean;
+  ended: boolean;
+  unregister: () => void;
+}
 /** Output kept per stream of a `!cmd` (`command/exec`'s `outputBytesCap`). */
 const SHELL_OUTPUT_CAP = 1024 * 1024;
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
@@ -193,8 +224,8 @@ export class CodexSession implements HarnessSession {
   /** Running `!cmd`s: Glade's shell id → `command/exec` process id. */
   private readonly shells = new Map<string, string>();
   private readonly stoppedShells = new Set<string>();
-  /** Codex's own sub-agents (their threads): path and last message. */
-  private readonly children = new Map<string, { path: string; last: string | null; unregister: () => void }>();
+  /** Codex's own sub-agents (I-188), by their thread id. */
+  private readonly children = new Map<string, CodexChild>();
   /** The error Codex reported for the running turn (`error` notification), for `turn/completed`. */
   private lastError: CodexTurn["error"] = null;
   /** Plan mode's approvals and sandbox: the preset the chat was in before (I-186). */
@@ -370,6 +401,7 @@ export class CodexSession implements HarnessSession {
   }
 
   async abort(): Promise<void> {
+    this.interruptChildren(); // they may run on after the turn that started them
     const turn = this.turn;
     if (!turn || turn.done) return;
     turn.aborted = true;
@@ -570,6 +602,19 @@ export class CodexSession implements HarnessSession {
     return this.events.onExit(listener);
   }
 
+  onNativeSubagent(listener: (event: NativeSubagentEvent) => void): () => void {
+    return this.events.onNativeSubagent(listener);
+  }
+
+  /** Stop one sub-agent: its turn is interrupted, which ends it. */
+  async stopNativeSubagent(id: string): Promise<void> {
+    const child = this.children.get(id);
+    if (!child || child.ended) return;
+    child.stopping = true;
+    if (!child.turnId) return this.endChild(id, child, "stopped");
+    await this.options.server.request("turn/interrupt", { threadId: id, turnId: child.turnId });
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -580,7 +625,11 @@ export class CodexSession implements HarnessSession {
     for (const processId of this.shells.values()) void this.options.server.terminate(processId).catch(() => {});
     this.unregister?.();
     this.unregister = null;
-    for (const child of this.children.values()) child.unregister();
+    for (const [id, child] of this.children) {
+      child.unregister();
+      // The chat is closed: its sub-agents stop (nobody would see them any more).
+      if (child.turnId) void this.options.server.request("turn/interrupt", { threadId: id, turnId: child.turnId }, 5_000).catch(() => {});
+    }
     this.children.clear();
     // Let the app-server unload the thread (it stays saved).
     if (this.loaded && this.ref) void this.options.server.request("thread/unsubscribe", { threadId: this.ref }, 5_000).catch(() => {});
@@ -773,6 +822,7 @@ export class CodexSession implements HarnessSession {
     if (method === "item/started" || method === "item/completed") {
       const { item } = p as ServerNotifications["item/completed"];
       if (item.type === "subAgentActivity") this.onSubAgent(method, item);
+      if (item.type === "collabAgentToolCall" && method === "item/completed") this.onCollabCall(item);
     }
     const turn = this.turn;
     if (!turn) return;
@@ -786,8 +836,7 @@ export class CodexSession implements HarnessSession {
     for (const event of events) this.emit(event);
   }
 
-  private translate(method: string, p: never): AgentEvent[] {
-    const t = this.translator;
+  private translate(method: string, p: never, t: CodexTranslator = this.translator): AgentEvent[] {
     switch (method) {
       case "item/started":
         return t.itemStarted((p as ServerNotifications["item/started"]).item);
@@ -827,30 +876,156 @@ export class CodexSession implements HarnessSession {
   }
 
   /**
-   * Codex's own sub-agents (GPT-6 models may still use them): the start is a task card (the
-   * translator); their thread's last message is kept, and their end is a notice with it.
+   * Codex's own sub-agents (multi-agent v2, GPT-6 models): `started` → a native sub-agent on its
+   * thread; `completed` / `interrupted` → it ends with its last message.
    */
   private onSubAgent(method: string, item: Extract<ThreadItem, { type: "subAgentActivity" }>): void {
     const id = item.agentThreadId;
-    if (item.kind === "started" && !this.children.has(id)) {
-      const child = { path: item.agentPath, last: null as string | null, unregister: () => {} };
-      child.unregister = this.options.server.register(id, {
-        notification: (m, params) => {
-          const done = m === "item/completed" ? (params as ServerNotifications["item/completed"]).item : null;
-          if (done?.type === "agentMessage" && done.text.trim()) child.last = done.text.trim();
-        },
-        request: (m, params) => this.onRequest(m, params),
-        closed: () => {},
-      });
-      this.children.set(id, child);
+    if (item.kind === "started") {
+      if (!this.children.has(id)) this.watchChild(id, item.agentPath, item.id, false, null);
       return;
     }
     if (method !== "item/completed" || (item.kind !== "completed" && item.kind !== "interrupted")) return;
     const child = this.children.get(id);
-    child?.unregister();
+    if (child) this.endChild(id, child, item.kind === "completed" ? "done" : "stopped");
+  }
+
+  /** Multi-agent v1: a completed `spawnAgent` call names its new agents' threads. */
+  private onCollabCall(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+    if (item.tool !== "spawnAgent") return;
+    for (const id of item.receiverThreadIds ?? []) {
+      if (!this.children.has(id)) this.watchChild(id, id, item.id, true, item.prompt);
+    }
+  }
+
+  /** Listen to a sub-agent's thread and announce it once `thread/read` told its task and nickname. */
+  private watchChild(id: string, path: string, callId: string, v1: boolean, prompt: string | null): void {
+    const child: CodexChild = {
+      path,
+      callId,
+      v1,
+      translator: new CodexTranslator(`${callId.slice(-8)}${Math.random().toString(36).slice(2, 5)}`),
+      turnId: null,
+      lastError: null,
+      last: null,
+      announced: false,
+      pending: [],
+      stopping: false,
+      ended: false,
+      unregister: () => {},
+    };
+    child.unregister = this.options.server.register(id, {
+      notification: (m, params) => (child.announced ? this.onChildNotification(id, child, m, params) : child.pending.push([m, params])),
+      request: (m, params) => this.onRequest(m, params),
+      closed: () => {},
+    });
+    this.children.set(id, child);
+    const read = this.options.server.request<ThreadReadResponse>("thread/read", { threadId: id }, CHILD_READ_TIMEOUT_MS).then(
+      (r) => r.thread,
+      (err: Error) => {
+        this.options.log?.(`codex: reading sub-agent thread ${id} failed: ${err.message}`);
+        return null;
+      },
+    );
+    void read.then((thread) => {
+      if (this.disposed || child.ended) return;
+      const name = path.split("/").filter(Boolean).at(-1) ?? "agent";
+      const task = (prompt ?? thread?.preview ?? "").trim();
+      const nickname = thread?.agentNickname?.trim();
+      const role = thread?.agentRole?.trim();
+      const model = thread?.model ?? null;
+      child.announced = true;
+      this.events.native({
+        type: "native_subagent_start",
+        id,
+        toolCallId: callId,
+        name: role || name,
+        // v2 encrypts the task it sends (I-188): its task name is all there is to show.
+        task,
+        ...(task ? {} : { title: taskNameTitle(name) }),
+        ...(nickname ? { displayName: nickname } : {}),
+        ...(model ? { model: { provider: CODEX_PROVIDER, id: model } } : {}),
+      });
+      for (const [m, params] of child.pending.splice(0)) this.onChildNotification(id, child, m, params);
+    });
+  }
+
+  private onChildNotification(id: string, child: CodexChild, method: string, params: Record<string, unknown>): void {
+    if (this.disposed || child.ended) return;
+    const p = params as never;
+    switch (method) {
+      case "turn/started":
+        child.turnId = (p as ServerNotifications["turn/started"]).turn.id;
+        child.lastError = null;
+        return;
+      case "turn/completed": {
+        const { turn } = p as ServerNotifications["turn/completed"];
+        child.turnId = null;
+        const end: TurnEnd =
+          turn.status === "interrupted"
+            ? { stopReason: "aborted" }
+            : turn.status === "failed"
+              ? { stopReason: "error", errorMessage: friendlyTurnError(turn.error ?? child.lastError, this.options.server.knownRateLimits()).message }
+              : { stopReason: "stop" };
+        for (const event of child.translator.finish(end)) this.emitChild(id, child, event);
+        if (child.v1 || child.stopping) this.endChild(id, child, end.stopReason === "stop" ? "done" : end.stopReason === "error" ? "error" : "stopped", end.errorMessage);
+        return;
+      }
+      case "error": {
+        const { error, willRetry } = p as ServerNotifications["error"];
+        if (!willRetry) child.lastError = error;
+        return;
+      }
+      case "thread/tokenUsage/updated":
+        return;
+    }
+    for (const event of this.translate(method, p, child.translator)) this.emitChild(id, child, event);
+  }
+
+  private emitChild(id: string, child: CodexChild, event: AgentEvent): void {
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const text = event.message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+      if (text) child.last = text;
+    }
+    this.events.native({ type: "native_subagent_event", id, event });
+  }
+
+  private endChild(id: string, child: CodexChild, status: "done" | "error" | "stopped", error?: string): void {
+    if (child.ended) return;
+    if (!child.announced) {
+      // Ended before `thread/read` answered: announce it now so its tab exists.
+      child.announced = true;
+      const name = child.path.split("/").filter(Boolean).at(-1) ?? "agent";
+      this.events.native({ type: "native_subagent_start", id, toolCallId: child.callId, name, title: taskNameTitle(name), task: "" });
+      for (const [m, params] of child.pending.splice(0)) this.onChildNotification(id, child, m, params);
+    }
+    for (const event of child.translator.finish(status === "done" ? { stopReason: "stop" } : status === "stopped" ? { stopReason: "aborted" } : { stopReason: "error", ...(error ? { errorMessage: error } : {}) })) {
+      this.emitChild(id, child, event);
+    }
+    child.ended = true;
+    child.unregister();
     this.children.delete(id);
-    const what = `Codex sub-agent ${item.agentPath} ${item.kind === "completed" ? "finished" : "was stopped"}`;
-    for (const event of this.translator.notice("info", child?.last ? `${what}: ${child.last}` : what)) this.emit(event);
+    const result = status === "error" ? error : (child.last ?? undefined);
+    this.events.native({ type: "native_subagent_end", id, status, ...(result ? { result } : {}) });
+    // The report goes into the parent's spawn call, so its conversation keeps it.
+    if (status === "done" && child.last) {
+      this.emit({ type: "tool_end", toolCallId: child.callId, result: { toolCallId: child.callId, toolName: "spawn_agent", status: "done", output: child.last } });
+    }
+  }
+
+  /** Stop: Codex's own sub-agents' running turns are interrupted too (they end with them). */
+  private interruptChildren(): void {
+    for (const [id, child] of this.children) {
+      if (child.ended) continue;
+      child.stopping = true;
+      if (!child.turnId) {
+        this.endChild(id, child, "stopped");
+        continue;
+      }
+      void this.options.server
+        .request("turn/interrupt", { threadId: id, turnId: child.turnId })
+        .catch((err: Error) => this.options.log?.(`codex: interrupting sub-agent ${id} failed: ${err.message}`));
+    }
   }
 
   private onUsage({ tokenUsage }: ServerNotifications["thread/tokenUsage/updated"]): void {
@@ -1025,6 +1200,12 @@ export function userInput(request: PromptRequest): UserInput[] {
 }
 
 /** Codex doesn't have (or no longer has loaded) this thread. */
+/** A Codex task name as a tab title: `src_file_count` → "Src file count". */
+export function taskNameTitle(name: string): string {
+  const words = name.replace(/[_-]+/g, " ").trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : "Sub-agent";
+}
+
 export function isMissingThread(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return /no rollout found|thread not found|unknown thread|not loaded|no such thread|thread .* not found/i.test(message);

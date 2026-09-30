@@ -51,6 +51,14 @@ export interface AgentRecord {
    * list_agents shows it and close_agent is idempotent; it goes with its parent session.
    */
   removed?: boolean;
+  /**
+   * The harness's own sub-agent (I-188), named by the harness's label ("Claude Code"): mirrored
+   * read-only from the parent's process (no process, prompt or token of its own) and left out of
+   * the agent API. It's `closed` once it ended; `doneAt`/`result` when it finished.
+   */
+  native?: string;
+  /** The parent's tool call that started it (native sub-agents). */
+  toolCallId?: string;
 }
 
 /**
@@ -79,23 +87,23 @@ export class AgentRegistry {
     return this.records.filter((r) => r.parentSessionId === parentSessionId).sort((a, b) => a.spawnedAt - b.spawnedAt);
   }
 
-  /** Sub-agents of a workspace that haven't been closed. */
+  /** Sub-agents of a workspace that haven't been closed (native ones too: names and colours). */
   activeIn(workspaceId: string): AgentRecord[] {
     return this.records.filter((r) => r.workspaceId === workspaceId && !r.closed);
   }
 
-  /** The caller's most recent sub-agent called `name`, active or not. */
+  /** The caller's most recent sub-agent called `name`, active or not (agent API: Glade's own only). */
   findLatest(parentSessionId: string, name: string): AgentRecord | undefined {
     return this.childrenOf(parentSessionId)
       .reverse()
-      .find((r) => r.name === name);
+      .find((r) => r.name === name && !r.native);
   }
 
-  /** The caller's active sub-agent (or teammate) called `name`. */
+  /** The caller's active sub-agent (or teammate) called `name` (agent API: Glade's own only). */
   findActive(parentSessionId: string, name: string): AgentRecord | undefined {
     return this.childrenOf(parentSessionId)
       .reverse()
-      .find((r) => r.name === name && !r.closed);
+      .find((r) => r.name === name && !r.closed && !r.native);
   }
 
   upsert(record: AgentRecord): AgentRecord {
@@ -218,6 +226,8 @@ function openNote(record: AgentRecord): string {
 }
 
 function agentStatus(record: AgentRecord, running: boolean | null): AgentStatus {
+  // A native sub-agent that finished is done (it ended for good, but not by crashing).
+  if (record.native && record.closed && record.doneAt !== null && !record.removed) return "done";
   return record.closed || record.removed ? "closed" : record.doneAt !== null && !running ? "done" : running ? "working" : "idle";
 }
 
@@ -250,6 +260,7 @@ export function sessionAgentState(record: AgentRecord, running: boolean): Sessio
     closing: record.closing,
     doneAt: record.doneAt,
     result: record.result,
+    ...(record.native ? { native: record.native } : {}),
   };
 }
 
@@ -258,5 +269,7 @@ export function spawnedAgentRef(record: AgentRecord): SpawnedAgentRef {
   const ref: SpawnedAgentRef = { name: record.name, sessionId: record.sessionId, spawnedAt: record.spawnedAt };
   if (record.displayName) ref.displayName = record.displayName;
   if (record.color) ref.color = record.color;
+  if (record.toolCallId) ref.toolCallId = record.toolCallId;
+  if (record.native) ref.native = true;
   return ref;
 }

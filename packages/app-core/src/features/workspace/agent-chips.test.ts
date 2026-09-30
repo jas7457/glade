@@ -79,6 +79,12 @@ describe("latestActivity", () => {
 });
 
 describe("agentChip", () => {
+  it("says a native sub-agent that ended early was stopped, with why (I-188)", () => {
+    const chip = agentChip(sub({ id: "a", status: "idle", agent: agent({ status: "closed", native: "Codex", result: "Stopped with its parent" }) }), null, [], 2_000);
+    expect(chip).toMatchObject({ kind: "failed", label: "Stopped", activity: "Stopped with its parent" });
+    expect(agentChip(sub({ id: "a", status: "idle", agent: agent({ status: "closed" }) }), null, [], 2_000)).toMatchObject({ label: "Exited", activity: "Process stopped" });
+  });
+
   it("derives label, attention, elapsed, model, activity and task", () => {
     const working = agentChip(sub({ id: "a", status: "working", model: { provider: "anthropic", id: "claude-sonnet-4-5" } }), null, models, 66_000);
     expect(working).toMatchObject({ name: "reviewer", kind: "working", label: "Working", running: true, attention: null, elapsedMs: 65_000, model: "Sonnet 4.5", activity: "Starting…", task: "Review the login flow" });

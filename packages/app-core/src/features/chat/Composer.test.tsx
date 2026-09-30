@@ -187,6 +187,32 @@ describe("Composer (existing chat)", () => {
     }
   });
 
+  it("is read-only in a harness's own sub-agent, which can still be stopped (I-188)", async () => {
+    readyChat("c1", true);
+    sessions.value = [
+      makeSession({
+        id: "c1",
+        kind: "subagent",
+        parentSessionId: "p",
+        status: "working",
+        running: true,
+        agent: { status: "working", agent: null, task: "Count", keepOpenReason: null, userEngaged: false, closing: false, doneAt: null, result: null, native: "Claude Code" },
+      }),
+    ];
+    try {
+      renderAt(<Composer chatId="c1" />);
+      const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+      expect(box.disabled).toBe(true);
+      expect(box.placeholder).toBe("Read-only: Claude Code's own sub-agent can't be messaged");
+      fireEvent.keyDown(box, { key: "Enter" });
+      expect(api.prompt).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      await waitFor(() => expect(api.abort).toHaveBeenCalledWith("c1"));
+    } finally {
+      sessions.value = [];
+    }
+  });
+
   it("shows agent errors as a dismissible banner", () => {
     const store = readyChat("c1");
     store.agentError.value = "pi exited with code 1";

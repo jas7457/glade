@@ -92,7 +92,8 @@ export class AgentTeam {
     // No awaits from here until the record is registered, so parallel spawns can't overshoot.
     if (ctx.agents.findActive(caller.id, name)) throw new HttpError(409, `An agent named "${name}" is already running. Pick another name.`);
     const active = ctx.agents.activeIn(caller.workspaceId);
-    if (active.length >= MAX_ACTIVE_AGENTS) {
+    // The harness's own sub-agents (I-188) don't count: Glade doesn't run them.
+    if (active.filter((r) => !r.native).length >= MAX_ACTIVE_AGENTS) {
       throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
     }
     // I-144: avoid names this chat's sub-agents (closed ones too) have already had.
@@ -102,7 +103,7 @@ export class AgentTeam {
     const systemPrompt = buildRolePrompt({
       name,
       displayName: identity.displayName,
-      teammates: active.filter((r) => r.parentSessionId === caller.id).map((r) => agentLabel(r.name, r.displayName)),
+      teammates: active.filter((r) => r.parentSessionId === caller.id && !r.native).map((r) => agentLabel(r.name, r.displayName)),
       agent,
       agentPrompt: req.agentPrompt,
     });
@@ -184,7 +185,8 @@ export class AgentTeam {
   listAgents(callerId: string): ListAgentsResponse {
     const caller = this.records.requireSession(callerId);
     const self = this.ctx.agents.get(caller.id);
-    const team = this.ctx.agents.childrenOf(self ? self.parentSessionId : caller.id);
+    // Native sub-agents (I-188) aren't part of the team: they can't be messaged or closed.
+    const team = this.ctx.agents.childrenOf(self ? self.parentSessionId : caller.id).filter((r) => !r.native);
     return {
       self: { sessionId: caller.id, role: self ? "subagent" : "main", name: self?.name ?? null },
       agents: team.map((r) => agentInfo(r, this.ctx.live.get(r.sessionId)?.running ?? null)),

@@ -427,7 +427,8 @@ export class CodexTranslator {
         return { ...base, status: item.status === "failed" ? "error" : "done", output: messages.join("\n\n") };
       }
       case "subAgentActivity":
-        return { ...base, status: "done", output: "Codex's own sub-agent: its work isn't shown in Glade." };
+        // Its work is in its own tab (I-188); its report replaces this when it finishes.
+        return { ...base, status: "done", output: `Started Codex sub-agent ${item.agentPath}` };
       case "dynamicToolCall": {
         const text = (item.contentItems ?? []).map((c) => (c.type === "inputText" ? c.text : "")).filter(Boolean).join("\n");
         return { ...base, status: item.success === false || item.status === "failed" ? "error" : "done", output: text };

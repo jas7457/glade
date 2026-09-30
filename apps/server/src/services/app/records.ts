@@ -170,9 +170,13 @@ export class Records {
     await this.ctx.live.get(session.id)?.session.setTitle(title).catch(() => {});
   }
 
-  /** A closed sub-agent without a running process (viewing it shouldn't start one). */
+  /**
+   * A closed sub-agent without a running process (viewing it shouldn't start one), or a native
+   * sub-agent (I-188) not mirrored right now: neither is ever started by viewing it.
+   */
   isDormantAgent(id: string): boolean {
-    return !!this.ctx.agents.get(id)?.closed && !this.ctx.live.has(id) && !this.ctx.opening.has(id);
+    const record = this.ctx.agents.get(id);
+    return !!record && (record.closed || !!record.native) && !this.ctx.live.has(id) && !this.ctx.opening.has(id);
   }
 
   /** Update a sub-agent's record and push its session (the browser shows its state, I-054). */

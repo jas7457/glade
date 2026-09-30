@@ -24,6 +24,11 @@
  * - **Compaction:** `/compact` sent as a message; the `compact_boundary` gives the numbers.
  * - A process that ends by itself (crash, killed) ends the running turn with the error and exits
  *   the session (`onExit`), like pi and ACP; the next prompt starts a new process that resumes.
+ * - **Claude's own sub-agents (I-188):** the Task/Agent tool's sub-agent is a native sub-agent
+ *   (`onNativeSubagent`), keyed by the Task call's id: its messages (`parent_tool_use_id`, full text
+ *   with `forwardSubagentText`) go through its own translator; `task_started` names it, and it
+ *   ends with the Task call's result (foreground) or `task_notification` (background). Stop ends
+ *   the foreground ones with the turn and stops the background ones (`stopTask`).
  */
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -45,7 +50,7 @@ import {
 } from "@glade/protocol";
 import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
-import type { HarnessSession } from "../types.js";
+import type { HarnessSession, NativeSubagentEvent } from "../types.js";
 import { claudeToolAllowlist } from "./glade-tools.js";
 import {
   PERMISSION_ALLOW,
@@ -63,7 +68,7 @@ import {
 import { CLAUDE_PROVIDER, DEFAULT_CONTEXT_WINDOW, claudeModelId, claudeThinkingLevels, findClaudeModel, thinkingOptions } from "./models.js";
 import { PushQueue } from "./push-queue.js";
 import type { CanUseTool, ClaudeMcpToolSpec, ClaudeModelInfo, ClaudeOptions, ClaudeQuery, ClaudeSdk, ClaudeSlashCommand, ClaudeUserInput, ClaudeWire, PermissionResult } from "./sdk.js";
-import { claudeToolSummary } from "./tools.js";
+import { claudeToolSummary, toolResultContent } from "./tools.js";
 import { ClaudeTranslator, type TurnEnd } from "./translate.js";
 
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
@@ -118,6 +123,21 @@ interface PendingUi {
   resolve: (response: UiResponse | null) => void;
 }
 
+/** One of Claude Code's own sub-agents (I-188), keyed by its Task call's id. */
+interface ClaudeSubagent {
+  translator: ClaudeTranslator;
+  /** Claude Code's task id (`task_started`), for `stopTask` and permission requests (`agentID`). */
+  taskId: string | null;
+  /** Runs in the background: the Task call returns at once, `task_notification` ends it. */
+  background: boolean;
+  /** Its latest reply text (its report when nothing better comes). */
+  lastText: string | null;
+  ended: boolean;
+}
+
+/** Claude Code's tools that start a sub-agent. */
+const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+
 export class ClaudeSession implements HarnessSession {
   readonly sessionRef: string;
   private readonly events: SessionEvents;
@@ -148,6 +168,10 @@ export class ClaudeSession implements HarnessSession {
   private bypassDisabled = false;
   /** The chosen model's `supportsAutoMode`. */
   private autoMode = false;
+  /** Claude Code's own sub-agents (I-188), by their Task call's id. */
+  private readonly subagents = new Map<string, ClaudeSubagent>();
+  /** `task_started` details that came before the sub-agent's first message. */
+  private readonly taskInfo = new Map<string, { taskId: string; description?: string; subagentType?: string; prompt?: string; background: boolean }>();
 
   constructor(private readonly options: ClaudeSessionOptions) {
     this.sessionRef = options.sessionRef;
@@ -222,6 +246,7 @@ export class ClaudeSession implements HarnessSession {
   }
 
   async abort(): Promise<void> {
+    this.stopBackgroundSubagents();
     const turn = this.turn;
     if (!turn || turn.done) return;
     turn.aborted = true;
@@ -329,6 +354,18 @@ export class ClaudeSession implements HarnessSession {
     return this.events.onExit(listener);
   }
 
+  onNativeSubagent(listener: (event: NativeSubagentEvent) => void): () => void {
+    return this.events.onNativeSubagent(listener);
+  }
+
+  /** Stop one sub-agent (its task); `task_notification` (stopped) ends it. */
+  async stopNativeSubagent(id: string): Promise<void> {
+    const sub = this.subagents.get(id);
+    if (!sub || sub.ended) return;
+    if (!sub.taskId || !this.query?.stopTask) throw new Error(`${LABEL} can't stop this sub-agent on its own; stop the chat instead`);
+    await this.query.stopTask(sub.taskId);
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -392,6 +429,12 @@ export class ClaudeSession implements HarnessSession {
       }
       for (const event of this.translator.finish({ stopReason: "stop" })) this.emit(event);
     } else {
+      // Foreground sub-agents belong to the turn (their Task call blocks it).
+      for (const [id, sub] of this.subagents) {
+        if (sub.ended || sub.background) continue;
+        const stopped = turn.aborted || end.stopReason === "aborted";
+        this.endSubagent(id, stopped ? "stopped" : end.stopReason === "error" ? "error" : "done", stopped ? "Stopped" : end.stopReason === "error" ? end.errorMessage : undefined);
+      }
       for (const event of this.translator.finish(end)) this.emit(event);
       this.emit({ type: "state", state: { isRunning: false } });
       this.emit({ type: "run_end" });
@@ -444,6 +487,8 @@ export class ClaudeSession implements HarnessSession {
       pathToClaudeCodeExecutable: executable,
       env: { ...this.options.env, CLAUDE_AGENT_SDK_CLIENT_APP: "glade" },
       includePartialMessages: true,
+      // I-188: the sub-agents' text and thinking too, for their own tabs.
+      forwardSubagentText: true,
       ...(resume ? { resume: this.sessionRef } : { sessionId: this.sessionRef }),
       ...(modelId ? { model: modelId } : {}),
       ...thinkingOptions(this.state.thinkingLevel, findClaudeModel(models, modelId)),
@@ -537,11 +582,13 @@ export class ClaudeSession implements HarnessSession {
       case "stream_event":
       case "assistant":
       case "user": {
-        if (message.parent_tool_use_id) return;
+        if (typeof message.parent_tool_use_id === "string" && message.parent_tool_use_id) return this.onSubagentMessage(message.parent_tool_use_id, message);
         if (!this.turn) this.startRun({ aborted: false, done: false }); // a turn Claude Code started itself
         if (this.turn?.compact) return;
         if (message.type === "assistant") this.onUsage(message);
         for (const event of this.translator.message(message)) this.emit(event);
+        if (message.type === "assistant") this.startSubagentsOf(message);
+        if (message.type === "user") this.onSubagentResults(message);
         return;
       }
       case "auth_status":
@@ -594,6 +641,146 @@ export class ClaudeSession implements HarnessSession {
       case "commands_changed":
         if (Array.isArray(message.commands)) this.commands = (message.commands as ClaudeSlashCommand[]).map(toSlashCommand);
         return;
+      case "task_started":
+        return this.onTaskStarted(message);
+      case "task_notification":
+        return this.onTaskNotification(message);
+    }
+  }
+
+  // Claude's own sub-agents (I-188) -----------------------------------------------------------
+
+  /** A Task/Agent call in the main conversation starts a sub-agent (announced once its args are known). */
+  private startSubagentsOf(message: ClaudeWire): void {
+    const content = (message.message as { content?: unknown } | undefined)?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block.type === "tool_use" && typeof block.id === "string" && SUBAGENT_TOOLS.has(String(block.name))) this.ensureSubagent(block.id);
+    }
+  }
+
+  private ensureSubagent(toolUseId: string): ClaudeSubagent {
+    const known = this.subagents.get(toolUseId);
+    if (known) return known;
+    const info = this.taskInfo.get(toolUseId);
+    this.taskInfo.delete(toolUseId);
+    const args = this.translator.toolCall(toolUseId)?.args ?? {};
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const sub: ClaudeSubagent = {
+      translator: new ClaudeTranslator(`${this.sessionRef.slice(0, 8)}-${toolUseId.slice(-8)}`, Date.now, true),
+      taskId: info?.taskId ?? null,
+      background: info?.background ?? args.run_in_background === true,
+      lastText: null,
+      ended: false,
+    };
+    this.subagents.set(toolUseId, sub);
+    const model = str(args.model);
+    const task = str(args.prompt) ?? info?.prompt ?? "";
+    const title = str(args.description) ?? info?.description;
+    this.events.native({
+      type: "native_subagent_start",
+      id: toolUseId,
+      toolCallId: toolUseId,
+      name: str(args.name) ?? str(args.subagent_type) ?? info?.subagentType ?? "general-purpose",
+      task,
+      ...(title ? { title } : {}),
+      ...(model ? { model: { provider: CLAUDE_PROVIDER, id: model } } : {}),
+    });
+    return sub;
+  }
+
+  private onSubagentMessage(toolUseId: string, message: ClaudeWire): void {
+    const sub = this.ensureSubagent(toolUseId);
+    if (sub.ended) return;
+    for (const event of sub.translator.message(message)) this.emitSubagent(toolUseId, sub, event);
+  }
+
+  private emitSubagent(id: string, sub: ClaudeSubagent, event: AgentEvent): void {
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const text = event.message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+      if (text) sub.lastText = text;
+    }
+    this.events.native({ type: "native_subagent_event", id, event });
+  }
+
+  /** `task_started`: a sub-agent's type, description and whether it runs in the background. */
+  private onTaskStarted(message: ClaudeWire): void {
+    const toolUseId = typeof message.tool_use_id === "string" ? message.tool_use_id : null;
+    const taskId = typeof message.task_id === "string" ? message.task_id : null;
+    if (!toolUseId || !taskId) return;
+    const isAgent = message.task_type === "local_agent" || typeof message.subagent_type === "string" || SUBAGENT_TOOLS.has(this.translator.toolCall(toolUseId)?.name ?? "");
+    if (!isAgent) return;
+    const background = message.is_backgrounded === true;
+    const known = this.subagents.get(toolUseId);
+    if (known) {
+      known.taskId = taskId;
+      known.background ||= background;
+      return;
+    }
+    this.taskInfo.set(toolUseId, {
+      taskId,
+      background,
+      ...(typeof message.description === "string" ? { description: message.description } : {}),
+      ...(typeof message.subagent_type === "string" ? { subagentType: message.subagent_type } : {}),
+      ...(typeof message.prompt === "string" ? { prompt: message.prompt } : {}),
+    });
+    this.ensureSubagent(toolUseId);
+  }
+
+  /** `task_notification`: a sub-agent finished, failed or was stopped. */
+  private onTaskNotification(message: ClaudeWire): void {
+    const toolUseId =
+      (typeof message.tool_use_id === "string" ? message.tool_use_id : null) ??
+      [...this.subagents].find(([, s]) => s.taskId === message.task_id)?.[0] ??
+      null;
+    const sub = toolUseId ? this.subagents.get(toolUseId) : undefined;
+    if (!toolUseId || !sub || sub.ended) return;
+    const summary = typeof message.summary === "string" ? message.summary.trim() : "";
+    if (message.status === "completed") {
+      // A foreground sub-agent's report is its Task call's result (it may come right after).
+      if (!sub.background) return;
+      this.endSubagent(toolUseId, "done", undefined, summary);
+    } else {
+      this.endSubagent(toolUseId, message.status === "stopped" ? "stopped" : "error", summary || undefined);
+    }
+  }
+
+  /** The Task call's result: a foreground sub-agent's report (a background one only launched). */
+  private onSubagentResults(message: ClaudeWire): void {
+    const content = (message.message as { content?: unknown } | undefined)?.content;
+    if (!Array.isArray(content)) return;
+    const results = (content as Array<Record<string, unknown>>).filter((b) => b.type === "tool_result" && typeof b.tool_use_id === "string");
+    for (const block of results) {
+      const id = block.tool_use_id as string;
+      const sub = this.subagents.get(id);
+      if (!sub || sub.ended) continue;
+      const structured = results.length === 1 && message.tool_use_result && typeof message.tool_use_result === "object" ? (message.tool_use_result as Record<string, unknown>) : null;
+      if (structured?.status === "async_launched") {
+        sub.background = true;
+        continue;
+      }
+      const report = agentReport(structured) ?? toolResultContent(block.content).output.trim();
+      this.endSubagent(id, block.is_error ? "error" : "done", report || undefined);
+    }
+  }
+
+  /** End a sub-agent: `result` as given, else (finished) its last reply, else `fallback`. */
+  private endSubagent(id: string, status: "done" | "error" | "stopped", result?: string, fallback?: string): void {
+    const sub = this.subagents.get(id);
+    if (!sub || sub.ended) return;
+    const end: TurnEnd = status === "done" ? { stopReason: "stop" } : status === "stopped" ? { stopReason: "aborted" } : { stopReason: "error", ...(result ? { errorMessage: result } : {}) };
+    for (const event of sub.translator.finish(end)) this.emitSubagent(id, sub, event);
+    sub.ended = true;
+    const text = (result?.trim() || (status === "done" ? sub.lastText : null) || fallback?.trim()) ?? "";
+    this.events.native({ type: "native_subagent_end", id, status, ...(text ? { result: text } : {}) });
+  }
+
+  /** Stop: background sub-agents outlive the turn, so they're stopped by task id. */
+  private stopBackgroundSubagents(): void {
+    const query = this.query;
+    for (const sub of this.subagents.values()) {
+      if (sub.ended || !sub.background || !sub.taskId) continue;
+      void query?.stopTask?.(sub.taskId).catch((err: Error) => this.options.log?.(`claude: stopping task ${sub.taskId} failed: ${err.message}`));
     }
   }
 
@@ -673,7 +860,11 @@ export class ClaudeSession implements HarnessSession {
     const turn = this.turn;
     if (this.disposed || !turn || turn.aborted || turn.done) return { behavior: "deny", message: "The run was stopped.", interrupt: true };
     if (toolName === "AskUserQuestion") return this.askQuestions(input, opts.signal);
-    for (const event of this.translator.ensureTool(opts.toolUseID, toolName, input)) this.emit(event);
+    // A sub-agent's tool (I-188): the call is in its tab; the card asks here.
+    const agentId = (opts as { agentID?: string }).agentID;
+    const sub = agentId ? [...this.subagents].find(([, s]) => s.taskId === agentId) : undefined;
+    if (sub) for (const event of sub[1].translator.ensureTool(opts.toolUseID, toolName, input)) this.emitSubagent(sub[0], sub[1], event);
+    else if (!agentId) for (const event of this.translator.ensureTool(opts.toolUseID, toolName, input)) this.emit(event);
     const summary = claudeToolSummary(toolName, input) ?? opts.description ?? opts.blockedPath;
     // I-174: Claude Code's own prompt: Yes / Yes, and don't ask again for … / No, and tell Claude …
     const always = opts.suppressAlwaysAllowRule ? null : alwaysAllowLabel(opts.suggestions, this.options.cwd, this.options.home);
@@ -764,6 +955,16 @@ export class ClaudeSession implements HarnessSession {
     this.transcript = applyAgentEvent(this.transcript, event);
     this.events.emit(event);
   }
+}
+
+/** A completed Task call's structured result (`AgentOutput`): the sub-agent's report text. */
+function agentReport(structured: Record<string, unknown> | null): string | null {
+  if (!structured || !Array.isArray(structured.content)) return null;
+  const text = (structured.content as Array<Record<string, unknown>>)
+    .map((c) => (c.type === "text" && typeof c.text === "string" ? c.text : ""))
+    .join("\n")
+    .trim();
+  return text || null;
 }
 
 /** A new Claude session id (the chat's session ref). */
