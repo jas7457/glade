@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Codex chats have a Plan mode (Codex's own): Codex explores without changing anything, its
+  proposed plan shows as a "Proposed plan" card, and "Implement this plan?" switches back to your
+  previous mode and starts coding. Skills added while a Codex chat is open appear in its `/` menu
+  right away.
 - Codex chats: your Codex skills and `/review` (uncommitted changes, `base <branch>`, `commit <sha>`
   or your own instructions) in the `/` menu, and `!cmd` / `!!cmd` shell commands in the chat's
   folder; `!` output is shared with Codex.
