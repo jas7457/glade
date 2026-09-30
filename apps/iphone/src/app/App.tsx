@@ -12,6 +12,8 @@ import { DeviceScreen } from "~/screens/DeviceScreen";
 import { HomeScreen } from "~/screens/HomeScreen";
 import { NewChatScreen } from "~/screens/NewChatScreen";
 import { SettingsScreen } from "~/screens/SettingsScreen";
+import { VoiceHost } from "~/voice/VoiceHost";
+import { VoiceSettingsScreen } from "~/voice/VoiceSettingsScreen";
 import { paths } from "./routes";
 
 function Home() {
@@ -44,6 +46,7 @@ export const iphoneRoutes: RouteObject[] = [
   { path: "/chats/:chatId", element: <DesktopChatRedirect /> },
   { path: "/settings", element: <SettingsScreen /> },
   { path: "/settings/devices/:envId", element: <DeviceScreen /> },
+  { path: "/settings/voice", element: <VoiceSettingsScreen /> },
   { path: "*", element: <Navigate to="/" replace /> },
 ];
 
@@ -54,6 +57,7 @@ export function App() {
   return (
     <TooltipProvider>
       <RouterProvider router={router} />
+      <VoiceHost />
       <ConfirmHost />
       <Toaster />
     </TooltipProvider>

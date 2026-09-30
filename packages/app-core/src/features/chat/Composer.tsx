@@ -187,6 +187,8 @@ export interface ComposerBoxProps {
    * follow-up / Ask Aside. Default: `isIphoneApp()`.
    */
   touch?: boolean;
+  /** A control just before Stop/Send (the iPhone's voice mode button, I-180); shown in the slim touch pill too. */
+  sendAccessory?: ComponentChildren;
   class?: string;
 }
 
@@ -835,6 +837,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               </Tooltip>
             </span>
           )}
+          {props.sendAccessory && <span class={cn("flex items-center self-center", touch && "order-3")}>{props.sendAccessory}</span>}
           {isRunning && props.onStop && (
             <Tooltip content="Stop (Esc)">
               <button
@@ -942,9 +945,11 @@ export interface ChatComposerProps {
   placeholder?: string;
   autoFocus?: boolean;
   class?: string;
+  /** See `ComposerBoxProps.sendAccessory`. */
+  sendAccessory?: ComponentChildren;
 }
 
-function ChatComposer({ chatId, placeholder, autoFocus, class: className }: ChatComposerProps) {
+function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAccessory }: ChatComposerProps) {
   const navigate = useNavigate();
   const store = useChatSession(chatId, { markViewing: false });
   const state = store.state.value;
@@ -1067,6 +1072,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className }: Chat
       shell={capabilities.shell ? { run: runShell } : undefined}
       askAside={capabilities.sideQuestions === true && !lockedReason ? (question) => askSideQuestion(chatId, question) : undefined}
       steering={capabilities.steering !== false}
+      sendAccessory={sendAccessory}
       class={className}
     />
   );
@@ -1087,13 +1093,21 @@ export interface NewChatComposerProps {
   replace?: boolean;
   /** Read-only with this explanation (e.g. the Mac isn't connected). */
   lockedReason?: string;
+  /** See `ComposerBoxProps.sendAccessory`. */
+  sendAccessory?: ComponentChildren;
+  /**
+   * Set to a function that starts the chat with `text` like Send does (the chosen agent, model and
+   * thinking level; then navigates to it) and resolves its session id, or null when it failed.
+   * The iPhone's voice mode starts a chat by voice this way (I-180).
+   */
+  startRef?: { current: ((text: string) => Promise<string | null>) | null };
 }
 
 const NEW_CHAT_COMMANDS = builtinCommands(false);
 /** Every built-in name: harness commands with these names stay hidden in new chats too. */
 const BUILTIN_NAMES = new Set(builtinCommands(true).map((c) => c.name));
 
-function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, class: className, replace, lockedReason }: NewChatComposerProps) {
+function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, class: className, replace, lockedReason, sendAccessory, startRef }: NewChatComposerProps) {
   const navigate = useNavigate();
   // I-123: pickers follow the host (the project's environment, or the one chosen for a standalone chat).
   const envId = projectId ? envIdOfProject(projectId) : (chosenEnv ?? undefined);
@@ -1134,7 +1148,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
   const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaultLevel);
 
-  const onSend = async (text: string, images: PromptImage[], files: File[]) => {
+  /** Creates the chat and opens it; resolves its session id (null: failed, already reported). */
+  const start = async (text: string, images: PromptImage[], files: File[]): Promise<string | null> => {
     setBusy(true);
     try {
       const withFiles = files.length > 0;
@@ -1158,14 +1173,16 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
         if (!sent && text) drafts.set(`chat:${sessionId}`, text);
       }
       navigate(chatPath(created.workspace), replace ? { replace: true } : undefined);
-      return true;
+      return created.session.session.id;
     } catch (err) {
       notify("error", `Could not start chat: ${(err as Error).message}`);
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
   };
+  const onSend = async (text: string, images: PromptImage[], files: File[]) => (await start(text, images, files)) !== null;
+  if (startRef) startRef.current = (text) => start(text, [], []);
 
   return (
     <ComposerBox
@@ -1185,6 +1202,7 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
       agents={agentSheetSection(envId ?? null)}
       lockedReason={lockedReason}
       onSend={onSend}
+      sendAccessory={sendAccessory}
       slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
       mentions={{ projectId, envId }}
       class={className}
@@ -1196,7 +1214,7 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
 // Public entry point
 // ---------------------------------------------------------------------------------------------
 
-export type ComposerProps = { placeholder?: string; autoFocus?: boolean; class?: string } & (
+export type ComposerProps = { placeholder?: string; autoFocus?: boolean; class?: string; sendAccessory?: ComponentChildren } & (
   | { chatId: string; projectId?: never }
   | {
       chatId?: null;
@@ -1207,14 +1225,16 @@ export type ComposerProps = { placeholder?: string; autoFocus?: boolean; class?:
       replace?: boolean;
       /** Read-only with this explanation. */
       lockedReason?: string;
+      /** See `NewChatComposerProps.startRef`. */
+      startRef?: NewChatComposerProps["startRef"];
     }
 );
 
 export function Composer(props: ComposerProps) {
   if (props.chatId) {
-    return <ChatComposer chatId={props.chatId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} />;
+    return <ChatComposer chatId={props.chatId} placeholder={props.placeholder} autoFocus={props.autoFocus ?? true} class={props.class} sendAccessory={props.sendAccessory} />;
   }
-  const { envId, replace, lockedReason } = props as NewChatComposerProps;
+  const { envId, replace, lockedReason, startRef } = props as NewChatComposerProps;
   return (
     <NewChatComposer
       projectId={props.projectId ?? null}
@@ -1224,6 +1244,8 @@ export function Composer(props: ComposerProps) {
       class={props.class}
       replace={replace}
       lockedReason={lockedReason}
+      sendAccessory={props.sendAccessory}
+      startRef={startRef}
     />
   );
 }

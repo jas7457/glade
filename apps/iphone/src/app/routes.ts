@@ -10,5 +10,7 @@ export const paths = {
     `/e/${encodeURIComponent(envId)}/chats/${encodeURIComponent(workspaceId)}${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`,
   newChat: () => "/new",
   settings: () => "/settings",
+  /** Settings → Voice (conversation mode, I-180). */
+  voiceSettings: () => "/settings/voice",
   device: (envId: string) => `/settings/devices/${encodeURIComponent(envId)}`,
 };

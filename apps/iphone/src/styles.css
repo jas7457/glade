@@ -43,3 +43,39 @@ body {
     transform: translateX(-100%);
   }
 }
+
+/* Conversation mode's orb (I-180, voice/VoiceView.tsx). */
+@keyframes voice-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+}
+@keyframes voice-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+@keyframes voice-bar {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1.25);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-look] * {
+    animation: none !important;
+  }
+}

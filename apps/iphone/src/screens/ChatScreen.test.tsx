@@ -11,6 +11,9 @@ import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fi
 import { connections } from "@glade/app-core/state/env-registry";
 import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { fakeEnv } from "~/test/fake-env";
+import { setVoiceEngine } from "~/voice/engine-provider";
+import { createFakeVoiceEngine } from "~/voice/fake-engine";
+import { closeVoiceMode, voiceMode } from "~/voice/voice-mode";
 import { ChatScreen } from "./ChatScreen";
 
 vi.mock("@glade/app-core/lib/api", () => ({
@@ -150,5 +153,14 @@ describe("ChatScreen", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     connections.value = [];
     savedEnvironments.value = [];
+  });
+
+  it("the waveform next to Send opens voice mode for this chat", () => {
+    setVoiceEngine(createFakeVoiceEngine({ wordMs: 0 }));
+    renderAt("/e/env1/chats/w");
+    fireEvent.click(screen.getByRole("button", { name: "Voice mode" }));
+    expect(voiceMode.value?.sessionId).toBe("m1");
+    closeVoiceMode();
+    setVoiceEngine(null);
   });
 });

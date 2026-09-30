@@ -25,6 +25,9 @@ import { chatPath } from "@glade/app-core/app/routes";
 import { TooltipProvider } from "@glade/app-core/ui";
 import { paths } from "~/app/routes";
 import { fakeEnv } from "~/test/fake-env";
+import { setVoiceEngine } from "~/voice/engine-provider";
+import { createFakeVoiceEngine } from "~/voice/fake-engine";
+import { closeVoiceMode, voiceMode } from "~/voice/voice-mode";
 import { NewChatScreen, defaultNewChatEnv } from "./NewChatScreen";
 
 const MODELS: ModelInfo[] = [{ provider: "anthropic", id: "haiku", name: "Claude Haiku", thinkingLevels: ["off", "low"], input: ["text"] }];
@@ -88,6 +91,22 @@ describe("NewChatScreen", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(chatPath({ id: "new-ws", projectId: "p2", environmentId: "m2" })));
     expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p2", prompt: "Hello there" }), "m2");
     expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("voice mode: the first utterance starts the chat (like Send), then the conversation continues in it", async () => {
+    const engine = createFakeVoiceEngine({ wordMs: 0, hearMs: 0 });
+    setVoiceEngine(engine);
+    const router = renderNew(`${paths.newChat()}?env=m2&project=p2`);
+    fireEvent.click(screen.getByRole("button", { name: "Voice mode" }));
+    expect(voiceMode.value?.sessionId).toBeNull();
+    await waitFor(() => expect(engine.listening).toBe(true));
+    await act(() => engine.hear("build a todo app"));
+    await waitFor(() => expect(router.state.location.pathname).toBe(chatPath({ id: "new-ws", projectId: "p2", environmentId: "m2" })));
+    expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p2", prompt: "build a todo app" }), "m2");
+    expect(voiceMode.value?.sessionId).toBe("s1");
+    expect(engine.listening).toBe(true);
+    closeVoiceMode();
+    setVoiceEngine(null);
   });
 
   it("keeps ?env=&project= preselection", () => {

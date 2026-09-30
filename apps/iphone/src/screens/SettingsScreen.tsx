@@ -1,10 +1,10 @@
 /**
  * Settings on the iPhone (I-164, doc §4.4/§5.5): only the phone's own things. Devices (each paired
  * Mac with its status → DeviceScreen; Connect to a Device…), This iPhone (its name on your Macs,
- * I-171), Appearance (theme, stored on the phone) and About. Nothing about sharing this device: the iPhone runs no server.
+ * I-171), Voice (conversation mode, I-180), Appearance (theme, stored on the phone) and About. Nothing about sharing this device: the iPhone runs no server.
  */
 import { useSignal } from "@preact/signals";
-import { ChevronLeft, Laptop, Plus } from "lucide-preact";
+import { AudioLines, ChevronLeft, Laptop, Plus } from "lucide-preact";
 import { useNavigate } from "react-router";
 import { connectionFor } from "@glade/app-core/state/env-registry";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
@@ -72,6 +72,10 @@ export function SettingsScreen() {
               renaming.value = true;
             }}
           />
+        </ListGroup>
+
+        <ListGroup header="Voice Mode" footer="Talk with your agents hands-free: tap the waveform next to Send.">
+          <ListRow icon={<AudioLines size={22} class="text-fg-muted" />} title="Voice" chevron onClick={() => navigate(paths.voiceSettings())} />
         </ListGroup>
 
         <ListGroup header="Appearance">

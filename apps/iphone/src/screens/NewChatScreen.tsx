@@ -27,6 +27,8 @@ import { MacStatusNotice } from "~/ui/MacStatus";
 import { SheetList } from "~/ui/SheetList";
 import { ListGroup, NavBar, NavIconButton, Sheet } from "~/ui/phone";
 import { CheckRow } from "~/ui/phone-extra";
+import { VoiceButton } from "~/voice/VoiceButton";
+import { openVoiceMode } from "~/voice/voice-mode";
 
 type Picker = "device" | "project" | null;
 
@@ -44,6 +46,8 @@ export function NewChatScreen() {
   const projectChoice = useSignal<string | null>(search.get("project"));
   const picker = useSignal<Picker>(null);
   const { height, keyboardOpen } = useKeyboardViewport();
+  // Voice mode's first utterance starts the chat like Send (I-180).
+  const startRef = useRef<((text: string) => Promise<string | null>) | null>(null);
 
   const envs = connections.value.filter((c) => !c.isLocal);
   const envId = defaultNewChatEnv(envChoice.value, envs);
@@ -112,7 +116,17 @@ export function NewChatScreen() {
                 onClick={() => (picker.value = "project")}
               />
             </div>
-            <Composer key={`${envId}:${project?.id ?? ""}`} projectId={project?.id ?? null} envId={project ? null : envId} autoFocus={false} replace lockedReason={offline} />
+            <Composer key={`${envId}:${project?.id ?? ""}`} projectId={project?.id ?? null} envId={project ? null : envId} autoFocus={false}
+              replace
+              lockedReason={offline}
+              startRef={startRef}
+              sendAccessory={
+                <VoiceButton
+                  disabled={!!offline}
+                  onClick={() => openVoiceMode({ kind: "new", start: (text) => startRef.current?.(text) ?? Promise.resolve(null) })}
+                />
+              }
+            />
           </div>
         </div>
       </div>

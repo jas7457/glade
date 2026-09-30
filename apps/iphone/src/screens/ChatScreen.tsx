@@ -34,6 +34,8 @@ import { SidebarOverlay } from "~/chats/SidebarOverlay";
 import { SheetList } from "~/ui/SheetList";
 import { MacStatusNotice } from "~/ui/MacStatus";
 import { NavBar, NavIconButton } from "~/ui/phone";
+import { VoiceButton } from "~/voice/VoiceButton";
+import { openVoiceMode } from "~/voice/voice-mode";
 
 /** History state when a sub-agent was opened from its parent (Back then pops instead of pushing). */
 interface ChatLocationState {
@@ -204,7 +206,7 @@ function PhoneChatPane({ envId, sessionId, keyboardOpen, onOpenSubagent }: { env
           {/* The chat's Mac dropped (I-170): say what to check, with Retry. */}
           <MacStatusNotice envId={envId} class="mx-1 mb-2 shadow-sm" />
           <SubagentCards subagents={subagents} onOpen={onOpenSubagent} />
-          <Composer chatId={sessionId} autoFocus={false} />
+          <Composer chatId={sessionId} autoFocus={false} sendAccessory={<VoiceButton onClick={() => openVoiceMode({ kind: "chat", sessionId })} />} />
         </div>
       </div>
     </AgentLinksContext.Provider>
