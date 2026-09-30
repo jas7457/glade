@@ -422,6 +422,12 @@ export interface CreateWorkspaceRequest {
   carryChanges?: boolean;
   /** Harness the chat runs in (`HarnessInfo.id`, I-119); default: the default harness. 400 if not installed. */
   harness?: string;
+  /**
+   * The permission mode the chat starts in (I-184; harnesses with the `permissionModes`
+   * capability, one of `FolderPermissionModes.modes`' ids). Absent: the agent's own default.
+   * Ignored by harnesses without modes; a mode the harness doesn't know falls back to its default.
+   */
+  permissionMode?: string | null;
 }
 
 export interface UpdateWorkspaceRequest {
@@ -441,6 +447,8 @@ export interface CreateSessionRequest {
   thinkingLevel?: ThinkingLevel | null;
   /** Harness the session runs in (I-119); default: the default harness. 400 if not installed. */
   harness?: string;
+  /** See `CreateWorkspaceRequest.permissionMode` (I-184). */
+  permissionMode?: string | null;
 }
 
 export interface UpdateSessionRequest {

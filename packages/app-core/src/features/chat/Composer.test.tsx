@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@glade/protocol";
 import { TooltipProvider } from "@glade/app-core/ui";
@@ -38,6 +38,7 @@ vi.mock("@glade/app-core/lib/api-folder", () => ({
     truncated: false,
   })),
   getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
+  getFolderPermissionModes: vi.fn(async () => ({ modes: [], defaultMode: null })),
 }));
 vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
 
@@ -457,6 +458,93 @@ describe("Composer (new chat in another agent, I-119)", () => {
       newChatHarness.value = null;
       harnesses.value = null;
     }
+  });
+});
+
+describe("Composer (new chat: the picked agent's modes and commands, I-184/I-185)", () => {
+  const MODES = [
+    { id: "default", label: "Default" },
+    { id: "acceptEdits", label: "Accept edits" },
+    { id: "plan", label: "Plan mode" },
+    { id: "bypassPermissions", label: "Bypass permissions", danger: true },
+  ];
+  const pill = () => screen.queryByRole("button", { name: /^Permission mode:/ });
+
+  beforeEach(async () => {
+    (await import("./new-chat-modes")).resetNewChatModes();
+    (await import("./slash/folder-commands")).resetFolderCommands();
+  });
+
+  async function pickAgent(id: string, defaultMode: string | null = "default") {
+    harnesses.value = [
+      { id: "pi", label: "pi", isDefault: true, capabilities: ALL_CAPS },
+      { id: "claude", label: "Claude Code", isDefault: false, capabilities: { ...ALL_CAPS, permissionModes: true } },
+    ];
+    vi.mocked(folderApi.getFolderPermissionModes).mockResolvedValue({ modes: MODES, defaultMode });
+    vi.mocked(folderApi.listFolderCommands).mockImplementation(async (_p, _r, _v, harness) =>
+      harness === "claude" ? [{ name: "security-review", description: "Claude's", source: "extension" as const }] : [{ name: "pi-prompt", source: "prompt" as const }],
+    );
+    const { newChatHarness } = await import("@glade/app-core/state/harnesses");
+    newChatHarness.value = id === "pi" ? null : id;
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+  }
+
+  afterEach(async () => {
+    const { newChatHarness } = await import("@glade/app-core/state/harnesses");
+    newChatHarness.value = null;
+    harnesses.value = null;
+    const { resetNewChatModes } = await import("./new-chat-modes");
+    resetNewChatModes();
+    const { resetFolderCommands } = await import("./slash/folder-commands");
+    resetFolderCommands();
+    vi.mocked(folderApi.getFolderPermissionModes).mockReset();
+    vi.mocked(folderApi.listFolderCommands).mockReset();
+  });
+
+  it("preselects the agent's default mode, cycles with Shift+Tab and starts the chat in the picked one", async () => {
+    await pickAgent("claude");
+    renderAt(<Composer projectId="p1" />);
+    await waitFor(() => expect(pill()?.getAttribute("aria-label")).toBe("Permission mode: Default"));
+    expect(vi.mocked(folderApi.getFolderPermissionModes).mock.calls[0]!.slice(0, 3)).toEqual(["p1", "claude", { provider: "anthropic", id: "haiku" }]);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(box, { key: "Tab", shiftKey: true });
+    expect(pill()?.getAttribute("aria-label")).toBe("Permission mode: Plan mode");
+    expect(api.setPermissionMode).not.toHaveBeenCalled(); // no chat yet
+    fireEvent.input(box, { target: { value: "Plan it" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ harness: "claude", permissionMode: "plan", prompt: "Plan it" })));
+  });
+
+  it("sends no mode when the agent's own default is kept", async () => {
+    await pickAgent("claude", "acceptEdits");
+    renderAt(<Composer projectId="p1" />);
+    await waitFor(() => expect(pill()?.getAttribute("aria-label")).toBe("Permission mode: Accept edits"));
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "Hi" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.createWorkspace).toHaveBeenCalled());
+    expect(vi.mocked(api.createWorkspace).mock.calls[0]![0]).not.toHaveProperty("permissionMode");
+  });
+
+  it("has no pill for agents without modes, and lists the picked agent's folder commands", async () => {
+    await pickAgent("pi");
+    renderAt(<Composer projectId="p1" />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "/" } });
+    await waitFor(() => expect(screen.getAllByRole("option").map((o) => o.textContent).join("|")).toMatch(/pi-prompt/));
+    expect(pill()).toBeNull();
+    expect(folderApi.getFolderPermissionModes).not.toHaveBeenCalled();
+    cleanup();
+
+    // Another agent: its own commands (I-185), not the default agent's.
+    await pickAgent("claude");
+    renderAt(<Composer projectId="p1" />);
+    const box2 = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box2, { target: { value: "/" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: /security-review/ })).toBeTruthy());
+    expect(screen.queryByRole("option", { name: /pi-prompt/ })).toBeNull();
+    expect(vi.mocked(folderApi.listFolderCommands).mock.lastCall).toEqual(["p1", false, undefined, "claude"]);
   });
 });
 

@@ -574,6 +574,10 @@ describe("Codex sessions", () => {
     // A saved mode wins.
     const saved = await openSession(h, null, { permissionMode: "full-access" });
     expect(saved.session.getState().permissionMode).toBe("full-access");
+    // The new-chat composer's pill (I-184): the presets, starting in the config's.
+    const modes = await h.getPermissionModes();
+    expect(modes.modes.map((m) => m.id)).toEqual(expect.arrayContaining(["read-only", "auto", "full-access"]));
+    expect(modes.defaultMode).toBe("read-only");
   });
 
   it("compacts through thread/compact/start", async () => {

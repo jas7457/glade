@@ -814,6 +814,32 @@ describe("Claude permissions like the CLI (I-174)", () => {
     await expect(locked.session.setPermissionMode("bypassPermissions")).rejects.toThrow(/can't switch/);
   });
 
+  it("tells the new-chat composer its modes and default without a chat, and starts in the picked mode (I-184)", async () => {
+    const sdk = new FakeClaudeSdk({ onUser: (q) => q.reply("ok") });
+    const h = harness(sdk, { permissionSettings: () => ({ defaultMode: "acceptEdits", bypassDisabled: false }) });
+    // Claude Code's default model (Sonnet) has Auto; Haiku doesn't.
+    expect(await h.getPermissionModes(cwd, null)).toEqual({
+      modes: expect.arrayContaining([expect.objectContaining({ id: "auto" })]),
+      defaultMode: "acceptEdits",
+    });
+    const haiku = await h.getPermissionModes(cwd, { provider: "anthropic", id: "haiku" });
+    expect(haiku.modes.map((m) => m.id)).toEqual(["default", "acceptEdits", "plan", "bypassPermissions"]);
+    const locked = harness(sdk, { permissionSettings: () => ({ defaultMode: null, bypassDisabled: true }) });
+    expect(await locked.getPermissionModes(cwd, { provider: "anthropic", id: "haiku" })).toEqual({
+      modes: [expect.objectContaining({ id: "default" }), expect.objectContaining({ id: "acceptEdits" }), expect.objectContaining({ id: "plan" })],
+      defaultMode: "default",
+    });
+    expect(await harness(sdk, { which: () => false }).getPermissionModes(cwd, null)).toEqual({ modes: [], defaultMode: null });
+
+    // A new chat started in Plan: its first process runs in Plan (not Claude Code's default).
+    const session = (await h.openSession({ cwd, sessionRef: null, permissionMode: "plan" })) as ClaudeSession;
+    open.push(session);
+    expect(session.getState().permissionMode).toBe("plan");
+    await session.prompt({ text: "plan it" });
+    await until(() => sdk.chats[0]?.received.length === 1);
+    expect(sdk.chats[0]!.options.permissionMode).toBe("plan");
+  });
+
   it("switches modes mid-run, keeps the mode when Claude Code refuses, and passes a saved mode to new processes", async () => {
     let release!: () => void;
     const sdk = new FakeClaudeSdk({

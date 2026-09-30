@@ -15,7 +15,7 @@
  *   (`commands.ts`); `!cmd` / `!!cmd` run with `command/exec` (`codex-session.ts`).
  * - Transcripts are Glade's (the store, I-121); nothing is imported from Codex's rollout files.
  */
-import { CODEX_COMMAND, CODEX_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand, type UsageLimits } from "@glade/protocol";
+import { CODEX_COMMAND, CODEX_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand, type UsageLimits } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
 import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
@@ -25,6 +25,7 @@ import { codexSlashCommands } from "./commands.js";
 import { NOT_INSTALLED, codexUsageLimits } from "./errors.js";
 import { codexGladeTools } from "./glade-tools.js";
 import { CODEX_PROVIDER, defaultLevel, findCodexModel, translateCodexModels } from "./models.js";
+import { codexPermissionModes, modeFromConfig } from "./permissions.js";
 import { spawnCodexTransport, traceCodexTransport, type CodexTransport } from "./rpc.js";
 
 export { CODEX_COMMAND, CODEX_HARNESS_ID };
@@ -124,6 +125,13 @@ export class CodexHarness implements AgentHarness {
   async listFolderCommands(cwd: string): Promise<SlashCommand[]> {
     if (!this.isInstalled()) return [];
     return codexSlashCommands(await this.server.skills(cwd).catch(() => []));
+  }
+
+  /** The new-chat mode pill (I-184): Codex's presets, starting in the one matching `config.toml`. */
+  async getPermissionModes(): Promise<FolderPermissionModes> {
+    if (!this.isInstalled()) return { modes: [], defaultMode: null };
+    const config = await this.server.config().catch(() => null);
+    return { modes: codexPermissionModes(), defaultMode: modeFromConfig(config) };
   }
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {

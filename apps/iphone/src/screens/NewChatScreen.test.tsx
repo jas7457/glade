@@ -15,6 +15,18 @@ vi.mock("@glade/app-core/features/chat/slash/folder-commands", async (importOrig
   useFolderCommands: () => [],
 }));
 
+vi.mock("@glade/app-core/lib/api-folder", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@glade/app-core/lib/api-folder")>()),
+  getFolderPermissionModes: vi.fn(async () => ({
+    modes: [
+      { id: "default", label: "Default", description: "Asks before edits and commands" },
+      { id: "acceptEdits", label: "Accept edits" },
+      { id: "plan", label: "Plan mode" },
+    ],
+    defaultMode: "default",
+  })),
+}));
+
 import { createWorkspace } from "@glade/app-core/state/actions";
 import { connections } from "@glade/app-core/state/env-registry";
 import { newChatHarness } from "@glade/app-core/state/harnesses";
@@ -126,6 +138,29 @@ describe("NewChatScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent: Claude Code" }));
     fireEvent.click(screen.getByRole("option", { name: /^Pi/ }));
     expect(newChatHarness.value).toBeNull();
+  });
+
+  it("offers the picked agent's permission modes in the sheet and starts the chat in the chosen one (I-184)", async () => {
+    connections.value[0]!.shell.harnesses.value = [
+      harness("pi", "Pi", true),
+      { ...harness("claude", "Claude Code"), capabilities: { models: true, permissionModes: true } } as HarnessInfo,
+    ];
+    const router = renderNew(`${paths.newChat()}?env=m1&project=p1`);
+    fireEvent.click(screen.getByRole("button", { name: /^Model and thinking:/ }));
+    // Pi has no modes: no Permissions section.
+    expect(screen.queryByRole("listbox", { name: "Permissions" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /Claude Code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Model and thinking:/ }));
+    await waitFor(() => expect(screen.getByRole("listbox", { name: "Permissions" })).toBeTruthy());
+    // The agent's own default is preselected.
+    expect(screen.getByRole("option", { name: /^Default/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("option", { name: /^Plan mode/ }));
+    fireEvent.input(screen.getByLabelText("Message"), { target: { value: "Plan the thing" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+    await waitFor(() => expect(router.state.location.pathname).not.toBe("/new"));
+    expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", harness: "claude", permissionMode: "plan" }), "m1");
   });
 
   it("hides the Mac chip with one Mac and defaults to a connected one", () => {

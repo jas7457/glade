@@ -6,10 +6,12 @@ import {
   emptyTranscript,
   type AgentEvent,
   type CompactResult,
+  type FolderPermissionModes,
   type HarnessCapabilities,
   type HarnessDefaults,
   type ModelInfo,
   type ModelRef,
+  type PermissionModeInfo,
   type PromptRequest,
   type SessionState,
   type ShellResult,
@@ -139,6 +141,8 @@ interface StoredSession {
   title: string | null;
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel;
+  /** With {@link FakeHarnessOptions.permissionModes}: the session's mode. */
+  permissionMode: string | null;
 }
 
 /** What the fake harness can do: everything pi can except usage limits and sub-agents. */
@@ -165,6 +169,13 @@ export interface FakeHarnessOptions {
   label?: string;
   /** Overrides of {@link FAKE_CAPABILITIES}. */
   capabilities?: Partial<HarnessCapabilities>;
+  /**
+   * Permission modes (I-174/I-184; tests): turns on the `permissionModes` capability; sessions
+   * start in `OpenSessionOptions.permissionMode` when it's one of these, else `defaultPermissionMode`.
+   */
+  permissionModes?: PermissionModeInfo[];
+  /** Default: the first of `permissionModes`. */
+  defaultPermissionMode?: string;
 }
 
 /**
@@ -192,7 +203,21 @@ export class FakeHarness implements AgentHarness {
     options: FakeHarnessOptions = {},
   ) {
     this.id = options.id ?? "fake";
-    this.info = { label: options.label ?? "Fake agent", capabilities: { ...FAKE_CAPABILITIES, ...options.capabilities } };
+    this.permissionModes = options.permissionModes ?? [];
+    this.defaultPermissionMode = options.defaultPermissionMode ?? this.permissionModes[0]?.id ?? null;
+    const modes = this.permissionModes.length ? { permissionModes: true } : {};
+    this.info = { label: options.label ?? "Fake agent", capabilities: { ...FAKE_CAPABILITIES, ...modes, ...options.capabilities } };
+  }
+
+  /** See {@link FakeHarnessOptions.permissionModes}. */
+  readonly permissionModes: PermissionModeInfo[];
+  readonly defaultPermissionMode: string | null;
+  /** Folders/models `getPermissionModes` was asked for (tests). */
+  readonly permissionModeQueries: Array<{ cwd: string; model: ModelRef | null }> = [];
+
+  async getPermissionModes(cwd: string, model: ModelRef | null): Promise<FolderPermissionModes> {
+    this.permissionModeQueries.push({ cwd, model });
+    return { modes: this.permissionModes, defaultMode: this.defaultPermissionMode };
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -220,6 +245,7 @@ export class FakeHarness implements AgentHarness {
         title: null,
         model: options.model ?? { provider: FAKE_MODELS[0]!.provider, id: FAKE_MODELS[0]!.id },
         thinkingLevel: options.thinkingLevel ?? "medium",
+        permissionMode: this.permissionModes.some((m) => m.id === options.permissionMode) ? options.permissionMode! : this.defaultPermissionMode,
       });
     }
     const session = new FakeSession(this, ref, options.cwd, options.env ?? {});
@@ -288,6 +314,7 @@ export class FakeSession implements HarnessSession {
       model: stored.model,
       thinkingLevel: stored.thinkingLevel,
       thinkingLevels: model?.thinkingLevels ?? ["off"],
+      ...(harness.permissionModes.length ? { permissionMode: stored.permissionMode, permissionModes: harness.permissionModes } : {}),
       ...this.statsState(),
     };
   }
@@ -423,6 +450,12 @@ export class FakeSession implements HarnessSession {
     const clamped = clampThinkingLevel(this.state.thinkingLevels, level);
     this.stored.thinkingLevel = clamped;
     this.emit({ type: "state", state: { thinkingLevel: clamped } });
+  }
+
+  async setPermissionMode(mode: string): Promise<void> {
+    if (!this.harness.permissionModes.some((m) => m.id === mode)) throw new Error(`Unknown mode ${mode}`);
+    this.stored.permissionMode = mode;
+    this.emit({ type: "state", state: { permissionMode: mode } });
   }
 
   async setTitle(title: string): Promise<void> {
