@@ -26,7 +26,7 @@ import { codexSlashCommands } from "./commands.js";
 import { NOT_INSTALLED, codexUsageLimits } from "./errors.js";
 import { codexGladeTools } from "./glade-tools.js";
 import { CODEX_PROVIDER, defaultLevel, findCodexModel, translateCodexModels } from "./models.js";
-import { codexPermissionModes, modeFromConfig } from "./permissions.js";
+import { CODEX_PLAN_MODE, codexPermissionModes, modeFromConfig } from "./permissions.js";
 import { spawnCodexTransport, traceCodexTransport, type CodexTransport } from "./rpc.js";
 
 export { CODEX_COMMAND, CODEX_HARNESS_ID };
@@ -132,7 +132,9 @@ export class CodexHarness implements AgentHarness {
   async getPermissionModes(): Promise<FolderPermissionModes> {
     if (!this.isInstalled()) return { modes: [], defaultMode: null };
     const config = await this.server.config().catch(() => null);
-    return { modes: codexPermissionModes(), defaultMode: modeFromConfig(config) };
+    // Plan mode only when this Codex offers it (I-186), like an open chat's pill.
+    const plan = await this.server.planModeAvailable().catch(() => false);
+    return { modes: codexPermissionModes().filter((m) => m.id !== CODEX_PLAN_MODE || plan), defaultMode: modeFromConfig(config) };
   }
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
