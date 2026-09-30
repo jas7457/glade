@@ -390,6 +390,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Codex: Stop also ends the command the agent was running, instead of leaving it running in the
+  background.
+- Codex: commands on cards and approval prompts read `npm test`, not `/bin/zsh -lc 'npm test'`.
+- Codex: sub-agents Codex starts on its own show as a card and a "finished: …" notice, and Glade's
+  sub-agent tools no longer clash with Codex's built-in ones.
 - iPhone: a chat whose Mac drops no longer goes blank; it says the Mac can't be reached, with Retry.
 - Choosing a folder in "Move to Folder" (or any other submenu item) now works; the click used to
   close the menu without doing anything.
