@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Terminal tabs: press ⌃` (or pick New Terminal from the tab menu) to open a shell in the chat's
+  folder next to your conversations. It runs on the chat's Mac, follows Glade's light/dark colours,
+  supports copy/paste, links and ⌘K to clear, keeps its output when you switch tabs or reload, and
+  offers Restart when the shell exits.
 - New chats: choose the permission mode (e.g. Plan mode, Read only) before the first message, with
   the agent's own default preselected (Shift+Tab or the mode pill; on iPhone in the Model &
   Thinking sheet), and the `/` menu lists the chosen agent's commands and skills.
