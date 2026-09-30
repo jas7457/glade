@@ -215,6 +215,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- iPhone voice mode reads the reply as it's written: finished sentences are spoken right away,
+  one after another without pauses, code blocks and tools are announced where they happen, and the
+  text on screen grows with the word being read highlighted.
 - When your Mac offers more than one agent, every chat shows which agent it runs on (the default
   one too): a badge in the chat header, and before the model on the iPhone's chat title line.
 - The model picker shows Claude Code's models with their version and a short description
