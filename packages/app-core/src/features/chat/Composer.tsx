@@ -709,7 +709,7 @@ export function ComposerBox(props: ComposerBoxProps) {
             // Touch: 18px text. Compact: 58px pill; 1px less on top than below, because the text's
             // x-height sits low in its line box and otherwise reads as off-centre.
             touch && "text-[1.125rem]",
-            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-2 pt-[15px] pb-[16px]" : "order-1 basis-full px-3.5 pt-4"),
+            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-2 pt-[15px] pb-[16px] placeholder:truncate" : "order-1 basis-full px-3.5 pt-4"),
           )}
           onFocus={
             touch
@@ -870,6 +870,9 @@ export function ComposerBox(props: ComposerBoxProps) {
               class={cn(
                 "flex items-center justify-center rounded-full bg-accent text-accent-fg select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
                 touch ? "order-3 m-[9px] size-10 shrink-0 touch-manipulation" : "size-7",
+                // The slim pill while the agent works has nothing to send (it's empty): Stop takes
+                // Send's place, so the placeholder keeps room (tapping in brings Send back).
+                compact && isRunning && props.onStop && "hidden",
               )}
             >
               {choosesBehavior && followUpHeld ? (

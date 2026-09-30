@@ -390,6 +390,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- iPhone: while the agent works, the slim text box shows Stop instead of an empty Send, so
+  "Steer the agent…" fits on one line.
 - Codex: Stop also ends the command the agent was running, instead of leaving it running in the
   background.
 - Codex: commands on cards and approval prompts read `npm test`, not `/bin/zsh -lc 'npm test'`.

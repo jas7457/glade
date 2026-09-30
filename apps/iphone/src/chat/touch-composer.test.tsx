@@ -67,6 +67,15 @@ describe("touch composer", () => {
     expect(box().getAttribute("data-compact")).toBe("true");
   });
 
+  it("while the agent works, the slim pill shows Stop in Send's place (room for the placeholder); tapping in brings Send back", async () => {
+    renderBox({ touch: true, autoFocus: false, isRunning: true, onStop: vi.fn() });
+    const send = () => screen.getByRole("button", { name: /^(Steer|Queue message|Send)$/, hidden: true });
+    expect(send().className).toContain("hidden");
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    await act(async () => textarea().focus());
+    expect(send().className).not.toContain("hidden");
+  });
+
   it("↩ doesn't send on the iPhone (a new line); the Send button sends", async () => {
     (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__ = true;
     const { onSend } = renderBox();
