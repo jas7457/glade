@@ -36,7 +36,11 @@ export type ListenEvent =
   | { type: "partial"; text: string }
   /** The utterance ended (a pause of `endSilenceMs`); `text` is final. */
   | { type: "final"; text: string }
-  /** Recognition failed or was interrupted (e.g. another app took the audio). */
+  /**
+   * Recognition failed or was interrupted (e.g. another app took the audio). `recoverable: true`:
+   * the engine keeps listening by itself. `false`: listening has stopped (no permission, no
+   * on-device model, repeated failures, an interruption or audio reset); call `startListening` again.
+   */
   | { type: "error"; message: string; recoverable: boolean };
 
 export interface ListenOptions {
@@ -73,8 +77,10 @@ export interface VoiceEngine {
   /** Prompts for whatever is still undetermined; resolves with the result. */
   requestPermissions(): Promise<VoicePermissions>;
 
-  /** Installed voices (all languages). */
+  /** Installed voices (all languages; never prompts). */
   listVoices(): Promise<VoiceInfo[]>;
+  /** Ask to use the user's Personal Voice (optional; engines without it omit this). */
+  requestPersonalVoice?(): Promise<VoicePermission>;
 
   /** Take the audio session (voice processing on) and keep the screen awake. */
   startSession(): Promise<void>;
