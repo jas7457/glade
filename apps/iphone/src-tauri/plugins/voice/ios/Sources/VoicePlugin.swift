@@ -66,13 +66,63 @@ final class RequestBox {
   }
 }
 
-/// A word marker of the reply being spoken: where in the audio it starts and its text range.
+/// A word marker of the reply being spoken: where in the scheduled audio it starts (a frame of
+/// `speechPlayer`'s timeline) and its text range.
 private struct WordMark {
-  /// AVSpeechSynthesisMarker.byteSampleOffset: a byte offset into the utterance's audio in the
-  /// synthesizer's own buffer format (measured: 4 × frames for its mono Float32 buffers).
-  let byte: Int64
+  let frame: Int64
   let start: Int
   let end: Int
+}
+
+/// Maps AVSpeechSynthesisMarker.byteSampleOffset to a frame of the whole reply (I-181).
+///
+/// Measured (trace behind `-GladeVoiceTrace YES`, simulator + macOS, 2026-09-30): the synthesizer
+/// renders a longer text in several chunks (e.g. after a list or every few paragraphs). Each chunk
+/// ends with an *empty* buffer, and the next chunk's markers start again at byteSampleOffset 0,
+/// counted from that chunk's first sample. Within a chunk the offset is bytes of the synth's own
+/// buffer format (4 × frames for mono Float32) and the markers arrive in text order, a little
+/// ahead of their audio. Sorting every marker by its raw offset (the old code) interleaved the
+/// chunks: the highlight hopped between paragraphs and whole runs of words fired at once.
+///
+/// So a marker's frame is `chunkBase + byte / bytesPerFrame`, where `chunkBase` is the number of
+/// frames scheduled before the chunk began (the count at its empty end-buffer). If an offset ever
+/// goes clearly backwards without an empty buffer (a chunk we didn't see end), the chunk is
+/// assumed to start at the frames scheduled so far. Frames never go backwards, so the marks stay
+/// in arrival (= text) order.
+private struct MarkTimeline {
+  private var chunkBase: Int64 = 0
+  private var nextChunkBase: Int64?
+  private var lastByte: Int64 = 0
+  private var lastFrame: Int64 = 0
+
+  /// The previous chunk ended (empty buffer) after `framesScheduled` frames.
+  mutating func chunkEnded(framesScheduled: Int64) {
+    nextChunkBase = framesScheduled
+  }
+
+  mutating func frame(byte: Int64, bytesPerFrame: Int64, framesScheduled: Int64, sampleRate: Double) -> Int64 {
+    let bpf = max(bytesPerFrame, 1)
+    if let base = nextChunkBase {
+      chunkBase = base
+      nextChunkBase = nil
+      lastByte = 0
+    } else if byte < lastByte - Int64(sampleRate / 2) * bpf {
+      // More than half a second backwards: a new chunk.
+      chunkBase = framesScheduled
+      lastByte = 0
+    }
+    lastByte = max(lastByte, byte)
+    lastFrame = max(lastFrame, chunkBase + byte / bpf)
+    return lastFrame
+  }
+}
+
+/// Debug trace of speech timing (I-181), off by default: launch with `-GladeVoiceTrace YES`.
+private let voiceTrace = UserDefaults.standard.bool(forKey: "GladeVoiceTrace")
+private let traceT0 = Date()
+private func trace(_ s: @autoclosure () -> String) {
+  guard voiceTrace else { return }
+  NSLog("VOICETRACE %.3f %@", Date().timeIntervalSince(traceT0), s())
 }
 
 class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
@@ -108,12 +158,15 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
   /// Engine path: synthesis into buffers played by `speechPlayer`, words from markers.
   private var viaEngine = false
   private var marks: [WordMark] = []
+  private var timeline = MarkTimeline()
   private var synthBytesPerFrame: Int64 = 4
   private var lastWord: (Int, Int)?
   private var nextMark = 0
   private var framesScheduled: Int64 = 0
   private var pendingBuffers = 0
   private var synthEnded = false
+  /// The last synthesis buffer was an empty one (a chunk ended; see MarkTimeline).
+  private var afterChunkEnd = false
   private var wordLink: CADisplayLink?
   private var currentUtterance: AVSpeechUtterance?
 
@@ -603,11 +656,13 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
 
     currentUtterance = u
     marks = []
+    timeline = MarkTimeline()
     nextMark = 0
     lastWord = nil
     framesScheduled = 0
     pendingBuffers = 0
     synthEnded = false
+    afterChunkEnd = false
 
     if (try? ensureSession()) != nil, engine?.isRunning == true {
       viaEngine = true
@@ -633,12 +688,18 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
   private func onSynthBuffer(_ gen: Int, _ buffer: AVAudioBuffer) {
     guard gen == speakGen, let e = engine else { return }
     guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
-      synthEnded = true
-      return checkSpeechDone(gen)
+      // An empty buffer ends a synthesis *chunk*, not the reply (more chunks can follow; see
+      // MarkTimeline). The reply is complete at didFinish.
+      trace("BUF empty (chunk end) cum=\(framesScheduled)")
+      timeline.chunkEnded(framesScheduled: framesScheduled)
+      afterChunkEnd = true
+      return checkChunkGap(gen)
     }
+    afterChunkEnd = false
     let bpf = Int64(pcm.format.streamDescription.pointee.mBytesPerFrame)
     if bpf > 0 { synthBytesPerFrame = bpf }
     guard let playable = Self.floatBuffer(pcm) else { return }
+    trace("BUF frames=\(pcm.frameLength) fmt=\(pcm.format.commonFormat.rawValue)/\(pcm.format.sampleRate)/ch\(pcm.format.channelCount)/bpf\(bpf)/il\(pcm.format.isInterleaved) playable=\(playable.frameLength)@\(playable.format.sampleRate) cumBefore=\(framesScheduled) player=\(playerFrame() ?? -1)")
     if framesScheduled == 0, speechFormat != playable.format {
       e.disconnectNodeOutput(speechPlayer)
       e.connect(speechPlayer, to: e.mainMixerNode, format: playable.format)
@@ -651,6 +712,7 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
         guard let self, gen == self.speakGen else { return }
         self.pendingBuffers -= 1
         self.checkSpeechDone(gen)
+        self.checkChunkGap(gen)
       }
     }
     if !speechPlayer.isPlaying { speechPlayer.play() }
@@ -658,14 +720,19 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
 
   private func onMarkers(_ gen: Int, _ markers: [AVSpeechSynthesisMarker]) {
     guard gen == speakGen else { return }
+    for m in markers {
+      trace("MARK type=\(m.mark.rawValue) byte=\(m.byteSampleOffset) range=\(m.textRange.location)+\(m.textRange.length) cumFrames=\(framesScheduled) player=\(playerFrame() ?? -1)")
+    }
+    let text = (currentUtterance?.speechString ?? "") as NSString
     for m in markers where m.mark == .word {
+      let frame = timeline.frame(
+        byte: Int64(m.byteSampleOffset), bytesPerFrame: synthBytesPerFrame, framesScheduled: framesScheduled,
+        sampleRate: speechFormat?.sampleRate ?? 22_050)
+      // Some voices mark punctuation (".", "-") as words: keep the highlight on the last word.
+      guard Self.isWord(m.textRange, in: text) else { continue }
       // textRange is an NSRange in UTF-16 code units; JS strings are UTF-16 too, so the offsets
-      // go through unchanged as JS string indices.
-      let mark = WordMark(byte: Int64(m.byteSampleOffset), start: m.textRange.location, end: m.textRange.location + m.textRange.length)
-      // Markers can arrive out of order: keep the not-yet-spoken part sorted by position.
-      var i = marks.count
-      while i > nextMark, marks[i - 1].byte > mark.byte { i -= 1 }
-      marks.insert(mark, at: i)
+      // go through unchanged as JS string indices. Kept in arrival order (= text order).
+      marks.append(WordMark(frame: frame, start: m.textRange.location, end: m.textRange.location + m.textRange.length))
     }
   }
 
@@ -676,14 +743,40 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     emitWords(upTo: t.sampleTime)
   }
 
+  /// Reports the word being heard at `frame`: only the latest one that has started, so a late tick
+  /// (or late markers) moves the highlight once instead of flashing through every word it missed;
+  /// never a word before the last reported one.
   private func emitWords(upTo frame: Int64) {
-    while nextMark < marks.count, marks[nextMark].byte / synthBytesPerFrame <= frame {
-      let m = marks[nextMark]
+    var latest: WordMark?
+    while nextMark < marks.count, marks[nextMark].frame <= frame {
+      latest = marks[nextMark]
       nextMark += 1
-      // Some words (e.g. an emoji) get two markers: report each range once in a row.
-      if let last = lastWord, last == (m.start, m.end) { continue }
-      lastWord = (m.start, m.end)
-      speakChannel?.send(["type": "word", "start": m.start, "end": m.end])
+    }
+    guard let m = latest else { return }
+    if let last = lastWord {
+      // Some words get two markers (an emoji; "$42.50" then "$42.50,"): same or earlier start
+      // isn't a new word.
+      if m.start < last.0 || (m.start, m.end) == last { return }
+    }
+    lastWord = (m.start, m.end)
+    trace("WORD \(m.start)+\(m.end - m.start) markFrame=\(m.frame) player=\(frame)")
+    speakChannel?.send(["type": "word", "start": m.start, "end": m.end])
+  }
+
+  private func playerFrame() -> Int64? {
+    guard speechPlayer.isPlaying, let n = speechPlayer.lastRenderTime, let t = speechPlayer.playerTime(forNodeTime: n) else { return nil }
+    return t.sampleTime
+  }
+
+  /// Safety net: didFinish normally ends the reply. If everything has played after a chunk's end
+  /// and nothing more arrives for 2 s, treat the reply as complete anyway.
+  private func checkChunkGap(_ gen: Int) {
+    guard gen == speakGen, afterChunkEnd, pendingBuffers == 0 else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+      guard let self, gen == self.speakGen, self.afterChunkEnd, self.pendingBuffers == 0 else { return }
+      trace("no didFinish after the last chunk: done")
+      self.synthEnded = true
+      self.checkSpeechDone(gen)
     }
   }
 
@@ -713,6 +806,12 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     marks = []
   }
 
+  /// Whether `range` of `text` has a letter or digit (not just punctuation or a list dash).
+  private static func isWord(_ range: NSRange, in text: NSString) -> Bool {
+    guard range.location != NSNotFound, range.location + range.length <= text.length else { return true }
+    return text.substring(with: range).rangeOfCharacter(from: .alphanumerics) != nil
+  }
+
   /// Synthesis buffers may be Int16; the player node and mixer want float.
   private static func floatBuffer(_ pcm: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
     if pcm.format.commonFormat == .pcmFormatFloat32, !pcm.format.isInterleaved { return pcm }
@@ -728,7 +827,8 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
 
   func speechSynthesizer(_ s: AVSpeechSynthesizer, willSpeakRangeOfSpeechString range: NSRange, utterance: AVSpeechUtterance) {
     DispatchQueue.main.async {
-      guard !self.viaEngine else { return }
+      guard !self.viaEngine, Self.isWord(range, in: utterance.speechString as NSString) else { return }
+      trace("WILLSPEAK \(range.location)+\(range.length)")
       // UTF-16 offsets, same as JS string indices.
       self.speakChannel?.send(["type": "word", "start": range.location, "end": range.location + range.length])
     }
@@ -738,8 +838,9 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     DispatchQueue.main.async {
       guard utterance === self.currentUtterance else { return }
       if self.viaEngine {
-        // Belt and braces for the engine path: synthesis is complete (normally the empty
-        // end-of-stream buffer says so first); done once the scheduled audio has played.
+        // Engine path: synthesis is complete (every chunk delivered); done once the scheduled
+        // audio has played.
+        trace("DIDFINISH pending=\(self.pendingBuffers) cum=\(self.framesScheduled)")
         self.synthEnded = true
         return self.checkSpeechDone(self.speakGen)
       }

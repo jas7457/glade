@@ -16,6 +16,7 @@ import { PhoneButton, Sheet } from "~/ui/phone";
 import type { Conversation } from "./conversation";
 import type { VoiceEngine } from "./engine";
 import { isFakeVoiceEngine } from "./fake-engine";
+import { followScrollTop } from "./follow-scroll";
 import type { Phase, VoiceState } from "./machine";
 import type { Speakable } from "./speakable";
 
@@ -101,7 +102,7 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
           {state.notice && <div class="mt-1 text-[13px] text-fg-subtle">{state.notice}</div>}
         </div>
 
-        <div class="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain text-center" data-testid="voice-content">
+        <div class="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain text-center" data-testid="voice-content" data-voice-scroll>
           {state.partial ? (
             <p class="text-[22px] leading-snug font-medium text-fg-strong" data-testid="voice-partial">
               {state.partial}
@@ -189,12 +190,22 @@ function Orb({ look }: { look: Look }) {
   );
 }
 
-/** Spoken text with the current word highlighted; announcements in muted italics. */
+/**
+ * Spoken text with the current word highlighted; announcements in muted italics. The highlight is
+ * a background only (no padding or weight change), so moving it never reflows the lines.
+ */
 export function SpokenText({ speech, word, class: className }: { speech: Speakable; word: [number, number] | null; class?: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
-  // Keep the word being read in view.
+  // Keep the word being read in view: scroll only when it leaves the comfortable band, not on
+  // every word (follow-scroll.ts).
   useEffect(() => {
-    ref.current?.querySelector("[data-current]")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    const el = ref.current?.querySelector("[data-current]");
+    const view = el?.closest<HTMLElement>("[data-voice-scroll]");
+    if (!el || !view) return;
+    const v = view.getBoundingClientRect();
+    const w = el.getBoundingClientRect();
+    const top = followScrollTop(view, { top: w.top - v.top, bottom: w.bottom - v.top });
+    if (top !== null) view.scrollTo?.({ top, behavior: "smooth" });
   }, [word?.[0]]);
   const parts: Array<{ text: string; note: boolean; current: boolean; key: number }> = [];
   // Cut the text where announcements start/end and around the current word.
