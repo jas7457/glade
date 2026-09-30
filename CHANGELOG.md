@@ -390,6 +390,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- iPhone voice mode: the highlighted word follows the voice in order on long replies instead of
+  jumping between paragraphs, and the text scrolls only now and then instead of with every word.
 - iPhone: while the agent works, the slim text box shows Stop instead of an empty Send, so
   "Steer the agent…" fits on one line.
 - Codex: Stop also ends the command the agent was running, instead of leaving it running in the
