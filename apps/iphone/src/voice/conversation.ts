@@ -1,13 +1,17 @@
 /**
  * Runs a conversation (I-180): feeds the state machine (machine.ts) with the voice engine's events
- * and the chat's (running, permission cards, the reply), and carries out its effects on the engine
- * and the chat. The view reads `conversation.state`.
+ * and the chat's (running, permission cards, the reply as it streams), and carries out its effects
+ * on the engine and the chat. The view reads `conversation.state`.
+ *
+ * Every chat snapshot's reply goes to the machine as a plan of final pieces (reply-stream.ts), so
+ * it's read while it streams; pieces go to the engine queued (`speak` with `queue`), and their
+ * word events are moved by the piece's offset into the whole reading.
  *
  * The chat side is a `VoiceChat` (so tests use a fake one): `chatVoiceBridge(sessionId)` for an
  * open chat, `newChatVoiceBridge(start)` for New Chat, where the first utterance starts the chat
  * (the composer's `startRef`) and the conversation continues in it.
  */
-import { effect, signal, type ReadonlySignal } from "@preact/signals";
+import { effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
 import type { Transcript, UiRequest } from "@glade/protocol";
 import { getChatSession, runAction } from "@glade/app-core/state/chat-session";
 import { apiForSession } from "@glade/app-core/state/env-api";
@@ -16,7 +20,7 @@ import { envIdOfSession, sessionsById } from "@glade/app-core/state/store";
 import { ANSWER_WORDS, permissionQuestion, type PermissionRequest } from "./answers";
 import type { ListenEvent, SpeakEvent, VoiceEngine } from "./engine";
 import { initialVoiceState, step, type VoiceEffect, type VoiceEvent, type VoiceState } from "./machine";
-import { turnSpeech } from "./speakable";
+import { planTurn } from "./reply-stream";
 
 export interface ChatSnapshot {
   isRunning: boolean;
@@ -100,21 +104,28 @@ export class Conversation {
   private onChat(s: ChatSnapshot): void {
     this.chat.value = s;
     if (this.running === null) {
-      // First look: just note it (a run in progress means we start out "working").
+      // First look: a run in progress means we start out "working" and read its reply from the
+      // start; a finished reply is only noted (not read, not shown).
       this.running = s.isRunning;
       if (s.isRunning) this.dispatch({ type: "run-start" });
+      this.dispatch({ type: "reply", plan: planTurn(s.transcript, !s.isRunning), silent: !s.isRunning });
     } else if (s.isRunning !== this.running) {
       this.running = s.isRunning;
       this.sentAt = null;
-      this.dispatch(s.isRunning ? { type: "run-start" } : { type: "run-end", reply: turnSpeech(s.transcript) });
+      // The reply first (at the end: everything left is final), then the run's end.
+      this.dispatch({ type: "reply", plan: planTurn(s.transcript, !s.isRunning) });
+      this.dispatch(s.isRunning ? { type: "run-start" } : { type: "run-end" });
     } else if (!s.isRunning && this.sentAt !== null && this._state.value.phase.name === "sending") {
       // A run that started and ended between two looks: its reply is already here.
       const fresh = s.transcript.messages.slice(this.sentAt);
       if (fresh.some((m) => m.role === "user") && fresh.some((m) => m.role === "assistant" && !m.streaming)) {
         this.sentAt = null;
         this.dispatch({ type: "run-start" });
-        this.dispatch({ type: "run-end", reply: turnSpeech(s.transcript) });
+        this.dispatch({ type: "reply", plan: planTurn(s.transcript, true) });
+        this.dispatch({ type: "run-end" });
       }
+    } else {
+      this.dispatch({ type: "reply", plan: planTurn(s.transcript, !s.isRunning) });
     }
     const asked = s.permission;
     if (asked && asked.id !== this.askedId) {
@@ -142,11 +153,15 @@ export class Conversation {
         void engine.stopListening().catch(() => {});
         return;
       case "speak": {
-        const token = ++this.speakToken;
+        // A queued piece belongs to what's being read; anything else replaces it.
+        const token = effect.queue ? this.speakToken : ++this.speakToken;
+        const offset = effect.offset ?? 0;
         const onEvent = (e: SpeakEvent) => {
-          if (token === this.speakToken) this.dispatch(speakEvent(e));
+          if (token !== this.speakToken) return;
+          this.dispatch(e.type === "word" ? { type: "word", start: e.start + offset, end: e.end + offset } : speakEvent(e));
         };
-        engine.speak(effect.speech.text, this.options.voice?.() ?? {}, onEvent).catch((err: Error) => onEvent({ type: "error", message: err.message }));
+        const options = { ...(this.options.voice?.() ?? {}), ...(effect.queue ? { queue: true } : {}) };
+        engine.speak(effect.speech.text, options, onEvent).catch((err: Error) => onEvent({ type: "error", message: err.message }));
         return;
       }
       case "stop-speaking":
@@ -229,7 +244,11 @@ function snapshotOf(sessionId: string): ChatSnapshot {
 }
 
 function watchSession(sessionId: string, onChange: (s: ChatSnapshot) => void): () => void {
-  return effect(() => onChange(snapshotOf(sessionId)));
+  return effect(() => {
+    const snapshot = snapshotOf(sessionId);
+    // The conversation reads and writes its own signals in `onChange`: not this effect's deps.
+    untracked(() => onChange(snapshot));
+  });
 }
 
 async function sendToSession(sessionId: string, text: string): Promise<{ ok: true } | { ok: false; message: string }> {

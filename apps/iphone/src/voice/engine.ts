@@ -52,9 +52,9 @@ export interface ListenOptions {
   contextualStrings?: string[];
 }
 
-/** Synthesis events for one `speak` call. */
+/** Synthesis events for one `speak` call (queued calls each get their own). */
 export type SpeakEvent =
-  /** The word being spoken: [start, end) character offsets into the spoken text. */
+  /** The word being spoken: [start, end) character offsets into this call's text. */
   | { type: "word"; start: number; end: number }
   | { type: "done" }
   /** Stopped by `stopSpeaking` (or barge-in). */
@@ -65,6 +65,13 @@ export interface SpeakOptions {
   voiceId?: string;
   /** 0.5 … 2, 1 = normal (maps to AVSpeechUtterance rates). */
   rate?: number;
+  /**
+   * Speak after what is being spoken (and anything queued) instead of replacing it (I-183: the
+   * next sentences of a streaming reply). The engine prepares it while the current text plays, so
+   * it follows without a gap; when nothing is playing it starts at once. Default false: `speak`
+   * stops everything (each stopped call gets `cancelled`) and starts this text.
+   */
+  queue?: boolean;
 }
 
 /** Short sounds (bundled or system) for state changes and the "still working" cue. */
@@ -91,8 +98,12 @@ export interface VoiceEngine {
   startListening(options: ListenOptions, onEvent: (e: ListenEvent) => void): Promise<void>;
   stopListening(): Promise<void>;
 
-  /** Speak `text`; resolves when accepted. Events report words, done or cancelled. */
+  /**
+   * Speak `text`; resolves when accepted. Events report words, done or cancelled, per call: with
+   * `queue`, each call's `done` comes when its own text has been played.
+   */
   speak(text: string, options: SpeakOptions, onEvent: (e: SpeakEvent) => void): Promise<void>;
+  /** Stops what's being spoken and everything queued (each gets `cancelled`). */
   stopSpeaking(): Promise<void>;
 
   playCue(cue: CueName): Promise<void>;

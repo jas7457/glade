@@ -8,6 +8,12 @@
 // played through that engine's player node, so the canceller has them as its reference signal and
 // the user can talk over a reply (barge-in). Cues play through the same engine.
 //
+// Queued speech (I-183): `speak` with `queue: true` appends a piece (`SpeechItem`) after what's
+// playing. Pieces are synthesized one after the other (the next starts at the previous one's
+// didFinish, so while it still plays) and their buffers are scheduled on the same player node right
+// after the previous ones, so they follow without a gap. Each piece has its own channel, its own
+// marker timeline and its own `done`.
+//
 // Recognition: SFSpeechRecognizer on-device only; one recognition task per utterance. A pause of
 // `endSilenceMs` after the last change ends the utterance (`final`) and a fresh task starts, which
 // also keeps each task well under the ~1 minute limit.
@@ -29,6 +35,8 @@ struct SpeakArgs: Decodable {
   let text: String
   let voiceId: String?
   let rate: Double?
+  /// Speak after what's playing instead of replacing it (engine.ts `SpeakOptions.queue`).
+  let queue: Bool?
   let onEvent: Channel
 }
 
@@ -66,8 +74,8 @@ final class RequestBox {
   }
 }
 
-/// A word marker of the reply being spoken: where in the scheduled audio it starts (a frame of
-/// `speechPlayer`'s timeline) and its text range.
+/// A word marker of a piece being spoken: where in the piece's audio it starts (a frame of the
+/// piece's own timeline, in the synthesizer's sample rate) and its text range.
 private struct WordMark {
   let frame: Int64
   let start: Int
@@ -117,6 +125,43 @@ private struct MarkTimeline {
   }
 }
 
+/// One `speak` call (I-183): its text and channel, where its audio sits on the player's timeline and
+/// its word markers. Frames are the piece's own (0 = its first sample, synthesizer's sample rate);
+/// `base` + frames × `ratio` is the player's timeline.
+private final class SpeechItem {
+  let channel: Channel
+  let utterance: AVSpeechUtterance
+  var timeline = MarkTimeline()
+  /// Frames of this piece scheduled so far (its own timeline).
+  var frames: Int64 = 0
+  /// Where its first sample sits on the player's timeline (set with its first buffer).
+  var base: Int64?
+  /// Player frames per synthesizer frame (1 unless the piece had to be resampled).
+  var ratio: Double = 1
+  var sampleRate: Double = 22_050
+  var bytesPerFrame: Int64 = 4
+  var marks: [WordMark] = []
+  var nextMark = 0
+  var lastWord: (Int, Int)?
+  var pendingBuffers = 0
+  var synthStarted = false
+  var synthEnded = false
+  /// The last synthesis buffer was an empty one (a chunk ended; see MarkTimeline).
+  var afterChunkEnd = false
+  var cancelled = false
+
+  init(channel: Channel, utterance: AVSpeechUtterance) {
+    self.channel = channel
+    self.utterance = utterance
+  }
+
+  /// The piece's own frame for a player frame.
+  func localFrame(_ playerFrame: Int64) -> Int64? {
+    guard let base else { return nil }
+    return Int64(Double(playerFrame - base) / ratio)
+  }
+}
+
 /// Debug trace of speech timing (I-181), off by default: launch with `-GladeVoiceTrace YES`.
 private let voiceTrace = UserDefaults.standard.bool(forKey: "GladeVoiceTrace")
 private let traceT0 = Date()
@@ -153,22 +198,17 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
 
   // Speaking
   private let synth = AVSpeechSynthesizer()
-  private var speakChannel: Channel?
-  private var speakGen = 0
+  /// The pieces being spoken and queued, in order (the first is the one being heard).
+  private var items: [SpeechItem] = []
   /// Engine path: synthesis into buffers played by `speechPlayer`, words from markers.
   private var viaEngine = false
-  private var marks: [WordMark] = []
-  private var timeline = MarkTimeline()
-  private var synthBytesPerFrame: Int64 = 4
-  private var lastWord: (Int, Int)?
-  private var nextMark = 0
-  private var framesScheduled: Int64 = 0
-  private var pendingBuffers = 0
-  private var synthEnded = false
-  /// The last synthesis buffer was an empty one (a chunk ended; see MarkTimeline).
-  private var afterChunkEnd = false
+  /// Frames scheduled on `speechPlayer` since it last started (its timeline).
+  private var playerScheduled: Int64 = 0
+  /// Buffers scheduled and not played yet, over all pieces.
+  private var totalPending = 0
+  /// The piece `synth.write` is rendering.
+  private var synthesizing: SpeechItem?
   private var wordLink: CADisplayLink?
-  private var currentUtterance: AVSpeechUtterance?
 
   override init() {
     super.init()
@@ -453,7 +493,7 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     guard let raw = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
       let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
     else { return }
-    if reason == .oldDeviceUnavailable, speakChannel != nil {
+    if reason == .oldDeviceUnavailable, !items.isEmpty {
       cancelSpeech(event: ["type": "error", "message": "The audio device was disconnected."])
     }
   }
@@ -462,7 +502,7 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     DispatchQueue.main.async {
       guard let e = self.engine, n.object as? AVAudioEngine === e else { return }
       Logger.info("voice: audio configuration changed")
-      if self.speakChannel != nil, self.viaEngine {
+      if !self.items.isEmpty, self.viaEngine {
         self.cancelSpeech(event: ["type": "error", "message": "The audio route changed."])
       }
       self.installTap(on: e)
@@ -639,10 +679,7 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
   // MARK: - Speaking
 
   private func speak(_ args: SpeakArgs) {
-    cancelSpeech(event: ["type": "cancelled"])
-    speakGen += 1
-    let gen = speakGen
-    speakChannel = args.onEvent
+    if !(args.queue ?? false) { cancelSpeech(event: ["type": "cancelled"]) }
 
     let u = AVSpeechUtterance(string: args.text)
     if let id = args.voiceId, let v = AVSpeechSynthesisVoice(identifier: id) {
@@ -654,113 +691,146 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     let factor = Float(min(max(args.rate ?? 1, 0.5), 2))
     u.rate = min(max(AVSpeechUtteranceDefaultSpeechRate * factor, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
 
-    currentUtterance = u
-    marks = []
-    timeline = MarkTimeline()
-    nextMark = 0
-    lastWord = nil
-    framesScheduled = 0
-    pendingBuffers = 0
-    synthEnded = false
-    afterChunkEnd = false
+    let item = SpeechItem(channel: args.onEvent, utterance: u)
+    if items.isEmpty {
+      // Nothing playing: pick the path for this piece and whatever gets queued after it.
+      viaEngine = (try? ensureSession()) != nil && engine?.isRunning == true
+      playerScheduled = 0
+      totalPending = 0
+    }
+    items.append(item)
+    trace("SPEAK queue=\(args.queue ?? false) items=\(items.count) len=\((args.text as NSString).length)")
 
-    if (try? ensureSession()) != nil, engine?.isRunning == true {
-      viaEngine = true
-      synth.write(
-        u,
-        toBufferCallback: { [weak self] buffer in
-          DispatchQueue.main.async { self?.onSynthBuffer(gen, buffer) }
-        },
-        toMarkerCallback: { [weak self] markers in
-          DispatchQueue.main.async { self?.onMarkers(gen, markers) }
-        })
-      let link = CADisplayLink(target: self, selector: #selector(tickWords))
-      link.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30)
-      link.add(to: .main, forMode: .common)
-      wordLink = link
+    if viaEngine {
+      if wordLink == nil {
+        let link = CADisplayLink(target: self, selector: #selector(tickWords))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30)
+        link.add(to: .main, forMode: .common)
+        wordLink = link
+      }
+      synthesizeNext()
     } else {
-      // No engine (audio session refused): speak directly; no echo cancellation then.
-      viaEngine = false
+      // No engine (audio session refused): speak directly (the synthesizer queues utterances
+      // itself); no echo cancellation then.
+      item.synthStarted = true
       synth.speak(u)
     }
   }
 
-  private func onSynthBuffer(_ gen: Int, _ buffer: AVAudioBuffer) {
-    guard gen == speakGen, let e = engine else { return }
+  /// Starts rendering the next queued piece once the synthesizer is free (engine path).
+  private func synthesizeNext() {
+    guard viaEngine, synthesizing == nil, let item = items.first(where: { !$0.synthStarted }) else { return }
+    item.synthStarted = true
+    synthesizing = item
+    synth.write(
+      item.utterance,
+      toBufferCallback: { [weak self] buffer in
+        DispatchQueue.main.async { self?.onSynthBuffer(item, buffer) }
+      },
+      toMarkerCallback: { [weak self] markers in
+        DispatchQueue.main.async { self?.onMarkers(item, markers) }
+      })
+  }
+
+  private func onSynthBuffer(_ item: SpeechItem, _ buffer: AVAudioBuffer) {
+    guard !item.cancelled, let e = engine else { return }
     guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
-      // An empty buffer ends a synthesis *chunk*, not the reply (more chunks can follow; see
-      // MarkTimeline). The reply is complete at didFinish.
-      trace("BUF empty (chunk end) cum=\(framesScheduled)")
-      timeline.chunkEnded(framesScheduled: framesScheduled)
-      afterChunkEnd = true
-      return checkChunkGap(gen)
+      // An empty buffer ends a synthesis *chunk*, not the piece (more chunks can follow; see
+      // MarkTimeline). The piece is complete at didFinish.
+      trace("BUF empty (chunk end) itemFrames=\(item.frames)")
+      item.timeline.chunkEnded(framesScheduled: item.frames)
+      item.afterChunkEnd = true
+      return checkChunkGap(item)
     }
-    afterChunkEnd = false
+    item.afterChunkEnd = false
     let bpf = Int64(pcm.format.streamDescription.pointee.mBytesPerFrame)
-    if bpf > 0 { synthBytesPerFrame = bpf }
-    guard let playable = Self.floatBuffer(pcm) else { return }
-    trace("BUF frames=\(pcm.frameLength) fmt=\(pcm.format.commonFormat.rawValue)/\(pcm.format.sampleRate)/ch\(pcm.format.channelCount)/bpf\(bpf)/il\(pcm.format.isInterleaved) playable=\(playable.frameLength)@\(playable.format.sampleRate) cumBefore=\(framesScheduled) player=\(playerFrame() ?? -1)")
-    if framesScheduled == 0, speechFormat != playable.format {
-      e.disconnectNodeOutput(speechPlayer)
-      e.connect(speechPlayer, to: e.mainMixerNode, format: playable.format)
-      speechFormat = playable.format
+    if bpf > 0 { item.bytesPerFrame = bpf }
+    item.sampleRate = pcm.format.sampleRate
+    guard var playable = Self.floatBuffer(pcm) else { return }
+    if speechFormat != playable.format {
+      if totalPending == 0, item.frames == 0 {
+        // Nothing left to play: reconnect the player for this format (its timeline restarts).
+        speechPlayer.stop()
+        e.disconnectNodeOutput(speechPlayer)
+        e.connect(speechPlayer, to: e.mainMixerNode, format: playable.format)
+        speechFormat = playable.format
+        playerScheduled = 0
+      } else if let fmt = speechFormat, let converted = Self.resample(playable, to: fmt) {
+        // Another voice's rate while the previous piece plays (rare): resample it.
+        item.ratio = fmt.sampleRate / playable.format.sampleRate
+        playable = converted
+      } else {
+        return
+      }
     }
-    pendingBuffers += 1
-    framesScheduled += Int64(playable.frameLength)
+    if item.base == nil {
+      // It starts where the audio before it ends, or now if the player ran dry meanwhile.
+      var base = playerScheduled
+      if totalPending == 0, let now = playerFrame(), now > base { base = now }
+      item.base = base
+      playerScheduled = base
+    }
+    trace("BUF frames=\(pcm.frameLength) fmt=\(pcm.format.commonFormat.rawValue)/\(pcm.format.sampleRate)/ch\(pcm.format.channelCount)/bpf\(bpf) playable=\(playable.frameLength)@\(playable.format.sampleRate) itemFrames=\(item.frames) base=\(item.base ?? -1) sched=\(playerScheduled) player=\(playerFrame() ?? -1)")
+    item.frames += Int64(pcm.frameLength)
+    item.pendingBuffers += 1
+    totalPending += 1
+    playerScheduled += Int64(playable.frameLength)
     speechPlayer.scheduleBuffer(playable, completionCallbackType: .dataPlayedBack) { [weak self] _ in
       DispatchQueue.main.async {
-        guard let self, gen == self.speakGen else { return }
-        self.pendingBuffers -= 1
-        self.checkSpeechDone(gen)
-        self.checkChunkGap(gen)
+        guard let self, !item.cancelled else { return }
+        item.pendingBuffers -= 1
+        self.totalPending -= 1
+        self.finishPlayedItems()
+        self.checkChunkGap(item)
       }
     }
     if !speechPlayer.isPlaying { speechPlayer.play() }
   }
 
-  private func onMarkers(_ gen: Int, _ markers: [AVSpeechSynthesisMarker]) {
-    guard gen == speakGen else { return }
+  private func onMarkers(_ item: SpeechItem, _ markers: [AVSpeechSynthesisMarker]) {
+    guard !item.cancelled else { return }
     for m in markers {
-      trace("MARK type=\(m.mark.rawValue) byte=\(m.byteSampleOffset) range=\(m.textRange.location)+\(m.textRange.length) cumFrames=\(framesScheduled) player=\(playerFrame() ?? -1)")
+      trace("MARK type=\(m.mark.rawValue) byte=\(m.byteSampleOffset) range=\(m.textRange.location)+\(m.textRange.length) itemFrames=\(item.frames) player=\(playerFrame() ?? -1)")
     }
-    let text = (currentUtterance?.speechString ?? "") as NSString
+    let text = item.utterance.speechString as NSString
     for m in markers where m.mark == .word {
-      let frame = timeline.frame(
-        byte: Int64(m.byteSampleOffset), bytesPerFrame: synthBytesPerFrame, framesScheduled: framesScheduled,
-        sampleRate: speechFormat?.sampleRate ?? 22_050)
+      let frame = item.timeline.frame(
+        byte: Int64(m.byteSampleOffset), bytesPerFrame: item.bytesPerFrame, framesScheduled: item.frames,
+        sampleRate: item.sampleRate)
       // Some voices mark punctuation (".", "-") as words: keep the highlight on the last word.
       guard Self.isWord(m.textRange, in: text) else { continue }
       // textRange is an NSRange in UTF-16 code units; JS strings are UTF-16 too, so the offsets
       // go through unchanged as JS string indices. Kept in arrival order (= text order).
-      marks.append(WordMark(frame: frame, start: m.textRange.location, end: m.textRange.location + m.textRange.length))
+      item.marks.append(WordMark(frame: frame, start: m.textRange.location, end: m.textRange.location + m.textRange.length))
     }
   }
 
   @objc private func tickWords() {
-    guard viaEngine, speechPlayer.isPlaying, let nodeTime = speechPlayer.lastRenderTime,
-      let t = speechPlayer.playerTime(forNodeTime: nodeTime)
-    else { return }
-    emitWords(upTo: t.sampleTime)
+    guard viaEngine, let now = playerFrame() else { return }
+    for item in items {
+      guard let local = item.localFrame(now) else { break }
+      emitWords(item, upTo: local)
+    }
   }
 
-  /// Reports the word being heard at `frame`: only the latest one that has started, so a late tick
-  /// (or late markers) moves the highlight once instead of flashing through every word it missed;
-  /// never a word before the last reported one.
-  private func emitWords(upTo frame: Int64) {
+  /// Reports the word being heard at `frame` (the piece's own timeline): only the latest one that
+  /// has started, so a late tick (or late markers) moves the highlight once instead of flashing
+  /// through every word it missed; never a word before the last reported one.
+  private func emitWords(_ item: SpeechItem, upTo frame: Int64) {
     var latest: WordMark?
-    while nextMark < marks.count, marks[nextMark].frame <= frame {
-      latest = marks[nextMark]
-      nextMark += 1
+    while item.nextMark < item.marks.count, item.marks[item.nextMark].frame <= frame {
+      latest = item.marks[item.nextMark]
+      item.nextMark += 1
     }
     guard let m = latest else { return }
-    if let last = lastWord {
+    if let last = item.lastWord {
       // Some words get two markers (an emoji; "$42.50" then "$42.50,"): same or earlier start
       // isn't a new word.
       if m.start < last.0 || (m.start, m.end) == last { return }
     }
-    lastWord = (m.start, m.end)
-    trace("WORD \(m.start)+\(m.end - m.start) markFrame=\(m.frame) player=\(frame)")
-    speakChannel?.send(["type": "word", "start": m.start, "end": m.end])
+    item.lastWord = (m.start, m.end)
+    trace("WORD \(m.start)+\(m.end - m.start) markFrame=\(m.frame) itemFrame=\(frame)")
+    item.channel.send(["type": "word", "start": m.start, "end": m.end])
   }
 
   private func playerFrame() -> Int64? {
@@ -768,42 +838,54 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     return t.sampleTime
   }
 
-  /// Safety net: didFinish normally ends the reply. If everything has played after a chunk's end
-  /// and nothing more arrives for 2 s, treat the reply as complete anyway.
-  private func checkChunkGap(_ gen: Int) {
-    guard gen == speakGen, afterChunkEnd, pendingBuffers == 0 else { return }
+  /// Safety net: didFinish normally ends a piece. If everything has played after a chunk's end
+  /// and nothing more arrives for 2 s, treat the piece as complete anyway.
+  private func checkChunkGap(_ item: SpeechItem) {
+    guard !item.cancelled, item.afterChunkEnd, item.pendingBuffers == 0, !item.synthEnded else { return }
     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-      guard let self, gen == self.speakGen, self.afterChunkEnd, self.pendingBuffers == 0 else { return }
+      guard let self, !item.cancelled, item.afterChunkEnd, item.pendingBuffers == 0, !item.synthEnded else { return }
       trace("no didFinish after the last chunk: done")
-      self.synthEnded = true
-      self.checkSpeechDone(gen)
+      self.synthesisEnded(item)
     }
   }
 
-  private func checkSpeechDone(_ gen: Int) {
-    guard gen == speakGen, synthEnded, pendingBuffers == 0 else { return }
-    emitWords(upTo: .max)
-    let channel = speakChannel
-    finishSpeech()
-    channel?.send(["type": "done"] as JsonObject)
+  /// A piece's synthesis is complete: it's done once played; the next one can be rendered.
+  private func synthesisEnded(_ item: SpeechItem) {
+    item.synthEnded = true
+    if synthesizing === item { synthesizing = nil }
+    finishPlayedItems()
+    synthesizeNext()
   }
 
-  /// Stops the current reply (if any) and reports `event` for it.
+  /// Sends `done` for the pieces at the front that are synthesized and played, in order.
+  private func finishPlayedItems() {
+    while let first = items.first, first.synthEnded, first.pendingBuffers == 0 {
+      emitWords(first, upTo: .max)
+      items.removeFirst()
+      trace("DONE left=\(items.count)")
+      first.channel.send(["type": "done"] as JsonObject)
+    }
+    if items.isEmpty { stopPlayback() }
+  }
+
+  /// Stops every piece (the one playing and the queued ones) and reports `event` for each.
   private func cancelSpeech(event: JsonObject) {
-    guard let channel = speakChannel else { return }
-    finishSpeech()
+    guard !items.isEmpty else { return }
+    let all = items
+    items = []
+    for item in all { item.cancelled = true }
+    synthesizing = nil
+    stopPlayback()
     synth.stopSpeaking(at: .immediate)
-    channel.send(event)
+    for item in all { item.channel.send(event) }
   }
 
-  private func finishSpeech() {
-    speakGen += 1
-    speakChannel = nil
+  private func stopPlayback() {
     wordLink?.invalidate()
     wordLink = nil
-    currentUtterance = nil
     if viaEngine { speechPlayer.stop() }
-    marks = []
+    playerScheduled = 0
+    totalPending = 0
   }
 
   /// Whether `range` of `text` has a letter or digit (not just punctuation or a list dash).
@@ -823,30 +905,52 @@ class VoicePlugin: Plugin, AVSpeechSynthesizerDelegate {
     return out
   }
 
+  /// `pcm` in another format (sample rate / channels), for a piece whose voice renders differently
+  /// from the one playing.
+  private static func resample(_ pcm: AVAudioPCMBuffer, to fmt: AVAudioFormat) -> AVAudioPCMBuffer? {
+    guard let conv = AVAudioConverter(from: pcm.format, to: fmt) else { return nil }
+    let capacity = AVAudioFrameCount(Double(pcm.frameLength) * fmt.sampleRate / pcm.format.sampleRate) + 32
+    guard let out = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: capacity) else { return nil }
+    var fed = false
+    var error: NSError?
+    conv.convert(to: out, error: &error) { _, status in
+      if fed {
+        status.pointee = .endOfStream
+        return nil
+      }
+      fed = true
+      status.pointee = .haveData
+      return pcm
+    }
+    return error == nil && out.frameLength > 0 ? out : nil
+  }
+
   // Direct-speech fallback (no engine): the synthesizer's own delegate callbacks.
+
+  private func item(for utterance: AVSpeechUtterance) -> SpeechItem? {
+    items.first { $0.utterance === utterance }
+  }
 
   func speechSynthesizer(_ s: AVSpeechSynthesizer, willSpeakRangeOfSpeechString range: NSRange, utterance: AVSpeechUtterance) {
     DispatchQueue.main.async {
-      guard !self.viaEngine, Self.isWord(range, in: utterance.speechString as NSString) else { return }
+      guard !self.viaEngine, let item = self.item(for: utterance), Self.isWord(range, in: utterance.speechString as NSString) else { return }
       trace("WILLSPEAK \(range.location)+\(range.length)")
       // UTF-16 offsets, same as JS string indices.
-      self.speakChannel?.send(["type": "word", "start": range.location, "end": range.location + range.length])
+      item.channel.send(["type": "word", "start": range.location, "end": range.location + range.length])
     }
   }
 
   func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
     DispatchQueue.main.async {
-      guard utterance === self.currentUtterance else { return }
+      guard let item = self.item(for: utterance), !item.cancelled else { return }
       if self.viaEngine {
         // Engine path: synthesis is complete (every chunk delivered); done once the scheduled
-        // audio has played.
-        trace("DIDFINISH pending=\(self.pendingBuffers) cum=\(self.framesScheduled)")
-        self.synthEnded = true
-        return self.checkSpeechDone(self.speakGen)
+        // audio has played. The next piece is rendered meanwhile.
+        trace("DIDFINISH pending=\(item.pendingBuffers) frames=\(item.frames)")
+        return self.synthesisEnded(item)
       }
-      guard let channel = self.speakChannel else { return }
-      self.finishSpeech()
-      channel.send(["type": "done"] as JsonObject)
+      item.synthEnded = true
+      self.finishPlayedItems()
     }
   }
 

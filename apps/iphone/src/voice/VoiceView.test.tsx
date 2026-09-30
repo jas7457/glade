@@ -91,6 +91,33 @@ describe("VoiceView", () => {
     expect(screen.getByTestId("voice-spoken").querySelector("[data-current]")).toBeNull();
   });
 
+  it("the reply grows as it streams, read with the highlight moving on across pieces", async () => {
+    const { engine, conversation, update } = setup();
+    act(() => conversation.start());
+    await tick();
+    await act(() => engine.hear("status?"));
+    await tick();
+    const streaming = (text: string): ChatMessage[] => [
+      { id: "u", role: "user", content: [{ type: "text", text: "status?" }], timestamp: 1 },
+      { id: "a", role: "assistant", content: [{ type: "text", text }], timestamp: 1, streaming: true },
+    ];
+    update({ isRunning: true, transcript: { messages: streaming("All green"), toolResults: {} } });
+    expect(status()).toBe("Working…");
+    expect(screen.getByTestId("voice-tail").textContent).toBe("All green");
+    update({ transcript: { messages: streaming("All green. Two warnings"), toolResults: {} } });
+    expect(status()).toBe("Speaking");
+    expect(screen.getByTestId("voice-spoken").textContent).toBe("All green. Two warnings");
+    update({ transcript: { messages: streaming("All green. Two warnings left. Fixing"), toolResults: {} } });
+    act(() => {
+      engine.finishSpeaking();
+      engine.step();
+      engine.step();
+    });
+    const current = () => screen.getByTestId("voice-spoken").querySelector("[data-current]")?.textContent;
+    expect(current()).toBe("warnings");
+    expect(screen.getByTestId("voice-tail").textContent).toBe(" Fixing");
+  });
+
   it("stop speaking and mute", async () => {
     const { engine, conversation, update } = setup();
     act(() => conversation.start());
