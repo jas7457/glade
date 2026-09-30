@@ -88,6 +88,7 @@ import { useImageLightbox } from "./ImageLightbox";
 import { ContextMeter } from "./ContextMeter";
 import { ModelPicker, ModelThinkingPicker, PermissionModePicker, ThinkingPicker, nextPermissionMode, type PermissionModeControl } from "./Pickers";
 import { chatPermissionModes, modelInfo, setChatModel, setChatThinkingLevel } from "./chat-model";
+import { useNewChatModes } from "./new-chat-modes";
 import { InterruptedBanner } from "./InterruptedBanner";
 import { UiRequestCard } from "./UiRequestCard";
 import { builtinCommands, findBuiltin, type SlashContext } from "./slash/builtins";
@@ -1127,13 +1128,10 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   // I-173: the picked agent's models (the host's default agent's until the harness list loads).
   const models = visibleModelsOf(shell, target?.id);
 
-  // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043).
-  // Those are the default harness's; another agent's commands are only known once its chat runs.
-  const folderCommands = useFolderCommands(projectId, envId);
-  const slashCommands = useMemo(
-    () => mergeCommands(NEW_CHAT_COMMANDS, otherHarness ? [] : (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))),
-    [folderCommands, otherHarness],
-  );
+  // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043) of
+  // the picked agent (I-185).
+  const folderCommands = useFolderCommands(projectId, envId, otherHarness);
+  const slashCommands = useMemo(() => mergeCommands(NEW_CHAT_COMMANDS, (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))), [folderCommands]);
 
   // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
@@ -1151,6 +1149,21 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;
   const thinkingLevel = clampThinkingLevel(levels, pickedLevel ?? defaultLevel);
 
+  // I-184: the mode the chat starts in; the agent's own default unless one is picked here (a pick
+  // is for that agent only, and one its list no longer has falls back to the default).
+  const startModes = useNewChatModes(
+    { projectId, envId, harness: otherHarness ?? null, model: followsHarness || !usesModels ? null : model },
+    target?.capabilities.permissionModes === true,
+  );
+  const [pickedMode, setPickedMode] = useState<{ harness: string | undefined; mode: string } | null>(null);
+  const modeList = startModes?.modes ?? [];
+  const chosenMode =
+    pickedMode && pickedMode.harness === target?.id && modeList.some((m) => m.id === pickedMode.mode) ? pickedMode.mode : null;
+  const startMode = chosenMode ?? startModes?.defaultMode ?? null;
+  const permissionModes: PermissionModeControl | null = modeList.length
+    ? { value: startMode, modes: modeList, onChange: (mode) => setPickedMode({ harness: target?.id, mode }) }
+    : null;
+
   /** Creates the chat and opens it; resolves its session id (null: failed, already reported). */
   const start = async (text: string, images: PromptImage[], files: File[]): Promise<string | null> => {
     setBusy(true);
@@ -1165,6 +1178,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
         model: followsHarness || !usesModels ? null : model,
         thinkingLevel: model && usesModels ? thinkingLevel : null,
         ...(otherHarness ? { harness: otherHarness } : {}),
+        // Only a mode other than the agent's default: without one the agent applies its own.
+        ...(chosenMode && chosenMode !== startModes?.defaultMode ? { permissionMode: chosenMode } : {}),
       }, envId);
       if (withFiles) {
         const sessionId = created.session.session.id;
@@ -1203,6 +1218,7 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
       onThinkingChange={setPickedLevel}
       hideModelPickers={!usesModels}
       agents={agentSheetSection(envId ?? null)}
+      permissionModes={permissionModes}
       lockedReason={lockedReason}
       onSend={onSend}
       sendAccessory={sendAccessory}

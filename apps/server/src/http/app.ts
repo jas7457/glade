@@ -598,6 +598,7 @@ function requireThinkingLevel(value: unknown): asserts value is ThinkingLevel {
 function requireNewSession(body: Partial<CreateSessionRequest>): void {
   optional(body.prompt, "string", "prompt");
   optional(body.harness, "string", "harness");
+  if (body.permissionMode != null) optional(body.permissionMode, "string", "permissionMode");
   if (body.model != null) requireModelRef(body.model);
   if (body.thinkingLevel != null) requireThinkingLevel(body.thinkingLevel);
   if (body.images !== undefined) requireImages(body.images);

@@ -3,26 +3,32 @@
  * for a project/scratch folder, file search for `@` mentions, and the harness's default model.
  * Results are cached per folder for a short time; concurrent requests share one fetch.
  *
- * Everything here is for new chats, so it asks the default harness (I-064), read per call so a
- * changed default applies at once.
+ * Everything here is for new chats, so it asks the agent picked in the new-chat composer (I-185:
+ * `harnessId`), else the default harness (I-064), read per call so a changed default applies at
+ * once. The permission modes a new chat can start in (I-184) come from here too.
  *
  * Only folders Glade knows (a project's path or the scratch folder) are ever listed: callers pass
  * a project id, never a path.
  */
-import type { FileSearchResponse, HarnessDefaults, SlashCommand } from "@glade/protocol";
+import type { FileSearchResponse, FolderPermissionModes, HarnessDefaults, ModelRef, SlashCommand } from "@glade/protocol";
 import type { AgentHarness } from "../harness/types.js";
 import { HttpError } from "./app-service.js";
 import { listFolderFiles, rankFiles, type FolderFiles } from "./file-index.js";
 
 export interface FolderInfoOptions {
-  /** The harness new chats use (`HarnessRegistry.default`). */
-  harness: () => AgentHarness;
+  /**
+   * The harness with this id when this device offers it (`undefined` otherwise); without an id,
+   * the one new chats use by default (`HarnessRegistry.default`).
+   */
+  harness: (id?: string) => AgentHarness | undefined;
   /** Folder of standalone chats. */
   scratchDir: string;
   /** A project's folder, or `undefined` for an unknown project. */
   projectPath: (projectId: string) => string | undefined;
   /** How long folder commands stay cached (default 60 s). */
   commandsTtlMs?: number;
+  /** How long a folder's permission modes stay cached (default 60 s). */
+  modesTtlMs?: number;
   /** How long a file listing stays cached (default 10 s). */
   filesTtlMs?: number;
   /** File listing (injectable for tests). */
@@ -40,6 +46,7 @@ const MAX_FILE_LIMIT = 200;
 export class FolderInfoService {
   private readonly commands = new Map<string, CacheEntry<SlashCommand[]>>();
   private readonly files = new Map<string, CacheEntry<FolderFiles>>();
+  private readonly modes = new Map<string, CacheEntry<FolderPermissionModes>>();
 
   constructor(private readonly options: FolderInfoOptions) {}
 
@@ -51,13 +58,32 @@ export class FolderInfoService {
     return path;
   }
 
-  /** Harness commands (extensions, skills, prompts) available in the folder. */
-  async listCommands(projectId: string | null, force = false): Promise<SlashCommand[]> {
+  /** The harness `harnessId` (default: the default one); 400 when it isn't offered here. */
+  harnessFor(harnessId?: string | null): AgentHarness {
+    const harness = this.options.harness(harnessId || undefined);
+    if (!harness) throw new HttpError(400, `The agent "${harnessId}" isn't available on this device`);
+    return harness;
+  }
+
+  /** Harness commands (extensions, skills, prompts) available in the folder, of `harnessId` (default: the default agent). */
+  async listCommands(projectId: string | null, force = false, harnessId?: string | null): Promise<SlashCommand[]> {
     const cwd = this.folderFor(projectId);
-    const harness = this.options.harness();
+    const harness = this.harnessFor(harnessId);
     if (!harness.listFolderCommands) return [];
     const key = `${harness.id}\0${cwd}`;
     return this.cached(this.commands, key, this.options.commandsTtlMs ?? 60_000, force, () => harness.listFolderCommands!(cwd));
+  }
+
+  /**
+   * The modes a new chat of `harnessId` (default: the default agent) in the folder can start in,
+   * and its default (I-184). No modes for harnesses without the `permissionModes` capability.
+   */
+  async getPermissionModes(projectId: string | null, harnessId?: string | null, model: ModelRef | null = null, force = false): Promise<FolderPermissionModes> {
+    const cwd = this.folderFor(projectId);
+    const harness = this.harnessFor(harnessId);
+    if (!harness.info.capabilities.permissionModes || !harness.getPermissionModes) return { modes: [], defaultMode: null };
+    const key = `${harness.id}\0${cwd}\0${model ? `${model.provider}/${model.id}` : ""}`;
+    return this.cached(this.modes, key, this.options.modesTtlMs ?? 60_000, force, () => harness.getPermissionModes!(cwd, model));
   }
 
   /** Files/folders of the folder matching `query`, best first. */
@@ -71,7 +97,7 @@ export class FolderInfoService {
 
   /** The harness's own default model/thinking level (`null`s when it can't tell). */
   async getDefaults(force = false): Promise<HarnessDefaults> {
-    return (await this.options.harness().getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
+    return (await this.harnessFor().getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
   }
 
   private cached<T>(map: Map<string, CacheEntry<T>>, key: string, ttl: number, force: boolean, load: () => Promise<T>): Promise<T> {

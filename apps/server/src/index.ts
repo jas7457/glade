@@ -188,7 +188,11 @@ releaseLeases = () => {
 };
 search = createSearchService({ app: service, harnesses, store, log: env("DEBUG") ? log : undefined });
 const folderInfo = new FolderInfoService({
-  harness: () => harnesses.default(),
+  harness: (id) => {
+    if (!id) return harnesses.default();
+    const harness = harnesses.get(id);
+    return harness && harnesses.isOffered(harness) ? harness : undefined;
+  },
   scratchDir: config.scratchDir,
   projectPath: (id) => store.getProject(id)?.path,
 });

@@ -9,6 +9,7 @@
 import type {
   AgentEvent,
   CompactResult,
+  FolderPermissionModes,
   HarnessCapabilities,
   HarnessDefaults,
   ModelInfo,
@@ -30,7 +31,11 @@ export interface OpenSessionOptions {
   sessionRef: string | null;
   model?: ModelRef | null;
   thinkingLevel?: ThinkingLevel | null;
-  /** The chat's saved permission mode (I-174; `permissionModes` harnesses). Absent: the harness's default. */
+  /**
+   * The mode the session starts in (I-174, I-184; `permissionModes` harnesses): the chat's saved
+   * mode, or the one picked in the new-chat composer. Absent (or not one of the harness's modes):
+   * the harness's own default.
+   */
   permissionMode?: string | null;
   /** Extra environment for the agent process (agent API identity, I-037). */
   env?: Record<string, string>;
@@ -140,6 +145,12 @@ export interface AgentHarness {
   getDefaults?(force?: boolean): Promise<HarnessDefaults>;
   /** Slash commands available in `cwd` without an open session (I-043). Callers cache. */
   listFolderCommands?(cwd: string): Promise<SlashCommand[]>;
+  /**
+   * The modes a new chat in `cwd` can start in and the one it starts in by default (I-184;
+   * capability `permissionModes`), without a session. `model`: the model picked for it (modes can
+   * depend on it), `null` = the harness's default model. Callers cache.
+   */
+  getPermissionModes?(cwd: string, model: ModelRef | null): Promise<FolderPermissionModes>;
   openSession(options: OpenSessionOptions): Promise<HarnessSession>;
   /** Permanently remove a persisted session. */
   deleteSession(sessionRef: string): Promise<void>;

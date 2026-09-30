@@ -13,7 +13,7 @@
  * - Permission modes (I-174, capability `permissionModes`): per chat, starting from Claude Code's
  *   own `permissions.defaultMode` (`permissions.ts`).
  */
-import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand } from "@glade/protocol";
+import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type ModelRef, type SlashCommand } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
 import type {
@@ -31,7 +31,7 @@ import { ClaudeSession, newClaudeSessionId, toSlashCommand, type ClaudeSessionOp
 import { gladeToolSpecs } from "./glade-tools.js";
 import { CLAUDE_PROVIDER, claudeModelId, findClaudeModel, translateClaudeModels } from "./models.js";
 import { claudeOneShot } from "./one-shot.js";
-import { readClaudePermissionSettings, type ClaudePermissionSettings } from "./permissions.js";
+import { claudePermissionModes, readClaudePermissionSettings, type ClaudePermissionSettings } from "./permissions.js";
 import { PushQueue } from "./push-queue.js";
 import { realClaudeSdk, type ClaudeInitResult, type ClaudeModelInfo, type ClaudeSdk, type ClaudeUserInput } from "./sdk.js";
 
@@ -158,6 +158,28 @@ export class ClaudeHarness implements AgentHarness {
 
   async listFolderCommands(cwd: string): Promise<SlashCommand[]> {
     return (await this.probe(cwd)).commands.map(toSlashCommand);
+  }
+
+  /**
+   * The new-chat mode pill (I-184): the modes a chat on `model` offers (Auto only when the model
+   * supports it) and Claude Code's own `permissions.defaultMode` for the folder, like a new chat's
+   * `init` works them out.
+   */
+  async getPermissionModes(cwd: string, model: ModelRef | null): Promise<FolderPermissionModes> {
+    if (!this.isInstalled()) return { modes: [], defaultMode: null };
+    const models = await this.claudeModels().catch(() => [] as ClaudeModelInfo[]);
+    const info = findClaudeModel(models, claudeModelId(model));
+    const resolved = info?.value === "default" && info.resolvedModel ? findClaudeModel(models, info.resolvedModel) : undefined;
+    const supportsAutoMode = (info?.supportsAutoMode ?? resolved?.supportsAutoMode) === true;
+    let settings: ClaudePermissionSettings = { defaultMode: null, bypassDisabled: false };
+    try {
+      settings = (this.options.permissionSettings ?? (() => readClaudePermissionSettings(cwd)))();
+    } catch (err) {
+      this.options.log?.(`claude: reading permission settings failed: ${(err as Error).message}`);
+    }
+    const wanted = settings.defaultMode ?? "default";
+    const modes = claudePermissionModes({ supportsAutoMode }, { bypassDisabled: settings.bypassDisabled, current: wanted });
+    return { modes, defaultMode: modes.some((m) => m.id === wanted) ? wanted : "default" };
   }
 
   // Sessions ------------------------------------------------------------------------------------

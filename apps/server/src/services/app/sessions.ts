@@ -139,6 +139,9 @@ export class Sessions {
       lastActivityAt: now,
       model: usesModels ? (req.model ?? settings.models.defaultModel) : null,
       thinkingLevel: usesModels ? (req.thinkingLevel ?? settings.models.defaultThinkingLevel) : null,
+      // I-184: the mode picked before the first message (the harness falls back to its own
+      // default for one it doesn't know). Sub-agents never get one: they start in their default.
+      ...(how.kind === "main" && req.permissionMode && harness.info.capabilities.permissionModes ? { permissionMode: req.permissionMode } : {}),
     };
     records.saveSession(session);
     if (how.kind === "subagent") how.register?.(session);
