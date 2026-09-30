@@ -239,10 +239,13 @@ export async function loadChatSession(sessionId: string): Promise<void> {
 
 const commandLoads = new Map<string, Promise<void>>();
 
-/** Fetch the session's harness slash commands once (they're fixed for the agent's lifetime). */
-export function loadChatCommands(sessionId: string): Promise<void> {
+/**
+ * Fetch the session's harness slash commands once (they stay until the harness says they changed,
+ * `commands_changed`, I-185; `force` then loads them again, the old list showing meanwhile).
+ */
+export function loadChatCommands(sessionId: string, force = false): Promise<void> {
   const store = getChatSession(sessionId);
-  if (store.commands.value) return Promise.resolve();
+  if (store.commands.value && !force) return Promise.resolve();
   let pending = commandLoads.get(sessionId);
   if (!pending) {
     pending = Promise.resolve()
@@ -311,6 +314,9 @@ export function handleSessionEvent(sessionId: string, event: AgentEvent): void {
       break;
     case "error":
       store.agentError.value = event.message;
+      break;
+    case "commands_changed":
+      if (store.commands.value) void loadChatCommands(sessionId, true);
       break;
   }
 }

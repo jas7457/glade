@@ -20,8 +20,15 @@
  *   own prompt (`permissions.ts`); "No, and tell Codex …" cancels the turn (it ends Stopped, the
  *   composer gets the focus). Questions (`item/tool/requestUserInput`) become select/input dialogs;
  *   MCP elicitations are declined.
- * - **Permission modes (I-174):** Read only / Auto / Full access, per chat, sent with each turn; a
- *   switch mid-run applies from the next turn.
+ * - **Permission modes (I-174):** Read only / Auto / Plan mode / Full access, per chat, sent with
+ *   each turn; a switch mid-run applies from the next turn (`turn/settings/update` can't change
+ *   approvals, sandbox or collaboration mode of a running turn).
+ * - **Plan mode (I-186):** Codex's Plan collaboration mode (offered when `collaborationMode/list`
+ *   has it) with the approvals and sandbox of the preset it came from; `collaborationMode` goes
+ *   with `turn/start` while planning and once more (Default) when leaving it. A turn that proposed
+ *   a plan (the "Proposed plan" card, `translate.ts`) is followed by Codex's "Implement this
+ *   plan?" card: yes switches back to that preset and sends "Implement the plan." (like Codex's
+ *   TUI); no, or a new message, keeps planning.
  * - **Limits and errors:** a turn refused for the usage limit ends with "Codex usage limit reached
  *   — resets <date>" (`errors.ts`, dates from `account/rateLimits/read`); sign-in problems say how
  *   to log in. Token usage feeds the context meter and session stats.
@@ -63,21 +70,28 @@ import { NOT_LOGGED_IN, friendlyTurnError, usageLimitMessage } from "./errors.js
 import { CODEX_PROVIDER, DEFAULT_CONTEXT_WINDOW, codexModelId, codexThinkingLevels, defaultLevel, effortToLevel, findCodexModel, levelToEffort } from "./models.js";
 import {
   CODEX_DEFAULT_MODE,
+  CODEX_PLAN_MODE,
+  IMPLEMENT_PLAN,
+  IMPLEMENT_PLAN_MESSAGE,
   REJECT,
+  collaborationMode,
   codexPermissionModes,
   commandApproval,
   commandDecision,
   fileChangeApproval,
   fileChangeDecision,
+  implementPlanCard,
   isCodexPermissionMode,
+  isCodexPreset,
   modeFromConfig,
   threadPermissions,
   turnPermissions,
-  type CodexPermissionMode,
+  type CodexPreset,
 } from "./permissions.js";
 import { CodexRpcError } from "./rpc.js";
 import type {
   CodexModel,
+  CollaborationModeKind,
   CommandExecutionRequestApprovalParams,
   DynamicToolCallParams,
   DynamicToolCallResponse,
@@ -89,6 +103,7 @@ import type {
   ServerNotifications,
   ThreadBackgroundTerminalsListResponse,
   ThreadItem,
+  ThreadResumeResponse,
   ThreadStartResponse,
   ToolRequestUserInputParams,
   Turn as CodexTurn,
@@ -146,6 +161,8 @@ interface Turn {
   id: string | null;
   aborted: boolean;
   done: boolean;
+  /** Sent in Plan mode (a proposed plan then gets the "Implement this plan?" card). */
+  planning?: boolean;
   compact?: { resolve: (r: CompactResult) => void; reject: (e: Error) => void; before: number | null; after: number | null };
 }
 
@@ -180,11 +197,18 @@ export class CodexSession implements HarnessSession {
   private readonly children = new Map<string, { path: string; last: string | null; unregister: () => void }>();
   /** The error Codex reported for the running turn (`error` notification), for `turn/completed`. */
   private lastError: CodexTurn["error"] = null;
+  /** Plan mode's approvals and sandbox: the preset the chat was in before (I-186). */
+  private planBase: CodexPreset = CODEX_DEFAULT_MODE;
+  /** The thread's collaboration mode as last sent (or reported on resume); `null`: never set. */
+  private collab: CollaborationModeKind | null = null;
+  /** Codex offers Plan mode (`collaborationMode/list`). */
+  private planAvailable = false;
 
   constructor(private readonly options: CodexSessionOptions) {
     this.ref = options.sessionRef;
     this.events = new SessionEvents(options.log);
     const mode = isCodexPermissionMode(options.permissionMode) ? options.permissionMode : CODEX_DEFAULT_MODE;
+    if (isCodexPreset(mode)) this.planBase = mode;
     this.state = {
       ...defaultSessionState(),
       model: codexModelId(options.model) ? options.model : null,
@@ -209,7 +233,12 @@ export class CodexSession implements HarnessSession {
     const { server } = this.options;
     this.models = await server.listModels().catch(() => [] as CodexModel[]);
     const config = await server.config().catch(() => null);
-    if (!isCodexPermissionMode(this.options.permissionMode)) this.state.permissionMode = modeFromConfig(config);
+    if (!isCodexPreset(this.options.permissionMode)) this.planBase = modeFromConfig(config);
+    if (!isCodexPermissionMode(this.options.permissionMode)) this.state.permissionMode = this.planBase;
+    this.planAvailable = await server.planModeAvailable();
+    this.state.permissionModes = codexPermissionModes().filter((m) => m.id !== CODEX_PLAN_MODE || this.planAvailable);
+    // A chat saved in Plan mode with a Codex that has none: the preset it came from.
+    if (this.state.permissionMode === CODEX_PLAN_MODE && !this.planAvailable) this.state.permissionMode = this.planBase;
     if (!this.state.model) {
       const id = config?.model ?? this.models.find((m) => m.isDefault)?.id ?? null;
       if (id) this.state.model = { provider: CODEX_PROVIDER, id };
@@ -230,8 +259,13 @@ export class CodexSession implements HarnessSession {
     }
   }
 
-  private mode(): CodexPermissionMode {
-    return isCodexPermissionMode(this.state.permissionMode) ? this.state.permissionMode : CODEX_DEFAULT_MODE;
+  /** The approvals and sandbox in effect: the chat's preset, or Plan mode's base. */
+  private mode(): CodexPreset {
+    return isCodexPreset(this.state.permissionMode) ? this.state.permissionMode : this.planBase;
+  }
+
+  private planning(): boolean {
+    return this.state.permissionMode === CODEX_PLAN_MODE;
   }
 
   /** Resume (or start) the thread in the running app-server. */
@@ -251,7 +285,8 @@ export class CodexSession implements HarnessSession {
       const ref = this.ref;
       this.listen(ref); // notifications can come before the reply
       try {
-        await server.request<ThreadStartResponse>("thread/resume", { threadId: ref, ...common, excludeTurns: true });
+        const resumed = await server.request<ThreadResumeResponse>("thread/resume", { threadId: ref, ...common, excludeTurns: true });
+        this.collab = resumed.collaborationMode?.mode ?? null;
         this.loaded = true;
         return;
       } catch (err) {
@@ -383,9 +418,10 @@ export class CodexSession implements HarnessSession {
     this.setState({ thinkingLevel: clampThinkingLevel(this.state.thinkingLevels, level) });
   }
 
-  /** Read only / Auto / Full access: sent with the next turn (Codex applies it per turn). */
+  /** Read only / Auto / Plan mode / Full access: sent with the next turn (Codex applies it per turn). */
   async setPermissionMode(mode: string): Promise<void> {
-    if (!isCodexPermissionMode(mode)) throw new Error(`${LABEL} can't switch to "${mode}" here`);
+    if (!isCodexPermissionMode(mode) || (mode === CODEX_PLAN_MODE && !this.planAvailable)) throw new Error(`${LABEL} can't switch to "${mode}" here`);
+    if (isCodexPreset(mode)) this.planBase = mode;
     if (this.state.permissionMode !== mode) this.setState({ permissionMode: mode });
   }
 
@@ -554,6 +590,7 @@ export class CodexSession implements HarnessSession {
   // Turns ---------------------------------------------------------------------------------------
 
   private async runTurn(request: PromptRequest): Promise<void> {
+    this.cancelUi(); // an open "Implement this plan?" (the user wrote instead)
     const turn: Turn = { id: null, aborted: false, done: false };
     this.startRun(turn);
     for (const event of this.translator.userMessage(request.text, request.images)) this.emit(event);
@@ -570,6 +607,8 @@ export class CodexSession implements HarnessSession {
       const { input, review } = await this.resolveInput(request);
       if (turn.aborted) return this.finishTurn(turn, { stopReason: "aborted" });
       const context = review ? [] : this.takeShellContext();
+      const collab = review ? null : this.collaboration();
+      turn.planning = collab?.mode === CODEX_PLAN_MODE;
       const start = (threadId: string): Promise<TurnStartResponse | ReviewStartResponse> =>
         review
           ? server.request<ReviewStartResponse>("review/start", { threadId, target: review, delivery: "inline" })
@@ -579,6 +618,7 @@ export class CodexSession implements HarnessSession {
               ...(codexModelId(this.state.model) ? { model: codexModelId(this.state.model) } : {}),
               effort: levelToEffort(this.state.thinkingLevel),
               ...turnPermissions(this.mode()),
+              ...(collab ? { collaborationMode: collab } : {}),
             });
       let started: TurnStartResponse | ReviewStartResponse;
       try {
@@ -593,12 +633,25 @@ export class CodexSession implements HarnessSession {
         this.restoreShellContext(context);
         throw err;
       }
+      if (collab) this.collab = collab.mode;
       if (turn.done) return;
       turn.id ??= started.turn.id;
       if (turn.aborted) this.interrupt(turn);
     } catch (err) {
       this.finishTurn(turn, { stopReason: "error", errorMessage: (err as Error).message });
     }
+  }
+
+  /**
+   * The `collaborationMode` for the next turn: Plan while planning, Default once when leaving it
+   * (the thread keeps its mode); nothing for chats that never planned.
+   */
+  private collaboration() {
+    const planning = this.planning();
+    if (!planning && this.collab !== CODEX_PLAN_MODE) return null;
+    const model = codexModelId(this.state.model);
+    if (!model) return null;
+    return collaborationMode(planning ? "plan" : "default", model, levelToEffort(this.state.thinkingLevel));
   }
 
   private startRun(turn: Turn): void {
@@ -617,6 +670,7 @@ export class CodexSession implements HarnessSession {
     }
     this.cancelUi();
     if (this.turn === turn) this.turn = null;
+    const proposedPlan = turn.planning ? this.translator.proposedPlanText() : null;
     if (turn.compact) {
       this.setState({ isCompacting: false });
       if (end.stopReason === "stop") turn.compact.resolve({ tokensBefore: turn.compact.before ?? 0, tokensAfter: turn.compact.after });
@@ -632,7 +686,21 @@ export class CodexSession implements HarnessSession {
     if (next) {
       this.emitQueue();
       void this.runTurn(next);
+    } else if (finished && proposedPlan && !this.disposed) {
+      void this.offerPlan();
     }
+  }
+
+  /**
+   * Codex's "Implement this plan?" after a turn that proposed one (the chat is idle meanwhile; a
+   * new message closes it and keeps planning). Yes: back to the preset Plan mode came from, and
+   * "Implement the plan." is sent.
+   */
+  private async offerPlan(): Promise<void> {
+    const response = await this.ask({ id: this.nextUiId(), kind: "permission", numbered: true, ...implementPlanCard() });
+    if (!response || !("value" in response) || response.value !== IMPLEMENT_PLAN || this.disposed || this.turn) return;
+    if (this.planning()) this.setState({ permissionMode: this.planBase });
+    await this.prompt({ text: IMPLEMENT_PLAN_MESSAGE });
   }
 
   private emitQueue(): void {
@@ -692,6 +760,10 @@ export class CodexSession implements HarnessSession {
       case "thread/closed":
         this.loaded = false;
         return;
+      case "skills/changed":
+        // I-185: the `/` menu reloads (app-server.ts forwards Codex's app-wide notice to each chat).
+        this.emit({ type: "commands_changed" });
+        return;
       case "model/rerouted": {
         const { toModel } = p as ServerNotifications["model/rerouted"];
         this.emit({ type: "notify", level: "info", message: `${LABEL} switched this turn to ${toModel}` });
@@ -721,10 +793,13 @@ export class CodexSession implements HarnessSession {
         return t.itemStarted((p as ServerNotifications["item/started"]).item);
       case "item/completed":
         return t.itemCompleted((p as ServerNotifications["item/completed"]).item);
-      case "item/agentMessage/delta":
-      case "item/plan/delta": {
+      case "item/agentMessage/delta": {
         const { itemId, delta } = p as ServerNotifications["item/agentMessage/delta"];
         return t.agentDelta(itemId, delta);
+      }
+      case "item/plan/delta": {
+        const { itemId, delta } = p as ServerNotifications["item/plan/delta"];
+        return t.planDelta(itemId, delta);
       }
       case "item/reasoning/summaryTextDelta": {
         const { itemId, delta, summaryIndex } = p as ServerNotifications["item/reasoning/summaryTextDelta"];

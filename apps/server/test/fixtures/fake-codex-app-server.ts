@@ -100,7 +100,15 @@ export interface FakeCodexOptions {
   rateLimits?: GetAccountRateLimitsResponse;
   /** `turn/interrupt` ends the turn as interrupted (default true). */
   interruptEnds?: boolean;
+  /** `collaborationMode/list` (default: the real 0.159.1 answer, Plan and Default); `null`: unknown method. */
+  collaborationModes?: Array<{ name: string; mode: string | null; model: string | null; reasoning_effort: string | null }> | null;
 }
+
+/** `collaborationMode/list` of codex-cli 0.159.1 (captured 2026-09-30). */
+export const FAKE_COLLABORATION_MODES = [
+  { name: "Plan", mode: "plan", model: null, reasoning_effort: "medium" },
+  { name: "Default", mode: "default", model: null, reasoning_effort: null },
+];
 
 export interface FakeThread {
   id: string;
@@ -110,6 +118,8 @@ export interface FakeThread {
   turns: FakeTurn[];
   /** Items added with `thread/inject_items`. */
   injected: unknown[];
+  /** The collaboration mode a turn set (sticky, like Codex). */
+  collaborationMode?: unknown;
 }
 
 let threadSeq = 0;
@@ -177,12 +187,20 @@ export class FakeCodexAppServer {
         const thread = this.threads.get(params.threadId as string);
         if (!thread || !thread.saved) throw rpcError(-32600, `no rollout found for thread id ${params.threadId}`);
         conn.loaded.add(thread.id);
-        return { thread: { id: thread.id }, model: (params.model as string) ?? "gpt-6-luna", reasoningEffort: "medium", approvalPolicy: params.approvalPolicy, sandbox: { type: "readOnly", networkAccess: false } };
+        return {
+          thread: { id: thread.id },
+          model: (params.model as string) ?? "gpt-6-luna",
+          reasoningEffort: "medium",
+          approvalPolicy: params.approvalPolicy,
+          sandbox: { type: "readOnly", networkAccess: false },
+          collaborationMode: thread.collaborationMode ?? null,
+        };
       }
       case "turn/start": {
         const thread = this.threads.get(params.threadId as string);
         if (!thread || !conn.loaded.has(thread.id)) throw rpcError(-32600, `thread not found: ${params.threadId}`);
         thread.saved = true;
+        if (params.collaborationMode) thread.collaborationMode = params.collaborationMode;
         const turn = new FakeTurn(this, conn, thread, params);
         thread.turns.push(turn);
         setImmediate(() => {
@@ -284,6 +302,9 @@ export class FakeCodexAppServer {
         this.terminatedTerminals.push(params.processId as string);
         return {};
       }
+      case "collaborationMode/list":
+        if (o.collaborationModes === null) throw rpcError(-32601, `unknown method ${method}`);
+        return { data: o.collaborationModes ?? FAKE_COLLABORATION_MODES };
       case "thread/unsubscribe":
         return { status: "unsubscribed" };
       default:
@@ -440,6 +461,20 @@ export class FakeTurn {
   usage(lastTotal: number, window: number | null): void {
     const b = (n: number) => ({ totalTokens: n, inputTokens: n - 100, cachedInputTokens: 1000, cacheWriteInputTokens: 0, outputTokens: 100, reasoningOutputTokens: 20 });
     this.notify("thread/tokenUsage/updated", { ...this.base(), tokenUsage: { total: b(lastTotal * 2), last: b(lastTotal), modelContextWindow: window } });
+  }
+
+  /** Plan mode's proposed plan: a `plan` item streamed in pieces (Codex's deltas may differ from the final text). */
+  proposePlan(text: string, deltas: string[] = [text]): string {
+    const id = `plan-${++itemSeq}`;
+    this.started({ type: "plan", id, text: "" });
+    for (const d of deltas) this.delta("item/plan/delta", id, d);
+    this.completed({ type: "plan", id, text });
+    return id;
+  }
+
+  /** The collaboration mode sent with `turn/start`, if any. */
+  get collaborationMode(): string | undefined {
+    return (this.params.collaborationMode as { mode?: string } | undefined)?.mode;
   }
 
   plan(steps: Array<{ step: string; status: "pending" | "inProgress" | "completed" }>, explanation: string | null = null): void {

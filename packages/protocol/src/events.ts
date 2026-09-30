@@ -170,6 +170,11 @@ export type AgentEvent =
   | { type: "ui_request"; request: UiRequest }
   /** A dialog was resolved elsewhere (or timed out). */
   | { type: "ui_request_closed"; id: string }
+  /**
+   * The session's slash commands changed (e.g. Codex reported new skills, I-185): clients that
+   * loaded them (`GET /sessions/:id/commands`) load them again.
+   */
+  | { type: "commands_changed" }
   /** Transient toast-style notification. */
   | { type: "notify"; level: "info" | "warning" | "error"; message: string }
   /** The agent process failed / exited unexpectedly. */

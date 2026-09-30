@@ -6,7 +6,8 @@
  * - One app-server process per Glade server, shared by every Codex chat (`app-server.ts`); each
  *   chat is a thread (`codex-session.ts`). The session ref is the thread id.
  * - Models and reasoning efforts from `model/list` (`models.ts`), Codex's configured model first.
- * - Permission modes (I-174): Codex's presets Read only / Auto / Full access (`permissions.ts`).
+ * - Permission modes (I-174): Codex's presets Read only / Auto / Full access, plus Plan mode
+ *   (Codex's Plan collaboration mode, I-186) (`permissions.ts`).
  * - Usage limits: `account/rateLimits/read` for the gauge and the "usage limit reached" message.
  * - Titles and side questions: none of Codex's own (a one-shot run would spend the user's Codex
  *   usage), so titles fall back to the first message (`canGenerateTitles` is false).

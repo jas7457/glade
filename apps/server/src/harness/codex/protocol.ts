@@ -179,7 +179,26 @@ export interface ThreadStartResponse {
   sandbox: SandboxPolicy;
 }
 
-export type ThreadResumeResponse = ThreadStartResponse;
+export interface ThreadResumeResponse extends ThreadStartResponse {
+  /** The thread's collaboration mode (experimental), when it has one. */
+  collaborationMode?: CollaborationMode | null;
+}
+
+// Collaboration modes (I-186, experimental) ----------------------------------------------------------
+
+/** `ModeKind`: Codex's Plan mode or its Default. */
+export type CollaborationModeKind = "plan" | "default";
+
+/** `CollaborationMode` (turn/start's `collaborationMode`); `developer_instructions: null` = Codex's built-in ones. */
+export interface CollaborationMode {
+  mode: CollaborationModeKind;
+  settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null };
+}
+
+/** `collaborationMode/list`: Codex's presets (0.159.1: Plan with effort "medium", Default). */
+export interface CollaborationModeListResponse {
+  data: Array<{ name: string; mode: CollaborationModeKind | null; model: string | null; reasoning_effort: string | null }>;
+}
 
 export type UserInput =
   | { type: "text"; text: string; text_elements: unknown[] }
@@ -197,6 +216,8 @@ export interface TurnStartParams {
   effort?: string | null;
   /** "auto" | "concise" | "detailed" | "none". */
   summary?: string | null;
+  /** Experimental (I-186): Codex's Plan / Default mode for this and later turns. */
+  collaborationMode?: CollaborationMode | null;
 }
 
 export type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";

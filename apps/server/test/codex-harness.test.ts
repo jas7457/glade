@@ -5,7 +5,9 @@
  * payloads), permissions, sessions (threads, turns, steer/follow-up, stop, approvals, questions,
  * Glade's tools, compaction, crashes), the harness and a chat through the app service, plus the
  * JSONL framing against a real child process. I-178: skills and /review in the slash menu, skill
- * items, reviews as the reply, and `!cmd` / `!!cmd` via `command/exec`.
+ * items, reviews as the reply, and `!cmd` / `!!cmd` via `command/exec`. I-186: Plan mode (Codex's
+ * collaboration mode), the proposed plan card and "Implement this plan?". I-185: `skills/changed`
+ * tells open chats their commands changed.
  */
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +28,7 @@ import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { AppService } from "../src/services/app-service.js";
 import { Store } from "../src/store/store.js";
-import { FAKE_MODELS, FAKE_SKILLS, FakeCodexAppServer, LIMIT_REACHED, USAGE_LIMIT_ERROR, type FakeCodexOptions } from "./fixtures/fake-codex-app-server.js";
+import { FAKE_MODELS, FAKE_SKILLS, FakeCodexAppServer, type FakeTurn, LIMIT_REACHED, USAGE_LIMIT_ERROR, type FakeCodexOptions } from "./fixtures/fake-codex-app-server.js";
 import { until } from "./helpers.js";
 
 let dir: string;
@@ -265,6 +267,7 @@ describe("Codex models, limits and permissions", () => {
     expect(codexPermissionModes().map((m) => [m.id, m.label, !!m.danger])).toEqual([
       ["read-only", "Read only", false],
       ["auto", "Auto", false],
+      ["plan", "Plan mode", false],
       ["full-access", "Full access", true],
     ]);
     expect(turnPermissions("full-access")).toEqual({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } });
@@ -860,5 +863,153 @@ describe("Codex chats through the app service", () => {
     } finally {
       await service.dispose();
     }
+  });
+});
+
+describe("Codex Plan mode (I-186)", () => {
+  const PLAN = "# Add --version\n\n## Summary\nPrint the version.\n\n## Steps\n- Read package.json\n- Add the flag";
+  const planTurn = (t: FakeTurn) => {
+    if (t.collaborationMode === "plan") {
+      t.message("I looked around.");
+      t.proposePlan(PLAN, ["# Add --version\n\n## Sum", "mary\nPrint the version.\n", "\n## Steps\n- Read package.json\n- Add the flag"]);
+      t.complete();
+    } else t.reply("Done.");
+  };
+  type PermissionCard = Extract<UiRequest, { kind: "permission" }>;
+
+  it("streams a proposed plan as a plan notice without steps, below the reply so far", () => {
+    const t = new CodexTranslator("p");
+    const events = [
+      ...t.itemStarted({ type: "agentMessage", id: "m1", text: "" }),
+      ...t.agentDelta("m1", "Exploring."),
+      ...t.itemStarted({ type: "plan", id: "p1", text: "" }),
+      ...t.planDelta("p1", "# Title\nfirst"),
+    ];
+    const streaming = fold(events).messages.find((m): m is NoticeMessage => m.role === "notice")!;
+    expect(streaming).toMatchObject({ kind: "plan", text: "# Title" });
+    expect(streaming.plan).toBeUndefined();
+    expect(t.planDelta("p1", " half")).toEqual([]); // no new line yet: no update
+    events.push(...t.itemCompleted({ type: "plan", id: "p1", text: "# Title\nfirst half\n" }), ...t.finish({ stopReason: "stop" }));
+    const transcript = fold(events);
+    expect(transcript.messages.map((m) => [m.role, messageText(m)])).toEqual([
+      ["assistant", "Exploring."],
+      ["notice", "# Title\nfirst half"],
+    ]);
+    expect(assistants(transcript)[0]!.streaming).toBe(false);
+  });
+
+  it("plans in Codex's Plan mode, asks \"Implement this plan?\" after the turn, and implements in the mode it came from", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: planTurn });
+    const { session, run, transcript, uiRequests, events } = await openSession(harness(codex));
+    expect(codex.sent("collaborationMode/list")).toHaveLength(1);
+    expect(session.getState().permissionModes!.map((m) => m.id)).toEqual(["read-only", "auto", "plan", "full-access"]);
+    await session.setThinkingLevel("low");
+    await session.setPermissionMode("plan");
+    await run("plan how to add a --version flag");
+
+    const [first] = codex.sent("turn/start");
+    // The preset it came from (Auto) keeps its approvals and sandbox; the chat's model and effort go in the mode.
+    expect(first).toMatchObject({
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "workspaceWrite" },
+      collaborationMode: { mode: "plan", settings: { model: "gpt-6-luna", reasoning_effort: "low", developer_instructions: null } },
+    });
+    const plans = transcript().messages.filter((m): m is NoticeMessage => m.role === "notice" && m.kind === "plan");
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ text: PLAN });
+    expect(plans[0]!.plan).toBeUndefined();
+
+    // After run_end: Codex's prompt, worded like its TUI.
+    await until(() => uiRequests().length === 1);
+    const runEnd = events.findIndex((e) => e.type === "run_end");
+    expect(events.findIndex((e) => e.type === "ui_request")).toBeGreaterThan(runEnd);
+    const card = uiRequests()[0] as PermissionCard;
+    expect(card).toMatchObject({ kind: "permission", title: "Implement this plan?", numbered: true });
+    expect(card.options.map((o) => [o.label, o.kind])).toEqual([
+      ["Yes, implement this plan", "allow_once"],
+      ["No, stay in Plan mode", "reject_once"],
+    ]);
+    session.respondToUi({ id: card.id, value: "implement" });
+    await until(() => codex.sent("turn/start").length === 2 && !session.getState().isRunning);
+    expect(session.getState().permissionMode).toBe("auto");
+    const second = codex.sent("turn/start")[1]!;
+    expect(second).toMatchObject({ input: [{ type: "text", text: "Implement the plan." }], collaborationMode: { mode: "default" } });
+    expect(transcript().messages.filter((m) => m.role === "user").map(messageText)).toEqual(["plan how to add a --version flag", "Implement the plan."]);
+    // Out of Plan mode for good: later turns send no collaboration mode.
+    await run("thanks");
+    expect(codex.sent("turn/start")[2]!.collaborationMode).toBeUndefined();
+  });
+
+  it("stays in Plan mode on no, and a new message instead closes the prompt", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: planTurn });
+    const { session, run, uiRequests, events } = await openSession(harness(codex), null, { permissionMode: "plan" });
+    await session.setPermissionMode("read-only");
+    await session.setPermissionMode("plan");
+    await run("plan it");
+    await until(() => uiRequests().length === 1);
+    const card = uiRequests()[0] as PermissionCard;
+    expect(card.message).toBeUndefined();
+    expect(card.options[1]).toMatchObject({ focusComposer: true });
+    session.respondToUi({ id: card.id, value: "stay" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(codex.sent("turn/start")).toHaveLength(1);
+    expect(session.getState().permissionMode).toBe("plan");
+
+    await run("also cover the tests");
+    await until(() => uiRequests().length === 2);
+    await session.prompt({ text: "one more thing" });
+    await until(() => events.some((e) => e.type === "ui_request_closed" && e.id === uiRequests()[1]!.id));
+    await until(() => codex.sent("turn/start").length === 3);
+    expect(codex.sent("turn/start").map((p) => (p.collaborationMode as { mode: string }).mode)).toEqual(["plan", "plan", "plan"]);
+    expect(codex.sent("turn/start")[2]).toMatchObject({ sandboxPolicy: { type: "readOnly" } });
+  });
+
+  it("switches a resumed thread Codex still has in Plan mode back to Default; no Plan mode without collaboration modes", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    codex.addThread("thr-planned").collaborationMode = { mode: "plan", settings: { model: "gpt-6-luna", reasoning_effort: "low", developer_instructions: null } };
+    const { run } = await openSession(harness(codex), "thr-planned", { permissionMode: "auto" });
+    await run("go");
+    expect(codex.sent("turn/start")[0]!.collaborationMode).toMatchObject({ mode: "default" });
+
+    const old = new FakeCodexAppServer({ collaborationModes: null, onTurn: (t) => t.reply("ok") });
+    const { session } = await openSession(harness(old), null, { permissionMode: "plan" });
+    expect(session.getState().permissionModes!.map((m) => m.id)).toEqual(["read-only", "auto", "full-access"]);
+    expect(session.getState().permissionMode).toBe("auto");
+    await expect(session.setPermissionMode("plan")).rejects.toThrow(/can't switch/);
+  });
+
+  it("keeps the plan card and the pending prompt through the app service; yes implements", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: planTurn });
+    const store = new Store(join(dir, "data"), 0);
+    const service = new AppService({ store, harnesses: new HarnessRegistry([harness(codex)]), scratchDir: cwd });
+    try {
+      const created = await service.createWorkspace({ projectId: null, harness: "codex" });
+      const id = created.session.session.id;
+      await service.setPermissionMode(id, "plan");
+      await until(() => store.getSession(id)!.permissionMode === "plan");
+      await service.prompt(id, { text: "plan it" });
+      let detail = await service.getSessionDetail(id);
+      for (let i = 0; i < 100 && detail.pendingUiRequests.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+        detail = await service.getSessionDetail(id);
+      }
+      expect(detail.pendingUiRequests[0]).toMatchObject({ title: "Implement this plan?" });
+      expect(detail.session.running).toBe(false);
+      expect(store.loadTranscript(id).messages.find((m) => m.role === "notice")).toMatchObject({ kind: "plan", text: PLAN });
+      service.respondToUi(id, { id: detail.pendingUiRequests[0]!.id, value: "implement" });
+      await until(() => store.loadTranscript(id).messages.some((m) => m.role === "assistant" && messageText(m) === "Done."), 2000);
+      await until(() => store.getSession(id)!.permissionMode === "auto");
+    } finally {
+      await service.dispose();
+    }
+  });
+
+  it("tells open chats their commands changed when Codex reports skills/changed (I-185)", async () => {
+    const codex = new FakeCodexAppServer();
+    const h = harness(codex);
+    const a = await openSession(h);
+    const b = await openSession(h);
+    codex.live.deliver({ method: "skills/changed", params: {} });
+    await until(() => a.events.some((e) => e.type === "commands_changed") && b.events.some((e) => e.type === "commands_changed"));
   });
 });

@@ -3,12 +3,16 @@
  * in progress ◐, completed ✓. The harness re-sends the whole plan under the same message id, so
  * the card updates in place. Long plans show {@link PLAN_PREVIEW_ITEMS} steps around the current
  * one until "Show all".
+ *
+ * A proposed plan (a plan notice without steps, I-186: e.g. Codex's Plan mode) is a document, not
+ * a checklist: {@link ProposedPlanCard} shows its markdown under a "Proposed plan" header.
  */
 import { memo } from "preact/compat";
 import { useState } from "preact/hooks";
-import { Check, Circle, CircleDashed, ListChecks } from "lucide-preact";
+import { Check, Circle, CircleDashed, ClipboardList, ListChecks } from "lucide-preact";
 import type { PlanEntry } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
+import { Markdown } from "./Markdown";
 
 export const PLAN_PREVIEW_ITEMS = 5;
 
@@ -67,6 +71,19 @@ export const PlanCard = memo(function PlanCard({ entries }: { entries: PlanEntry
           {expanded ? "Show less" : `Show all (${entries.length})`}
         </button>
       )}
+    </div>
+  );
+});
+
+/** A proposed plan (markdown), re-sent whole under the same id while it streams. */
+export const ProposedPlanCard = memo(function ProposedPlanCard({ text }: { text: string }) {
+  return (
+    <div data-role="proposed-plan" class="my-3 rounded-[10px] border-[0.5px] border-separator bg-surface px-3 py-2">
+      <div class="mb-1 flex items-center gap-1.5 text-[0.92rem] text-fg-muted">
+        <ClipboardList size={13} class="shrink-0" />
+        <span class="font-medium text-fg">Proposed plan</span>
+      </div>
+      <Markdown text={text} />
     </div>
   );
 });

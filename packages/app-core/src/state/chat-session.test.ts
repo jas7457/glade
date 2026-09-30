@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSessionState, emptyTranscript, type SessionDetail, type SessionState } from "@glade/protocol";
 import { makeSession } from "@glade/app-core/test/fixtures";
 
-vi.mock("@glade/app-core/lib/api", () => ({ api: { getSession: vi.fn() } }));
+vi.mock("@glade/app-core/lib/api", () => ({ api: { getSession: vi.fn(), listCommands: vi.fn() } }));
 vi.mock("@glade/app-core/lib/socket", () => ({ socket: { watch: vi.fn(() => () => {}) } }));
 
 const { api } = await import("@glade/app-core/lib/api");
@@ -16,6 +16,8 @@ const {
   applySessionSnapshot,
   applyTranscriptPatch,
   getChatSession,
+  handleSessionEvent,
+  loadChatCommands,
   loadChatSession,
   reloadIfChangedElsewhere,
   reloadOpenChatSessions,
@@ -91,5 +93,30 @@ describe("transcript patches (I-122)", () => {
     expect(store.transcript.value.messages.map((m) => (m.role === "user" && m.content[0]?.type === "text" ? m.content[0].text : ""))).toEqual(["c", "d2", "e"]);
     // A message far past the end doesn't fit: the caller starts over with a snapshot.
     expect(applyTranscriptPatch("s1", [{ index: 9, message: msg("z", "z") }], [])).toBe(false);
+  });
+});
+
+describe("slash commands (I-185)", () => {
+  it("loads them once, and again when the harness says they changed (keeping the old list meanwhile)", async () => {
+    const listCommands = vi.mocked(api.listCommands);
+    listCommands.mockResolvedValueOnce([{ name: "review", source: "harness" }] as never);
+    const store = applySessionDetail(detail(LIVE));
+    await loadChatCommands("s1");
+    await loadChatCommands("s1");
+    expect(listCommands).toHaveBeenCalledTimes(1);
+
+    let resolve: (v: never) => void = () => {};
+    listCommands.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    handleSessionEvent("s1", { type: "commands_changed" });
+    await vi.waitFor(() => expect(listCommands).toHaveBeenCalledTimes(2));
+    expect(store.commands.value!.map((c) => c.name)).toEqual(["review"]);
+    resolve([{ name: "review" }, { name: "pdf" }] as never);
+    await vi.waitFor(() => expect(store.commands.value!.map((c) => c.name)).toEqual(["review", "pdf"]));
+
+    // Never loaded (the menu wasn't opened): nothing to refresh.
+    applySessionDetail({ ...detail(LIVE), session: makeSession({ id: "s3" }) });
+    handleSessionEvent("s3", { type: "commands_changed" });
+    await Promise.resolve();
+    expect(listCommands).toHaveBeenCalledTimes(2);
   });
 });

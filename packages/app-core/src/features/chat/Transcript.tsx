@@ -39,7 +39,7 @@ import { dayDividers } from "./message-time";
 import { useImageLightbox } from "./ImageLightbox";
 import { ShellCard } from "./ShellCard";
 import { SideQuestionCard } from "./SideQuestionCard";
-import { PlanCard } from "./PlanCard";
+import { PlanCard, ProposedPlanCard } from "./PlanCard";
 import { Markdown } from "./Markdown";
 import { ThinkingView } from "./Thinking";
 import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
@@ -236,8 +236,10 @@ function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: stri
       return <UserBubble message={item.message} />;
     }
     case "notice":
-      // A plan (I-119) is a checklist card; other notices are divider rows.
+      // A plan (I-119) is a checklist card, a proposed plan (no steps, I-186) a document card;
+      // other notices are divider rows.
       if (item.message.kind === "plan" && item.message.plan) return <PlanCard entries={item.message.plan} />;
+      if (item.message.kind === "plan" && item.message.text.trim()) return <ProposedPlanCard text={item.message.text} />;
       return <NoticeRow message={item.message} />;
     case "shell":
       return <ShellCard message={item.message} chatId={chatId} />;

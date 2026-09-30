@@ -12,7 +12,9 @@
  *   a new process (chats resume their threads there).
  * - Requests Codex sends for threads nobody registered are refused with a JSON-RPC error.
  * - Skills (I-178): `skills/list` per folder, cached until Codex says they changed
- *   (`skills/changed`, then the next call re-reads them).
+ *   (`skills/changed`, then the next call re-reads them; every chat hears it, I-185).
+ * - Plan mode (I-186): `collaborationMode/list` (experimental) says whether Codex has one; read
+ *   once per process.
  * - `command/exec` (I-178, `!cmd`): its output notifications are per connection, not per thread;
  *   `exec` routes them to the caller by `processId`.
  */
@@ -21,6 +23,7 @@ import { CodexRpc, CodexRpcError, type CodexTransport } from "./rpc.js";
 import type {
   CodexConfig,
   CodexModel,
+  CollaborationModeListResponse,
   CommandExecOutputDeltaNotification,
   CommandExecParams,
   CommandExecResponse,
@@ -56,6 +59,8 @@ interface Connection {
   init: InitializeResponse;
   account: GetAccountResponse | null;
   config: CodexConfig | null;
+  /** `collaborationMode/list` has a Plan mode (read once). */
+  plan?: Promise<boolean>;
 }
 
 const MODELS_TTL_MS = 60_000;
@@ -147,6 +152,20 @@ export class CodexAppServer {
     return (await this.ensure()).config;
   }
 
+  /** Codex offers its Plan collaboration mode (`collaborationMode/list`); `false` when it can't say. */
+  async planModeAvailable(): Promise<boolean> {
+    const connection = await this.ensure().catch(() => null);
+    if (!connection) return false;
+    connection.plan ??= connection.rpc.request<CollaborationModeListResponse>("collaborationMode/list", {}, 15_000).then(
+      (res) => (res.data ?? []).some((m) => m.mode === "plan"),
+      (err: Error) => {
+        this.options.log?.(`codex: no collaboration modes (${err.message}); Plan mode is off`);
+        return false;
+      },
+    );
+    return connection.plan;
+  }
+
   /** `model/list` (every page), cached for a minute. */
   listModels(force = false): Promise<CodexModel[]> {
     const hit = this.models;
@@ -234,7 +253,11 @@ export class CodexAppServer {
   private onNotification(method: string, raw: unknown): void {
     const params = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
     if (method === "account/rateLimits/updated") return this.mergeLimits(params.rateLimits as RateLimitSnapshot | undefined);
-    if (method === "skills/changed") return this.skillCache.clear();
+    if (method === "skills/changed") {
+      this.skillCache.clear();
+      for (const listener of [...this.threads.values()]) listener.notification(method, params);
+      return;
+    }
     if (method === "command/exec/outputDelta") {
       const delta = params as unknown as CommandExecOutputDeltaNotification;
       this.execs.get(delta.processId)?.(delta);

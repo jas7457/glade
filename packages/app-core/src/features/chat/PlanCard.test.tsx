@@ -61,4 +61,23 @@ describe("PlanCard in the transcript", () => {
       expect(card().querySelectorAll("li")).toHaveLength(5);
     });
   });
+
+  it("renders a plan notice without steps as a proposed plan document (I-186)", () => {
+    const store = getChatSession("c1");
+    store.status.value = "ready";
+    store.state.value = defaultSessionState();
+    const text = "# Add --version\n\n## Steps\n- Read package.json\n- Add the flag";
+    store.transcript.value = { messages: [{ id: "pp1", role: "notice", kind: "plan", text, timestamp: 1 }], toolResults: {} };
+    const { container } = render(
+      <TooltipProvider>
+        <Transcript chatId="c1" />
+      </TooltipProvider>,
+    );
+    const card = container.querySelector('[data-role="proposed-plan"]') as HTMLElement;
+    expect(card.textContent).toContain("Proposed plan");
+    expect(card.querySelector("h1")?.textContent).toBe("Add --version");
+    expect([...card.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Read package.json", "Add the flag"]);
+    expect(container.querySelector('[data-role="plan"]')).toBeNull();
+    expect(container.querySelector('[data-role="notice"]')).toBeNull();
+  });
 });

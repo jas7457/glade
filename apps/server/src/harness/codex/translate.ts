@@ -9,7 +9,9 @@
  *   `item/completed` carries the authoritative text.
  * - Tool calls start complete (`item/started` has the arguments); command output streams as
  *   `tool_update`s; `item/completed` ends them (exit code, diffs, MCP results, declines).
- * - `turn/plan/updated` is the plan card (one notice per turn, updated in place); context
+ * - `turn/plan/updated` is the plan card (one notice per turn, updated in place); a proposed plan
+ *   (Plan mode's `plan` item, I-186) is a plan notice without entries (the "Proposed plan" card,
+ *   markdown), streamed line by line and replaced by the completed item's text; context
  *   compaction and entering review mode are notices; a review's result (`exitedReviewMode`) is
  *   the reply text (Codex's agent message repeating it after that is skipped).
  * - `finish` ends the turn: it closes the message with the stop reason / error and settles tool
@@ -67,6 +69,8 @@ export class CodexTranslator {
   private readonly items = new Map<string, ThreadItem>();
   private readonly rejected = new Set<string>();
   private planId: string | null = null;
+  /** Proposed plans (`plan` items) of this turn: their notice and text so far. */
+  private readonly proposed = new Map<string, { messageId: string; text: string; shown: string }>();
   /** A review's result was shown this turn; the agent messages after it repeat it. */
   private reviewShown = false;
   private readonly echoes = new Set<string>();
@@ -130,7 +134,7 @@ export class CodexTranslator {
         if (this.isReviewEcho(item)) return [];
         return item.text ? this.setText(item.id, "text", item.text) : [];
       case "plan":
-        return item.text ? this.setText(item.id, "text", item.text) : [];
+        return this.proposedPlan(item.id, item.text);
       case "reasoning":
         return [];
       case "contextCompaction":
@@ -151,7 +155,7 @@ export class CodexTranslator {
         if (this.isReviewEcho(item)) return [];
         return this.setText(item.id, "text", item.text, true);
       case "plan":
-        return this.setText(item.id, "text", item.text, true);
+        return this.proposedPlan(item.id, item.text, true);
       case "reasoning": {
         const text = (item.summary.length ? item.summary : item.content).join("\n\n");
         return this.setText(item.id, "thinking", text, true);
@@ -210,6 +214,41 @@ export class CodexTranslator {
     return this.startTools(calls);
   }
 
+  /** More of a proposed plan: the card updates once a line is complete (not on every token). */
+  planDelta(itemId: string, delta: string): AgentEvent[] {
+    const entry = this.proposed.get(itemId) ?? { messageId: this.nextId("pp"), text: "", shown: "" };
+    this.proposed.set(itemId, entry);
+    entry.text += delta;
+    const upTo = entry.text.lastIndexOf("\n");
+    const text = upTo < 0 ? "" : entry.text.slice(0, upTo).trim();
+    if (!text || text === entry.shown) return [];
+    return this.showProposed(entry, text);
+  }
+
+  /** A proposed plan (a `plan` item; `final`: completed, its text is authoritative). */
+  private proposedPlan(itemId: string, text: string, final = false): AgentEvent[] {
+    const entry = this.proposed.get(itemId) ?? { messageId: this.nextId("pp"), text: "", shown: "" };
+    this.proposed.set(itemId, entry);
+    const next = text.trim() || (final ? entry.text.trim() : "");
+    if (!next || next === entry.shown) return [];
+    entry.text = next;
+    return this.showProposed(entry, next);
+  }
+
+  private showProposed(entry: { messageId: string; shown: string }, text: string): AgentEvent[] {
+    // The reply so far ends above the card; text after it opens a new message below.
+    const events = entry.shown ? [] : this.close("stop");
+    entry.shown = text;
+    events.push({ type: "message_end", message: { id: entry.messageId, role: "notice", kind: "plan", text, timestamp: this.now() } });
+    return events;
+  }
+
+  /** The completed proposed plan of this turn, if any (the last one). */
+  proposedPlanText(): string | null {
+    const last = [...this.proposed.values()].at(-1);
+    return last?.shown || null;
+  }
+
   /** Codex's plan (`update_plan`): the plan card. */
   plan(steps: TurnPlanStep[], explanation?: string | null): AgentEvent[] {
     const entries: PlanEntry[] = steps.map((s) => ({ content: s.step, status: s.status === "inProgress" ? "in_progress" : s.status === "completed" ? "completed" : "pending" }));
@@ -253,6 +292,7 @@ export class CodexTranslator {
     this.items.clear();
     this.rejected.clear();
     this.planId = null;
+    this.proposed.clear();
     this.reviewShown = false;
     this.echoes.clear();
     return events;

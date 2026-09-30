@@ -206,9 +206,16 @@ export interface NoticeMessage {
   id: string;
   role: "notice";
   kind: "info" | "warning" | "error" | "compaction" | "plan";
-  /** Plain text (for `plan`: a text version of the checklist, for search and copy). */
+  /**
+   * Plain text (for `plan`: a text version of the checklist, for search and copy; for a proposed
+   * plan without `plan` entries: the plan document itself, markdown).
+   */
   text: string;
-  /** `kind: "plan"`: the agent's plan as a checklist, re-sent whole (same id) when it changes (I-119). */
+  /**
+   * `kind: "plan"`: the agent's plan as a checklist, re-sent whole (same id) when it changes
+   * (I-119). Absent on a plan notice: a *proposed plan* (I-186, e.g. Codex's Plan mode), a
+   * markdown document in `text`, shown as a "Proposed plan" card; re-sent whole while it streams.
+   */
   plan?: PlanEntry[];
   timestamp: number;
 }
