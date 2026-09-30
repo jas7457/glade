@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- New chats: choose the permission mode (e.g. Plan mode, Read only) before the first message, with
+  the agent's own default preselected (Shift+Tab or the mode pill; on iPhone in the Model &
+  Thinking sheet), and the `/` menu lists the chosen agent's commands and skills.
 - Codex chats have a Plan mode (Codex's own): Codex explores without changing anything, its
   proposed plan shows as a "Proposed plan" card, and "Implement this plan?" switches back to your
   previous mode and starts coding. Skills added while a Codex chat is open appear in its `/` menu
