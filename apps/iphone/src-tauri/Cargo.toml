@@ -19,6 +19,9 @@ serde_json = "1"
 [target.'cfg(target_os = "ios")'.dependencies]
 # The WebView's content view (keyboard_bar.rs); same major version wry uses.
 objc2 = "0.6"
+# Conversation mode (I-180): speech recognition, Apple voices, audio session, cues. A Swift Tauri
+# plugin in plugins/voice (ios/Sources).
+tauri-plugin-voice = { path = "plugins/voice" }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 security-framework = "3"

@@ -1,0 +1,18 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Everything conversation mode needs: permissions, voices, the audio session, listening, speaking and cues."
+permissions = [
+  "allow-is-available",
+  "allow-get-permissions",
+  "allow-request-permissions",
+  "allow-request-personal-voice",
+  "allow-list-voices",
+  "allow-start-session",
+  "allow-end-session",
+  "allow-start-listening",
+  "allow-stop-listening",
+  "allow-speak",
+  "allow-stop-speaking",
+  "allow-play-cue",
+]

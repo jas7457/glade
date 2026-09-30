@@ -5,5 +5,9 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Glade uses the camera to scan the pairing code shown by your Mac.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Glade listens to you in conversation mode, so you can talk to your agent hands-free.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Glade turns what you say in conversation mode into text on this iPhone (on-device recognition; audio isn't sent anywhere).</string>
 </dict>
 </plist>

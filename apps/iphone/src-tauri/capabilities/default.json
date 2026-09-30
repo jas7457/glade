@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "default",
-  "description": "The app's only window: the bundled phone UI. It may use the Keychain commands (secret_*) and the barcode scanner (pairing QR codes).",
+  "description": "The app's only window: the bundled phone UI. It may use the Keychain commands (secret_*) and the barcode scanner (pairing QR codes) and the voice plugin (conversation mode, I-180; iOS only).",
   "windows": ["main"],
   "permissions": [
     "core:default", "allow-secret-get", "allow-secret-set", "allow-secret-delete",
     "barcode-scanner:allow-check-permissions",
     "barcode-scanner:allow-request-permissions",
     "barcode-scanner:allow-scan",
-    "barcode-scanner:allow-cancel"
+    "barcode-scanner:allow-cancel",
+    "voice:default"
   ]
 }
