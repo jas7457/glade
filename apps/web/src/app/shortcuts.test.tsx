@@ -11,7 +11,8 @@ vi.mock("@glade/app-core/lib/desktop", () => ({
   },
 }));
 
-const { useGlobalShortcuts, useTabShortcuts } = await import("./shortcuts");
+const { terminalShortcutFor, useGlobalShortcuts, useTabShortcuts } = await import("./shortcuts");
+const { setFocusedTerminal } = await import("@/features/terminal/focus");
 
 const menu = (action: MenuAction) => listeners.forEach((l) => l(action));
 
@@ -36,5 +37,31 @@ describe("menu actions (desktop app menu)", () => {
     unmount();
     menu("new-tab");
     expect(tabs["new-tab"]).not.toHaveBeenCalled();
+  });
+});
+
+describe("terminal tabs (I-187)", () => {
+  afterEach(cleanup);
+
+  it("⌃` (and ⌃⇧`) opens a terminal; ⌘` and ⌥⌃` don't", () => {
+    const k = (o: Partial<KeyboardEvent>) => ({ key: "`", code: "Backquote", metaKey: false, ctrlKey: false, altKey: false, ...o });
+    expect(terminalShortcutFor(k({ ctrlKey: true }))).toBe("new-terminal");
+    expect(terminalShortcutFor(k({ ctrlKey: true, key: "~" }))).toBe("new-terminal");
+    expect(terminalShortcutFor(k({ metaKey: true }))).toBeNull();
+    expect(terminalShortcutFor(k({ ctrlKey: true, altKey: true }))).toBeNull();
+    expect(terminalShortcutFor(k({ ctrlKey: true, key: "a", code: "KeyA" }))).toBeNull();
+  });
+
+  it("the menu's ⌘K clears a focused terminal instead of opening the palette", () => {
+    const global = { "new-chat": vi.fn(), settings: vi.fn(), "toggle-sidebar": vi.fn(), "command-palette": vi.fn() };
+    renderHook(() => useGlobalShortcuts(global));
+    const terminal = { clear: vi.fn(), focus: vi.fn() };
+    setFocusedTerminal(terminal);
+    menu("command-palette");
+    expect(terminal.clear).toHaveBeenCalledOnce();
+    expect(global["command-palette"]).not.toHaveBeenCalled();
+    setFocusedTerminal(null, terminal);
+    menu("command-palette");
+    expect(global["command-palette"]).toHaveBeenCalledOnce();
   });
 });

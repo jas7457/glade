@@ -37,6 +37,8 @@ export interface TabStripTab {
   subtitle?: string;
   /** Sub-agent colour key (I-084, `data-agent-color`): the title and the active tab's top line use it. */
   agentColor?: string;
+  /** Shown instead of the status glyph (e.g. a terminal tab's icon, I-187). */
+  icon?: ComponentChildren;
 }
 
 export interface TabStripProps {
@@ -151,7 +153,11 @@ export function TabStrip({
                   : "text-fg-muted hover:bg-hover",
               )}
             >
-              <StatusIndicator status={tab.status} failed={tab.failed} size={12} tooltip={false} />
+              {tab.icon ? (
+                <span class="flex size-3 shrink-0 items-center justify-center text-fg-muted [&_svg]:size-3">{tab.icon}</span>
+              ) : (
+                <StatusIndicator status={tab.status} failed={tab.failed} size={12} tooltip={false} />
+              )}
               {renaming ? (
                 <TabRenameInput value={tab.title} onDone={(title) => onRenameDone?.(tab.id, title)} />
               ) : (

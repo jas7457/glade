@@ -6,7 +6,7 @@
  * Groups: "main" (the workspace's main sessions) and "subagents" (sub-agents spawned by the
  * active main tab). Kept as a string union so more groups/panes can be added later (I-039).
  */
-import type { WorkspaceLayout } from "@glade/protocol";
+import type { TerminalTab, WorkspaceLayout } from "@glade/protocol";
 
 export type TabGroupId = "main" | "subagents";
 
@@ -98,5 +98,60 @@ export function withoutSession(layout: WorkspaceLayout | null | undefined, sessi
       Object.entries(next.activeSubagentSessionId).filter(([main, sub]) => main !== sessionId && sub !== sessionId),
     );
   }
+  return next;
+}
+
+// Terminal tabs (I-187) ---------------------------------------------------------------------
+
+/** A main-strip tab: a conversation (session) or a terminal. */
+export type MainTab = { kind: "session"; id: string } | { kind: "terminal"; id: string; terminal: TerminalTab };
+
+export function terminalsOf(layout: WorkspaceLayout | null | undefined): TerminalTab[] {
+  return Array.isArray(layout?.terminals) ? layout.terminals.filter((t) => t && typeof t.id === "string") : [];
+}
+
+export function isTerminalTab(layout: WorkspaceLayout | null | undefined, id: string | null | undefined): boolean {
+  return !!id && terminalsOf(layout).some((t) => t.id === id);
+}
+
+/**
+ * The main strip's tabs in display order: `sessionIds` (already in their order) and the
+ * terminals, placed by `layout.mainOrder`; tabs missing from it go after (terminals last).
+ */
+export function mainTabsOf(sessionIds: readonly string[], layout: WorkspaceLayout | null | undefined): MainTab[] {
+  const order = layout?.mainOrder ?? [];
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const items: Array<{ tab: MainTab; key: number; i: number }> = [];
+  sessionIds.forEach((id, i) => items.push({ tab: { kind: "session", id }, key: rank.get(id) ?? order.length + i, i }));
+  terminalsOf(layout).forEach((terminal, j) =>
+    items.push({ tab: { kind: "terminal", id: terminal.id, terminal }, key: rank.get(terminal.id) ?? order.length + sessionIds.length + j, i: sessionIds.length + j }),
+  );
+  return items.sort((a, b) => a.key - b.key || a.i - b.i).map((x) => x.tab);
+}
+
+/**
+ * The focused terminal: the URL's `?tab=` when it names one (a session there means no terminal),
+ * else the saved `activeTerminalId` if that terminal still exists.
+ */
+export function activeTerminalId(layout: WorkspaceLayout | null | undefined, tab: string | null | undefined): string | null {
+  if (tab) return isTerminalTab(layout, tab) ? tab : null;
+  const saved = layout?.activeTerminalId;
+  return saved && isTerminalTab(layout, saved) ? saved : null;
+}
+
+/** Layout patch that adds a terminal tab at the end of the strip and focuses it. */
+export function addTerminalPatch(layout: WorkspaceLayout | null | undefined, allTabIds: readonly string[], terminal: TerminalTab): WorkspaceLayout {
+  return {
+    terminals: [...terminalsOf(layout).filter((t) => t.id !== terminal.id), terminal],
+    mainOrder: [...allTabIds.filter((id) => id !== terminal.id), terminal.id],
+    activeTerminalId: terminal.id,
+  };
+}
+
+/** Drop a closed terminal from the layout (its tab, its place in the order, focus). */
+export function withoutTerminal(layout: WorkspaceLayout | null | undefined, terminalId: string): WorkspaceLayout {
+  const next: WorkspaceLayout = { ...layout, terminals: terminalsOf(layout).filter((t) => t.id !== terminalId) };
+  if (next.mainOrder) next.mainOrder = next.mainOrder.filter((id) => id !== terminalId);
+  if (next.activeTerminalId === terminalId) next.activeTerminalId = null;
   return next;
 }

@@ -241,7 +241,7 @@ const updateJob = new UpdateJob({ build: () => service.environment.build(), unav
 updateJob.onChange(throttle((update) => auth.pushLocal({ type: "update", update })));
 // I-147/I-150: why the Mac is kept awake (only the Mac app's shell holds the assertion) + menu bar state.
 const power = createPowerTracker({ service, auth, canHold: serverKind === "desktop" });
-const { app, injectWebSocket } = createApp({
+const { app, injectWebSocket, terminals } = createApp({
   service,
   updates,
   updateJob,
@@ -295,6 +295,7 @@ async function shutdown(signal: string): Promise<void> {
   force.unref();
   try {
     server.close();
+    terminals.dispose();
     search?.dispose();
     auth.dispose();
     power.dispose();

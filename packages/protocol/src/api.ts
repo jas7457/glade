@@ -10,6 +10,7 @@ import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, Transc
 import type { EnvironmentInfo } from "./environments.js";
 import type { PendingPairing } from "./auth.js";
 import type { Folder } from "./folders.js";
+import type { TerminalTab } from "./terminal.js";
 
 // ---------------------------------------------------------------------------------------------
 // Records
@@ -88,8 +89,15 @@ export interface WorkspaceWorktree {
  * without interpreting it (unknown session ids are the client's to ignore).
  */
 export interface WorkspaceLayout {
-  /** Main tabs in display order (session ids). Sessions missing here go after, by `createdAt`. */
+  /**
+   * Main tabs in display order: session ids and terminal ids (I-187). Sessions missing here go
+   * after, by `createdAt`; terminals missing here go last.
+   */
   mainOrder?: string[];
+  /** Terminal tabs (I-187). The shells themselves live in the server that started them. */
+  terminals?: TerminalTab[];
+  /** The focused main tab is this terminal (I-187); `activeMainSessionId` stays the last focused conversation. */
+  activeTerminalId?: string | null;
   /** Focused main tab. */
   activeMainSessionId?: string | null;
   /** Focused sub-agent tab per main session id. */
