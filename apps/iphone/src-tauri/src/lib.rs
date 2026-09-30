@@ -2,7 +2,8 @@
 //! the phone layout (apps/iphone/src). No server, tray or menus: the app is a pure client of the
 //! user's Macs. Native bits: the Keychain for device tokens (secrets.rs) and the camera for scanning
 //! a Mac's pairing QR code (tauri-plugin-barcode-scanner, mobile only; used by src/lib/scan.ts),
-//! and no form accessory bar over the keyboard (keyboard_bar.rs).
+//! and no form accessory bar over the keyboard (keyboard_bar.rs). Conversation mode (I-180) uses
+//! the `voice` plugin (plugins/voice: a Swift Tauri plugin; src/voice/native-engine.ts).
 
 mod secrets;
 #[cfg(target_os = "ios")]
@@ -13,6 +14,8 @@ pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_voice::init());
     builder
         .setup(|_app| {
             #[cfg(target_os = "ios")]

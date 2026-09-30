@@ -42,5 +42,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Glade listens to you in conversation mode, so you can talk to your agent hands-free.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Glade turns what you say in conversation mode into text on this iPhone (on-device recognition; audio isn&apos;t sent anywhere).</string>
 </dict>
 </plist>

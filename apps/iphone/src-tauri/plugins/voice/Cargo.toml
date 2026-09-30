@@ -1,0 +1,17 @@
+[package]
+name = "tauri-plugin-voice"
+version = "0.1.0"
+description = "Glade iPhone conversation mode (I-180): on-device speech recognition, Apple voices, audio session, cues. The work is in ios/Sources (Swift)."
+edition = "2021"
+publish = false
+# tauri-build reads the plugin's permissions through this `links` key.
+links = "tauri-plugin-voice"
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "2", default-features = false, features = ["wry"] }

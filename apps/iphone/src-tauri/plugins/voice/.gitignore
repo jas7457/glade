@@ -1,0 +1,5 @@
+# Copied in by tauri-plugin's build script / swift build output.
+/.tauri
+/ios/.build
+/ios/Package.resolved
+/target
