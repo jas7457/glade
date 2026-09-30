@@ -6,6 +6,10 @@
  *   mcpToolCall      → mcp (`mcp__<server>__<tool>`)
  *   dynamicToolCall  → Glade's own tools (`spawn_agent`, `find_chats`, …) like pi's
  *   webSearch        → web · imageView → read · collabAgentToolCall (Codex's sub-agents) → task
+ *   subAgentActivity → task (a Codex sub-agent starting; GPT-6's multi-agent v2, I-179)
+ *
+ * Commands show without the login-shell wrapper Codex runs them in (`/bin/zsh -lc '…'`), like
+ * Codex's own TUI (`displayCommand`); the raw command stays in the call's arguments.
  */
 import type { DiffLine, ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { piToolInput, piToolKind } from "../pi/tools.js";
@@ -33,6 +37,17 @@ function compact(input: ToolInput): ToolInput | undefined {
 
 function asArgs(v: JsonValue | undefined): Args {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Args) : {};
+}
+
+/**
+ * A command as the user reads it: `/bin/zsh -lc 'npm test'` → `npm test` (a single- or
+ * double-quoted script for sh/bash/zsh with `-c` / `-lc`); anything else unchanged.
+ */
+export function displayCommand(command: string): string {
+  const match = /^(?:\S*\/)?(?:ba|z)?sh\s+-l?c\s+(?:'((?:[^']|'\\'')*)'|"((?:[^"\\]|\\.)*)")$/s.exec(command.trim());
+  if (!match) return command;
+  if (match[1] !== undefined) return match[1].replace(/'\\''/g, "'");
+  return match[2]!.replace(/\\([\\"$`])/g, "$1");
 }
 
 /** Id of the n-th file of a file change item (the first keeps the item's id). */
@@ -67,7 +82,7 @@ export function codexToolCalls(item: ThreadItem): CodexToolCall[] {
       if (only?.type === "read") return [{ id: item.id, name: "shell", kind: "read", input: compact({ path: only.path || only.name })!, args }];
       if (only?.type === "listFiles") return [{ id: item.id, name: "shell", kind: "list", ...withInput(compact({ path: only.path ?? undefined })), args }];
       if (only?.type === "search") return [{ id: item.id, name: "shell", kind: "search", ...withInput(compact({ pattern: only.query ?? undefined, path: only.path ?? undefined })), args }];
-      return [{ id: item.id, name: "shell", kind: "shell", ...withInput(compact({ command: item.command })), args }];
+      return [{ id: item.id, name: "shell", kind: "shell", ...withInput(compact({ command: displayCommand(item.command) })), args }];
     }
     case "fileChange":
       return item.changes.map((change, i) => fileCall(item.id, i, change));
@@ -90,6 +105,10 @@ export function codexToolCalls(item: ThreadItem): CodexToolCall[] {
       const description = item.prompt?.split("\n").map((l) => l.trim()).find(Boolean);
       return [{ id: item.id, name: item.tool, kind: "task", ...withInput(compact({ description })), args: { tool: item.tool, prompt: item.prompt } }];
     }
+    case "subAgentActivity":
+      // Only its start is a card; the session says when it finishes (with its last message).
+      if (item.kind !== "started") return [];
+      return [{ id: item.id, name: "spawn_agent", kind: "task", input: { description: `Codex sub-agent ${item.agentPath}` }, args: { agentPath: item.agentPath, agentThreadId: item.agentThreadId } }];
     default:
       return [];
   }
@@ -150,6 +169,6 @@ export function mcpResultText(content: readonly JsonValue[] | undefined): string
 export function itemSummary(item: ThreadItem | undefined): string[] {
   if (!item) return [];
   if (item.type === "fileChange") return item.changes.map((c) => c.path);
-  if (item.type === "commandExecution") return [`$ ${item.command}`];
+  if (item.type === "commandExecution") return [`$ ${displayCommand(item.command)}`];
   return [];
 }

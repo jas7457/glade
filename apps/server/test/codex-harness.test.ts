@@ -7,7 +7,7 @@
  * JSONL framing against a real child process. I-178: skills and /review in the slash menu, skill
  * items, reviews as the reply, and `!cmd` / `!!cmd` via `command/exec`.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ import { codexThinkingLevels, effortToLevel, translateCodexModels } from "../src
 import { codexPermissionModes, commandApproval, commandDecision, modeFromConfig, turnPermissions } from "../src/harness/codex/permissions.js";
 import type { ThreadItem } from "../src/harness/codex/protocol.js";
 import { CodexRpc, spawnCodexTransport } from "../src/harness/codex/rpc.js";
-import { codexDiff } from "../src/harness/codex/tools.js";
+import { codexDiff, displayCommand } from "../src/harness/codex/tools.js";
 import { CodexTranslator } from "../src/harness/codex/translate.js";
 import { codexSlashCommands, parseSlashText, reviewTarget, shellArgv, skillInput, userShellRecord, SHELL_RECORD_MAX_CHARS } from "../src/harness/codex/commands.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
@@ -179,6 +179,11 @@ describe("Codex translator", () => {
       ...t.itemStarted({ type: "dynamicToolCall", id: "d", namespace: null, tool: "spawn_agent", arguments: { name: "scout", task: "Look" }, status: "inProgress", contentItems: null, success: null }),
       ...t.itemCompleted({ type: "dynamicToolCall", id: "d", namespace: null, tool: "spawn_agent", arguments: { name: "scout", task: "Look" }, status: "completed", contentItems: [{ type: "inputText", text: "Spawned" }], success: true }),
       ...t.itemStarted({ type: "collabAgentToolCall", id: "s", tool: "spawnAgent", status: "inProgress", prompt: "Check the tests\nthoroughly" }),
+      ...t.itemCompleted({ type: "collabAgentToolCall", id: "s", tool: "spawnAgent", status: "completed", prompt: "Check the tests\nthoroughly", agentsStates: { thr: { status: "completed", message: "All green." } } }),
+      // I-179: GPT-6's multi-agent v2 reports sub-agents as activity items.
+      ...t.itemStarted({ type: "subAgentActivity", id: "v", kind: "started", agentThreadId: "thr-child", agentPath: "/root/tiny" }),
+      ...t.itemCompleted({ type: "subAgentActivity", id: "v", kind: "started", agentThreadId: "thr-child", agentPath: "/root/tiny" }),
+      ...t.itemCompleted({ type: "subAgentActivity", id: "v2", kind: "completed", agentThreadId: "thr-child", agentPath: "/root/tiny" }),
     ];
     const transcript = fold(events);
     expect(assistants(transcript)[0]!.content).toMatchObject([
@@ -186,7 +191,10 @@ describe("Codex translator", () => {
       { name: "web_search", kind: "web", input: { query: "codex app-server" } },
       { name: "spawn_agent", kind: "task", input: { agentName: "scout" } },
       { kind: "task", input: { description: "Check the tests" } },
+      { name: "spawn_agent", kind: "task", input: { description: "Codex sub-agent /root/tiny" } },
     ]);
+    expect(transcript.toolResults.s).toMatchObject({ status: "done", output: "All green." });
+    expect(transcript.toolResults.v).toMatchObject({ status: "done", output: expect.stringMatching(/isn't shown in Glade/) });
     expect(transcript.toolResults.m).toMatchObject({ status: "done", output: "found" });
     expect(transcript.toolResults.d).toMatchObject({ status: "done", output: "Spawned" });
   });
@@ -273,6 +281,20 @@ describe("Codex models, limits and permissions", () => {
     expect(commandDecision("accept_always", params)).toEqual({ acceptWithExecpolicyAmendment: { execpolicy_amendment: ["npm", "test"] } });
     expect(commandDecision("accept_always", { ...params, proposedExecpolicyAmendment: null })).toBe("acceptForSession");
     expect(commandDecision(null, params)).toBe("cancel");
+    // I-179: the login-shell wrapper Codex runs commands in isn't shown.
+    expect(commandApproval({ ...params, command: "/bin/zsh -lc 'curl -sI https://example.com | head -1'" }).message).toBe("$ curl -sI https://example.com | head -1");
+  });
+
+  it("shows commands without Codex's login-shell wrapper (I-179)", () => {
+    expect(displayCommand("/bin/zsh -lc 'sleep 12'")).toBe("sleep 12");
+    expect(displayCommand(String.raw`bash -c 'echo '\''hi'\'''`)).toBe("echo 'hi'");
+    expect(displayCommand(String.raw`/bin/zsh -lc "printf '\\nTested\\n' >> README.md"`)).toBe(String.raw`printf '\nTested\n' >> README.md`);
+    expect(displayCommand(String.raw`/bin/zsh -lc "echo \"a\" \$HOME"`)).toBe('echo "a" $HOME');
+    expect(displayCommand("npm test")).toBe("npm test");
+    expect(displayCommand("/bin/zsh -lc 'a' 'b'")).toBe("/bin/zsh -lc 'a' 'b'");
+    const t = new CodexTranslator("p");
+    const events = t.itemStarted({ type: "commandExecution", id: "c1", command: "/bin/zsh -lc 'ls -la'", cwd: "/p", status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null, durationMs: null });
+    expect(assistants(fold(events))[0]!.content[0]).toMatchObject({ kind: "shell", input: { command: "ls -la" }, args: { command: "/bin/zsh -lc 'ls -la'" } });
   });
 });
 
@@ -285,6 +307,8 @@ describe("Codex sessions", () => {
     const { session, run, transcript } = await openSession(h);
     expect(session.sessionRef).toBe([...codex.threads.keys()][0]);
     expect(codex.sent("thread/start")[0]).toMatchObject({ cwd, approvalPolicy: "on-request", sandbox: "workspace-write", model: "gpt-6-luna" });
+    // I-179: Codex's own sub-agents are off (their spawn_agent shadowed Glade's).
+    expect(codex.sent("thread/start")[0]!.config).toEqual({ "features.multi_agent": false });
     expect(codex.sent("turn/start")).toHaveLength(0);
     expect(session.getState()).toMatchObject({ model: { provider: "codex", id: "gpt-6-luna" }, thinkingLevel: "medium", permissionMode: "auto" });
 
@@ -313,7 +337,7 @@ describe("Codex sessions", () => {
     codex.addThread("thr-saved");
     const h = harness(codex);
     const { session, run } = await openSession(h, "thr-saved");
-    expect(codex.sent("thread/resume")[0]).toMatchObject({ threadId: "thr-saved", excludeTurns: true, cwd });
+    expect(codex.sent("thread/resume")[0]).toMatchObject({ threadId: "thr-saved", excludeTurns: true, cwd, config: { "features.multi_agent": false } });
     expect(session.sessionRef).toBe("thr-saved");
     await run("again");
     expect(codex.sent("turn/start")[0]!.threadId).toBe("thr-saved");
@@ -393,6 +417,7 @@ describe("Codex sessions", () => {
     await until(() => !session.getState().isRunning);
     expect(codex.sent("turn/interrupt")[0]).toMatchObject({ turnId: codex.lastTurn().id });
     expect(assistants(transcript())[0]!.stopReason).toBe("aborted");
+    expect(codex.sent("thread/backgroundTerminals/list")).toHaveLength(0); // no commands were running
 
     const deaf = new FakeCodexAppServer({ onTurn: () => {}, interruptEnds: false });
     const second = await openSession(harness(deaf));
@@ -401,6 +426,29 @@ describe("Codex sessions", () => {
     await new Promise((r) => setTimeout(r, 10));
     await second.session.abort();
     await until(() => !second.session.getState().isRunning, 1000);
+  });
+
+  it("stops the commands a stopped turn was running, not earlier turns' background terminals (I-179)", async () => {
+    const codex = new FakeCodexAppServer({
+      onTurn: (t) => {
+        t.started({ type: "commandExecution", id: "c-sleep", command: "/bin/zsh -lc 'sleep 40'", cwd, status: "inProgress", commandActions: [], aggregatedOutput: null, exitCode: null, durationMs: null });
+        // Codex keeps an interrupted turn's commands as background terminals.
+        codex.backgroundTerminals.set(t.thread.id, [
+          { itemId: "c-server", processId: "11", command: "npm run dev" },
+          { itemId: "c-sleep", processId: "22", command: "sleep 40" },
+        ]);
+      },
+    });
+    const { session, transcript } = await openSession(harness(codex));
+    await session.prompt({ text: "sleep" });
+    await until(() => assistants(transcript())[0]?.content.length === 1);
+    await session.abort();
+    await until(() => codex.terminatedTerminals.length === 1);
+    expect(codex.sent("turn/interrupt")).toHaveLength(1);
+    expect(codex.terminatedTerminals).toEqual(["22"]);
+    expect(codex.backgroundTerminals.get(session.sessionRef!)!.map((t) => t.processId)).toEqual(["11"]);
+    await until(() => !session.getState().isRunning);
+    expect(transcript().toolResults["c-sleep"]).toMatchObject({ status: "error", output: "Stopped" });
   });
 
   it("asks for approval with Codex's options: yes, don't ask again, and no (the turn stops)", async () => {
@@ -469,12 +517,37 @@ describe("Codex sessions", () => {
     });
     const env = { GLADE_URL: "http://127.0.0.1:1", GLADE_TOKEN: "tok", GLADE_SESSION_ID: "s1" };
     const { run } = await openSession(harness(codex, { fetch: fetchImpl }), null, { env });
-    const tools = codex.sent("thread/start")[0]!.dynamicTools as Array<{ name: string; inputSchema: { type: string } }>;
+    // I-179: in a `glade` namespace (Codex's own spawn_agent can't shadow them), and the thread is told to use them.
+    const start = codex.sent("thread/start")[0]!;
+    const namespaces = start.dynamicTools as Array<{ type: string; name: string; tools: Array<{ name: string; inputSchema: { type: string } }> }>;
+    expect(namespaces.map((n) => [n.type, n.name])).toEqual([["namespace", "glade"]]);
+    const tools = namespaces[0]!.tools;
     expect(tools.map((t) => t.name)).toEqual(["spawn_agent", "message_agent", "list_agents", "close_agent", "find_chats", "read_chat", "open_chat"]);
+    expect(start.developerInstructions).toMatch(/`glade` tool namespace.*Don't use your built-in `spawn_agent`/);
     expect(tools[0]!.inputSchema.type).toBe("object");
     await run("spawn one");
     expect(calls[0]).toEqual({ url: "http://127.0.0.1:1/api/agents/spawn", body: expect.objectContaining({ name: "scout", task: "Look around" }) });
     expect(reply).toMatchObject({ success: true, contentItems: [{ type: "inputText", text: expect.stringMatching(/Spawned Leo/) }] });
+  });
+
+  it("shows Codex's own sub-agents: a card when one starts, a notice with its last message when it ends (I-179)", async () => {
+    const codex = new FakeCodexAppServer({
+      onTurn: (t) => {
+        const started: ThreadItem = { type: "subAgentActivity", id: "call_1", kind: "started", agentThreadId: "thr-child", agentPath: "/root/tiny" };
+        t.item(started);
+        t.reply("spawned");
+        // After the parent's turn: the child's own thread, then its end.
+        setTimeout(() => {
+          t.notify("item/completed", { threadId: "thr-child", turnId: "child-turn", item: { type: "agentMessage", id: "cm", text: "PONG" } });
+          t.notify("item/completed", { threadId: t.thread.id, turnId: t.id, item: { type: "subAgentActivity", id: "done-1", kind: "completed", agentThreadId: "thr-child", agentPath: "/root/tiny" } });
+        }, 20);
+      },
+    });
+    const { run, transcript } = await openSession(harness(codex));
+    await run("spawn");
+    expect(assistants(transcript())[0]!.content[0]).toMatchObject({ kind: "task", input: { description: "Codex sub-agent /root/tiny" } });
+    await until(() => transcript().messages.some((m) => m.role === "notice"));
+    expect((transcript().messages.find((m) => m.role === "notice") as NoticeMessage).text).toBe("Codex sub-agent /root/tiny finished: PONG");
   });
 
   it("sends model, thinking and permission mode changes with the next turn", async () => {
@@ -538,6 +611,16 @@ describe("Codex harness", () => {
     expect(codex.deleted).toEqual(["thr-x"]);
     expect(codex.sent("initialize")[0]).toMatchObject({ clientInfo: { name: "glade" }, capabilities: { experimentalApi: true } });
     expect(codex.connections).toHaveLength(1); // one shared process
+  });
+
+  it("traces every app-server message both ways with GLADE_CODEX_TRACE (I-179)", async () => {
+    const file = join(dir, "trace.jsonl");
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const { run } = await openSession(harness(codex, { traceFile: file }));
+    await run("hi");
+    const lines = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { dir: string; message: { method?: string } });
+    expect(lines.find((l) => l.dir === "out" && l.message.method === "turn/start")).toBeTruthy();
+    expect(lines.find((l) => l.dir === "in" && l.message.method === "turn/completed")).toBeTruthy();
   });
 
   it("frames JSON-RPC over a real child process's stdio (JSONL)", async () => {

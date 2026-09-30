@@ -166,6 +166,7 @@ harnesses.register(
   new CodexHarness({
     utilityCwd: config.scratchDir,
     subagents: () => store.getSettings().agent.subagents,
+    ...(env("CODEX_TRACE") ? { traceFile: env("CODEX_TRACE")! } : {}),
     log: env("DEBUG") ? log : undefined,
   }),
 );

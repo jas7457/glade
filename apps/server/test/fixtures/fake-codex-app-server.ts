@@ -119,6 +119,10 @@ export class FakeCodexAppServer {
   readonly threads = new Map<string, FakeThread>();
   readonly connections: FakeConnection[] = [];
   readonly deleted: string[] = [];
+  /** Processes threads' commands left running (`thread/backgroundTerminals/*`), per thread. */
+  readonly backgroundTerminals = new Map<string, Array<{ itemId: string; processId: string; command: string }>>();
+  /** Background terminals stopped with `thread/backgroundTerminals/terminate`. */
+  readonly terminatedTerminals: string[] = [];
 
   constructor(readonly options: FakeCodexOptions = {}) {}
 
@@ -270,6 +274,16 @@ export class FakeCodexAppServer {
         this.deleted.push(params.threadId as string);
         this.threads.delete(params.threadId as string);
         return {};
+      case "thread/backgroundTerminals/list":
+        return { data: this.backgroundTerminals.get(params.threadId as string) ?? [], nextCursor: null };
+      case "thread/backgroundTerminals/terminate": {
+        const list = this.backgroundTerminals.get(params.threadId as string) ?? [];
+        const at = list.findIndex((t) => t.processId === params.processId);
+        if (at < 0) throw rpcError(-32600, `no background terminal ${params.processId}`);
+        list.splice(at, 1);
+        this.terminatedTerminals.push(params.processId as string);
+        return {};
+      }
       case "thread/unsubscribe":
         return { status: "unsubscribed" };
       default:

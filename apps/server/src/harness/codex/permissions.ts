@@ -12,6 +12,7 @@
  *   composer gets the focus).
  */
 import type { PermissionModeInfo, PermissionOption } from "@glade/protocol";
+import { displayCommand } from "./tools.js";
 import type {
   AskForApproval,
   CodexConfig,
@@ -115,7 +116,7 @@ export function commandApproval(params: CommandExecutionRequestApprovalParams): 
       : host
         ? `Would you like to allow network access to ${host}?`
         : "Would you like to run the following command?";
-  const lines = [params.command ? `$ ${params.command}` : "", params.reason ? `Reason: ${params.reason}` : ""].filter(Boolean);
+  const lines = [params.command ? `$ ${displayCommand(params.command)}` : "", params.reason ? `Reason: ${params.reason}` : ""].filter(Boolean);
   const prefix = params.proposedExecpolicyAmendment?.length ? shellJoin(params.proposedExecpolicyAmendment) : null;
   const always = prefix ? `Yes, and don't ask again for commands that start with \`${prefix}\`` : "Yes, and don't ask again for this command";
   return {

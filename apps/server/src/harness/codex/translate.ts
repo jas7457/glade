@@ -107,6 +107,11 @@ export class CodexTranslator {
     this.rejected.add(itemId);
   }
 
+  /** Command items of this turn that haven't completed (still running when the turn is stopped). */
+  runningCommands(): string[] {
+    return [...this.tools].filter(([, t]) => t.call.name === "shell" && !t.ended).map(([id]) => id);
+  }
+
   /** The id of the (first) tool call shown for an item. */
   toolCallId(itemId: string): string | undefined {
     const item = this.items.get(itemId);
@@ -376,6 +381,13 @@ export class CodexTranslator {
         return item.error
           ? { ...base, status: "error", output: item.error.message }
           : { ...base, status: item.status === "failed" ? "error" : "done", output: mcpResultText(item.result?.content) };
+      case "collabAgentToolCall": {
+        // The sub-agents' last messages, when Codex has them.
+        const messages = Object.values(item.agentsStates ?? {}).map((s) => s?.message?.trim()).filter(Boolean);
+        return { ...base, status: item.status === "failed" ? "error" : "done", output: messages.join("\n\n") };
+      }
+      case "subAgentActivity":
+        return { ...base, status: "done", output: "Codex's own sub-agent: its work isn't shown in Glade." };
       case "dynamicToolCall": {
         const text = (item.contentItems ?? []).map((c) => (c.type === "inputText" ? c.text : "")).filter(Boolean).join("\n");
         return { ...base, status: item.success === false || item.status === "failed" ? "error" : "done", output: text };

@@ -25,7 +25,7 @@ import { codexSlashCommands } from "./commands.js";
 import { NOT_INSTALLED, codexUsageLimits } from "./errors.js";
 import { codexGladeTools } from "./glade-tools.js";
 import { CODEX_PROVIDER, defaultLevel, findCodexModel, translateCodexModels } from "./models.js";
-import { spawnCodexTransport, type CodexTransport } from "./rpc.js";
+import { spawnCodexTransport, traceCodexTransport, type CodexTransport } from "./rpc.js";
 
 export { CODEX_COMMAND, CODEX_HARNESS_ID };
 
@@ -59,6 +59,8 @@ export interface CodexHarnessOptions {
   /** Session hooks for tests. */
   session?: Partial<Pick<CodexSessionOptions, "cancelGraceMs">>;
   version?: string;
+  /** Append every app-server message to this JSONL file (debugging: `GLADE_CODEX_TRACE`). */
+  traceFile?: string;
   fetch?: typeof fetch;
   log?: (msg: string) => void;
 }
@@ -79,7 +81,8 @@ export class CodexHarness implements AgentHarness {
         const executable = this.executable();
         if (!executable) throw new Error(NOT_INSTALLED);
         const spawn = { executable, cwd: options.utilityCwd, env: this.childEnv() };
-        return options.connect ? options.connect(spawn) : spawnCodexTransport(spawn);
+        const transport = options.connect ? options.connect(spawn) : spawnCodexTransport(spawn);
+        return options.traceFile ? traceCodexTransport(transport, options.traceFile) : transport;
       },
       ...(options.version ? { version: options.version } : {}),
       log: options.log,

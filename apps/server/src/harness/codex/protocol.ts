@@ -119,6 +119,14 @@ export interface DynamicToolSpec {
   inputSchema: JsonValue;
 }
 
+/** Tools grouped under a namespace (the model sees them as `<namespace>` tools). */
+export interface DynamicToolNamespaceSpec {
+  type: "namespace";
+  name: string;
+  description: string;
+  tools: DynamicToolSpec[];
+}
+
 export interface ThreadStartParams {
   model?: string | null;
   cwd?: string | null;
@@ -126,8 +134,10 @@ export interface ThreadStartParams {
   sandbox?: SandboxMode | null;
   developerInstructions?: string | null;
   ephemeral?: boolean | null;
+  /** `config.toml` overrides for this thread (dotted keys, like `codex -c`). */
+  config?: Record<string, JsonValue> | null;
   /** Experimental API: tools Codex calls back through `item/tool/call`; kept with the thread. */
-  dynamicTools?: DynamicToolSpec[] | null;
+  dynamicTools?: Array<DynamicToolSpec | DynamicToolNamespaceSpec> | null;
 }
 
 export interface ThreadResumeParams {
@@ -137,8 +147,21 @@ export interface ThreadResumeParams {
   approvalPolicy?: AskForApproval | null;
   sandbox?: SandboxMode | null;
   developerInstructions?: string | null;
+  config?: Record<string, JsonValue> | null;
   /** Metadata only, no history (Glade has the transcript). */
   excludeTurns?: boolean;
+}
+
+/** A process a thread's commands left running (experimental `thread/backgroundTerminals/list`). */
+export interface ThreadBackgroundTerminal {
+  itemId: string;
+  processId: string;
+  command: string;
+}
+
+export interface ThreadBackgroundTerminalsListResponse {
+  data: ThreadBackgroundTerminal[];
+  nextCursor: string | null;
 }
 
 export interface Thread {
@@ -340,13 +363,23 @@ export type ThreadItem =
       contentItems: DynamicToolCallOutputContentItem[] | null;
       success: boolean | null;
     }
-  | { type: "collabAgentToolCall"; id: string; tool: string; status: string; prompt: string | null }
+  | {
+      type: "collabAgentToolCall";
+      id: string;
+      tool: string;
+      status: string;
+      prompt: string | null;
+      /** Per sub-agent thread: its status and last message. */
+      agentsStates?: Record<string, { status: string; message: string | null } | undefined> | null;
+    }
+  /** Codex's multi-agent v2 (GPT-6 models): a sub-agent started, finished, … (its own thread). */
+  | { type: "subAgentActivity"; id: string; kind: "started" | "interacted" | "interrupted" | "completed"; agentThreadId: string; agentPath: string }
   | { type: "webSearch"; id: string; query: string; action: WebSearchAction | null }
   | { type: "imageView"; id: string; path: string }
   | { type: "enteredReviewMode"; id: string; review: string }
   | { type: "exitedReviewMode"; id: string; review: string }
   | { type: "contextCompaction"; id: string }
-  | { type: "hookPrompt" | "functionCallOutput" | "subAgentActivity" | "sleep" | "imageGeneration"; id: string };
+  | { type: "hookPrompt" | "functionCallOutput" | "sleep" | "imageGeneration"; id: string };
 
 export type DynamicToolCallOutputContentItem = { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string };
 

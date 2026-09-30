@@ -5,12 +5,17 @@
  *   (`thread/start`, no model call; Codex saves it only once a turn ran); a chat reopened resumes
  *   it (`thread/resume`, metadata only: the conversation is Glade's, the store's, I-121). A thread
  *   Codex no longer has starts fresh. Glade's sub-agent and chat tools go in as dynamic tools
- *   (Codex keeps them with the thread) and are answered here (`item/tool/call`).
+ *   (Codex keeps them with the thread) and are answered here (`item/tool/call`); Codex's own
+ *   sub-agents are turned off for the thread (`CODEX_THREAD_CONFIG`; GPT-6 models keep them, so
+ *   Glade's tools sit in a `glade` namespace and the thread is told to use them; Codex's own
+ *   sub-agents still show as a card and an end notice, `onSubAgent`).
  * - **Turns:** `turn/start` with the chat's model, effort and permission mode (Codex applies them
  *   to this and later turns, so changes need no restart). `run_end` after `turn/completed` (unless
  *   queued follow-ups go on). A message sent while running steers (`turn/steer`); a follow-up
  *   waits for the run to end and stays queued when it's stopped or fails.
- * - **Stop:** `turn/interrupt`; without `turn/completed` within a grace period the turn ends anyway.
+ * - **Stop:** `turn/interrupt`, then the turn's still running commands are terminated (Codex would
+ *   keep them as background terminals); without `turn/completed` within a grace period the turn
+ *   ends anyway.
  * - **Approvals:** command and file-change requests become permission cards worded like Codex's
  *   own prompt (`permissions.ts`); "No, and tell Codex …" cancels the turn (it ends Stopped, the
  *   composer gets the focus). Questions (`item/tool/requestUserInput`) become select/input dialogs;
@@ -82,6 +87,8 @@ import type {
   ReviewStartResponse,
   ReviewTarget,
   ServerNotifications,
+  ThreadBackgroundTerminalsListResponse,
+  ThreadItem,
   ThreadStartResponse,
   ToolRequestUserInputParams,
   Turn as CodexTurn,
@@ -95,6 +102,19 @@ const LABEL = "Codex";
 /** Output kept per stream of a `!cmd` (`command/exec`'s `outputBytesCap`). */
 const SHELL_OUTPUT_CAP = 1024 * 1024;
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
+/**
+ * `config.toml` overrides for every thread: Codex's own sub-agents (`multi_agent`, on by default
+ * since 0.159) are off. Their `spawn_agent` shadows Glade's (a dynamic tool of the same name) and
+ * runs sub-agents Glade can't show; Glade's sub-agent tools are the way to delegate (I-179).
+ */
+export const CODEX_THREAD_CONFIG = { "features.multi_agent": false } as const;
+/**
+ * GPT-6 models always have Codex's multi-agent v2 (no flag turns it off), so Glade's tools go in
+ * their own namespace (no clash with Codex's `spawn_agent`) and the thread is told to use them.
+ */
+export const GLADE_TOOL_NAMESPACE = "glade";
+export const GLADE_SUBAGENT_NOTE =
+  "Sub-agents: to hand work to a sub-agent, use Glade's `spawn_agent` tool in the `glade` tool namespace (with its `message_agent`, `list_agents` and `close_agent`). Don't use your built-in `spawn_agent` or other multi-agent tools: the user can't see or talk to those sub-agents in Glade.";
 
 /** One of Glade's own tools, run in the Glade server when Codex calls it. */
 export interface CodexGladeTool {
@@ -156,6 +176,8 @@ export class CodexSession implements HarnessSession {
   /** Running `!cmd`s: Glade's shell id → `command/exec` process id. */
   private readonly shells = new Map<string, string>();
   private readonly stoppedShells = new Set<string>();
+  /** Codex's own sub-agents (their threads): path and last message. */
+  private readonly children = new Map<string, { path: string; last: string | null; unregister: () => void }>();
   /** The error Codex reported for the running turn (`error` notification), for `turn/completed`. */
   private lastError: CodexTurn["error"] = null;
 
@@ -216,11 +238,14 @@ export class CodexSession implements HarnessSession {
   private async openThread(): Promise<void> {
     const { server, cwd } = this.options;
     const model = codexModelId(this.state.model);
+    const tools = this.options.gladeTools?.() ?? [];
+    const instructions = [this.options.developerInstructions, tools.some((t) => t.spec.name === "spawn_agent") ? GLADE_SUBAGENT_NOTE : ""].filter(Boolean).join("\n\n");
     const common = {
       cwd,
       ...(model ? { model } : {}),
       ...threadPermissions(this.mode()),
-      ...(this.options.developerInstructions ? { developerInstructions: this.options.developerInstructions } : {}),
+      config: { ...CODEX_THREAD_CONFIG },
+      ...(instructions ? { developerInstructions: instructions } : {}),
     };
     if (this.ref) {
       const ref = this.ref;
@@ -234,10 +259,10 @@ export class CodexSession implements HarnessSession {
         this.options.log?.(`codex ${ref}: Codex doesn't have this thread any more; starting a new one`);
       }
     }
-    this.tools = this.options.gladeTools?.() ?? [];
+    this.tools = tools;
     const started = await server.request<ThreadStartResponse>("thread/start", {
       ...common,
-      ...(this.tools.length ? { dynamicTools: this.tools.map((t) => t.spec) } : {}),
+      ...(tools.length ? { dynamicTools: [{ type: "namespace", name: GLADE_TOOL_NAMESPACE, description: "Glade's tools: sub-agents in their own tabs, and the user's other Glade chats.", tools: tools.map((t) => t.spec) }] } : {}),
     });
     this.ref = started.thread.id;
     this.listen(this.ref);
@@ -314,16 +339,36 @@ export class CodexSession implements HarnessSession {
     if (!turn || turn.done) return;
     turn.aborted = true;
     this.cancelUi();
-    if (turn.id) this.interrupt(turn);
+    if (turn.id) this.interrupt(turn, this.translator.runningCommands());
     // (Still starting: runTurn interrupts once the turn id is known.)
     this.cancelTimer = setTimeout(() => this.finishTurn(turn, { stopReason: "aborted" }), this.options.cancelGraceMs ?? 10_000);
     this.cancelTimer.unref?.();
   }
 
-  private interrupt(turn: Turn): void {
+  /** `turn/interrupt`, then stop the commands the turn was running (`commandItems`, see below). */
+  private interrupt(turn: Turn, commandItems: string[] = []): void {
     void this.options.server
       .request("turn/interrupt", { threadId: this.ref, turnId: turn.id })
-      .catch((err: Error) => this.options.log?.(`codex: interrupt failed: ${err.message}`));
+      .catch((err: Error) => this.options.log?.(`codex: interrupt failed: ${err.message}`))
+      .then(() => this.stopCommands(commandItems));
+  }
+
+  /**
+   * Stop: Codex keeps an interrupted turn's running commands alive as background terminals (its
+   * TUI lists them for `/stop`; Glade has no such list), so the ones this turn started are
+   * terminated (experimental `thread/backgroundTerminals/*`). Earlier turns' are left alone.
+   */
+  private async stopCommands(itemIds: string[]): Promise<void> {
+    const threadId = this.ref;
+    if (!threadId || !itemIds.length) return;
+    const { server } = this.options;
+    try {
+      const { data } = await server.request<ThreadBackgroundTerminalsListResponse>("thread/backgroundTerminals/list", { threadId }, 15_000);
+      const running = (data ?? []).filter((t) => itemIds.includes(t.itemId));
+      await Promise.all(running.map((t) => server.request("thread/backgroundTerminals/terminate", { threadId, processId: t.processId }, 15_000)));
+    } catch (err) {
+      this.options.log?.(`codex: stopping the turn's commands failed: ${(err as Error).message}`);
+    }
   }
 
   async setModel(model: ModelRef): Promise<void> {
@@ -499,6 +544,8 @@ export class CodexSession implements HarnessSession {
     for (const processId of this.shells.values()) void this.options.server.terminate(processId).catch(() => {});
     this.unregister?.();
     this.unregister = null;
+    for (const child of this.children.values()) child.unregister();
+    this.children.clear();
     // Let the app-server unload the thread (it stays saved).
     if (this.loaded && this.ref) void this.options.server.request("thread/unsubscribe", { threadId: this.ref }, 5_000).catch(() => {});
     this.loaded = false;
@@ -651,6 +698,10 @@ export class CodexSession implements HarnessSession {
         return;
       }
     }
+    if (method === "item/started" || method === "item/completed") {
+      const { item } = p as ServerNotifications["item/completed"];
+      if (item.type === "subAgentActivity") this.onSubAgent(method, item);
+    }
     const turn = this.turn;
     if (!turn) return;
     if (turn.compact) {
@@ -698,6 +749,33 @@ export class CodexSession implements HarnessSession {
       default:
         return [];
     }
+  }
+
+  /**
+   * Codex's own sub-agents (GPT-6 models may still use them): the start is a task card (the
+   * translator); their thread's last message is kept, and their end is a notice with it.
+   */
+  private onSubAgent(method: string, item: Extract<ThreadItem, { type: "subAgentActivity" }>): void {
+    const id = item.agentThreadId;
+    if (item.kind === "started" && !this.children.has(id)) {
+      const child = { path: item.agentPath, last: null as string | null, unregister: () => {} };
+      child.unregister = this.options.server.register(id, {
+        notification: (m, params) => {
+          const done = m === "item/completed" ? (params as ServerNotifications["item/completed"]).item : null;
+          if (done?.type === "agentMessage" && done.text.trim()) child.last = done.text.trim();
+        },
+        request: (m, params) => this.onRequest(m, params),
+        closed: () => {},
+      });
+      this.children.set(id, child);
+      return;
+    }
+    if (method !== "item/completed" || (item.kind !== "completed" && item.kind !== "interrupted")) return;
+    const child = this.children.get(id);
+    child?.unregister();
+    this.children.delete(id);
+    const what = `Codex sub-agent ${item.agentPath} ${item.kind === "completed" ? "finished" : "was stopped"}`;
+    for (const event of this.translator.notice("info", child?.last ? `${what}: ${child.last}` : what)) this.emit(event);
   }
 
   private onUsage({ tokenUsage }: ServerNotifications["thread/tokenUsage/updated"]): void {

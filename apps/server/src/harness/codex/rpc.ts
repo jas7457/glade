@@ -9,6 +9,7 @@
  *   process ends, and answers server requests with the handler's result (or a JSON-RPC error).
  */
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { JsonlSplitter } from "../pi/rpc-process.js";
 import type { RequestId, RpcMessage } from "./protocol.js";
 
@@ -71,6 +72,30 @@ export function spawnCodexTransport({ executable, cwd, env, args = [] }: SpawnCo
     close() {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
     },
+  };
+}
+
+/**
+ * Append every message both ways to a JSONL file (debugging: `GLADE_CODEX_TRACE=<file>`):
+ * `{ at, dir: "in" | "out", message }`. Tracing never breaks the wire.
+ */
+export function traceCodexTransport(transport: CodexTransport, file: string): CodexTransport {
+  const write = (dir: "in" | "out", message: RpcMessage) => {
+    try {
+      appendFileSync(file, `${JSON.stringify({ at: Date.now(), dir, message })}\n`);
+    } catch {
+      // ignore
+    }
+  };
+  transport.onMessage((m) => write("in", m));
+  return {
+    send(message) {
+      write("out", message);
+      transport.send(message);
+    },
+    onMessage: (l) => transport.onMessage(l),
+    onClose: (l) => transport.onClose(l),
+    close: () => transport.close(),
   };
 }
 
