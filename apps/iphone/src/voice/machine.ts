@@ -4,7 +4,15 @@
  * and runs the effects.
  *
  *   starting → listening ──final──▶ sending ──run starts──▶ working (cue "working", then a
- *   "working-tick" every few seconds) ──run ends──▶ speaking the reply ──done──▶ listening …
+ *   "working-tick" every few seconds) ──a sentence is final──▶ speaking ⇄ working … ──run ends,
+ *   the rest read──▶ listening …
+ *
+ * The reply is read while it streams (I-183): every chat snapshot's final pieces (reply-stream.ts)
+ * arrive as a `reply` event; the new ones are queued to the engine as one piece (`speak` with
+ * `queue`), so the engine goes on from one to the next without a gap. `state.reading` holds what
+ * was read so far (the view shows it with the tail still being written); words come in its
+ * offsets. Once the queue runs dry while the agent still works it's "working" again (ticks); when
+ * the run has ended and everything is read, it listens.
  *
  * The mic stays on the whole time (unless muted): talking over a reply stops it at once
  * (barge-in, `speech-start`) and listens; talking while the agent works sends the words like the
@@ -16,6 +24,7 @@
 import type { CueName } from "./engine";
 import type { PermissionRequest } from "./answers";
 import { matchPermissionAnswer, permissionRetryQuestion } from "./answers";
+import { appendSpeakable, newPieces, sliceSpeakable, type ReplyPiece, type TurnPlan } from "./reply-stream";
 import { plainSpeakable, type Speakable } from "./speakable";
 
 export type AskStep =
@@ -35,10 +44,35 @@ export type Phase =
   | { name: "listening" }
   | { name: "sending"; text: string }
   | { name: "working" }
-  | { name: "speaking"; speech: Speakable; word: [number, number] | null }
+  /** Reading the reply (`state.reading`). */
+  | { name: "speaking" }
   | { name: "asking"; request: PermissionRequest; step: AskStep; retried: boolean; speech: Speakable | null; word: [number, number] | null }
   | { name: "error"; message: string; retry: "send" | "listen" | "start"; text?: string }
   | { name: "closed" };
+
+/** The latest turn's reply, as it's read (I-183). */
+export interface Reading {
+  /** The turn (its user message id; "" before the first). */
+  turn: string;
+  /** The reply's final pieces so far, joined: what is read and shown. */
+  speech: Speakable;
+  /** The keys of the pieces in `speech` (reply-stream.ts `newPieces`). */
+  keys: string[];
+  /** Text still being written after `speech` (shown, not read yet). */
+  tail: ReplyPiece | null;
+  /** How much of `speech.text` went to the engine (or was skipped). */
+  queuedTo: number;
+  /** Pieces the engine hasn't finished. */
+  pending: number;
+  /** The word being read, in `speech.text`. */
+  word: [number, number] | null;
+  /** Not read any further: barge-in, Stop, the user talked, or it was there before voice mode. */
+  silenced: boolean;
+  /** Shown in the view (not a reply that was there before, nor one the user talked over). */
+  shown: boolean;
+  /** Something of it was read. */
+  spoke: boolean;
+}
 
 export interface VoiceState {
   phase: Phase;
@@ -51,6 +85,8 @@ export interface VoiceState {
   running: boolean;
   /** A passing notice (e.g. a recoverable recognition hiccup). */
   notice: string | null;
+  /** The latest turn's reply. */
+  reading: Reading | null;
 }
 
 export type VoiceEvent =
@@ -64,7 +100,12 @@ export type VoiceEvent =
   | { type: "sent" }
   | { type: "send-failed"; message: string; text: string }
   | { type: "run-start" }
-  | { type: "run-end"; reply: Speakable | null }
+  | { type: "run-end" }
+  /**
+   * The latest turn's reply so far (every chat snapshot). `silent`: note it without reading it
+   * (the reply that was already there when voice mode opened).
+   */
+  | { type: "reply"; plan: TurnPlan; silent?: boolean }
   | { type: "permission"; request: PermissionRequest; question: string }
   | { type: "permission-gone"; requestId: string }
   | { type: "word"; start: number; end: number }
@@ -83,7 +124,11 @@ export type VoiceEffect =
   | { type: "start" }
   | { type: "listen" }
   | { type: "stop-listening" }
-  | { type: "speak"; speech: Speakable }
+  /**
+   * `queue`: after what's being read (the next piece of the reply). `offset`: where `speech`
+   * starts in the reading, added to its word events.
+   */
+  | { type: "speak"; speech: Speakable; queue?: boolean; offset?: number }
   | { type: "stop-speaking" }
   | { type: "cue"; cue: CueName }
   | { type: "send"; text: string }
@@ -101,7 +146,7 @@ export const INSTEAD_QUESTION = "OK. What should I do instead?";
 export const SCREEN_NOTICE = "I'll leave the question on screen.";
 
 export function initialVoiceState(): VoiceState {
-  return { phase: { name: "starting" }, partial: "", heard: "", muted: false, running: false, notice: null };
+  return { phase: { name: "starting" }, partial: "", heard: "", muted: false, running: false, notice: null, reading: null };
 }
 
 /** Where to go when nothing else is happening. */
@@ -117,6 +162,60 @@ function isSpeaking(phase: Phase): boolean {
   return phase.name === "speaking" || (phase.name === "asking" && !!phase.speech);
 }
 
+function newReading(turn: string, silent: boolean): Reading {
+  return { turn, speech: { text: "", segments: [] }, keys: [], tail: null, queuedTo: 0, pending: 0, word: null, silenced: silent, shown: !silent, spoke: false };
+}
+
+/** The reading stopped where it is: nothing of it is read any more (still shown unless `hide`). */
+function silence(reading: Reading | null, hide = false): Reading | null {
+  if (!reading) return null;
+  return { ...reading, silenced: true, shown: reading.shown && !hide, pending: 0, word: null, queuedTo: reading.speech.text.length };
+}
+
+/** The engine stopped reading (a question took over): what was queued is skipped, what comes later is read. */
+function skipQueued(reading: Reading | null): Reading | null {
+  if (!reading) return null;
+  return { ...reading, pending: 0, word: null, queuedTo: reading.speech.text.length };
+}
+
+/**
+ * Hands what's final and not read yet to the engine, when the conversation can read: not while
+ * starting, asking, failed, or while the user is talking (then it waits for the next snapshot).
+ */
+function pump(state: VoiceState, effects: VoiceEffect[]): VoiceState {
+  const r = state.reading;
+  if (!r || r.silenced || r.queuedTo >= r.speech.text.length) return state;
+  const phase = state.phase;
+  if (phase.name === "asking" || phase.name === "error" || phase.name === "unavailable") {
+    return { ...state, reading: skipQueued(r) };
+  }
+  const canRead = phase.name === "speaking" || ((phase.name === "listening" || phase.name === "working" || phase.name === "sending") && !state.partial);
+  if (!canRead) return state;
+  let from = r.queuedTo;
+  while (from < r.speech.text.length && /\s/.test(r.speech.text[from]!)) from++;
+  const reading: Reading = { ...r, queuedTo: r.speech.text.length, spoke: true };
+  if (from >= r.speech.text.length) return { ...state, reading };
+  effects.push({ type: "speak", speech: sliceSpeakable(r.speech, from, r.speech.text.length), queue: r.pending > 0, offset: from });
+  reading.pending = r.pending + 1;
+  if (phase.name !== "speaking") effects.push({ type: "ticker", on: false });
+  return { ...state, reading, phase: { name: "speaking" } };
+}
+
+/** A new snapshot of the turn's reply: add its new final pieces and read them. */
+function onReply(state: VoiceState, plan: TurnPlan, silent: boolean, effects: VoiceEffect[]): VoiceState {
+  let r = state.reading;
+  if (!r || r.turn !== plan.turn) r = newReading(plan.turn, silent);
+  let speech = r.speech;
+  const keys = [...r.keys];
+  for (const piece of newPieces(r.keys, plan.pieces)) {
+    speech = appendSpeakable(speech, piece.sep, piece.speech);
+    keys.push(piece.key);
+  }
+  r = { ...r, speech, keys, tail: plan.tail };
+  if (r.silenced) r.queuedTo = speech.text.length;
+  return pump({ ...state, reading: r }, effects);
+}
+
 export function step(state: VoiceState, event: VoiceEvent): StepResult {
   const effects: VoiceEffect[] = [];
   const phase = state.phase;
@@ -126,19 +225,22 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
   switch (event.type) {
     case "close":
       effects.push({ type: "ticker", on: false }, { type: "stop-speaking" }, { type: "stop-listening" }, { type: "end-session" });
-      return done({ phase: { name: "closed" }, partial: "" });
+      return done({ phase: { name: "closed" }, partial: "", reading: silence(state.reading) });
 
     case "started": {
       const next = { ...state, running: event.running };
       if (!state.muted) effects.push({ type: "listen" });
       effects.push({ type: "cue", cue: "listening" });
-      return done({ running: event.running, phase: rest(next, effects), notice: null });
+      return { state: pump({ ...next, phase: rest(next, effects), notice: null }, effects), effects };
     }
     case "unavailable":
       return done({ phase: { name: "unavailable", reason: event.reason } });
     case "start-failed":
       effects.push({ type: "cue", cue: "error" });
       return done({ phase: { name: "error", message: event.message, retry: "start" } });
+    case "reply":
+      // Also while starting: noted now, read once the session is up.
+      return { state: onReply(state, event.plan, !!event.silent, effects), effects };
   }
 
   if (phase.name === "starting" || phase.name === "unavailable") {
@@ -157,10 +259,10 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       return done({ partial: event.text, notice: null });
 
     case "speech-start":
-      // Barge-in: stop talking at once and listen.
+      // Barge-in: stop talking at once and listen; the rest of this reply isn't read.
       if (phase.name === "speaking") {
         effects.push({ type: "stop-speaking" });
-        return done({ phase: rest(state, effects) });
+        return done({ phase: rest(state, effects), reading: silence(state.reading) });
       }
       if (phase.name === "asking" && phase.speech) {
         effects.push({ type: "stop-speaking" });
@@ -170,7 +272,7 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
 
     case "final": {
       const text = event.text.trim();
-      if (!text) return done({ partial: "" });
+      if (!text) return { state: pump({ ...state, partial: "" }, effects), effects };
       if (isSpeaking(phase)) effects.push({ type: "stop-speaking" });
       if (phase.name === "asking" && phase.step !== "instead") {
         const option = matchPermissionAnswer(text, phase.request.options);
@@ -184,15 +286,17 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
         effects.push({ type: "speak", speech });
         return done({ partial: "", heard: text, phase: { ...phase, step: "screen", speech, word: null } });
       }
-      // Sent like the composer's Send (while the agent works: steer or queue).
+      // Sent like the composer's Send (while the agent works: steer or queue). The reply being
+      // written stops being read (and shown); the next turn's reply is read again.
       effects.push({ type: "ticker", on: false }, { type: "cue", cue: "sent" }, { type: "send", text });
-      return done({ partial: "", heard: text, phase: { name: "sending", text } });
+      return done({ partial: "", heard: text, phase: { name: "sending", text }, reading: silence(state.reading, true) });
     }
 
     case "listen-error":
       if (event.recoverable) return done({ notice: event.message });
       effects.push({ type: "ticker", on: false }, { type: "cue", cue: "error" });
-      return done({ partial: "", phase: { name: "error", message: event.message, retry: "listen" } });
+      if (isSpeaking(phase)) effects.push({ type: "stop-speaking" });
+      return done({ partial: "", phase: { name: "error", message: event.message, retry: "listen" }, reading: skipQueued(state.reading) });
 
     case "sent":
       if (phase.name !== "sending") return { state, effects };
@@ -215,23 +319,19 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       effects.push({ type: "ticker", on: false });
       const next = { ...state, running: false };
       const idle = phase.name === "working" || phase.name === "sending" || (phase.name === "listening" && !state.partial);
-      if (!idle) {
-        // Still asking (e.g. the run was stopped): the question goes away with its request.
-        return done({ running: false });
-      }
-      if (!event.reply) {
-        effects.push({ type: "cue", cue: "done" });
-        return done({ running: false, phase: rest(next, effects) });
-      }
-      effects.push({ type: "speak", speech: event.reply });
-      return done({ running: false, phase: { name: "speaking", speech: event.reply, word: null } });
+      // Still reading: the rest is read, then it listens. Still asking (e.g. the run was stopped):
+      // the question goes away with its request.
+      if (!idle) return done({ running: false });
+      // Nothing was read for this run (no reply, or it was talked over): a cue says it's done.
+      if (!state.reading?.spoke || state.reading.silenced) effects.push({ type: "cue", cue: "done" });
+      return done({ running: false, phase: rest(next, effects) });
     }
 
     case "permission": {
       if (isSpeaking(phase)) effects.push({ type: "stop-speaking" });
       const speech = plainSpeakable(event.question);
       effects.push({ type: "ticker", on: false }, { type: "speak", speech });
-      return done({ partial: "", phase: { name: "asking", request: event.request, step: "question", retried: false, speech, word: null } });
+      return done({ partial: "", reading: skipQueued(state.reading), phase: { name: "asking", request: event.request, step: "question", retried: false, speech, word: null } });
     }
 
     case "permission-gone":
@@ -240,17 +340,28 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       return done({ phase: rest(state, effects) });
 
     case "word":
-      if (phase.name === "speaking" || (phase.name === "asking" && phase.speech)) return done({ phase: { ...phase, word: [event.start, event.end] } });
+      if (phase.name === "speaking" && state.reading) return done({ reading: { ...state.reading, word: [event.start, event.end] } });
+      if (phase.name === "asking" && phase.speech) return done({ phase: { ...phase, word: [event.start, event.end] } });
       return { state, effects };
 
     case "speak-done":
+      if (phase.name === "speaking") {
+        const r = state.reading;
+        const pending = Math.max(0, (r?.pending ?? 1) - 1);
+        if (r && pending > 0) return done({ reading: { ...r, pending } });
+        // Read up to here: back to working (ticks) while the agent writes on, or listening.
+        return done({ phase: rest(state, effects), reading: r && { ...r, pending: 0, word: null } });
+      }
+      return finishQuestion(state, effects);
+
     case "speak-error":
     case "speak-cancelled":
-      if (phase.name === "speaking") return done({ phase: rest(state, effects) });
-      if (phase.name === "asking" && phase.speech) {
-        return done({ phase: { ...phase, step: phase.step === "question" ? "answer" : phase.step, speech: null, word: null } });
+      if (phase.name === "speaking") {
+        // Cut off (an interruption, the audio route changed): the rest of the reply isn't read.
+        effects.push({ type: "stop-speaking" });
+        return done({ phase: rest(state, effects), reading: silence(state.reading) });
       }
-      return { state, effects };
+      return finishQuestion(state, effects);
 
     case "tick":
       if (phase.name === "working") effects.push({ type: "cue", cue: "working-tick" });
@@ -264,7 +375,7 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
     case "stop-speaking":
       if (phase.name === "speaking") {
         effects.push({ type: "stop-speaking" });
-        return done({ phase: rest(state, effects) });
+        return done({ phase: rest(state, effects), reading: silence(state.reading) });
       }
       if (phase.name === "asking" && phase.speech) {
         effects.push({ type: "stop-speaking" });
@@ -290,6 +401,15 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       if (!state.muted) effects.push({ type: "listen" });
       effects.push({ type: "cue", cue: "listening" });
       return done({ phase: rest(state, effects) });
+  }
+  return { state, effects };
+}
+
+/** A question (or the "instead" prompt) was read to the end or cut off: wait for the answer. */
+function finishQuestion(state: VoiceState, effects: VoiceEffect[]): StepResult {
+  const phase = state.phase;
+  if (phase.name === "asking" && phase.speech) {
+    return { state: { ...state, phase: { ...phase, step: phase.step === "question" ? "answer" : phase.step, speech: null, word: null } }, effects };
   }
   return { state, effects };
 }

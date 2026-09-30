@@ -4,7 +4,8 @@
  * streaming callbacks (recognition and synthesis events) come back over one Tauri `Channel` per
  * `startListening` / `speak` call. Events from a channel that is no longer current (after
  * `stopListening`, a newer `startListening`, or a finished reply) are dropped here, so the UI never
- * sees stragglers.
+ * sees stragglers. Queued `speak` calls (`queue: true`, I-183) each have their own channel and stay
+ * current alongside the one being spoken; a non-queued `speak` replaces them all.
  *
  * Word offsets: the plugin reports AVSpeechSynthesizer's NSRange, which counts UTF-16 code units;
  * JS strings index UTF-16 code units too, so `word.start/end` index the spoken text directly.
@@ -101,7 +102,8 @@ export function createNativeVoiceEngine(bridge: NativeBridge = tauriBridge): Nat
     },
 
     async speak(text: string, options: SpeakOptions, onEvent: (e: SpeakEvent) => void) {
-      const token = ++speakToken;
+      // Queued: part of what's being spoken; otherwise it replaces everything before it.
+      const token = options.queue ? speakToken : ++speakToken;
       let ended = false;
       const onEvent_ = bridge.channel<SpeakEvent>((e) => {
         // Each reply ends once (done / cancelled / error). A replaced reply still gets its
@@ -111,7 +113,7 @@ export function createNativeVoiceEngine(bridge: NativeBridge = tauriBridge): Nat
         onEvent(e);
       });
       try {
-        await bridge.invoke<void>(cmd("speak"), { text, voiceId: options.voiceId, rate: options.rate ?? 1, onEvent: onEvent_ });
+        await bridge.invoke<void>(cmd("speak"), { text, voiceId: options.voiceId, rate: options.rate ?? 1, queue: options.queue ?? false, onEvent: onEvent_ });
       } catch (err) {
         ended = true;
         throw err;

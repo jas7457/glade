@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, ChatMessage, ContentBlock } from "@glade/protocol";
-import { sourceRange, toolSummary, toSpeakable, turnSpeech } from "./speakable";
+import { sourceRange, toSpeakable } from "./speakable";
 
 /** The markdown under a spoken word (first occurrence of `word` in the spoken text). */
 function sourceOf(md: string, word: string): string | null {
@@ -62,49 +61,5 @@ describe("toSpeakable", () => {
       expect(seg.end).toBeLessThanOrEqual(s.text.length);
       if (seg.verbatim && seg.src) expect(md.slice(seg.src[0], seg.src[1])).toBe(s.text.slice(seg.start, seg.end));
     }
-  });
-});
-
-describe("toolSummary", () => {
-  it("says what the agent did", () => {
-    expect(toolSummary(["shell", "shell", "shell"])).toBe("I ran 3 commands.");
-    expect(toolSummary(["shell"])).toBe("I ran one command.");
-    expect(toolSummary(["shell", "edit", "write", "read"])).toBe("I ran one command, made 2 edits and read one file.");
-    expect(toolSummary([])).toBeNull();
-  });
-});
-
-function assistant(id: string, content: ContentBlock[], extra: Partial<AssistantMessage> = {}): AssistantMessage {
-  return { id, role: "assistant", content, timestamp: 1, ...extra };
-}
-
-describe("turnSpeech", () => {
-  const user = (id: string, text: string): ChatMessage => ({ id, role: "user", content: [{ type: "text", text }], timestamp: 1 });
-
-  it("reads the tools and the final text of the latest turn only", () => {
-    const messages: ChatMessage[] = [
-      user("u1", "old"),
-      assistant("a0", [{ type: "text", text: "Old reply" }]),
-      user("u2", "hi"),
-      assistant("a1", [{ type: "text", text: "Let me check." }, { type: "toolCall", id: "t1", name: "bash", kind: "shell", args: {} }]),
-      assistant("a2", [{ type: "toolCall", id: "t2", name: "bash", kind: "shell", args: {} }]),
-      assistant("a3", [{ type: "text", text: "All **good**." }], { stopReason: "stop" }),
-    ];
-    const s = turnSpeech({ messages, toolResults: {} })!;
-    expect(s.text).toBe("I ran 2 commands.\nAll good.");
-    expect(s.messageId).toBe("a3");
-    expect(s.segments[0]!.note).toBe(true);
-    // The word maps into a3's markdown.
-    const at = s.text.indexOf("good");
-    expect(sourceRange(s, at, at + 4)).toEqual([6, 10]);
-  });
-
-  it("says when the turn failed or was stopped", () => {
-    expect(turnSpeech({ messages: [user("u", "x"), assistant("a", [], { stopReason: "error", errorMessage: "Rate limited" })], toolResults: {} })!.text).toBe("Something went wrong: Rate limited");
-    expect(turnSpeech({ messages: [user("u", "x"), assistant("a", [{ type: "text", text: "Hm" }], { stopReason: "aborted" })], toolResults: {} })!.text).toBe("Hm.\nStopped.");
-  });
-
-  it("nothing to say without a reply", () => {
-    expect(turnSpeech({ messages: [user("u", "x")], toolResults: {} })).toBeNull();
   });
 });

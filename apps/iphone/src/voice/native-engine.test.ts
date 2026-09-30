@@ -105,7 +105,7 @@ describe("native voice engine", () => {
     const events: SpeakEvent[] = [];
     const text = "Héllo 👋 world";
     await engine.speak(text, { voiceId: "v1" }, (e) => events.push(e));
-    expect(calls[0]).toEqual({ cmd: "plugin:voice|speak", args: { text, voiceId: "v1", rate: 1, onEvent: { channelIndex: 0 } } });
+    expect(calls[0]).toEqual({ cmd: "plugin:voice|speak", args: { text, voiceId: "v1", rate: 1, queue: false, onEvent: { channelIndex: 0 } } });
     // UTF-16 offsets from the native side index the JS string directly.
     channels[0]!({ type: "word", start: 0, end: 5 });
     channels[0]!({ type: "word", start: 9, end: 14 });
@@ -130,5 +130,25 @@ describe("native voice engine", () => {
     channels[1]!({ type: "cancelled" });
     expect(a).toEqual([{ type: "cancelled" }]);
     expect(b).toEqual([{ type: "word", start: 0, end: 6 }, { type: "cancelled" }]);
+  });
+
+  it("queued pieces keep their own channels; a non-queued speak replaces them all", async () => {
+    const { bridge, calls, channels } = fakeBridge();
+    const engine = createNativeVoiceEngine(bridge);
+    const a: SpeakEvent[] = [];
+    const b: SpeakEvent[] = [];
+    const c: SpeakEvent[] = [];
+    await engine.speak("One.", {}, (e) => a.push(e));
+    await engine.speak("Two.", { queue: true }, (e) => b.push(e));
+    expect(calls[1]!.args).toMatchObject({ text: "Two.", queue: true });
+    channels[0]!({ type: "word", start: 0, end: 3 });
+    channels[0]!({ type: "done" });
+    channels[1]!({ type: "word", start: 0, end: 3 });
+    await engine.speak("Three.", {}, (e) => c.push(e));
+    channels[1]!({ type: "word", start: 0, end: 3 });
+    channels[1]!({ type: "cancelled" });
+    expect(a).toEqual([{ type: "word", start: 0, end: 3 }, { type: "done" }]);
+    expect(b).toEqual([{ type: "word", start: 0, end: 3 }, { type: "cancelled" }]);
+    expect(c).toEqual([]);
   });
 });

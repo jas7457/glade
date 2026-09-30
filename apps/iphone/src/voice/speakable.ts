@@ -8,17 +8,15 @@
  *   s.text                         // "Run pnpm test, see the docs."
  *   sourceRange(s, 4, 8)           // [7, 11]: "pnpm" in the markdown
  *
- * `turnSpeech(transcript)` builds the reply of the latest turn: what the agent did ("I ran 3
- * commands.") and its final text.
+ * reply-stream.ts cuts a streaming reply into the sentences to read (I-183).
  */
-import type { AssistantMessage, ToolKind, Transcript } from "@glade/protocol";
 
 /** A piece of spoken text and where it came from. */
 export interface SpeechSegment {
   /** [start, end) in the spoken text. */
   start: number;
   end: number;
-  /** [srcStart, srcEnd) in the markdown; null for words that aren't in it ("I ran 3 commands."). */
+  /** [srcStart, srcEnd) in the markdown; null for words that aren't in it ("Running a command."). */
   src: [number, number] | null;
   /** Copied character for character from the source (offsets map 1:1 inside it). */
   verbatim: boolean;
@@ -273,82 +271,7 @@ export function sourceRange(s: Speakable, start: number, end: number): [number, 
   return from === null || to === null ? null : [from, to];
 }
 
-/** Joins speakables (each ends a sentence), e.g. "I ran 3 commands." + the reply. */
-export function joinSpeakables(parts: Speakable[]): Speakable {
-  const out: Speakable = { text: "", segments: [] };
-  for (const p of parts) {
-    if (!p.text) continue;
-    if (out.text) {
-      out.segments.push({ start: out.text.length, end: out.text.length + 1, src: null, verbatim: false, note: false });
-      out.text += "\n";
-    }
-    const offset = out.text.length;
-    out.text += p.text;
-    for (const s of p.segments) out.segments.push({ ...s, start: s.start + offset, end: s.end + offset, src: s.src ? [s.src[0], s.src[1]] : null });
-  }
-  return out;
-}
-
 /** Plain words (a note or a question) as a speakable. */
 export function plainSpeakable(text: string, note = false): Speakable {
   return { text, segments: text ? [{ start: 0, end: text.length, src: null, verbatim: false, note }] : [] };
-}
-
-/** One sentence about the tools a turn used: "I ran 3 commands and edited 2 files." */
-export function toolSummary(kinds: ToolKind[]): string | null {
-  if (kinds.length === 0) return null;
-  const count = (ks: ToolKind[]) => kinds.filter((k) => ks.includes(k)).length;
-  const n = (k: number, one: string, many: string) => `${k === 1 ? "one" : String(k)} ${k === 1 ? one : many}`;
-  const parts: string[] = [];
-  const shell = count(["shell"]);
-  const edits = count(["edit", "write"]);
-  const reads = count(["read"]);
-  const searches = count(["search", "list"]);
-  const web = count(["web"]);
-  const agents = count(["task", "agent"]);
-  const other = kinds.length - shell - edits - reads - searches - web - agents;
-  if (shell) parts.push(`ran ${n(shell, "command", "commands")}`);
-  if (edits) parts.push(`made ${n(edits, "edit", "edits")}`);
-  if (reads) parts.push(`read ${n(reads, "file", "files")}`);
-  if (searches) parts.push(`searched ${searches === 1 ? "once" : `${searches} times`}`);
-  if (web) parts.push(`looked something up on the web`);
-  if (agents) parts.push(`worked with sub-agents`);
-  if (other) parts.push(`used ${n(other, "tool", "tools")}`);
-  const last = parts.pop()!;
-  return `I ${parts.length ? `${parts.join(", ")} and ${last}` : last}.`;
-}
-
-/** The latest turn's reply, as spoken; null when there's nothing to say. */
-export interface TurnSpeech extends Speakable {
-  /** The assistant message the markdown offsets refer to. */
-  messageId: string | null;
-}
-
-/**
- * The reply to the latest user message: what the agent did (tools, announced) and its final text
- * (the last assistant message with text). Errors and stops are said as such.
- */
-export function turnSpeech(transcript: Transcript): TurnSpeech | null {
-  const { messages } = transcript;
-  let from = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]!.role === "user") {
-      from = i + 1;
-      break;
-    }
-  }
-  const replies = messages.slice(from).filter((m): m is AssistantMessage => m.role === "assistant");
-  if (replies.length === 0) return null;
-  const kinds = replies.flatMap((m) => m.content.flatMap((b) => (b.type === "toolCall" ? [b.kind] : [])));
-  const withText = [...replies].reverse().find((m) => m.content.some((b) => b.type === "text" && b.text.trim()));
-  const last = replies.at(-1)!;
-  const parts: Speakable[] = [];
-  const summary = toolSummary(kinds);
-  if (summary) parts.push(plainSpeakable(summary, true));
-  if (withText) parts.push(toSpeakable(withText.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n\n")));
-  if (last.stopReason === "error") parts.push(plainSpeakable(`Something went wrong${last.errorMessage ? `: ${last.errorMessage.replace(/\s+/g, " ").slice(0, 200)}` : "."}`, true));
-  else if (last.stopReason === "aborted") parts.push(plainSpeakable("Stopped.", true));
-  const joined = joinSpeakables(parts);
-  if (!joined.text) return null;
-  return { ...joined, messageId: withText?.id ?? null };
 }

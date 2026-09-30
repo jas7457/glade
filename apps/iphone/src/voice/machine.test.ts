@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PermissionOption } from "@glade/protocol";
 import type { PermissionRequest } from "./answers";
 import { INSTEAD_QUESTION, SCREEN_NOTICE, initialVoiceState, step, type VoiceEffect, type VoiceEvent, type VoiceState } from "./machine";
+import type { ReplyPiece, TurnPlan } from "./reply-stream";
 import { plainSpeakable } from "./speakable";
 
 /** Runs events from a state; returns the final state and every effect. */
@@ -23,7 +24,13 @@ const options: PermissionOption[] = [
   { id: "reject", label: "No, and tell Claude what to do differently", kind: "reject_once", focusComposer: true },
 ];
 const request: PermissionRequest = { id: "q1", kind: "permission", title: "Allow Bash?", options };
-const reply = plainSpeakable("Done.");
+/** A reply plan: its final pieces (keyed by their text) and the tail. */
+function plan(pieces: string[], tail: string | null = null, turn = "u1"): TurnPlan {
+  const piece = (t: string): ReplyPiece => ({ key: t, sep: " ", speech: plainSpeakable(t) });
+  return { turn, pieces: pieces.map(piece), tail: tail ? piece(tail) : null };
+}
+const reply: VoiceEvent = { type: "reply", plan: plan(["Done."]) };
+const speaks = (effects: VoiceEffect[]) => effects.flatMap((e) => (e.type === "speak" ? [{ text: e.speech.text, queue: !!e.queue, offset: e.offset ?? 0 }] : []));
 const types = (effects: VoiceEffect[]) => effects.map((e) => (e.type === "cue" ? `cue:${e.cue}` : e.type === "ticker" ? `ticker:${e.on}` : e.type));
 
 describe("conversation state machine", () => {
@@ -53,19 +60,20 @@ describe("conversation state machine", () => {
     expect(types(r.effects)).toEqual(["cue:working", "ticker:true"]);
     expect(types(run([{ type: "tick" }], r.state).effects)).toEqual(["cue:working-tick"]);
 
-    r = run([{ type: "run-end", reply }], r.state);
-    expect(r.state.phase).toEqual({ name: "speaking", speech: reply, word: null });
-    expect(r.effects).toContainEqual({ type: "speak", speech: reply });
+    r = run([reply, { type: "run-end" }], r.state);
+    expect(r.state.phase).toEqual({ name: "speaking" });
+    expect(speaks(r.effects)).toEqual([{ text: "Done.", queue: false, offset: 0 }]);
     expect(types(r.effects)).toContain("ticker:false");
 
     r = run([{ type: "word", start: 0, end: 5 }], r.state);
-    expect(r.state.phase).toMatchObject({ name: "speaking", word: [0, 5] });
+    expect(r.state.reading).toMatchObject({ word: [0, 5] });
     r = run([{ type: "speak-done" }], r.state);
     expect(r.state.phase.name).toBe("listening");
+    expect(types(r.effects)).not.toContain("cue:done");
   });
 
   it("a run that ends without a reply plays the done cue", () => {
-    const r = run([{ type: "final", text: "hi" }, { type: "run-start" }, { type: "run-end", reply: null }], started);
+    const r = run([{ type: "final", text: "hi" }, { type: "run-start" }, { type: "run-end" }], started);
     expect(r.state.phase.name).toBe("listening");
     expect(types(r.effects)).toContain("cue:done");
   });
@@ -76,7 +84,7 @@ describe("conversation state machine", () => {
   });
 
   it("barge-in: speech while speaking stops at once and listens", () => {
-    const speaking = run([{ type: "final", text: "hi" }, { type: "run-start" }, { type: "run-end", reply }], started).state;
+    const speaking = run([{ type: "final", text: "hi" }, { type: "run-start" }, reply, { type: "run-end" }], started).state;
     const r = run([{ type: "speech-start" }], speaking);
     expect(r.state.phase.name).toBe("listening");
     expect(types(r.effects)).toEqual(["stop-speaking"]);
@@ -87,7 +95,7 @@ describe("conversation state machine", () => {
   });
 
   it("the stop button stops speaking", () => {
-    const speaking = run([{ type: "run-start" }, { type: "run-end", reply }], started).state;
+    const speaking = run([{ type: "run-start" }, reply, { type: "run-end" }], started).state;
     const r = run([{ type: "stop-speaking" }], speaking);
     expect(r.state.phase.name).toBe("listening");
     expect(types(r.effects)).toEqual(["stop-speaking"]);
@@ -173,7 +181,7 @@ describe("conversation state machine", () => {
       expect(r.effects).toContainEqual({ type: "speak", speech: plainSpeakable(INSTEAD_QUESTION) });
       expect(r.state.phase).toMatchObject({ name: "asking", step: "instead" });
       // The stopped run ends meanwhile: still waiting.
-      r = run([{ type: "run-end", reply }, { type: "speak-done" }, { type: "permission-gone", requestId: "q1" }], r.state);
+      r = run([reply, { type: "run-end" }, { type: "speak-done" }, { type: "permission-gone", requestId: "q1" }], r.state);
       expect(r.state.phase).toMatchObject({ name: "asking", step: "instead" });
       r = run([{ type: "final", text: "use yarn instead" }], r.state);
       expect(r.effects).toContainEqual({ type: "send", text: "use yarn instead" });
@@ -201,11 +209,104 @@ describe("conversation state machine", () => {
     });
 
     it("a question interrupts a reply being read", () => {
-      const speaking = run([{ type: "run-end", reply }], asking.state).state;
+      const speaking = run([reply, { type: "run-end" }], asking.state).state;
       expect(speaking.phase.name).toBe("asking");
-      const reading = run([{ type: "run-start" }, { type: "run-end", reply }], started).state;
-      const r = run([{ type: "permission", request, question: "Allow?" }], reading);
+      const reading = run([{ type: "run-start" }, { type: "reply", plan: plan(["One.", "Two."]) }], started).state;
+      let r = run([{ type: "permission", request, question: "Allow?" }], reading);
       expect(types(r.effects)[0]).toBe("stop-speaking");
+      // What was queued is skipped; what the agent writes after the answer is read.
+      r = run([{ type: "speak-done" }, { type: "final", text: "yes" }, { type: "permission-gone", requestId: "q1" }], r.state);
+      expect(r.state.phase.name).toBe("working");
+      r = run([{ type: "reply", plan: plan(["One.", "Two.", "Three."]) }], r.state);
+      expect(speaks(r.effects)).toEqual([{ text: "Three.", queue: false, offset: 10 }]);
+    });
+  });
+
+  describe("reading a reply while it streams (I-183)", () => {
+    const working = run([{ type: "final", text: "hi" }, { type: "sent" }, { type: "run-start" }], started).state;
+
+    it("reads final pieces as they come, queued, with words in the whole reply's offsets", () => {
+      let r = run([{ type: "reply", plan: plan([], "The bu") }], working);
+      expect(r.state.phase.name).toBe("working");
+      expect(r.state.reading).toMatchObject({ tail: { speech: { text: "The bu" } }, shown: true });
+      expect(speaks(r.effects)).toEqual([]);
+
+      r = run([{ type: "reply", plan: plan(["The build passes."], "All forty") }], r.state);
+      expect(r.state.phase.name).toBe("speaking");
+      expect(types(r.effects)).toEqual(["speak", "ticker:false"]);
+      expect(speaks(r.effects)).toEqual([{ text: "The build passes.", queue: false, offset: 0 }]);
+
+      r = run([{ type: "reply", plan: plan(["The build passes.", "All forty tests ran.", "Nice."], "Mo") }], r.state);
+      expect(speaks(r.effects)).toEqual([{ text: "All forty tests ran. Nice.", queue: true, offset: 18 }]);
+      expect(r.state.reading).toMatchObject({ pending: 2, speech: { text: "The build passes. All forty tests ran. Nice." } });
+
+      r = run([{ type: "word", start: 22, end: 27 }], r.state);
+      expect(r.state.reading!.word).toEqual([22, 27]);
+      // The first piece is done: still speaking the next one.
+      r = run([{ type: "speak-done" }], r.state);
+      expect(r.state.phase.name).toBe("speaking");
+      // The queue ran dry while the agent writes on: working (ticks) again, no "working" cue.
+      r = run([{ type: "speak-done" }], r.state);
+      expect(r.state.phase.name).toBe("working");
+      expect(types(r.effects)).toEqual(["ticker:true"]);
+      expect(r.state.reading!.word).toBeNull();
+
+      // The end: the last sentence is read, then it listens.
+      r = run([{ type: "reply", plan: plan(["The build passes.", "All forty tests ran.", "Nice.", "More soon."]) }, { type: "run-end" }], r.state);
+      expect(r.state.phase.name).toBe("speaking");
+      expect(speaks(r.effects)).toEqual([{ text: "More soon.", queue: false, offset: 45 }]);
+      r = run([{ type: "speak-done" }], r.state);
+      expect(r.state.phase.name).toBe("listening");
+      expect(types(r.effects)).toEqual([]);
+    });
+
+    it("barge-in stops the rest of this reply; the next turn is read again", () => {
+      let r = run([{ type: "reply", plan: plan(["One."]) }, { type: "speech-start" }], working);
+      expect(r.state.phase.name).toBe("working");
+      expect(r.state.reading).toMatchObject({ silenced: true, shown: true });
+      r = run([{ type: "reply", plan: plan(["One.", "Two."]) }], r.state);
+      expect(speaks(r.effects)).toEqual([]);
+      expect(r.state.reading!.speech.text).toBe("One. Two.");
+      // The user said something: sent, the old reply is hidden.
+      r = run([{ type: "final", text: "stop that" }], r.state);
+      expect(r.state.reading).toMatchObject({ silenced: true, shown: false });
+      r = run([{ type: "sent" }, { type: "reply", plan: plan(["OK, stopping."], null, "u2") }], r.state);
+      expect(speaks(r.effects)).toEqual([{ text: "OK, stopping.", queue: false, offset: 0 }]);
+    });
+
+    it("talking while it streams (not speaking) stops reading it", () => {
+      let r = run([{ type: "partial", text: "also" }, { type: "reply", plan: plan(["One."]) }], working);
+      // Not over the user's words.
+      expect(speaks(r.effects)).toEqual([]);
+      r = run([{ type: "final", text: "also the docs" }, { type: "reply", plan: plan(["One.", "Two."]) }], r.state);
+      expect(speaks(r.effects)).toEqual([]);
+      // A cough (no words) reads what waited.
+      r = run([{ type: "partial", text: "hm" }, { type: "reply", plan: plan(["A.", "B."], null, "u9") }], working);
+      expect(speaks(r.effects)).toEqual([]);
+      r = run([{ type: "final", text: "" }], r.state);
+      expect(speaks(r.effects)).toEqual([{ text: "A. B.", queue: false, offset: 0 }]);
+    });
+
+    it("a reply that was there before voice mode opened is neither read nor shown", () => {
+      let r = run([{ type: "reply", plan: plan(["Old."]), silent: true }, { type: "started", running: false }]);
+      expect(speaks(r.effects)).toEqual([]);
+      expect(r.state.reading).toMatchObject({ silenced: true, shown: false });
+      r = run([{ type: "reply", plan: plan(["New."], null, "u2") }], r.state);
+      expect(speaks(r.effects)).toEqual([{ text: "New.", queue: false, offset: 0 }]);
+    });
+
+    it("a reply noted while starting is read once started (the agent was already running)", () => {
+      const r = run([{ type: "run-start" }, { type: "reply", plan: plan(["So far."]) }, { type: "started", running: true }]);
+      expect(r.state.phase.name).toBe("speaking");
+      expect(speaks(r.effects)).toEqual([{ text: "So far.", queue: false, offset: 0 }]);
+    });
+
+    it("an interrupted piece ends the reading", () => {
+      let r = run([{ type: "reply", plan: plan(["One."]) }, { type: "reply", plan: plan(["One.", "Two."]) }], working);
+      r = run([{ type: "speak-error", message: "Audio was interrupted." }], r.state);
+      expect(r.state.phase.name).toBe("working");
+      expect(types(r.effects)).toContain("stop-speaking");
+      expect(r.state.reading!.silenced).toBe(true);
     });
   });
 });

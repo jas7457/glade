@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage, PermissionOption, Transcript } from "@glade/protocol";
+import type { ChatMessage, ContentBlock, PermissionOption, Transcript } from "@glade/protocol";
 import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
 import { Conversation, chatVoiceBridge, newChatVoiceBridge, type ChatSnapshot, type VoiceChat } from "./conversation";
 import { createFakeVoiceEngine, type FakeVoiceEngine } from "./fake-engine";
@@ -86,7 +86,7 @@ describe("Conversation", () => {
 
     update({ isRunning: false, transcript: transcriptWith("All **good** here.") });
     expect(c.state.value.phase.name).toBe("speaking");
-    expect(engine.speaking).toBe("I ran one command.\nAll good here.");
+    expect(engine.speaking).toBe("Running a command.\nAll good here.");
     expect(engine.calls.find((x) => x.method === "speak")!.args[1]).toEqual({ voiceId: "v1", rate: 1.2 });
     // No more ticks.
     await vi.advanceTimersByTimeAsync(9000);
@@ -94,7 +94,7 @@ describe("Conversation", () => {
 
     engine.step();
     engine.step();
-    expect(c.state.value.phase).toMatchObject({ name: "speaking", word: [2, 5] });
+    expect(c.state.value.reading?.word).toEqual([8, 9]);
 
     // Barge-in.
     engine.emitListen({ type: "speech-start" });
@@ -184,6 +184,85 @@ describe("Conversation", () => {
     await flush();
     expect(engine.sessionActive).toBe(false);
     expect(engine.listening).toBe(false);
+  });
+});
+
+describe("Conversation: reading while it streams (I-183)", () => {
+  let engine: FakeVoiceEngine;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    engine = createFakeVoiceEngine({ wordMs: 0, hearMs: 0 });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const streaming = (...content: ContentBlock[]): Transcript => ({
+    messages: [
+      { id: "u0", role: "user", content: [{ type: "text", text: "earlier" }], timestamp: 1 },
+      { id: "a0", role: "assistant", content: [{ type: "text", text: "An old reply." }], timestamp: 1, stopReason: "stop" },
+      { id: "u", role: "user", content: [{ type: "text", text: "hi" }], timestamp: 2 },
+      { id: "a", role: "assistant", content, timestamp: 2, streaming: true },
+    ],
+    toolResults: {},
+  });
+  const text = (t: string) => ({ type: "text" as const, text: t });
+
+  it("reads sentences as they're final, queued, words in the whole reply, then listens", async () => {
+    const { chat, update } = fakeChat();
+    const c = new Conversation(engine, chat, { voice: () => ({ rate: 1.1 }) });
+    update({ transcript: { messages: streaming().messages.slice(0, 2), toolResults: {} } });
+    c.start();
+    await flush();
+    // The reply that was there before isn't read.
+    expect(engine.speaking).toBeNull();
+    await engine.hear("check it");
+    await flush();
+    update({ isRunning: true, transcript: streaming(text("The build")) });
+    expect(c.state.value.phase.name).toBe("working");
+    expect(c.state.value.reading?.tail?.speech.text).toBe("The build");
+    update({ transcript: streaming(text("The build passes. All te")) });
+    expect(c.state.value.phase.name).toBe("speaking");
+    expect(engine.speaking).toBe("The build passes.");
+    update({ transcript: streaming(text("The build passes. All tests ran. Done"), { type: "toolCall", id: "t", name: "bash", kind: "shell", args: {} }) });
+    expect(engine.queued).toEqual(["All tests ran. Done.\nRunning a command."]);
+    expect(engine.calls.filter((x) => x.method === "speak").map((x) => x.args[1])).toEqual([{ rate: 1.1 }, { rate: 1.1, queue: true }]);
+    // The working tick stops while it reads.
+    const ticks = engine.cues.filter((q) => q === "working-tick").length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.cues.filter((q) => q === "working-tick").length).toBe(ticks);
+
+    engine.finishSpeaking();
+    expect(engine.speaking).toBe("All tests ran. Done.\nRunning a command.");
+    engine.step();
+    // "All" of the second piece, in the whole reply's offsets.
+    expect(c.state.value.reading?.word).toEqual([18, 21]);
+    expect(c.state.value.reading?.speech.text.slice(18, 21)).toBe("All");
+    engine.finishSpeaking();
+    expect(c.state.value.phase.name).toBe("working");
+
+    update({ isRunning: false, transcript: { ...streaming(text("The build passes. All tests ran. Done"), { type: "toolCall", id: "t", name: "bash", kind: "shell", args: {} }), messages: [...streaming().messages.slice(0, 3), { id: "a", role: "assistant", content: [text("The build passes. All tests ran. Done"), { type: "toolCall", id: "t", name: "bash", kind: "shell", args: {} }], timestamp: 2, stopReason: "toolUse" }, { id: "b", role: "assistant", content: [text("It worked")], timestamp: 3, stopReason: "stop" }] } });
+    expect(engine.speaking).toBe("It worked.");
+    engine.finishSpeaking();
+    expect(c.state.value.phase.name).toBe("listening");
+    expect(c.state.value.reading?.speech.text).toBe("The build passes. All tests ran. Done.\nRunning a command.\nIt worked.");
+  });
+
+  it("barge-in stops everything queued and the rest of the reply", async () => {
+    const { chat, update } = fakeChat();
+    const c = new Conversation(engine, chat);
+    c.start();
+    await flush();
+    await engine.hear("go");
+    await flush();
+    update({ isRunning: true, transcript: streaming(text("One. Two. Three")) });
+    update({ transcript: streaming(text("One. Two. Three. Four")) });
+    expect(engine.speaking).toBe("One. Two.");
+    expect(engine.queued).toEqual(["Three."]);
+    engine.emitListen({ type: "speech-start" });
+    expect(engine.speaking).toBeNull();
+    expect(engine.queued).toEqual([]);
+    update({ transcript: streaming(text("One. Two. Three. Four. Five")) });
+    expect(engine.speaking).toBeNull();
+    expect(c.state.value.phase.name).toBe("working");
   });
 });
 

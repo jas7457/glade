@@ -1,7 +1,8 @@
 /**
  * A fake `VoiceEngine` (I-180) for tests, the browser and the simulator (where on-device speech
  * isn't available). It "speaks" on a timer (a `word` event per word, then `done`; `stopSpeaking`
- * sends `cancelled`) and "hears" whatever `hear(text)` is given: `speech-start`, a partial per word,
+ * sends `cancelled` to it and everything queued; `queue: true` speaks after the current text) and
+ * "hears" whatever `hear(text)` is given: `speech-start`, a partial per word,
  * then `final`. Tests can also push raw events (`emitListen`) and read what was called (`calls`).
  *
  *   const engine = createFakeVoiceEngine({ wordMs: 0 });   // 0: words only when `step()` is called
@@ -35,13 +36,15 @@ export interface FakeVoiceEngine extends VoiceEngine {
   sessionActive: boolean;
   /** The text being spoken, or null. */
   speaking: string | null;
+  /** Texts queued after the one being spoken (`queue: true`). */
+  queued: string[];
   /** Pretend the user said `text` (speech-start, partials, final). Resolves once the final was sent. */
   hear(text: string): Promise<void>;
   /** Push a recognition event to the current listener. */
   emitListen(event: ListenEvent): void;
   /** Speak the next word (or finish) of the current utterance. */
   step(): void;
-  /** Finish the current utterance at once (`done`). */
+  /** Finish the current utterance at once (`done`); the next queued one starts. */
   finishSpeaking(): void;
   /** Fail the current utterance. */
   failSpeaking(message: string): void;
@@ -62,12 +65,30 @@ export function createFakeVoiceEngine(options: FakeVoiceEngineOptions = {}): Fak
   const hearMs = options.hearMs ?? 120;
   let permissions: VoicePermissions = options.permissions ?? GRANTED;
   let listener: ((e: ListenEvent) => void) | null = null;
-  let utterance: { text: string; words: Array<[number, number]>; next: number; rate: number; onEvent: (e: SpeakEvent) => void } | null = null;
+  type Utterance = { text: string; words: Array<[number, number]>; next: number; rate: number; onEvent: (e: SpeakEvent) => void };
+  let utterance: Utterance | null = null;
+  const waiting: Utterance[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const clear = () => {
     if (timer) clearTimeout(timer);
     timer = null;
+  };
+  /** The next queued utterance (if any) becomes the current one. */
+  const advance = () => {
+    utterance = waiting.shift() ?? null;
+    engine.queued = waiting.map((u) => u.text);
+    engine.speaking = utterance?.text ?? null;
+    schedule();
+  };
+  /** Every utterance (current and queued) ends with `event`. */
+  const endAll = (event: SpeakEvent) => {
+    clear();
+    const all = [utterance, ...waiting.splice(0)].filter((u): u is Utterance => !!u);
+    utterance = null;
+    engine.speaking = null;
+    engine.queued = [];
+    for (const u of all) u.onEvent(event);
   };
   const schedule = () => {
     clear();
@@ -85,6 +106,7 @@ export function createFakeVoiceEngine(options: FakeVoiceEngineOptions = {}): Fak
     listening: false,
     sessionActive: false,
     speaking: null,
+    queued: [],
 
     async isAvailable() {
       engine.calls.push({ method: "isAvailable", args: [] });
@@ -128,24 +150,16 @@ export function createFakeVoiceEngine(options: FakeVoiceEngineOptions = {}): Fak
     },
     async speak(text: string, opts: SpeakOptions, onEvent) {
       engine.calls.push({ method: "speak", args: [text, opts] });
-      if (utterance) {
-        const prev = utterance;
-        utterance = null;
-        prev.onEvent({ type: "cancelled" });
-      }
+      if (!opts.queue) endAll({ type: "cancelled" });
       const words: Array<[number, number]> = [];
       for (const m of text.matchAll(/\S+/g)) words.push([m.index, m.index + m[0].length]);
-      utterance = { text, words, next: 0, rate: opts.rate ?? 1, onEvent };
-      engine.speaking = text;
-      schedule();
+      waiting.push({ text, words, next: 0, rate: opts.rate ?? 1, onEvent });
+      if (utterance) engine.queued = waiting.map((u) => u.text);
+      else advance();
     },
     async stopSpeaking() {
       engine.calls.push({ method: "stopSpeaking", args: [] });
-      clear();
-      const u = utterance;
-      utterance = null;
-      engine.speaking = null;
-      u?.onEvent({ type: "cancelled" });
+      endAll({ type: "cancelled" });
     },
     async playCue(cue) {
       engine.cues.push(cue);
@@ -182,13 +196,10 @@ export function createFakeVoiceEngine(options: FakeVoiceEngineOptions = {}): Fak
       utterance = null;
       engine.speaking = null;
       u?.onEvent({ type: "done" });
+      if (!utterance) advance();
     },
     failSpeaking(message) {
-      clear();
-      const u = utterance;
-      utterance = null;
-      engine.speaking = null;
-      u?.onEvent({ type: "error", message });
+      endAll({ type: "error", message });
     },
     setPermissions(p) {
       permissions = p;

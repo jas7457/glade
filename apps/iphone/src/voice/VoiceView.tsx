@@ -1,8 +1,8 @@
 /**
  * Conversation mode's full-screen view (I-180), over the chat like ChatGPT's voice mode: a large
- * animated orb for listening / thinking / speaking, what you're saying (live), the reply being
- * read with the current word highlighted, and the controls: mute the mic, stop speaking, close
- * (back to the chat, where everything is in the transcript). A permission question shows its
+ * animated orb for listening / thinking / speaking, what you're saying (live), the reply growing as
+ * it streams and is read (I-183) with the current word highlighted, and the controls: mute the mic,
+ * stop speaking, close (back to the chat, where everything is in the transcript). A permission question shows its
  * answers as big buttons too. When speech isn't possible, a sheet says how to allow it.
  *
  * With the fake engine (browser / simulator until the native one lands) a small "Say…" field
@@ -18,6 +18,7 @@ import type { VoiceEngine } from "./engine";
 import { isFakeVoiceEngine } from "./fake-engine";
 import { followScrollTop } from "./follow-scroll";
 import type { Phase, VoiceState } from "./machine";
+import type { ReplyPiece } from "./reply-stream";
 import type { Speakable } from "./speakable";
 
 export interface VoiceViewProps {
@@ -67,15 +68,15 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
   const chat = conversation.chat.value;
   const p = state.phase;
   const look = lookOf(state);
-  const speech = p.name === "speaking" || p.name === "asking" ? p.speech : null;
-  const word = p.name === "speaking" || p.name === "asking" ? p.word : null;
+  const speech = p.name === "asking" ? p.speech : null;
+  const word = p.name === "asking" ? p.word : null;
   const speakingNow = look === "speaking";
   const question = p.name === "asking" && p.step !== "instead" ? p.request : null;
-  // The reply stays readable after it was spoken, until the next turn.
-  const lastReply = useRef<Speakable | null>(null);
-  if (p.name === "speaking") lastReply.current = p.speech;
-  if (p.name === "sending") lastReply.current = null;
-  const shownReply = p.name === "speaking" ? p.speech : p.name === "listening" || p.name === "working" ? lastReply.current : null;
+  // The latest reply: growing while it streams, read as it grows, readable after it was read,
+  // until the user says something new.
+  const reading = state.reading;
+  const shownReply =
+    reading?.shown && (reading.speech.text || reading.tail) && (p.name === "speaking" || p.name === "working" || p.name === "listening") ? reading : null;
 
   return (
     <div
@@ -116,7 +117,9 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
           {question && question.message && <p class="mt-2 font-mono text-[14px] break-words whitespace-pre-wrap text-fg-muted">{question.message}</p>}
           {question && <AnswerButtons options={question.options} onAnswer={(id) => conversation.dispatch({ type: "answer", optionId: id })} />}
 
-          {!state.partial && shownReply && <SpokenText speech={shownReply} word={p.name === "speaking" ? word : null} class="text-left text-[19px]" />}
+          {!state.partial && shownReply && (
+            <SpokenText speech={shownReply.speech} tail={shownReply.tail} word={p.name === "speaking" ? shownReply.word : null} class="text-left text-[19px]" />
+          )}
 
           {p.name === "error" && (
             <div class="flex flex-col items-center gap-3">
@@ -192,9 +195,10 @@ function Orb({ look }: { look: Look }) {
 
 /**
  * Spoken text with the current word highlighted; announcements in muted italics. The highlight is
- * a background only (no padding or weight change), so moving it never reflows the lines.
+ * a background only (no padding or weight change), so moving it never reflows the lines. `tail`:
+ * text still being written (not final, so not read yet), shown dimmed after it.
  */
-export function SpokenText({ speech, word, class: className }: { speech: Speakable; word: [number, number] | null; class?: string }) {
+export function SpokenText({ speech, tail, word, class: className }: { speech: Speakable; tail?: ReplyPiece | null; word: [number, number] | null; class?: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
   // Keep the word being read in view: scroll only when it leaves the comfortable band, not on
   // every word (follow-scroll.ts).
@@ -226,6 +230,12 @@ export function SpokenText({ speech, word, class: className }: { speech: Speakab
           {part.text}
         </span>
       ))}
+      {tail && (
+        <span class="text-fg-muted" data-testid="voice-tail">
+          {speech.text ? tail.sep : ""}
+          {tail.speech.text}
+        </span>
+      )}
     </p>
   );
 }
