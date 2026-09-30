@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- When Claude Code or Codex uses its own sub-agents, each one appears like Glade's sub-agents: its
+  own read-only tab with its live work, a card above the text box with its name, status and latest
+  activity, and its report in the parent's task card. You can stop it, but not message it.
 - Terminal tabs: press ⌃` (or pick New Terminal from the tab menu) to open a shell in the chat's
   folder next to your conversations. It runs on the chat's Mac, follows Glade's light/dark colours,
   supports copy/paste, links and ⌘K to clear, keeps its output when you switch tabs or reload, and
