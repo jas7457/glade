@@ -1,6 +1,6 @@
 /**
- * Polls subscription usage limits (via the harness's optional `getUsageLimits`) and pushes them
- * to clients as `usage_limits` messages.
+ * Polls one harness's subscription usage limits (its optional `getUsageLimits`) and hands new
+ * values to `push` (`UsageLimitsHub` turns them into `usage_limits` messages, I-191).
  *
  * - Polls every `intervalMs` only while at least one client is connected (`setClientCount`), and
  *   shortly after each run ends (`onRunEnd`).
@@ -9,11 +9,12 @@
  * - Pushes only when the value changed (ignoring `fetchedAt`), or when the last pushed value is
  *   older than `heartbeatMs` so the UI's "Updated … ago" stays roughly right.
  */
-import type { ServerMessage, UsageLimits } from "@glade/protocol";
+import type { UsageLimits } from "@glade/protocol";
 
 export interface UsageLimitsPollerOptions {
   fetchLimits: () => Promise<UsageLimits | null>;
-  broadcast: (message: ServerMessage) => void;
+  /** A new value to show (changed, or the heartbeat). */
+  push: (usage: UsageLimits) => void;
   intervalMs?: number;
   minIntervalMs?: number;
   heartbeatMs?: number;
@@ -23,7 +24,7 @@ export interface UsageLimitsPollerOptions {
 
 export class UsageLimitsPoller {
   private readonly fetchLimits: () => Promise<UsageLimits | null>;
-  private readonly broadcast: (message: ServerMessage) => void;
+  private readonly push: (usage: UsageLimits) => void;
   private readonly intervalMs: number;
   private readonly minIntervalMs: number;
   private readonly heartbeatMs: number;
@@ -41,7 +42,7 @@ export class UsageLimitsPoller {
 
   constructor(options: UsageLimitsPollerOptions) {
     this.fetchLimits = options.fetchLimits;
-    this.broadcast = options.broadcast;
+    this.push = options.push;
     this.intervalMs = options.intervalMs ?? 60_000;
     this.minIntervalMs = options.minIntervalMs ?? 15_000;
     this.heartbeatMs = options.heartbeatMs ?? 5 * 60_000;
@@ -120,7 +121,7 @@ export class UsageLimitsPoller {
     const changed = !prev || !sameValue(prev, next);
     if (changed || this.now() - this.lastPushedAt >= this.heartbeatMs) {
       this.lastPushedAt = this.now();
-      this.broadcast({ type: "usage_limits", usage: next });
+      this.push(next);
     }
   }
 

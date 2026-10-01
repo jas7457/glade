@@ -12,8 +12,10 @@
  * - Transcripts are Glade's (the store, I-121); nothing is imported from Claude's files.
  * - Permission modes (I-174, capability `permissionModes`): per chat, starting from Claude Code's
  *   own `permissions.defaultMode` (`permissions.ts`).
+ * - Plan usage limits (I-191, capability `usageLimits`): the SDK's experimental `/usage` data from a
+ *   short-lived process, no model call (`usage.ts`), read every 5 minutes at most.
  */
-import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type ModelRef, type SlashCommand } from "@glade/protocol";
+import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type ModelRef, type SlashCommand, type UsageLimits } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
 import type {
@@ -33,6 +35,7 @@ import { CLAUDE_PROVIDER, claudeModelId, findClaudeModel, translateClaudeModels 
 import { claudeOneShot } from "./one-shot.js";
 import { claudePermissionModes, readClaudePermissionSettings, type ClaudePermissionSettings } from "./permissions.js";
 import { PushQueue } from "./push-queue.js";
+import { claudeUsageLimits } from "./usage.js";
 import { realClaudeSdk, type ClaudeInitResult, type ClaudeModelInfo, type ClaudeSdk, type ClaudeUserInput } from "./sdk.js";
 
 export { CLAUDE_COMMAND, CLAUDE_HARNESS_ID };
@@ -44,7 +47,7 @@ export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
   exportHtml: false,
   steering: true,
   uiRequests: true,
-  usageLimits: false,
+  usageLimits: true,
   commands: true,
   subagents: true,
   shell: false,
@@ -180,6 +183,38 @@ export class ClaudeHarness implements AgentHarness {
     const wanted = settings.defaultMode ?? "default";
     const modes = claudePermissionModes({ supportsAutoMode }, { bypassDisabled: settings.bypassDisabled, current: wanted });
     return { modes, defaultMode: modes.some((m) => m.id === wanted) ? wanted : "default" };
+  }
+
+  // Usage limits (I-191) --------------------------------------------------------------------------
+
+  /** Reading them starts a Claude Code process (~1 s), so less often than other agents. */
+  readonly usageLimitsPolling = { intervalMs: 5 * 60_000, minIntervalMs: 60_000 };
+
+  /** Plan limits from a short-lived Claude Code process's `/usage` data (no model call). */
+  async getUsageLimits(): Promise<UsageLimits | null> {
+    const executable = this.isInstalled() ? this.executable() : null;
+    if (!executable) return null;
+    const input = new PushQueue<ClaudeUserInput>();
+    const query = await this.sdk.query({
+      prompt: input,
+      // No settings/MCP servers: only the login matters, and the process starts faster.
+      options: {
+        cwd: this.options.utilityCwd,
+        pathToClaudeCodeExecutable: executable,
+        env: { ...this.childEnv(), CLAUDE_AGENT_SDK_CLIENT_APP: "glade" },
+        persistSession: false,
+        settingSources: [],
+        strictMcpConfig: true,
+      },
+    });
+    try {
+      if (!query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET) return null;
+      const response = await withTimeout(query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }), 30_000, "Claude Code's usage didn't answer");
+      return claudeUsageLimits(response);
+    } finally {
+      input.close();
+      query.close();
+    }
   }
 
   // Sessions ------------------------------------------------------------------------------------

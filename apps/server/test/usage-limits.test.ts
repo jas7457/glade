@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ServerMessage, UsageLimits } from "@glade/protocol";
+import type { UsageLimits } from "@glade/protocol";
 import { UsageLimitsPoller } from "../src/services/usage-limits.js";
 
 function limits(percent: number): UsageLimits {
@@ -20,9 +20,9 @@ function setup(results: Array<UsageLimits | null | Error | (() => Promise<UsageL
     if (typeof next === "function") return next();
     return next;
   });
-  const sent: ServerMessage[] = [];
-  const poller = new UsageLimitsPoller({ fetchLimits, broadcast: (m) => sent.push(m) });
-  const pushed = () => sent.map((m) => (m.type === "usage_limits" ? m.usage && [m.usage.limits[0]!.percent, m.usage.stale] : null));
+  const sent: UsageLimits[] = [];
+  const poller = new UsageLimitsPoller({ fetchLimits, push: (u) => sent.push(u) });
+  const pushed = () => sent.map((u) => [u.limits[0]!.percent, u.stale]);
   return { poller, fetchLimits, sent, pushed };
 }
 

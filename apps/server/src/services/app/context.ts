@@ -15,7 +15,7 @@ import type { LeaseManager } from "../leases.js";
 import type { OpenIn } from "../open-in.js";
 import type { RevealPath } from "../reveal.js";
 import type { ServerRegistry } from "../server-registry.js";
-import type { UsageLimitsPoller } from "../usage-limits.js";
+import type { UsageLimitsHub } from "../usage-hub.js";
 import type { MessageIds, TranscriptWriter } from "./transcript-writer.js";
 
 export interface AppServiceOptions {
@@ -139,7 +139,7 @@ export interface AppContext {
   readonly agentTimers: AgentTimers;
   readonly deliveries: Map<string, Promise<void>>;
   /** Set once by `AppService`'s constructor. */
-  usage: UsageLimitsPoller | null;
+  usage: UsageLimitsHub | null;
   /** Session leases shared with other servers on the data folder (null = single server, tests). */
   leases: LeaseManager | null;
   serverUrl: string | null;

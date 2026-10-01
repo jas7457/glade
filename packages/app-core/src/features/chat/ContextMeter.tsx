@@ -2,14 +2,14 @@
  * Context meter (I-014, I-057): a small ring in the composer toolbar showing how full the model's
  * context window is. Amber above 80%, red above 95%; a dashed ring when the size is unknown (right
  * after compaction, until the next reply). Hovering (or clicking, which pins it) opens a popover
- * with a context bar, the session cost and, when the chat's model belongs to the limits'
- * provider, the subscription limits (`usageLimits`). The ring stays context-only.
+ * with a context bar, the session cost and every agent's subscription limits (`usageLimits`,
+ * I-191), the chat's own agent first. The ring stays context-only.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import * as Popover from "@radix-ui/react-popover";
 import type { ModelRef, SessionState } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
-import { limitsForModel, usageLimits } from "@glade/app-core/state/usage";
+import { usageForChat, usageLimitsOf } from "@glade/app-core/state/usage";
 import { floatingSurfaceClass } from "@glade/app-core/ui";
 import { describeUsage, meterLevel, usagePercent } from "./context-meter";
 import { UsageDetails } from "./usage/UsageDetails";
@@ -28,16 +28,34 @@ export interface ContextMeterProps {
   usage: SessionState["contextUsage"];
   cost?: number;
   compacting?: boolean;
-  /** The chat's current model; subscription limits show only for their provider's models. */
+  /** The chat's current model: its per-model limit is tagged, its agent's limits go first. */
   model?: ModelRef | null;
+  /** The chat's agent (harness id): its limits go first. */
+  harnessId?: string | null;
+  /** The chat's environment: the limits shown are that Mac's accounts (default: this device's). */
+  envId?: string | null;
+  /** The popover opened/closed (the touch composer stays expanded while it's open). */
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ContextMeter({ usage, cost, compacting, model }: ContextMeterProps) {
-  const [open, setOpen] = useState(false);
+export function ContextMeter({ usage, cost, compacting, model, harnessId, envId, onOpenChange: notifyOpen }: ContextMeterProps) {
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    notifyOpen?.(next);
+  };
   const pinned = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const clear = () => clearTimeout(timer.current);
-  useEffect(() => clear, []);
+  const notifyRef = useRef(notifyOpen);
+  notifyRef.current = notifyOpen;
+  useEffect(
+    () => () => {
+      clear();
+      notifyRef.current?.(false);
+    },
+    [],
+  );
 
   if (!usage) return null;
   const percent = usagePercent(usage);
@@ -116,23 +134,34 @@ export function ContextMeter({ usage, cost, compacting, model }: ContextMeterPro
           side="top"
           align="end"
           sideOffset={8}
-          collisionPadding={8}
+          collisionPadding={{ top: 8 + (open ? safeAreaTop() : 0), right: 8, bottom: 8, left: 8 }}
           aria-label="Usage"
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
           onPointerEnter={clear}
           onPointerLeave={hoverClose}
-          class={cn("z-50 w-[280px] rounded-[10px] p-3.5 text-[1rem] leading-snug outline-none select-none", floatingSurfaceClass)}
+          class={cn("z-50 max-h-[var(--radix-popover-content-available-height)] w-[280px] overflow-y-auto rounded-[10px] p-3.5 text-[1rem] leading-snug outline-none select-none", floatingSurfaceClass)}
         >
           <UsageDetails
             usage={usage}
             cost={cost}
             compacting={compacting}
-            limits={limitsForModel(usageLimits.value, model)}
+            limits={usageForChat(usageLimitsOf(envId), harnessId, model)}
             model={model}
           />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
   );
+}
+
+/** The top safe-area inset in px (the iPhone's status bar; 0 elsewhere), so the popover stays below it. */
+function safeAreaTop(): number {
+  if (typeof document === "undefined" || !document.body) return 0;
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top)";
+  document.body.appendChild(probe);
+  const top = Number.parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  return top;
 }

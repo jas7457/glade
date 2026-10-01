@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageLimit, UsageLimits } from "@glade/protocol";
+import type { HarnessUsageLimits, UsageLimit, UsageLimits } from "@glade/protocol";
 import {
   formatPercent,
   formatResetsAt,
@@ -7,10 +7,12 @@ import {
   handleUsageMessage,
   limitAlerts,
   limitMatchesModel,
-  limitsForModel,
   primaryLimit,
+  usageForChat,
   usageLimits,
+  usageLimitsOf,
 } from "./usage";
+import { hasLocalEnvironment, localEnvironmentId } from "./env-registry";
 
 const limit = (over: Partial<UsageLimit> = {}): UsageLimit => ({
   id: "session",
@@ -78,7 +80,7 @@ describe("primaryLimit", () => {
 
 describe("limitAlerts / handleUsageMessage", () => {
   beforeEach(() => {
-    usageLimits.value = null;
+    usageLimits.value = new Map();
   });
 
   it("alerts only on escalation or a non-normal limit becoming active", () => {
@@ -92,30 +94,64 @@ describe("limitAlerts / handleUsageMessage", () => {
 
   it("sets the signal and toasts once per transition, never for stale values", () => {
     const notify = vi.fn();
-    handleUsageMessage(usage([limit()]), notify, NOW);
-    expect(usageLimits.value?.limits[0]?.percent).toBe(44);
+    const msg = (u: UsageLimits) => ({ usage: u, entries: [{ harnessId: "pi", label: "Pi", usage: u }] });
+    handleUsageMessage(msg(usage([limit()])), undefined, notify, NOW);
+    expect(usageLimitsOf(undefined)[0]?.usage.limits[0]?.percent).toBe(44);
     const critical = usage([limit({ percent: 96, severity: "critical", resetsAt: at(2026, 8, 25, 18, 40) })]);
-    handleUsageMessage(critical, notify, NOW);
-    handleUsageMessage(critical, notify, NOW);
-    handleUsageMessage({ ...critical, stale: true }, notify, NOW);
+    handleUsageMessage(msg(critical), undefined, notify, NOW);
+    handleUsageMessage(msg(critical), undefined, notify, NOW);
+    handleUsageMessage(msg({ ...critical, stale: true }), undefined, notify, NOW);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0]![0]).toMatchObject({ level: "error", title: "Current session: limit almost reached" });
     expect(notify.mock.calls[0]![0].message).toMatch(/96% of your Claude subscription limit used\. Resets at 6:40\sPM\./);
-    handleUsageMessage(null, notify, NOW);
-    expect(usageLimits.value).toBeNull();
+    handleUsageMessage({ usage: null, entries: [] }, undefined, notify, NOW);
+    expect(usageLimitsOf(undefined)).toEqual([]);
+  });
+
+  it("I-191: compares each agent with its own previous limits", () => {
+    const notify = vi.fn();
+    const warn = usage([limit({ percent: 80, severity: "warning" })], { source: "Codex (plus)" });
+    handleUsageMessage({ usage: null, entries: [{ harnessId: "pi", label: "Pi", usage: warn }, { harnessId: "codex", label: "Codex", usage: usage([limit()], { source: "Codex (plus)" }) }] }, undefined, notify, NOW);
+    // Codex escalates (pi already was at warning): one toast, Codex's.
+    handleUsageMessage({ usage: null, entries: [{ harnessId: "pi", label: "Pi", usage: warn }, { harnessId: "codex", label: "Codex", usage: warn }] }, undefined, notify, NOW);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]![0].message).toContain("Codex (plus)");
+  });
+
+  it("reads an older server's message (only the default agent's `usage`)", () => {
+    handleUsageMessage({ usage: usage([limit()]) }, undefined, vi.fn(), NOW);
+    expect(usageLimitsOf(undefined).map((e) => [e.harnessId, e.label])).toEqual([["", "Claude subscription"]]);
+    handleUsageMessage({ usage: usage([]) }, undefined, vi.fn(), NOW);
+    expect(usageLimitsOf(undefined)).toEqual([]);
   });
 });
 
-describe("limitsForModel / limitMatchesModel", () => {
-  const all = usage([limit(), limit({ id: "weekly_scoped:Fable", label: "Fable this week", model: "Fable" })]);
+describe("usageForChat (I-191)", () => {
+  const entry = (harnessId: string, provider: string, limits = [limit()]): HarnessUsageLimits => ({ harnessId, label: harnessId, usage: usage(limits, { provider }) });
+  const all = [entry("pi", "anthropic"), entry("claude", "anthropic"), entry("codex", "codex"), entry("empty", "x", [])];
+  const order = (list: ReturnType<typeof usageForChat>) => list.map((e) => `${e.harnessId}${e.mine ? "*" : ""}`);
 
-  it("returns the limits only for models of the limits' provider", () => {
-    expect(limitsForModel(all, { provider: "anthropic", id: "claude-sonnet-4-5" })).toBe(all);
-    expect(limitsForModel(all, { provider: "openai", id: "gpt-5" })).toBeNull();
-    expect(limitsForModel(all, null)).toBeNull();
-    expect(limitsForModel(null, { provider: "anthropic", id: "x" })).toBeNull();
-    expect(limitsForModel(usage([]), { provider: "anthropic", id: "x" })).toBeNull();
+  it("puts the chat's own agent first when its limits apply to the chat's model", () => {
+    expect(order(usageForChat(all, "codex", { provider: "codex", id: "gpt-6" }))).toEqual(["codex*", "pi", "claude"]);
+    expect(order(usageForChat(all, "claude", { provider: "anthropic", id: "claude-sonnet-4-5" }))).toEqual(["claude*", "pi", "codex"]);
+    expect(order(usageForChat(all, "claude", null))).toEqual(["claude*", "pi", "codex"]);
   });
+
+  it("keeps the server's order (default first) when the chat's agent has none or they don't apply", () => {
+    expect(order(usageForChat(all, "pi", { provider: "openai", id: "gpt-5" }))).toEqual(["pi", "claude", "codex"]);
+    expect(order(usageForChat(all, "fake", null))).toEqual(["pi", "claude", "codex"]);
+    expect(order(usageForChat(all, null, null))).toEqual(["pi", "claude", "codex"]);
+  });
+
+  it("matches an older server's unnamed entry by the model's provider", () => {
+    const legacy = [entry("", "anthropic")];
+    expect(order(usageForChat(legacy, "pi", { provider: "anthropic", id: "x" }))).toEqual(["*"]);
+    expect(order(usageForChat(legacy, "pi", { provider: "openai", id: "x" }))).toEqual([""]);
+  });
+});
+
+describe("limitMatchesModel", () => {
+  const all = usage([limit(), limit({ id: "weekly_scoped:Fable", label: "Fable this week", model: "Fable" })]);
 
   it("matches per-model limits against the model id", () => {
     const fable = all.limits[1]!;
@@ -124,5 +160,41 @@ describe("limitsForModel / limitMatchesModel", () => {
     expect(limitMatchesModel(limit({ model: "Opus 4" }), { provider: "anthropic", id: "claude-opus-4-1" })).toBe(true);
     expect(limitMatchesModel(all.limits[0]!, { provider: "anthropic", id: "claude-fable-1" })).toBe(false);
     expect(limitMatchesModel(fable, null)).toBe(false);
+  });
+});
+
+describe("usage per environment (I-191)", () => {
+  beforeEach(() => {
+    usageLimits.value = new Map();
+    localEnvironmentId.value = null;
+    hasLocalEnvironment.value = true;
+  });
+
+  const msg = (source: string, percent = 44, severity: UsageLimit["severity"] = "normal") => ({
+    usage: null,
+    entries: [{ harnessId: "pi", label: "Pi", usage: usage([limit({ percent, severity })], { source }) }],
+  });
+
+  it("keeps each Mac's limits apart; this device's own server is the untagged one", () => {
+    localEnvironmentId.value = "MAC";
+    handleUsageMessage(msg("Mine"), "MAC", vi.fn(), NOW);
+    handleUsageMessage(msg("Other"), "OTHER", vi.fn(), NOW);
+    expect(usageLimitsOf(undefined)[0]?.usage.source).toBe("Mine");
+    expect(usageLimitsOf("MAC")[0]?.usage.source).toBe("Mine");
+    expect(usageLimitsOf("OTHER")[0]?.usage.source).toBe("Other");
+    expect(usageLimitsOf("NEW")).toEqual([]);
+  });
+
+  it("toasts for this device's own server, and on a device without one (the iPhone) for every Mac", () => {
+    localEnvironmentId.value = "MAC";
+    const notify = vi.fn();
+    handleUsageMessage(msg("Other"), "OTHER", notify, NOW);
+    handleUsageMessage(msg("Other", 96, "critical"), "OTHER", notify, NOW);
+    expect(notify).not.toHaveBeenCalled();
+    localEnvironmentId.value = null;
+    hasLocalEnvironment.value = false;
+    handleUsageMessage(msg("Host"), "HOST", notify, NOW);
+    handleUsageMessage(msg("Host", 96, "critical"), "HOST", notify, NOW);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });

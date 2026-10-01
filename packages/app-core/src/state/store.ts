@@ -415,8 +415,8 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
       handleSessionEvent(message.sessionId, message.event);
       break;
     case "usage_limits":
-      // Subscription usage is this machine's account; a remote host's isn't shown (yet).
-      if (envId === undefined || isLocalEnvironment(envId)) handleUsageMessage(message.usage);
+      // Each Mac's own accounts (I-191): a chat shows the limits of the Mac it runs on.
+      handleUsageMessage(message, envId);
       break;
     case "open_chat":
       requestOpenChat(message);

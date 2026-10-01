@@ -64,8 +64,8 @@ export function createWsHandler(service: AppService, auth?: AuthService): (c: Co
         };
         send({ type: "hello", version: VERSION, protocol: SYNC_PROTOCOL, environmentId: service.environment.id });
         unsubscribe = service.subscribe(send);
-        const usage = service.getUsageLimits();
-        if (usage) send({ type: "usage_limits", usage });
+        const usage = service.usageLimitsMessage();
+        if (usage) send(usage);
         const raw = ws.raw as RawSocket | undefined;
         detach =
           auth?.attachSocket(identity, {
