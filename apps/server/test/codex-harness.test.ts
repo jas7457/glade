@@ -397,15 +397,16 @@ describe("Codex sessions", () => {
     await session.prompt({ text: "first" });
     await until(() => codex.sent("turn/start").length === 1 && session.getState().isRunning);
     await until(() => !!codex.lastTurn());
-    // wait for the turn id (turn/start answered)
+    // Steering needs the turn id (turn/start answered); wait for it rather than a fixed sleep,
+    // which was flaky on a busy machine.
     await until(() => events.some((e) => e.type === "state" && e.state.isRunning === true));
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => !!(session as unknown as { turn: { id?: string } | null }).turn?.id, 5000);
     await session.prompt({ text: "also this" });
     expect(codex.lastTurn().steered).toEqual(["also this"]);
     await session.prompt({ text: "later", behavior: "followUp" });
     expect(session.getState().queue.followUp).toEqual(["later"]);
     codex.lastTurn().reply("done");
-    await until(() => codex.sent("turn/start").length === 2);
+    await until(() => codex.sent("turn/start").length === 2, 5000);
     expect(codex.lastTurn().text).toBe("later");
     codex.lastTurn().reply("done 2");
     await until(() => !session.getState().isRunning);
