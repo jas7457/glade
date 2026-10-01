@@ -14,6 +14,9 @@
  *   session gives each sub-agent its own translator (`nested`) and shows it as a native
  *   sub-agent (I-188); the main translator skips it.
  * - TodoWrite / TaskCreate / TaskUpdate become one `plan` notice per turn, updated in place.
+ * - ExitPlanMode's plan (I-189) is a proposed plan: a plan notice without entries (the harness-
+ *   neutral "Proposed plan" card, as Codex's, I-186), one per call, from its input, the
+ *   permission request or its result, whichever has it first.
  *
  * The user's own prompt is added by the session (`userMessage`); Claude Code doesn't echo it.
  * `finish` ends the turn: it closes the streaming message with the turn's stop reason and settles
@@ -34,7 +37,7 @@ import {
   type Usage,
 } from "@glade/protocol";
 import type { ClaudeWire } from "./sdk.js";
-import { claudePartialInput, claudeToolBlock, claudeToolDiff, isPlanTool, partialJsonArgs, toolResultContent } from "./tools.js";
+import { EXIT_PLAN_TOOL, claudePartialInput, claudeToolBlock, claudeToolDiff, isPlanTool, partialJsonArgs, toolResultContent } from "./tools.js";
 
 type Json = Record<string, unknown>;
 
@@ -131,12 +134,16 @@ export class ClaudeTranslator {
   private readonly stream = new Map<number, StreamBlock>();
   private readonly tools = new Map<string, ToolRecord>();
   private readonly rejected = new Set<string>();
+  /** The turn is being stopped: tool calls failing now were cut off, not failed (I-190). */
+  private stopping = false;
   private planId: string | null = null;
   private todos: PlanEntry[] | null = null;
   /** Claude Code's task list (TaskCreate/TaskUpdate), by task id, in creation order. */
   private readonly tasks = new Map<string, PlanEntry>();
   /** TaskCreate calls waiting for their result (which carries the new task's id). */
   private readonly creating = new Map<string, PlanEntry>();
+  /** Proposed plans shown (I-189), by ExitPlanMode call id. */
+  private readonly proposed = new Map<string, { messageId: string; text: string }>();
 
   constructor(
     /** Prefix for message ids, unique per session object so ids never clash with saved history. */
@@ -167,9 +174,28 @@ export class ClaudeTranslator {
     return [{ type: "message_end", message: { id: this.nextId("n"), role: "notice", kind, text, timestamp: this.now() } }];
   }
 
+  /** The user pressed Stop: calls that end with an error from now on were stopped (I-190). */
+  stop(): void {
+    this.stopping = true;
+  }
+
   /** The user rejected the permission request for this tool call. */
   rejectTool(toolUseId: string): void {
     this.rejected.add(toolUseId);
+  }
+
+  /**
+   * ExitPlanMode's plan as the "Proposed plan" card (I-189): once per call, updated when the text
+   * changes (an edited plan).
+   */
+  proposePlan(toolUseId: string, text: string): AgentEvent[] {
+    const plan = text.trim();
+    if (!plan) return [];
+    const known = this.proposed.get(toolUseId);
+    if (known?.text === plan) return [];
+    const messageId = known?.messageId ?? this.nextId("pp");
+    this.proposed.set(toolUseId, { messageId, text: plan });
+    return [{ type: "message_end", message: { id: messageId, role: "notice", kind: "plan", text: plan, timestamp: this.now() } }];
   }
 
   /** Name and arguments of a tool call seen in this turn. */
@@ -211,6 +237,8 @@ export class ClaudeTranslator {
     for (const [id, tool] of this.tools) {
       if (tool.ended || tool.hidden) continue;
       const rejected = this.rejected.has(id);
+      // Cut off (Stop, or the run failed around it): it didn't fail itself (I-190).
+      const stopped = !rejected;
       events.push({
         type: "tool_end",
         toolCallId: id,
@@ -220,6 +248,7 @@ export class ClaudeTranslator {
           status: "error",
           output: rejected ? "" : end.stopReason === "aborted" ? "Stopped" : "Unfinished",
           ...(rejected ? { rejected } : {}),
+          ...(stopped ? { stopped } : {}),
         },
       });
     }
@@ -243,10 +272,12 @@ export class ClaudeTranslator {
     }
     this.tools.clear();
     this.rejected.clear();
+    this.stopping = false;
     this.apiMessages.clear();
     this.stream.clear();
     this.pendingApiId = null;
     this.creating.clear();
+    this.proposed.clear();
     this.planId = null;
     this.todos = null;
     return events;
@@ -466,6 +497,8 @@ export class ClaudeTranslator {
       const name = tool?.name ?? "tool";
       const { output, images } = toolResultContent(block.content);
       const rejected = this.rejected.has(id);
+      // Claude Code ends a call it was running (or asking about) when Stop interrupts it with an error.
+      const stopped = !rejected && !!block.is_error && this.stopping;
       const diff = block.is_error ? undefined : claudeToolDiff(name, results.length === 1 ? wire.tool_use_result : undefined);
       const result: ToolResult = {
         toolCallId: id,
@@ -475,6 +508,7 @@ export class ClaudeTranslator {
         ...(images ? { images } : {}),
         ...(diff ? { diff } : {}),
         ...(rejected ? { rejected } : {}),
+        ...(stopped ? { stopped } : {}),
       };
       events.push({ type: "tool_end", toolCallId: id, result });
     }
@@ -533,6 +567,8 @@ export class ClaudeTranslator {
       case "TaskCreate":
         this.creating.set(id, { content: str(a.subject) ?? str(a.description) ?? "Task", status: "pending" });
         return [];
+      case EXIT_PLAN_TOOL:
+        return typeof a.plan === "string" ? this.proposePlan(id, a.plan) : [];
       case "TaskUpdate": {
         const taskId = str(a.taskId);
         const task = taskId ? this.tasks.get(taskId) : undefined;
@@ -548,6 +584,7 @@ export class ClaudeTranslator {
 
   private planResult(id: string, tool: ToolRecord, structured: unknown): AgentEvent[] {
     tool.ended = true;
+    if (tool.name === EXIT_PLAN_TOOL) return isJson(structured) && typeof structured.plan === "string" ? this.proposePlan(id, structured.plan) : [];
     if (tool.name !== "TaskCreate") return [];
     const pending = this.creating.get(id);
     this.creating.delete(id);

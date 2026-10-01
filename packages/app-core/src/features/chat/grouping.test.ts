@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ContentBlock, ChatMessage, ToolResult, Transcript } from "@glade/protocol";
-import { DEFAULT_GROUPING_OPTIONS, groupTranscript, type RenderItem, type ToolGroupPart, type TurnPart } from "./grouping";
+import { DEFAULT_GROUPING_OPTIONS, groupTranscript, outcomeCounts, toolCallStatus, toolOutcome, type RenderItem, type ToolGroupPart, type TurnPart } from "./grouping";
 
 let seq = 0;
 const call = (id: string, name = "Bash", args: Record<string, unknown> | undefined = { command: `echo ${id}` }): ContentBlock => ({
@@ -175,5 +175,23 @@ describe("groupTranscript", () => {
     const b = groupTranscript(t, idle);
     expect(a.map((i) => i.key)).toEqual(b.map((i) => i.key));
     expect(turnParts(a).map((p) => p.key)).toEqual(turnParts(b).map((p) => p.key));
+  });
+});
+
+describe("tool outcomes (I-190)", () => {
+  const call = { type: "toolCall" as const, id: "t", name: "bash", kind: "shell" as const, args: {} };
+  const result = (r: Partial<ToolResult>): ToolResult => ({ toolCallId: "t", toolName: "bash", status: "error", output: "", ...r });
+  it("reads rejected, stopped (flag or old history's text), failed and cancelled", () => {
+    expect(toolCallStatus(call, result({ rejected: true }), false)).toBe("rejected");
+    expect(toolCallStatus(call, result({ stopped: true, output: "partial" }), false)).toBe("stopped");
+    expect(toolCallStatus(call, result({ output: "Stopped" }), false)).toBe("stopped");
+    expect(toolCallStatus(call, result({ output: "boom" }), false)).toBe("error");
+    expect(toolCallStatus(call, undefined, false)).toBe("cancelled");
+    expect(toolOutcome("cancelled")).toBe("stopped");
+    expect(toolOutcome("running")).toBeNull();
+  });
+  it("counts a group's calls by outcome", () => {
+    const statuses = ["done", "error", "rejected", "stopped", "cancelled", "running"] as const;
+    expect(outcomeCounts(statuses.map((status) => ({ status })))).toEqual({ ran: 2, failed: 1, rejected: 1, stopped: 2 });
   });
 });

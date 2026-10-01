@@ -5,7 +5,9 @@
  *   <ToolGroup part>     "Ran 4 tool calls · 12s" — click to expand into individual rows
  *
  * Durations (I-070) come from the server's timing stamps and tick live while running; old
- * history has none and shows none. Each tool kind has a colour (I-077, `data-tone` in chat.css):
+ * history has none and shows none. A call that didn't succeed says so (I-190): the verb drops
+ * to its base form ("Run `npm test`", "Edit src/a.ts") with "Rejected" / "Stopped" (muted) or
+ * "Failed" (red) after it, and a group counts them apart ("Ran 2 tool calls · 1 rejected"). Each tool kind has a colour (I-077, `data-tone` in chat.css):
  * the icon square and verb of a row, the kind icons of a group, and a running group's shimmer.
  */
 import type { ComponentType } from "preact";
@@ -16,7 +18,7 @@ import type { ToolKind } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { Spinner } from "@glade/app-core/ui";
 import { formatDuration, groupDuration, toolDuration, useNow } from "../duration";
-import { isActiveStatus, type GroupItem, type ToolCallPart, type ToolGroupPart } from "../grouping";
+import { isActiveStatus, outcomeCounts, toolOutcome, type GroupItem, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { Markdown } from "../Markdown";
 import { ThinkingView } from "../Thinking";
 import { identityFor, useSpawnLinks } from "../spawn-context";
@@ -95,16 +97,20 @@ export function dominantKind(calls: ToolCallPart[]): ToolKind | null {
   return best;
 }
 
-/** "Ran **6** tool calls": the verb in the group's colour, the count stands out; while running the label shimmers in the running tool's colour. */
-function GroupLabel({ count, active, shimmer }: { count: number; active: boolean; shimmer: boolean }) {
-  const label = groupLabel(count, active);
-  const at = label.indexOf(String(count));
+/**
+ * "Ran **6** tool calls": the verb in the group's colour, the count stands out; while running the
+ * label shimmers in the running tool's colour. `ran`: the calls that ran (I-190).
+ */
+function GroupLabel({ count, ran, active, shimmer }: { count: number; ran: number; active: boolean; shimmer: boolean }) {
+  const label = groupLabel(count, active, ran);
+  const shown = active ? count : ran > 0 ? ran : count;
+  const at = label.indexOf(String(shown));
   if (shimmer || at === -1) return <span class={cn(shimmer && "pi-tone-shimmer")}>{label}</span>;
   return (
     <span>
-      <span class="pi-tone-text">{label.slice(0, at).trimEnd()}</span>{" "}
-      <span class="font-medium text-fg-strong tabular-nums">{count}</span>
-      {label.slice(at + String(count).length)}
+      {at > 0 && <><span class="pi-tone-text">{label.slice(0, at).trimEnd()}</span>{" "}</>}
+      <span class="font-medium text-fg-strong tabular-nums">{shown}</span>
+      {label.slice(at + String(shown).length)}
     </span>
   );
 }
@@ -130,10 +136,13 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const [open, setOpen] = useState(defaultOpen);
   const { call, result, status } = part;
   const active = isActiveStatus(status);
+  // I-190: rejected / stopped / failed calls read "Run `x`" next to what happened, not "Ran `x`".
+  const outcome = toolOutcome(status);
+  const unsuccessful = outcome !== null && outcome !== "done";
   // Paths show relative to the chat's folder (worktree chats: their worktree), others `~`-shortened (I-158).
   const cwd = useChatCwd();
   const home = homeOf(cwd);
-  const summary = summarizeToolCall(call, active, result?.status === "error" ? undefined : result?.output, { cwd, home });
+  const summary = summarizeToolCall(call, active ? "present" : unsuccessful ? "base" : "past", result?.status === "error" ? undefined : result?.output, { cwd, home });
   // A leading `cd <dir> &&` is noise in the one-liner (I-152): dropped for the chat's own folder,
   // a small relative label otherwise. The expanded body still shows the exact command.
   const cd = call.kind === "shell" && call.input?.command ? splitLeadingCd(call.input.command, cwd, home) : null;
@@ -150,15 +159,16 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
   const duration = toolDuration(result, now);
   // Finished calls under a second show nothing (a column of "0s" is noise); running ones tick.
   const showDuration = duration !== null && (running || duration >= 1000);
-  // Stopped before it ran, or the user said no to it (I-119): muted, not an error.
-  const dimmed = status === "cancelled" || status === "rejected";
+  // Stopped, or the user said no to it (I-119): muted, not an error.
+  const dimmed = outcome === "rejected" || outcome === "stopped";
+  const tone = outcome === "failed" ? "danger" : call.kind;
 
   return (
     <div class="tool-call" data-status={status}>
       <button type="button" class={rowClass} aria-expanded={open} disabled={!expandable} onClick={() => setOpen(!open)}>
-        <ToneIcon icon={Icon} tone={status === "error" ? "danger" : call.kind} class={cn(dimmed && "opacity-60")} />
-        <span class={cn("min-w-0 flex-1 truncate", dimmed && "opacity-60")} data-tone={status === "error" ? "danger" : call.kind}>
-          <span class="pi-tone-text">{summary.verb}</span>
+        <ToneIcon icon={Icon} tone={tone} class={cn(dimmed && "opacity-60")} />
+        <span class={cn("min-w-0 flex-1 truncate", dimmed && "opacity-60")} data-tone={tone}>
+          <span class={dimmed ? "text-fg-muted" : "pi-tone-text"}>{summary.verb}</span>
           {agent ? (
             <>
               {" "}
@@ -179,9 +189,14 @@ export const ToolCallRow = memo(function ToolCallRow({ part, defaultOpen = false
         {Badge && <Badge call={call} result={result} status={status} />}
         {showDuration && <span class="shrink-0 text-[0.85rem] text-fg-subtle tabular-nums">{formatDuration(duration)}</span>}
         {active && <Spinner size={12} />}
-        {status === "error" && <CircleX size={13} class="shrink-0 text-danger" aria-label="Failed" />}
-        {status === "cancelled" && <span class="text-[0.85rem] text-fg-subtle">Cancelled</span>}
-        {status === "rejected" && <span class="text-[0.85rem] text-fg-subtle">Rejected</span>}
+        {outcome === "failed" && (
+          <span class="flex shrink-0 items-center gap-1 text-[0.85rem] text-danger">
+            <CircleX size={13} aria-hidden="true" />
+            Failed
+          </span>
+        )}
+        {outcome === "stopped" && <span class="shrink-0 text-[0.85rem] text-fg-subtle">Stopped</span>}
+        {outcome === "rejected" && <span class="shrink-0 text-[0.85rem] text-fg-subtle">Rejected</span>}
         {expandable && <Chevron open={open} />}
       </button>
       {open && (
@@ -213,16 +228,21 @@ export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: 
   const duration = groupDuration(results, now, part.active);
   const current = part.active ? currentKind(part.calls) : null;
   const kinds = groupKinds(part.calls);
-  // Running: the running call's colour (shimmering); failed: red; done: the kind most calls used.
-  const tone = current ?? (part.errorCount ? "danger" : (dominantKind(part.calls) ?? "other"));
+  const counts = outcomeCounts(part.calls);
+  // Running: the running call's colour (shimmering); failed: red; done: the kind most calls that
+  // ran used (none ran: neutral).
+  const ran = part.calls.filter((c) => toolOutcome(c.status) === "done" || toolOutcome(c.status) === "failed");
+  const tone = current ?? (counts.failed ? "danger" : (dominantKind(ran) ?? "other"));
   return (
     <div class="tool-group">
       <button type="button" class={rowClass} aria-expanded={open} onClick={() => setOpen(!open)}>
         <ToneIcon icon={Layers} tone={tone} />
         <span class="min-w-0 truncate text-fg-muted" data-tone={tone}>
-          <GroupLabel count={count} active={part.active} shimmer={current !== null} />
+          <GroupLabel count={count} ran={counts.ran} active={part.active} shimmer={current !== null} />
           {duration !== null && (part.active || duration >= 1000) && <span class="tabular-nums"> · {formatDuration(duration)}</span>}
-          {part.errorCount > 0 && <span class="text-danger"> · {part.errorCount} failed</span>}
+          {counts.failed > 0 && <span class="text-danger"> · {counts.failed} failed</span>}
+          {counts.rejected > 0 && <span> · {counts.rejected} rejected</span>}
+          {counts.stopped > 0 && <span> · {counts.stopped} stopped</span>}
         </span>
         <KindStack kinds={kinds} />
         <span class="flex-1" />

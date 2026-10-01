@@ -17,6 +17,7 @@ import {
   type ShellResult,
   type SlashCommand,
   type ThinkingLevel,
+  type ToolResult,
   type Transcript,
   type UiResponse,
 } from "@glade/protocol";
@@ -94,6 +95,30 @@ export const defaultFakeScript: FakeScript = (request, nextId) => {
       { type: "tool_end", toolCallId, result: { toolCallId, toolName: "screenshot", status: "done", output: "Took a screenshot", images: [{ type: "image", mimeType: "image/png", data }] } },
       { type: "message_start", message: { id: answer, role: "assistant", content: [{ type: "text", text: "Here it is." }], timestamp: Date.now(), streaming: true } },
       { type: "message_end", message: { id: answer, role: "assistant", content: [{ type: "text", text: "Here it is." }], timestamp: Date.now(), stopReason: "stop" } },
+    ];
+  }
+  // `tool outcomes`: calls that ran, failed, were rejected or stopped (I-190), grouped and alone.
+  if (request.text.trim() === "tool outcomes") {
+    const id = nextId();
+    const shell = (n: number, command: string) => ({ type: "toolCall" as const, id: `${id}-${n}`, name: "bash", kind: "shell" as const, input: { command }, args: { command } });
+    const calls = [shell(1, "echo ok"), shell(2, "npm test"), shell(3, "rm -rf build"), shell(4, "sleep 60")];
+    const edit = { type: "toolCall" as const, id: `${id}-5`, name: "edit", kind: "edit" as const, input: { path: "src/greet.js", edits: [{ oldText: "hi", newText: "hello" }] }, args: {} };
+    const end = (call: { id: string; name: string }, result: Partial<ToolResult>): AgentEvent => ({
+      type: "tool_end",
+      toolCallId: call.id,
+      result: { toolCallId: call.id, toolName: call.name, status: "error", output: "", ...result },
+    });
+    const second = nextId();
+    return [
+      { type: "message_start", message: { id, role: "assistant", content: calls, timestamp: Date.now(), streaming: true } },
+      { type: "message_end", message: { id, role: "assistant", content: calls, timestamp: Date.now(), stopReason: "toolUse" } },
+      end(calls[0]!, { status: "done", output: "ok\n" }),
+      end(calls[1]!, { output: "1 test failed" }),
+      end(calls[2]!, { rejected: true }),
+      end(calls[3]!, { output: "Stopped", stopped: true }),
+      { type: "message_start", message: { id: second, role: "assistant", content: [edit], timestamp: Date.now(), streaming: true } },
+      { type: "message_end", message: { id: second, role: "assistant", content: [edit], timestamp: Date.now(), stopReason: "toolUse" } },
+      end(edit, { rejected: true }),
     ];
   }
   const assistantId = nextId();

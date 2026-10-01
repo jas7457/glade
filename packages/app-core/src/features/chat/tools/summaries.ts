@@ -2,6 +2,9 @@
  * One-line summaries for tool calls ("Ran `ls -la`", "Read src/app.ts"...). Pure; keyed by the
  * canonical tool kind and reading only the normalized input (I-068). `other` tools fall back to
  * the harness's tool name + a preview of the raw args.
+ *
+ * Three tenses: `past` for a call that ran ("Ran"), `present` while it runs ("Running"), `base`
+ * for one that didn't succeed (I-190: "Run `npm test`" next to "Rejected" / "Stopped" / "Failed").
  */
 import type { ToolCallBlock, ToolInput, ToolKind } from "@glade/protocol";
 import { displayPath, resolvePath } from "@glade/app-core/lib/paths";
@@ -24,8 +27,10 @@ export interface PathContext {
 }
 
 type Args = Record<string, unknown>;
+/** `past`: it ran; `present`: running; `base`: it was rejected, stopped or failed (I-190). */
+export type Tense = "past" | "present" | "base";
 /** `output` is the call's result text once it has one (only the chat tools read it). */
-type Summarizer = (input: ToolInput, active: boolean, output?: string, paths?: PathContext) => ToolSummary;
+type Summarizer = (input: ToolInput, tense: Tense, output?: string, paths?: PathContext) => ToolSummary;
 
 const MAX_SUBJECT = 120;
 
@@ -34,7 +39,7 @@ export function truncate(text: string, max = MAX_SUBJECT): string {
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
 
-const verb = (active: boolean, past: string, present: string) => (active ? present : past);
+const verb = (tense: Tense, past: string, present: string, base: string) => (tense === "present" ? present : tense === "base" ? base : past);
 
 /** A path summary: shortened relative to the chat's folder, the full path as its tooltip. */
 function pathSummary(verbText: string, path: string | undefined, paths: PathContext | undefined, suffix = ""): ToolSummary {
@@ -45,60 +50,62 @@ function pathSummary(verbText: string, path: string | undefined, paths: PathCont
 
 /** Summaries per canonical kind; `other` has none (name + raw args preview). */
 export const toolSummarizers: Record<Exclude<ToolKind, "other">, Summarizer> = {
-  shell: (i, active) => ({ verb: verb(active, "Ran", "Running"), subject: truncate(i.command ?? ""), mono: true }),
-  read: (i, active, _output, paths) => {
+  shell: (i, t) => ({ verb: verb(t, "Ran", "Running", "Run"), subject: truncate(i.command ?? ""), mono: true }),
+  read: (i, t, _output, paths) => {
     const range = i.offset !== undefined ? `:${i.offset}${i.limit !== undefined ? `-${i.offset + i.limit - 1}` : ""}` : "";
-    return pathSummary(verb(active, "Read", "Reading"), i.path, paths, range);
+    return pathSummary(verb(t, "Read", "Reading", "Read"), i.path, paths, range);
   },
-  write: (i, active, _output, paths) => pathSummary(verb(active, "Wrote", "Writing"), i.path, paths),
-  edit: (i, active, _output, paths) => pathSummary(verb(active, "Edited", "Editing"), i.path, paths),
-  search: (i, active, _output, paths) => {
+  write: (i, t, _output, paths) => pathSummary(verb(t, "Wrote", "Writing", "Write"), i.path, paths),
+  edit: (i, t, _output, paths) => pathSummary(verb(t, "Edited", "Editing", "Edit"), i.path, paths),
+  search: (i, t, _output, paths) => {
     const where = i.path ? displayPath(i.path, paths?.cwd, paths?.home) : "";
     return {
-      verb: verb(active, "Searched", "Searching"),
+      verb: verb(t, "Searched", "Searching", "Search"),
       subject: truncate(`${i.pattern ?? ""}${where ? ` in ${where}` : ""}${i.glob ? ` (${i.glob})` : ""}`),
       mono: true,
       ...(i.path ? { title: resolvePath(i.path, paths?.cwd, paths?.home) } : {}),
     };
   },
-  list: (i, active, _output, paths) => (i.path ? pathSummary(verb(active, "Listed", "Listing"), i.path, paths) : { verb: verb(active, "Listed", "Listing"), subject: ".", mono: true }),
-  web: (i, active) =>
+  list: (i, t, _output, paths) =>
+    i.path ? pathSummary(verb(t, "Listed", "Listing", "List"), i.path, paths) : { verb: verb(t, "Listed", "Listing", "List"), subject: ".", mono: true },
+  web: (i, t) =>
     i.url
-      ? { verb: verb(active, "Fetched", "Fetching"), subject: truncate(i.url), mono: true }
+      ? { verb: verb(t, "Fetched", "Fetching", "Fetch"), subject: truncate(i.url), mono: true }
       : i.query !== undefined || i.description === undefined
-        ? { verb: verb(active, "Searched the web for", "Searching the web for"), subject: truncate(i.query ?? ""), mono: false }
-        : { verb: verb(active, "Read web results", "Reading web results"), subject: truncate(i.description), mono: false },
+        ? { verb: verb(t, "Searched the web for", "Searching the web for", "Search the web for"), subject: truncate(i.query ?? ""), mono: false }
+        : { verb: verb(t, "Read web results", "Reading web results", "Read web results"), subject: truncate(i.description), mono: false },
   // A spawned sub-agent reads by its name, not its (long) task (I-145); other harnesses' tasks by their description.
-  task: (i, active) =>
+  task: (i, t) =>
     i.agentName
-      ? { verb: verb(active, "Started agent", "Starting agent"), subject: i.agentName, mono: false }
-      : { verb: verb(active, "Ran task", "Running task"), subject: truncate(i.description ?? ""), mono: false },
-  agent: (i, active) => {
-    if (i.agentAction === "list") return { verb: verb(active, "Listed agents", "Listing agents"), subject: "", mono: false };
-    if (i.agentAction === "close") return { verb: verb(active, "Closed", "Closing"), subject: i.agentName ?? "", mono: false };
+      ? { verb: verb(t, "Started agent", "Starting agent", "Start agent"), subject: i.agentName, mono: false }
+      : { verb: verb(t, "Ran task", "Running task", "Run task"), subject: truncate(i.description ?? ""), mono: false },
+  agent: (i, t) => {
+    if (i.agentAction === "list") return { verb: verb(t, "Listed agents", "Listing agents", "List agents"), subject: "", mono: false };
+    if (i.agentAction === "close") return { verb: verb(t, "Closed", "Closing", "Close"), subject: i.agentName ?? "", mono: false };
     const text = i.description ? `: ${i.description}` : "";
-    return { verb: verb(active, "Messaged", "Messaging"), subject: truncate(`${i.agentName ?? ""}${text}`), mono: false };
+    return { verb: verb(t, "Messaged", "Messaging", "Message"), subject: truncate(`${i.agentName ?? ""}${text}`), mono: false };
   },
-  mcp: (i, active) => {
-    if (i.tool) return { verb: verb(active, "Called", "Calling"), subject: i.server ? `${i.server} › ${i.tool}` : i.tool, mono: true };
-    if (i.query) return { verb: verb(active, "Searched MCP tools for", "Searching MCP tools for"), subject: truncate(i.query), mono: false };
-    if (i.description === "script") return { verb: verb(active, "Ran MCP script", "Running MCP script"), subject: "", mono: false };
+  mcp: (i, t) => {
+    if (i.tool) return { verb: verb(t, "Called", "Calling", "Call"), subject: i.server ? `${i.server} › ${i.tool}` : i.tool, mono: true };
+    if (i.query) return { verb: verb(t, "Searched MCP tools for", "Searching MCP tools for", "Search MCP tools for"), subject: truncate(i.query), mono: false };
+    if (i.description === "script") return { verb: verb(t, "Ran MCP script", "Running MCP script", "Run MCP script"), subject: "", mono: false };
     return { verb: "MCP", subject: truncate([i.server, i.description].filter(Boolean).join(" · ")), mono: false };
   },
-  chat: (i, active, output) => {
+  chat: (i, t, output) => {
+    const done = t === "past";
     if (i.chatAction === "find") {
       const query = i.query ? `"${truncate(i.query)}"` : "";
-      const count = active ? undefined : foundChats(output);
-      if (count === undefined) return { verb: verb(active, "Searched chats for", "Searching chats for"), subject: query, mono: false };
+      const count = done ? foundChats(output) : undefined;
+      if (count === undefined) return { verb: verb(t, "Searched chats for", "Searching chats for", "Search chats for"), subject: query, mono: false };
       return { verb: `Found ${count === 0 ? "no" : count} ${count === 1 ? "chat" : "chats"} for`, subject: query, mono: false };
     }
-    const title = active ? undefined : chatTitle(output);
+    const title = done ? chatTitle(output) : undefined;
     const subject = title ? `"${truncate(title)}"` : (i.chatId ?? "");
     if (i.chatAction === "open") {
-      const hidden = !active && !!output?.startsWith("No Glade window is open");
-      return { verb: hidden ? "No window to show chat" : verb(active, "Opened chat", "Opening chat"), subject, mono: !title };
+      const hidden = done && !!output?.startsWith("No Glade window is open");
+      return { verb: hidden ? "No window to show chat" : verb(t, "Opened chat", "Opening chat", "Open chat"), subject, mono: !title };
     }
-    return { verb: verb(active, "Read chat", "Reading chat"), subject, mono: !title };
+    return { verb: verb(t, "Read chat", "Reading chat", "Read chat"), subject, mono: !title };
   },
 };
 
@@ -154,7 +161,8 @@ export function partialArgs(argsText: string | undefined): Args {
 
 export function summarizeToolCall(
   call: Pick<ToolCallBlock, "name" | "kind" | "input" | "args" | "argsText">,
-  active: boolean,
+  /** `true`/`false`: running or ran; or a {@link Tense} (`base` for calls that didn't succeed). */
+  active: boolean | Tense,
   /** The result's text, when the call has one (a few kinds summarize what they found). */
   output?: string,
   /** The chat's folder/home: paths inside the folder show relative to it, others `~`-shortened (I-158). */
@@ -162,7 +170,8 @@ export function summarizeToolCall(
 ): ToolSummary {
   // Looked up defensively: a kind this build doesn't know renders like `other`.
   const summarizer = call.kind === "other" ? undefined : (toolSummarizers[call.kind] as Summarizer | undefined);
-  if (summarizer) return summarizer(call.input ?? {}, active, output, paths);
+  const tense: Tense = active === true ? "present" : active === false ? "past" : active;
+  if (summarizer) return summarizer(call.input ?? {}, tense, output, paths);
   return { verb: call.name, subject: argsPreview(call.args ?? partialArgs(call.argsText)), mono: false };
 }
 
@@ -190,8 +199,12 @@ export function splitLeadingCd(command: string, cwd?: string | null, home?: stri
   return { dir: target || null, rest };
 }
 
-/** Header for a collapsed group of calls. */
-export function groupLabel(count: number, active: boolean): string {
-  const noun = count === 1 ? "tool call" : "tool calls";
-  return active ? `Running ${count} ${noun}…` : `Ran ${count} ${noun}`;
+/**
+ * Header for a collapsed group of calls. `ran`: how many actually ran (I-190: rejected and stopped
+ * ones are counted next to it, "Ran 2 tool calls · 1 rejected"); none: just the count.
+ */
+export function groupLabel(count: number, active: boolean, ran = count): string {
+  const noun = (n: number) => (n === 1 ? "tool call" : "tool calls");
+  if (active) return `Running ${count} ${noun(count)}…`;
+  return ran > 0 ? `Ran ${ran} ${noun(ran)}` : `${count} ${noun(count)}`;
 }

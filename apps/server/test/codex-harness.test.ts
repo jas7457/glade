@@ -87,6 +87,18 @@ const fold = (events: AgentEvent[]) => events.reduce(applyAgentEvent, { messages
 // ---------------------------------------------------------------------------------------------
 
 describe("Codex translator", () => {
+  it("reads a command cut off by Stop as stopped, not failed (I-190)", () => {
+    const t = new CodexTranslator("p", () => 1);
+    const cmd = (status: "inProgress" | "failed" | "declined", id: string): ThreadItem => ({ type: "commandExecution", id, command: "sleep 9", cwd: "/p", status, commandActions: [], aggregatedOutput: "", exitCode: null, durationMs: null });
+    t.itemStarted(cmd("inProgress", "c1"));
+    t.itemStarted(cmd("inProgress", "c2"));
+    const before = t.itemCompleted(cmd("failed", "c1"));
+    expect(before.find((e) => e.type === "tool_end")).toMatchObject({ result: { status: "error" } });
+    expect((before.find((e) => e.type === "tool_end") as { result: { stopped?: boolean } }).result.stopped).toBeUndefined();
+    t.stop();
+    expect(t.itemCompleted(cmd("declined", "c2")).find((e) => e.type === "tool_end")).toEqual(expect.objectContaining({ result: expect.objectContaining({ status: "error", stopped: true }) }));
+  });
+
   it("streams reasoning and text, and opens the next message after a tool call", () => {
     const t = new CodexTranslator("p", () => 1);
     const events = [
@@ -223,7 +235,7 @@ describe("Codex translator", () => {
       ...t.finish({ stopReason: "aborted" }),
       ...t.finish({ stopReason: "error", errorMessage: "Codex usage limit reached — resets Oct 13", errorDetails: "You've hit your usage limit." }),
     ]);
-    expect(transcript.toolResults.c).toMatchObject({ status: "error", output: "Stopped" });
+    expect(transcript.toolResults.c).toMatchObject({ status: "error", output: "Stopped", stopped: true });
     const last = assistants(transcript).at(-1)!;
     expect(last).toMatchObject({ stopReason: "error", errorMessage: "Codex usage limit reached — resets Oct 13", errorDetails: "You've hit your usage limit." });
   });
@@ -452,7 +464,7 @@ describe("Codex sessions", () => {
     expect(codex.terminatedTerminals).toEqual(["22"]);
     expect(codex.backgroundTerminals.get(session.sessionRef!)!.map((t) => t.processId)).toEqual(["11"]);
     await until(() => !session.getState().isRunning);
-    expect(transcript().toolResults["c-sleep"]).toMatchObject({ status: "error", output: "Stopped" });
+    expect(transcript().toolResults["c-sleep"]).toMatchObject({ status: "error", output: "Stopped", stopped: true });
   });
 
   it("asks for approval with Codex's options: yes, don't ask again, and no (the turn stops)", async () => {

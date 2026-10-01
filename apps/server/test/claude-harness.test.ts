@@ -225,6 +225,45 @@ describe("Claude translator", () => {
     expect(updated[0]!.message.plan).toEqual([{ content: "Write tests", status: "in_progress" }]);
   });
 
+  it("shows ExitPlanMode's plan as a proposed plan card, not as a tool call (I-189)", () => {
+    const t = new ClaudeTranslator("p");
+    const notices = (events: AgentEvent[]) => events.filter((e): e is AgentEvent & { type: "message_end"; message: NoticeMessage } => e.type === "message_end" && e.message.role === "notice");
+    const shown = notices(t.message(assistant("m1", [{ type: "tool_use", id: "x1", name: "ExitPlanMode", input: { plan: "# Plan\n1. Add --version" } }])));
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.message).toMatchObject({ kind: "plan", text: "# Plan\n1. Add --version" });
+    expect(shown[0]!.message.plan).toBeUndefined(); // no steps: the "Proposed plan" card
+    expect(t.proposePlan("x1", "# Plan\n1. Add --version")).toEqual([]); // once per call
+    // From the result when the input had none (a plan file), same card when it changes.
+    const t2 = new ClaudeTranslator("q");
+    expect(notices(t2.message(assistant("m1", [{ type: "tool_use", id: "x2", name: "ExitPlanMode", input: {} }])))).toEqual([]);
+    const fromResult = notices(t2.message(toolResult("x2", "approved", { plan: "Do it", isAgent: false })));
+    expect(fromResult[0]!.message).toMatchObject({ kind: "plan", text: "Do it" });
+    expect(t2.finish({ stopReason: "stop" }).some((e) => e.type === "tool_end")).toBe(false);
+  });
+
+  it("marks tool calls cut off by Stop as stopped, rejected ones as rejected (I-190)", () => {
+    const t = new ClaudeTranslator("p");
+    t.message(assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "sleep 9" } }, { type: "tool_use", id: "w1", name: "Write", input: { file_path: "a", content: "" } }]));
+    t.rejectTool("w1");
+    const ends = t.finish({ stopReason: "aborted" }).filter((e) => e.type === "tool_end");
+    expect(ends.map((e) => e.type === "tool_end" && e.result)).toEqual([
+      expect.objectContaining({ toolCallId: "b1", status: "error", stopped: true }),
+      expect.objectContaining({ toolCallId: "w1", status: "error", rejected: true }),
+    ]);
+    expect(ends[1]!.type === "tool_end" && ends[1]!.result.stopped).toBeUndefined();
+    // Stop while a call runs: Claude Code ends it with an error result before the turn ends.
+    const cut = new ClaudeTranslator("s");
+    cut.message(assistant("m1", [{ type: "tool_use", id: "b3", name: "Bash", input: { command: "find ." } }]));
+    cut.stop();
+    const [cutEnd] = cut.message(toolResult("b3", "The user doesn't want to proceed with this tool use.", undefined, true));
+    expect(cutEnd).toMatchObject({ type: "tool_end", result: { status: "error", stopped: true } });
+    const failed = new ClaudeTranslator("q");
+    failed.message(assistant("m1", [{ type: "tool_use", id: "b2", name: "Bash", input: { command: "x" } }]));
+    const [end] = failed.finish({ stopReason: "error", errorMessage: "boom" }).filter((e) => e.type === "tool_end");
+    // The run failed around it (budget, crash): it never ran, so it reads Stopped, not Failed.
+    expect(end!.type === "tool_end" && end!.result).toMatchObject({ output: "Unfinished", stopped: true });
+  });
+
   it("ignores a Task sub-agent's own messages", () => {
     const t = new ClaudeTranslator("p");
     expect(t.message(assistant("sub", [{ type: "text", text: "inner" }], undefined, { parent_tool_use_id: "task1" }))).toEqual([]);
@@ -235,7 +274,7 @@ describe("Claude translator", () => {
     const t = new ClaudeTranslator("p");
     t.message(assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "sleep 9" } }]));
     const events = t.finish({ stopReason: "aborted" });
-    expect(events.find((e) => e.type === "tool_end")).toMatchObject({ result: { status: "error", output: "Stopped" } });
+    expect(events.find((e) => e.type === "tool_end")).toMatchObject({ result: { status: "error", output: "Stopped", stopped: true } });
     expect(events.find((e) => e.type === "message_end")).toMatchObject({ message: { stopReason: "aborted" } });
 
     const auth = new ClaudeTranslator("a");
@@ -401,7 +440,7 @@ describe("Claude sessions", () => {
     await session.abort();
     await until(() => events.some((e) => e.type === "run_end"));
     expect(sdk.chats[0]!.interrupts).toBe(1);
-    expect((await session.loadTranscript()).toolResults.b1).toMatchObject({ status: "error", output: "Stopped" });
+    expect((await session.loadTranscript()).toolResults.b1).toMatchObject({ status: "error", output: "Stopped", stopped: true });
     expect(assistants(await session.loadTranscript())[0]!.stopReason).toBe("aborted");
 
     // A process that never answers the interrupt: the grace period ends the run and drops it.
@@ -931,6 +970,80 @@ describe("Claude permissions like the CLI (I-174)", () => {
     await until(() => events.some((e) => e.type === "run_end"));
     expect(answer).toMatchObject({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] });
     expect(session.getState().permissionMode).toBe("acceptEdits");
+  });
+
+  it("asks to approve a plan like the CLI: the plan card, then Ready to code? switching the mode (I-189)", async () => {
+    const answers: unknown[] = [];
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        q.emit(assistant(`m${answers.length}`, [{ type: "tool_use", id: `x${answers.length}`, name: "ExitPlanMode", input: { plan: "1. Add --version" } }]));
+        answers.push(await q.canUseTool("ExitPlanMode", { plan: "1. Add --version" }, `x${answers.length}`));
+        q.emit(result());
+      },
+    });
+    const session = (await harness(sdk).openSession({ cwd, sessionRef: null, permissionMode: "plan", model: { provider: "anthropic", id: "haiku" } })) as ClaudeSession;
+    open.push(session);
+    const events: AgentEvent[] = [];
+    session.onEvent((e) => events.push(e));
+
+    // "No, keep planning": denied like the CLI's No, the turn ends Stopped, still in Plan mode.
+    await session.prompt({ text: "plan a --version flag" });
+    await until(() => requestsOf(events).length === 1);
+    const first = requestsOf(events)[0]!;
+    expect(first).toMatchObject({ kind: "permission", title: "Ready to code?", numbered: true, defaultOptionId: "plan_accept_edits" });
+    expect(first.kind === "permission" && first.options).toEqual([
+      { id: "plan_accept_edits", label: "Yes, auto-accept edits", kind: "allow_always" },
+      { id: "plan_default", label: "Yes, manually approve edits", kind: "allow_once" },
+      { id: "plan_keep", label: "No, keep planning", kind: "reject_once", focusComposer: true },
+    ]);
+    const transcript = await session.loadTranscript();
+    const plans = transcript.messages.filter((m) => m.role === "notice" && m.kind === "plan");
+    expect(plans).toMatchObject([{ text: "1. Add --version" }]);
+    expect(Object.keys(transcript.toolResults)).toEqual([]); // no tool row for ExitPlanMode
+    session.respondToUi({ id: first.id, value: "plan_keep" });
+    await until(() => events.filter((e) => e.type === "run_end").length === 1);
+    expect(answers[0]).toMatchObject({ behavior: "deny", interrupt: true, message: expect.stringMatching(/STOP what you are doing/) });
+    expect(session.getState().permissionMode).toBe("plan");
+    expect(assistants(await session.loadTranscript()).at(-1)!.stopReason).toBe("aborted");
+
+    // "Yes, auto-accept edits": allowed with a setMode update, the pill follows.
+    await session.prompt({ text: "shorter" });
+    await until(() => requestsOf(events).length === 2);
+    session.respondToUi({ id: requestsOf(events)[1]!.id, value: "plan_accept_edits" });
+    await until(() => events.filter((e) => e.type === "run_end").length === 2);
+    expect(answers[1]).toEqual({ behavior: "allow", updatedInput: { plan: "1. Add --version" }, updatedPermissions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }] });
+    expect(session.getState().permissionMode).toBe("acceptEdits");
+
+    // "Yes, manually approve edits": Default.
+    await session.setPermissionMode("plan");
+    await session.prompt({ text: "again" });
+    await until(() => requestsOf(events).length === 3);
+    session.respondToUi({ id: requestsOf(events)[2]!.id, value: "plan_default" });
+    await until(() => events.filter((e) => e.type === "run_end").length === 3);
+    expect(answers[2]).toMatchObject({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "default" }] });
+    expect(session.getState().permissionMode).toBe("default");
+  });
+
+  it("offers Auto on plan approval where the model has it, and reads the plan file when the input has no plan", async () => {
+    const planFile = join(dir, "plan.md");
+    writeFileSync(planFile, "From the file");
+    let answer: unknown;
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q) => {
+        answer = await q.canUseTool("ExitPlanMode", { planFilePath: planFile }, "x1");
+        q.emit(result());
+      },
+    });
+    const { session, events } = await openSession(harness(sdk)); // Claude Code's default model: Auto mode
+    await session.prompt({ text: "plan" });
+    await until(() => requestsOf(events).length === 1);
+    const request = requestsOf(events)[0]!;
+    expect(request.kind === "permission" && request.options[0]).toEqual({ id: "plan_auto", label: "Yes, and use auto mode", kind: "allow_always" });
+    expect((await session.loadTranscript()).messages.some((m) => m.role === "notice" && m.kind === "plan" && m.text === "From the file")).toBe(true);
+    session.respondToUi({ id: request.id, value: "plan_auto" });
+    await until(() => events.some((e) => e.type === "run_end"));
+    expect(answer).toMatchObject({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "auto" }] });
+    expect(session.getState().permissionMode).toBe("auto");
   });
 
   it("starts a new chat in Claude Code's own default mode, bypass selectable", async () => {

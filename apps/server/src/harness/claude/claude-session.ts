@@ -14,7 +14,10 @@
  * - **Permissions (I-174):** Claude Code's own settings decide; whatever it would ask about comes
  *   through `canUseTool` as a `permission` card worded like the CLI's prompt (`permissions.ts`:
  *   Yes / Yes, and don't ask again for … / No, and tell Claude what to do differently).
- *   `AskUserQuestion` asks each question as a `select` dialog.
+ *   `AskUserQuestion` asks each question as a `select` dialog. ExitPlanMode (I-189) shows its plan
+ *   as the "Proposed plan" card, then the CLI's "Ready to code?" (`planApprovalCard`): a yes
+ *   allows it with a `setMode` update (the pill follows), "No, keep planning" stops the turn in
+ *   Plan mode with the composer focused.
  * - **Permission modes (I-174):** the chat's mode is in the state (`permissionMode(s)`); a new chat
  *   starts in Claude Code's own default mode, a saved one is passed to each process
  *   (`permissionMode`), changes apply at once (`setPermissionMode`). Every process may bypass
@@ -31,7 +34,7 @@
  *   the foreground ones with the turn and stops the background ones (`stopTask`).
  */
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import {
   applyAgentEvent,
   clampThinkingLevel,
@@ -62,13 +65,16 @@ import {
   claudePermissionModes,
   claudePermissionOptions,
   isClaudePermissionMode,
+  PLAN_KEEP_PLANNING,
+  planApprovalCard,
+  planApprovalMode,
   suggestedMode,
   type ClaudePermissionSettings,
 } from "./permissions.js";
 import { CLAUDE_PROVIDER, DEFAULT_CONTEXT_WINDOW, claudeModelId, claudeThinkingLevels, findClaudeModel, thinkingOptions } from "./models.js";
 import { PushQueue } from "./push-queue.js";
 import type { CanUseTool, ClaudeMcpToolSpec, ClaudeModelInfo, ClaudeOptions, ClaudeQuery, ClaudeSdk, ClaudeSlashCommand, ClaudeUserInput, ClaudeWire, PermissionResult } from "./sdk.js";
-import { claudeToolSummary, toolResultContent } from "./tools.js";
+import { EXIT_PLAN_TOOL, claudeToolSummary, toolResultContent } from "./tools.js";
 import { ClaudeTranslator, type TurnEnd } from "./translate.js";
 
 const COMPACT_TIMEOUT_MS = 5 * 60_000;
@@ -250,6 +256,7 @@ export class ClaudeSession implements HarnessSession {
     const turn = this.turn;
     if (!turn || turn.done) return;
     turn.aborted = true;
+    this.translator.stop();
     this.cancelUi();
     const query = this.query;
     if (!query) return; // still starting: runTurn stops before sending
@@ -865,6 +872,7 @@ export class ClaudeSession implements HarnessSession {
     const sub = agentId ? [...this.subagents].find(([, s]) => s.taskId === agentId) : undefined;
     if (sub) for (const event of sub[1].translator.ensureTool(opts.toolUseID, toolName, input)) this.emitSubagent(sub[0], sub[1], event);
     else if (!agentId) for (const event of this.translator.ensureTool(opts.toolUseID, toolName, input)) this.emit(event);
+    if (toolName === EXIT_PLAN_TOOL && !agentId) return this.approvePlan(turn, input, opts);
     const summary = claudeToolSummary(toolName, input) ?? opts.description ?? opts.blockedPath;
     // I-174: Claude Code's own prompt: Yes / Yes, and don't ask again for … / No, and tell Claude …
     const always = opts.suppressAlwaysAllowRule ? null : alwaysAllowLabel(opts.suggestions, this.options.cwd, this.options.home);
@@ -894,6 +902,32 @@ export class ClaudeSession implements HarnessSession {
       // "No, and tell Claude what to do differently": it stops and waits for the user (the turn
       // ends as stopped, not failed).
       this.translator.rejectTool(opts.toolUseID);
+      turn.aborted = true;
+      return { behavior: "deny", message: REJECT_MESSAGE, interrupt: true };
+    }
+    return { behavior: "deny", message: "The run was stopped.", interrupt: true };
+  }
+
+  /**
+   * ExitPlanMode (I-189): the plan as the "Proposed plan" card, then the CLI's "Ready to code?".
+   * A yes allows the call with a `setMode` update (Claude Code leaves Plan mode for that mode; the
+   * pill follows now, Claude Code's own report confirms it); "No, keep planning" denies it like the
+   * CLI's No (Claude stops and waits) and the turn ends Stopped, still in Plan mode.
+   */
+  private async approvePlan(turn: Turn, input: Record<string, unknown>, opts: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
+    const plan = planText(input);
+    if (plan) for (const event of this.translator.proposePlan(opts.toolUseID, plan)) this.emit(event);
+    const card = planApprovalCard(this.autoMode);
+    // Opens on the first yes, like the CLI.
+    const response = await this.ask({ id: this.nextUiId(), kind: "permission", numbered: true, ...card, defaultOptionId: card.options[0]!.id }, opts.signal);
+    const value = response && "value" in response ? response.value : null;
+    const mode = planApprovalMode(value);
+    if (mode && (mode !== "auto" || this.autoMode)) {
+      this.modeChosen = true;
+      if (mode !== this.state.permissionMode) this.setState(this.modeState(mode));
+      return { behavior: "allow", updatedInput: input, updatedPermissions: [{ type: "setMode", mode, destination: "session" }] };
+    }
+    if (value === PLAN_KEEP_PLANNING) {
       turn.aborted = true;
       return { behavior: "deny", message: REJECT_MESSAGE, interrupt: true };
     }
@@ -955,6 +989,19 @@ export class ClaudeSession implements HarnessSession {
     this.transcript = applyAgentEvent(this.transcript, event);
     this.events.emit(event);
   }
+}
+
+/** ExitPlanMode's plan: its `plan` input, else the plan file it names (`planFilePath`). */
+export function planText(input: Record<string, unknown>): string | null {
+  if (typeof input.plan === "string" && input.plan.trim()) return input.plan;
+  if (typeof input.planFilePath === "string" && input.planFilePath) {
+    try {
+      return readFileSync(input.planFilePath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** A completed Task call's structured result (`AgentOutput`): the sub-agent's report text. */

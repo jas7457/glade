@@ -291,17 +291,26 @@ export function translateShellResult(raw: Json): ShellResult {
   return result;
 }
 
+/**
+ * pi's tools end a stopped call with an error saying so: "Operation aborted" (any tool), or the
+ * output so far plus "Command aborted" (bash). Such a call was stopped, not failed (I-190).
+ */
+const ABORTED = /(?:^|\n)\s*(?:Operation|Command) aborted\.?\s*$/;
+
 export function translateToolResult(raw: Json, status?: ToolResult["status"]): ToolResult {
   const toolName = String(raw.toolName);
   const diff = piToolDiff(toolName, raw.details);
+  const output = textOf(raw.content);
+  const resolved = status ?? (raw.isError ? "error" : "done");
   return {
     toolCallId: String(raw.toolCallId),
     toolName,
-    status: status ?? (raw.isError ? "error" : "done"),
-    output: textOf(raw.content),
+    status: resolved,
+    output,
     images: imagesOf(raw.content),
     ...(diff ? { diff } : {}),
     details: raw.details,
+    ...(resolved === "error" && ABORTED.test(output) ? { stopped: true } : {}),
   };
 }
 
