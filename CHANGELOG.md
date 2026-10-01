@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- Closing a terminal tab that's still running something asks "Terminate “npm run dev”?" first, and
+  deleting a chat says which programs in its terminals will be stopped. The Mac app's File menu
+  has New Terminal (⌃`).
 - When Claude Code or Codex uses its own sub-agents, each one appears like Glade's sub-agents: its
   own read-only tab with its live work, a card above the text box with its name, status and latest
   activity, and its report in the parent's task card. You can stop it, but not message it.
