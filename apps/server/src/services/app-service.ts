@@ -42,7 +42,8 @@ import type {
   UpdateProjectRequest,
   UpdateSessionRequest,
   UpdateWorkspaceRequest,
-  UsageLimits,
+  HarnessUsageLimits,
+  ServerMessage,
   WorkspaceDetail,
   WorkspaceSummary,
   WorktreeRemoval,
@@ -66,7 +67,7 @@ import { DEFAULT_SMALL_MODEL, Titles } from "./app/titles.js";
 import { Workspaces } from "./app/workspaces.js";
 import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
-import { UsageLimitsPoller } from "./usage-limits.js";
+import { UsageLimitsHub } from "./usage-hub.js";
 import { SyncHub, type SyncOptions } from "./sync/hub.js";
 import { Environment, type EnvironmentOptions } from "./environment.js";
 
@@ -114,17 +115,15 @@ export class AppService {
     ctx.deviceName = () => this.environment.info().name;
     this.attachments = ctx.attachments;
     mkdirSync(options.scratchDir, { recursive: true });
-    // Usage limits are the default harness's account (the gauge is app-wide).
-    ctx.usage = ctx.harnesses.list().some((h) => h.getUsageLimits)
-      ? new UsageLimitsPoller({
-          fetchLimits: async () => {
-            const harness = ctx.harnesses.default();
-            return harness.getUsageLimits ? harness.getUsageLimits() : null;
-          },
-          broadcast: (m) => ctx.broadcast(m),
-          log: options.log,
-        })
-      : null;
+    // Usage limits of every offered agent that reports them (I-191), the default's first.
+    const usage = new UsageLimitsHub({
+      harnesses: () => ctx.harnesses.list(),
+      isOffered: (h) => ctx.harnesses.isOffered(h),
+      defaultId: () => ctx.harnesses.default().id,
+      broadcast: (m) => ctx.broadcast(m),
+      log: options.log,
+    });
+    ctx.usage = usage.enabled ? usage : null;
     ctx.usage?.start();
     ctx.leases = options.registry
       ? new LeaseManager(options.dataDir ?? options.store.dataDir, options.registry, {
@@ -264,9 +263,14 @@ export class AppService {
   }
   private readonly internalListeners = new Set<Listener>();
 
-  /** Latest subscription usage limits (possibly stale), or null if unavailable. */
-  getUsageLimits(): UsageLimits | null {
-    return this.ctx.usage?.current() ?? null;
+  /** Latest subscription usage limits per agent (possibly stale), the default's first (I-191). */
+  getUsageLimits(): HarnessUsageLimits[] {
+    return this.ctx.usage?.entries() ?? [];
+  }
+
+  /** The `usage_limits` message for a newly connected client, or `null` when there are none. */
+  usageLimitsMessage(): ServerMessage | null {
+    return this.ctx.usage?.message() ?? null;
   }
 
   /** Track which sessions are on screen, so finished runs there don't get marked unread. */

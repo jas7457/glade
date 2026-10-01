@@ -18,7 +18,7 @@ import { AcpHarnessProvider } from "./harness/acp/acp-harness.js";
 import { ClaudeHarness } from "./harness/claude/claude-harness.js";
 import { CodexHarness } from "./harness/codex/codex-harness.js";
 import type { AcpResumeState } from "./harness/acp/resume-store.js";
-import { FakeHarness } from "./harness/fake/fake-harness.js";
+import { FakeHarness, fakeUsageLimits } from "./harness/fake/fake-harness.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import { HarnessRegistry } from "./harness/registry.js";
 import { acpAgentConfigs } from "./harness/agent-catalog.js";
@@ -138,7 +138,7 @@ const harnesses = new HarnessRegistry([], {
 });
 harnesses.register(
   config.harness === "fake"
-    ? new FakeHarness(undefined, 30)
+    ? new FakeHarness(undefined, 30, { usageLimits: () => fakeUsageLimits() })
     : new PiHarness({
         utilityCwd: config.scratchDir,
         subagents: () => store.getSettings().agent.subagents,

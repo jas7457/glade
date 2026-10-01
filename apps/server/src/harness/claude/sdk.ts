@@ -61,6 +61,11 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeWire> {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   initializationResult(): Promise<ClaudeInitResult>;
   supportedCommands(): Promise<ClaudeSlashCommand[]>;
+  /**
+   * The `/usage` data incl. plan rate limits (I-191; experimental in the SDK, so optional and read
+   * loosely by `usage.ts`). No model call.
+   */
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?(opts?: { skipBehaviors?: boolean }): Promise<unknown>;
   /** Stop a running task, e.g. a background sub-agent (I-188); a `task_notification` follows. */
   stopTask?(taskId: string): Promise<void>;
   close(): void;

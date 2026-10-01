@@ -67,6 +67,11 @@ describe("touch composer", () => {
     expect(box().getAttribute("data-compact")).toBe("true");
   });
 
+  it("stays expanded while the context meter's popover is open, so the popover keeps its anchor (I-191)", () => {
+    renderBox({ touch: true, autoFocus: false, toolbarExtraOpen: true });
+    expect(textarea().closest("[data-compact]")!.getAttribute("data-compact")).toBe("false");
+  });
+
   it("while the agent works, the slim pill shows Stop in Send's place (room for the placeholder); tapping in brings Send back", async () => {
     renderBox({ touch: true, autoFocus: false, isRunning: true, onStop: vi.fn() });
     const send = () => screen.getByRole("button", { name: /^(Steer|Queue message|Send)$/, hidden: true });

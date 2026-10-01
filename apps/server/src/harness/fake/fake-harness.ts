@@ -20,6 +20,7 @@ import {
   type Transcript,
   type UiRequest,
   type UiResponse,
+  type UsageLimits,
 } from "@glade/protocol";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -178,6 +179,26 @@ export interface FakeHarnessOptions {
   permissionModes?: PermissionModeInfo[];
   /** Default: the first of `permissionModes`. */
   defaultPermissionMode?: string;
+  /**
+   * Canned subscription limits (I-191; tests and the dev fake): turns on `getUsageLimits` and the
+   * `usageLimits` capability. Called on every read (`null` = unavailable).
+   */
+  usageLimits?: () => UsageLimits | null;
+}
+
+/** The dev fake's canned limits (`GLADE_HARNESS=fake`, I-191): a 5-hour and a weekly window. */
+export function fakeUsageLimits(now = Date.now()): UsageLimits {
+  const hour = 3_600_000;
+  return {
+    source: "Fake plan",
+    provider: "fake",
+    fetchedAt: now,
+    stale: false,
+    limits: [
+      { id: "session", label: "Current session", percent: 23, resetsAt: new Date(now + 3 * hour).toISOString(), severity: "normal", active: false },
+      { id: "weekly", label: "This week", percent: 58, resetsAt: new Date(now + 70 * hour).toISOString(), severity: "normal", active: true },
+    ],
+  };
 }
 
 /**
@@ -208,8 +229,13 @@ export class FakeHarness implements AgentHarness {
     this.permissionModes = options.permissionModes ?? [];
     this.defaultPermissionMode = options.defaultPermissionMode ?? this.permissionModes[0]?.id ?? null;
     const modes = this.permissionModes.length ? { permissionModes: true } : {};
-    this.info = { label: options.label ?? "Fake agent", capabilities: { ...FAKE_CAPABILITIES, ...modes, ...options.capabilities } };
+    const limits = options.usageLimits;
+    if (limits) this.getUsageLimits = async () => limits();
+    this.info = { label: options.label ?? "Fake agent", capabilities: { ...FAKE_CAPABILITIES, ...modes, ...(limits ? { usageLimits: true } : {}), ...options.capabilities } };
   }
+
+  /** With {@link FakeHarnessOptions.usageLimits}. */
+  declare getUsageLimits?: () => Promise<UsageLimits | null>;
 
   /** See {@link FakeHarnessOptions.permissionModes}. */
   readonly permissionModes: PermissionModeInfo[];

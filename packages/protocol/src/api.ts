@@ -593,8 +593,12 @@ export type ServerMessage = (
   | { type: "folder_removed"; folderId: string }
   | { type: "settings"; settings: Settings }
   | { type: "models"; models: ModelInfo[] }
-  /** Subscription usage limits; `null` when unavailable (feature hidden). */
-  | { type: "usage_limits"; usage: UsageLimits | null }
+  /**
+   * Subscription usage limits. `entries` (I-191): one per offered agent that reports limits, the
+   * default agent first; empty/absent = none (feature hidden). `usage` is the default agent's
+   * (for older clients), `null` when it has none.
+   */
+  | { type: "usage_limits"; usage: UsageLimits | null; entries?: HarnessUsageLimits[] }
   /** An agent asked to show this chat (`open_chat`, I-091): windows navigate to it like a ⌘K pick. */
   | { type: "open_chat"; workspaceId: string; sessionId: string; sessionKind: "main" | "subagent" }
   /**
@@ -693,4 +697,12 @@ export interface UsageLimits {
   fetchedAt: number;
   /** True when the last refresh failed/was skipped and these are older values. */
   stale: boolean;
+}
+
+/** One agent's usage limits (I-191): which harness reported them (when: `usage.fetchedAt`). */
+export interface HarnessUsageLimits {
+  harnessId: string;
+  /** The harness's display name, e.g. "Codex". */
+  label: string;
+  usage: UsageLimits;
 }

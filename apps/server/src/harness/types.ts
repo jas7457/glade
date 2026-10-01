@@ -218,6 +218,11 @@ export interface AgentHarness {
   answerSideQuestion?(call: SideQuestionCall): Promise<SideQuestionResult>;
   /** Subscription/plan usage limits for the harness's current account, or `null` if unavailable. */
   getUsageLimits?(): Promise<UsageLimits | null>;
+  /**
+   * How often to read {@link getUsageLimits} (I-191; default every minute while a client is
+   * connected, at most every 15 s): for harnesses where reading them is costly.
+   */
+  readonly usageLimitsPolling?: { intervalMs?: number; minIntervalMs?: number };
   dispose(): Promise<void>;
 }
 

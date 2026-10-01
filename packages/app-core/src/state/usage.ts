@@ -1,32 +1,90 @@
 /**
- * Subscription usage limits (I-015, I-057): the `usageLimits` signal fed by the server's
- * `usage_limits` push, a toast when a limit escalates, which limits apply to a chat's model, and
- * pure formatting helpers for the chat's usage popover. `null` means unavailable → the UI hides
- * the feature.
+ * Subscription usage limits (I-015, I-057, I-191): `usageLimits`, per environment (each Mac's own
+ * accounts) one entry per agent that reports limits, the default agent first, fed by the
+ * server's `usage_limits` push; a toast when a limit escalates; the order a chat shows them in
+ * ({@link usageForChat}: its own agent first); pure formatting helpers for the chat's usage
+ * popover. Nothing for an environment → the UI hides the feature.
+ *
+ *   usageLimitsOf(envIdOfSession(chatId)) // the limits of the Mac the chat runs on
  */
 import { signal } from "@preact/signals";
-import type { ModelRef, UsageLimit, UsageLimits } from "@glade/protocol";
+import type { HarnessUsageLimits, ModelRef, ServerMessage, UsageLimit, UsageLimits } from "@glade/protocol";
+import { hasLocalEnvironment, isLocalEnvironment } from "./env-registry";
 import { showToast } from "./toasts";
 
-export const usageLimits = signal<UsageLimits | null>(null);
+/** Limits per environment ({@link usageKey}). */
+export const usageLimits = signal<ReadonlyMap<string, HarnessUsageLimits[]>>(new Map());
+
+/** Map key of an environment's limits: "" for this device's own server (also untagged), else its id. */
+export function usageKey(envId: string | null | undefined): string {
+  return !envId || isLocalEnvironment(envId) ? "" : envId;
+}
+
+/** The limits of the environment a chat runs on (empty: none). */
+export function usageLimitsOf(envId: string | null | undefined): HarnessUsageLimits[] {
+  return usageLimits.value.get(usageKey(envId)) ?? [];
+}
 
 const SEVERITY_RANK: Record<UsageLimit["severity"], number> = { normal: 0, warning: 1, critical: 2 };
 
-/** Apply a `usage_limits` message; toasts when a limit escalates (see {@link limitAlerts}). */
-export function handleUsageMessage(next: UsageLimits | null, notify: typeof showToast = showToast, now = Date.now()): void {
-  const prev = usageLimits.value;
-  usageLimits.value = next;
-  if (!next || next.stale) return;
-  for (const limit of limitAlerts(prev, next)) {
-    const critical = limit.severity === "critical";
-    const reset = formatResetsAt(limit.resetsAt, now);
-    notify({
-      level: critical ? "error" : "warning",
-      title: critical ? `${limit.label}: limit almost reached` : `${limit.label}: ${formatPercent(limit.percent)} used`,
-      message: `${formatPercent(limit.percent)} of your ${next.source} limit used.${reset ? ` ${reset}.` : ""}`,
-      timeoutMs: critical ? 10_000 : 6_000,
-    });
+type UsageMessage = Pick<Extract<ServerMessage, { type: "usage_limits" }>, "usage" | "entries">;
+
+/** The message's entries; an older server sends only `usage` (its default agent's, unnamed). */
+export function usageEntries(message: UsageMessage): HarnessUsageLimits[] {
+  if (message.entries) return message.entries.filter((e) => e.usage.limits.length > 0);
+  return message.usage && message.usage.limits.length ? [{ harnessId: "", label: message.usage.source, usage: message.usage }] : [];
+}
+
+/**
+ * Apply an environment's `usage_limits` message; toasts when a limit escalates (see
+ * {@link limitAlerts}): for this device's own server, or any Mac on a device without one (the
+ * iPhone), not for another Mac's accounts on a desktop.
+ */
+export function handleUsageMessage(message: UsageMessage, envId?: string, notify: typeof showToast = showToast, now = Date.now()): void {
+  const key = usageKey(envId);
+  const prev = new Map((usageLimits.value.get(key) ?? []).map((e) => [e.harnessId, e.usage]));
+  const next = usageEntries(message);
+  const all = new Map(usageLimits.value);
+  if (next.length) all.set(key, next);
+  else all.delete(key);
+  usageLimits.value = all;
+  if (key !== "" && hasLocalEnvironment.value) return;
+  for (const { harnessId, usage } of next) {
+    if (usage.stale) continue;
+    for (const limit of limitAlerts(prev.get(harnessId) ?? null, usage)) {
+      const critical = limit.severity === "critical";
+      const reset = formatResetsAt(limit.resetsAt, now);
+      notify({
+        level: critical ? "error" : "warning",
+        title: critical ? `${limit.label}: limit almost reached` : `${limit.label}: ${formatPercent(limit.percent)} used`,
+        message: `${formatPercent(limit.percent)} of your ${usage.source} limit used.${reset ? ` ${reset}.` : ""}`,
+        timeoutMs: critical ? 10_000 : 6_000,
+      });
+    }
   }
+}
+
+/** An agent's limits as a chat shows them: `mine` = they're the chat's own (its agent and model's provider). */
+export interface ChatUsageEntry extends HarnessUsageLimits {
+  mine: boolean;
+}
+
+/**
+ * The agents' limits in the order a chat shows them (I-191): the chat's own agent first when its
+ * limits apply to the chat's model (same provider; e.g. pi's Claude subscription only for an
+ * Anthropic model), then the others in the server's order (the default agent first). Without a
+ * chat (`harnessId` null) the server's order stands and nothing is `mine`.
+ */
+export function usageForChat(entries: readonly HarnessUsageLimits[], harnessId: string | null | undefined, model?: ModelRef | null): ChatUsageEntry[] {
+  const list = entries.filter((e) => e.usage.limits.length > 0).map((e) => ({ ...e, mine: isMine(e, harnessId, model) }));
+  return [...list.filter((e) => e.mine), ...list.filter((e) => !e.mine)];
+}
+
+function isMine(entry: HarnessUsageLimits, harnessId: string | null | undefined, model: ModelRef | null | undefined): boolean {
+  if (!harnessId) return false;
+  // An older server's unnamed entry is the default agent's: match it by the model's provider.
+  if (entry.harnessId && entry.harnessId !== harnessId) return false;
+  return !model || model.provider === entry.usage.provider;
 }
 
 /**
@@ -42,16 +100,6 @@ export function limitAlerts(prev: UsageLimits | null, next: UsageLimits): UsageL
     if (!old || limit.severity === "normal") return false;
     return SEVERITY_RANK[limit.severity] > SEVERITY_RANK[old.severity] || (limit.active && !old.active);
   });
-}
-
-/**
- * The limits that apply to a chat using `model`: only when the model belongs to the limits'
- * provider (e.g. Anthropic's subscription limits for an `anthropic` model); `null` otherwise
- * (other providers have no limits source yet, and a chat without a known model shows none).
- */
-export function limitsForModel(usage: UsageLimits | null, model: ModelRef | null | undefined): UsageLimits | null {
-  if (!usage || !model || usage.limits.length === 0) return null;
-  return model.provider === usage.provider ? usage : null;
 }
 
 /**

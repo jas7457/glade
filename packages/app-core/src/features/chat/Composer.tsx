@@ -67,7 +67,7 @@ import { chatPath } from "@glade/app-core/app/routes";
 import { loadChatCommands, runAction, useChatSession } from "@glade/app-core/state/chat-session";
 import { createWorkspace } from "@glade/app-core/state/actions";
 import { attachFilesToText } from "@glade/app-core/state/attachments";
-import { harnessCapabilities, newChatHarnessFor } from "@glade/app-core/state/harnesses";
+import { defaultHarnessOf, harnessCapabilities, newChatHarnessFor } from "@glade/app-core/state/harnesses";
 import { envIdOfProject, envIdOfSession, sessionsById, shellOf, visibleModelsOf, workspacesById } from "@glade/app-core/state/store";
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { isSlashCommandHidden } from "@glade/app-core/state/slash-visibility";
@@ -166,6 +166,8 @@ export interface ComposerBoxProps {
   above?: ComponentChildren;
   /** Extra toolbar items after the pickers (e.g. the context meter). */
   toolbarExtra?: ComponentChildren;
+  /** A popover of `toolbarExtra` is open: touch keeps the box expanded, so its anchor stays visible. */
+  toolbarExtraOpen?: boolean;
   slash?: ComposerSlashOptions;
   /** Enables `@` file mentions for the folder of this project (`null` = scratch folder of `envId`). */
   mentions?: { projectId: string | null; envId?: string | null };
@@ -586,7 +588,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   // then it grows full width with the text on top and the pickers in a row below. Same DOM in
   // both (CSS order/wrap only), so the textarea never remounts and keeps its focus.
   const expanded =
-    !touch || focused || text.trim() !== "" || images.length > 0 || files.length > 0 || openPicker !== null || sendOptionsOpen || !!shellInput;
+    !touch || focused || text.trim() !== "" || images.length > 0 || files.length > 0 || openPicker !== null || sendOptionsOpen || !!props.toolbarExtraOpen || !!shellInput;
   const compact = touch && !expanded;
   useEffect(() => () => {
     if (blurTimer.current) clearTimeout(blurTimer.current);
@@ -965,6 +967,10 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
   const shell = shellOf(envId);
   // I-065: hide what this chat's harness can't do (all allowed until the harness list loads).
   const capabilities = harnessCapabilities(summary?.harness, envId);
+  // The usage popover is open (touch keeps the composer expanded meanwhile, I-191).
+  const [meterOpen, setMeterOpen] = useState(false);
+  // I-191: the chat's agent's limits go first in the usage popover.
+  const usageHarness = summary?.harness ?? defaultHarnessOf(envId)?.id ?? null;
   const slashCommands = useMemo(
     () => mergeCommands(builtinCommands(true, capabilities), harnessCommands),
     [harnessCommands, capabilities],
@@ -1077,7 +1083,18 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       onSend={onSend}
       onStop={() => void runAction(() => apiForSession(chatId).abort(chatId), "Could not stop")}
       above={above}
-      toolbarExtra={<ContextMeter usage={state.contextUsage} cost={state.sessionStats?.cost} compacting={state.isCompacting} model={state.model} />}
+      toolbarExtra={
+        <ContextMeter
+          usage={state.contextUsage}
+          cost={state.sessionStats?.cost}
+          compacting={state.isCompacting}
+          model={state.model}
+          harnessId={usageHarness}
+          envId={envId}
+          onOpenChange={setMeterOpen}
+        />
+      }
+      toolbarExtraOpen={meterOpen}
       slash={{ commands: slashCommands, chatId, projectId, navigate }}
       mentions={{ projectId, envId }}
       shell={capabilities.shell ? { run: runShell } : undefined}
