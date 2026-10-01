@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- iPhone voice mode: set how long you can pause before what you said is sent (Settings → Voice,
+  default 1.6 s); the agent's other questions (pick an option, yes/no, type an answer) are read aloud
+  and answered by voice, by name or number; the word being read is highlighted in the chat too, and
+  the voice view can be minimized to a small pill while it keeps listening and reading.
 - Closing a terminal tab that's still running something asks "Terminate “npm run dev”?" first, and
   deleting a chat says which programs in its terminals will be stopped. The Mac app's File menu
   has New Terminal (⌃`).
