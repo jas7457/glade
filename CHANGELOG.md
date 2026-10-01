@@ -225,6 +225,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- When Claude finishes planning, the plan shows as a "Proposed plan" card followed by Claude Code's
+  own "Ready to code?" choices; your choice switches the chat's permission mode.
 - The usage popover shows the plan limits of every agent that reports them (pi's Claude
   subscription, Claude Code's and Codex's 5-hour/weekly limits), grouped by agent with the chat's
   own agent first. On the iPhone the limits now appear too.
@@ -417,6 +419,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Tool calls you rejected, that were stopped, or that failed no longer read like a success; they
+  say "Rejected", "Stopped" or "Failed", and tool groups count them.
 - iPhone voice mode: the highlighted word follows the voice in order on long replies instead of
   jumping between paragraphs, and the text scrolls only now and then instead of with every word.
 - iPhone: while the agent works, the slim text box shows Stop instead of an empty Send, so
