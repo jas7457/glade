@@ -225,6 +225,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The usage popover shows the plan limits of every agent that reports them (pi's Claude
+  subscription, Claude Code's and Codex's 5-hour/weekly limits), grouped by agent with the chat's
+  own agent first. On the iPhone the limits now appear too.
 - iPhone voice mode reads the reply as it's written: finished sentences are spoken right away,
   one after another without pauses, code blocks and tools are announced where they happen, and the
   text on screen grows with the word being read highlighted.
