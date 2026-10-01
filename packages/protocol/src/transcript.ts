@@ -289,6 +289,8 @@ export interface ToolResult {
   endedAt?: number;
   /** The user rejected it when the agent asked for permission (I-119; `status` is `error`). */
   rejected?: boolean;
+  /** The run was stopped before it finished (I-190; `status` is `error`): not a failure. */
+  stopped?: boolean;
 }
 
 export interface Transcript {

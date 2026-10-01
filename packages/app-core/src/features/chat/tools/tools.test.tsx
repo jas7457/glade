@@ -135,7 +135,17 @@ const part = (id: string, status: ToolCallPart["status"] = "done", output = "hi"
   type: "tool",
   key: id,
   call: { type: "toolCall", id, name: "x_shell", kind: "shell", input: { command: `echo ${id}` }, args: {} },
-  result: status === "streaming" || status === "pending" ? undefined : { toolCallId: id, toolName: "x_shell", status: status === "cancelled" ? "done" : status === "rejected" ? "error" : status, output },
+  result:
+    status === "streaming" || status === "pending" || status === "cancelled"
+      ? undefined
+      : {
+          toolCallId: id,
+          toolName: "x_shell",
+          status: status === "rejected" || status === "stopped" ? "error" : status,
+          output,
+          ...(status === "rejected" ? { rejected: true } : {}),
+          ...(status === "stopped" ? { stopped: true } : {}),
+        },
   status,
 });
 
@@ -216,6 +226,51 @@ describe("ToolGroup / ToolCallRow", () => {
 
     fireEvent.click(header);
     expect(screen.queryByText("echo a")).toBeNull();
+  });
+
+  it("counts rejected and stopped calls apart from the ones that ran (I-190)", () => {
+    const calls = [part("a"), part("b"), part("c", "rejected"), part("d", "stopped"), part("e", "cancelled"), part("f", "error", "boom")];
+    render(<ToolGroup part={{ type: "toolGroup", key: "g", calls, items: calls, active: false, errorCount: 1 }} />);
+    const header = screen.getByRole("button", { name: /Ran 3 tool calls/ });
+    expect(header.textContent).toContain("1 failed");
+    expect(header.textContent).toContain("1 rejected");
+    expect(header.textContent).toContain("2 stopped");
+  });
+
+  it("doesn't say Ran when none of a group's calls ran (I-190)", () => {
+    const calls = [part("a", "rejected"), part("b", "cancelled")];
+    render(<ToolGroup part={{ type: "toolGroup", key: "g", calls, items: calls, active: false, errorCount: 0 }} />);
+    const header = screen.getByRole("button", { name: /2 tool calls/ });
+    expect(header.textContent).not.toMatch(/Ran/);
+    expect(header.textContent).toContain("1 rejected");
+    expect(header.textContent).toContain("1 stopped");
+  });
+
+  it("says what happened to a call that didn't succeed instead of Ran (I-190)", () => {
+    const label = (status: ToolCallPart["status"]) => {
+      const { container, unmount } = render(<ToolCallRow part={part("x", status, "Stopped")} />);
+      const text = container.querySelector("button")!.textContent ?? "";
+      unmount();
+      return text;
+    };
+    expect(label("done")).toMatch(/^Ran echo x/);
+    expect(label("rejected")).toMatch(/^Run echo x.*Rejected/);
+    expect(label("stopped")).toMatch(/^Run echo x.*Stopped/);
+    expect(label("cancelled")).toMatch(/^Run echo x.*Stopped/);
+    expect(label("error")).toMatch(/^Run echo x.*Failed/);
+  });
+
+  it("drops a rejected edit's line counts (it changed nothing)", () => {
+    const edit = (status: ToolCallPart["status"]): ToolCallPart => ({
+      ...part("e", status, ""),
+      call: call("edit", { path: "/a.ts", edits: [{ oldText: "a", newText: "b" }] }),
+    });
+    const done = render(<ToolCallRow part={edit("done")} />);
+    expect(done.container.textContent).toContain("+1");
+    done.unmount();
+    const rejected = render(<ToolCallRow part={edit("rejected")} />);
+    expect(rejected.container.textContent).not.toContain("+1");
+    expect(rejected.container.textContent).toMatch(/^Edit \/a\.ts.*Rejected/);
   });
 
   it("shows a running label while any call is active", () => {

@@ -53,6 +53,19 @@ describe("AcpTranslator", () => {
     expect(events.filter((e) => e.type === "tool_end")).toHaveLength(1);
   });
 
+  it("marks tool calls cut off by a stop as stopped, not failed (I-190)", () => {
+    const tr = new AcpTranslator("x", () => 1);
+    tr.update({ sessionUpdate: "tool_call", toolCallId: "r", title: "Edit", kind: "edit", status: "pending" });
+    tr.rejectTool("r");
+    const t = fold([
+      ...tr.update({ sessionUpdate: "tool_call", toolCallId: "t", title: "Run", kind: "execute", status: "in_progress" }),
+      ...tr.finish({ stopReason: "cancelled" }),
+    ]);
+    expect(t.toolResults.t).toMatchObject({ status: "error", stopped: true });
+    expect(t.toolResults.r).toMatchObject({ status: "error", rejected: true });
+    expect(t.toolResults.r?.stopped).toBeUndefined();
+  });
+
   it("adds an error message when a failed turn produced nothing", () => {
     const tr = new AcpTranslator("x", () => 1);
     const t = fold(tr.finish({ error: "Internal error", details: "oops" }));

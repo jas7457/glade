@@ -10,7 +10,7 @@ import { cn } from "@glade/app-core/lib/cn";
 import { CodeView, Markdown } from "../Markdown";
 import { useImageLightbox } from "../ImageLightbox";
 import { useImageSrcs } from "../image-src";
-import type { ToolCallStatus } from "../grouping";
+import { toolOutcome, type ToolCallStatus } from "../grouping";
 import { diffFromEdits, diffStats, languageFromPath, stripAnsi } from "./text";
 
 export interface ToolBodyProps {
@@ -165,7 +165,9 @@ function EditBody({ call, result, status }: ToolBodyProps) {
 }
 
 function EditBadge({ call, result, status }: ToolBodyProps) {
-  if (status === "error" || call.args === undefined) return null;
+  // Only an edit that's made (or being made) counts lines; a rejected/stopped/failed one changed nothing (I-190).
+  const outcome = toolOutcome(status);
+  if ((outcome && outcome !== "done") || call.args === undefined) return null;
   const { added, removed } = diffStats(editDiffLines(call, result));
   if (!added && !removed) return null;
   return (

@@ -8,7 +8,8 @@
  *   mcp__<server>__<tool> → mcp · anything else → other
  *
  * TodoWrite and the task-list tools (TaskCreate/TaskUpdate/TaskList/TaskGet) aren't shown as tool
- * calls: the translator turns them into the harness-neutral plan card. Edit/Write results carry
+ * calls: the translator turns them into the harness-neutral plan card. Neither is ExitPlanMode
+ * (I-189): its plan is the "Proposed plan" card, its approval the "Ready to code?" card. Edit/Write results carry
  * `structuredPatch` hunks, normalized into `DiffLine`s.
  */
 import type { DiffLine, ImageBlock, ToolCallBlock, ToolEdit, ToolInput, ToolKind } from "@glade/protocol";
@@ -35,8 +36,11 @@ const KINDS = new Map<string, ToolKind>([
   ["Agent", "task"],
 ]);
 
-/** Tools shown as the plan card instead of tool calls. */
-const PLAN_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]);
+/** Tools shown as the plan card (or the proposed plan card) instead of tool calls. */
+const PLAN_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ExitPlanMode"]);
+
+/** Claude Code's tool that ends Plan mode with a plan for the user to approve (I-189). */
+export const EXIT_PLAN_TOOL = "ExitPlanMode";
 
 export function isPlanTool(name: string): boolean {
   return PLAN_TOOLS.has(name);

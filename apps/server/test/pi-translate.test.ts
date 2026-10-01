@@ -9,7 +9,7 @@ import {
   type AssistantMessage,
   type Transcript,
 } from "@glade/protocol";
-import { PiEventTranslator, piThinkingLevels, translateMessages, translateModel } from "../src/harness/pi/translate.js";
+import { PiEventTranslator, piThinkingLevels, translateMessages, translateModel, translateToolResult } from "../src/harness/pi/translate.js";
 
 type Json = Record<string, unknown>;
 
@@ -90,6 +90,16 @@ describe("translateMessages (get_messages)", () => {
     const t = translateMessages(data.messages, (i) => `h${i}`);
     assertToolRunTranscript(t);
     expect(t.messages[0]!.id).toBe("h0");
+  });
+});
+
+describe("translateToolResult", () => {
+  const text = (t: string) => [{ type: "text", text: t }];
+  it("marks a call pi aborted as stopped, not failed (I-190)", () => {
+    expect(translateToolResult({ toolCallId: "a", toolName: "read", isError: true, content: text("Operation aborted") })).toMatchObject({ status: "error", stopped: true });
+    expect(translateToolResult({ toolCallId: "b", toolName: "bash", isError: true, content: text("line 1\n\nCommand aborted") })).toMatchObject({ status: "error", stopped: true });
+    expect(translateToolResult({ toolCallId: "c", toolName: "bash", isError: true, content: text("Command exited with code 1") }).stopped).toBeUndefined();
+    expect(translateToolResult({ toolCallId: "d", toolName: "bash", isError: false, content: text("Operation aborted") }).stopped).toBeUndefined();
   });
 });
 

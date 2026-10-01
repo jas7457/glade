@@ -68,6 +68,8 @@ export class CodexTranslator {
   /** Items seen this turn (approvals point at them). */
   private readonly items = new Map<string, ThreadItem>();
   private readonly rejected = new Set<string>();
+  /** The turn is being stopped: calls that end with an error now were cut off (I-190). */
+  private stopping = false;
   private planId: string | null = null;
   /** Proposed plans (`plan` items) of this turn: their notice and text so far. */
   private readonly proposed = new Map<string, { messageId: string; text: string; shown: string }>();
@@ -104,6 +106,11 @@ export class CodexTranslator {
   /** An item of this turn, by id (the latest version seen). */
   item(itemId: string): ThreadItem | undefined {
     return this.items.get(itemId);
+  }
+
+  /** The user pressed Stop: calls ending with an error (or declined) from now on were stopped (I-190). */
+  stop(): void {
+    this.stopping = true;
   }
 
   /** The user said no to this item's approval: its calls end as rejected. */
@@ -266,10 +273,19 @@ export class CodexTranslator {
       if (tool.ended) continue;
       tool.ended = true;
       const rejected = this.rejected.has(baseItemId(id));
+      // Cut off (Stop, or the run failed around it): it didn't fail itself (I-190).
+      const stopped = !rejected;
       events.push({
         type: "tool_end",
         toolCallId: id,
-        result: { toolCallId: id, toolName: tool.call.name, status: "error", output: rejected ? "" : tool.output || (end.stopReason === "aborted" ? "Stopped" : "Unfinished"), ...(rejected ? { rejected } : {}) },
+        result: {
+          toolCallId: id,
+          toolName: tool.call.name,
+          status: "error",
+          output: rejected ? "" : tool.output || (end.stopReason === "aborted" ? "Stopped" : "Unfinished"),
+          ...(rejected ? { rejected } : {}),
+          ...(stopped ? { stopped } : {}),
+        },
       });
     }
     if (this.current || end.errorMessage) {
@@ -291,6 +307,7 @@ export class CodexTranslator {
     this.tools.clear();
     this.items.clear();
     this.rejected.clear();
+    this.stopping = false;
     this.planId = null;
     this.proposed.clear();
     this.reviewShown = false;
@@ -394,7 +411,12 @@ export class CodexTranslator {
       const tool = this.tools.get(call.id)!;
       if (tool.ended) return;
       tool.ended = true;
-      const result = this.result(item, call, tool, i, rejected);
+      let result = this.result(item, call, tool, i, rejected);
+      // Interrupted by Stop (an approval Stop closed comes back declined): stopped, not failed/rejected.
+      if (this.stopping && !rejected && result.status === "error") {
+        const { rejected: _declined, ...rest } = result;
+        result = { ...rest, stopped: true };
+      }
       events.push({ type: "tool_end", toolCallId: call.id, result });
     });
     return events;

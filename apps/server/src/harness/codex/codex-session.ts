@@ -405,6 +405,7 @@ export class CodexSession implements HarnessSession {
     const turn = this.turn;
     if (!turn || turn.done) return;
     turn.aborted = true;
+    this.translator.stop();
     this.cancelUi();
     if (turn.id) this.interrupt(turn, this.translator.runningCommands());
     // (Still starting: runTurn interrupts once the turn id is known.)

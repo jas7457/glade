@@ -9,6 +9,9 @@
  *   is left out when Claude Code's settings disable it (`disableBypassPermissionsMode`).
  * - **The starting mode** of a new chat is Claude Code's own `permissions.defaultMode`
  *   (`readClaudePermissionSettings`: user, project, local and managed settings), else Default.
+ * - **Plan approval** (ExitPlanMode, I-189): the CLI's "Ready to code?" prompt
+ *   (`planApprovalCard`): "Yes, auto-accept edits" (or "Yes, and use auto mode" where Auto is
+ *   offered) / "Yes, manually approve edits" / "No, keep planning"; a yes switches the mode.
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -212,3 +215,44 @@ export function suggestedMode(suggestions: readonly unknown[] | undefined): Clau
   }
   return null;
 }
+
+// Plan approval (I-189) -------------------------------------------------------------------------
+
+export const PLAN_AUTO = "plan_auto";
+export const PLAN_ACCEPT_EDITS = "plan_accept_edits";
+export const PLAN_DEFAULT = "plan_default";
+export const PLAN_KEEP_PLANNING = "plan_keep";
+
+/**
+ * Claude Code's "Ready to code?" prompt after ExitPlanMode, worded like the CLI (2.1.x, without its
+ * "clear context" and Ultraplan rows): the first yes is Auto mode where the model offers it (as
+ * the CLI does), else accept-edits; "No, keep planning" stays in Plan mode and hands the composer
+ * over for what to change (the CLI's "Tell Claude what to change").
+ */
+export function planApprovalCard(autoMode: boolean): { title: string; options: PermissionOption[] } {
+  return {
+    title: "Ready to code?",
+    options: [
+      autoMode
+        ? { id: PLAN_AUTO, label: "Yes, and use auto mode", kind: "allow_always" }
+        : { id: PLAN_ACCEPT_EDITS, label: "Yes, auto-accept edits", kind: "allow_always" },
+      { id: PLAN_DEFAULT, label: "Yes, manually approve edits", kind: "allow_once" },
+      { id: PLAN_KEEP_PLANNING, label: "No, keep planning", kind: "reject_once", focusComposer: true },
+    ],
+  };
+}
+
+/** The mode a "Ready to code?" answer switches to; `null` for "No, keep planning" (or no answer). */
+export function planApprovalMode(optionId: string | null | undefined): ClaudePermissionMode | null {
+  switch (optionId) {
+    case PLAN_AUTO:
+      return "auto";
+    case PLAN_ACCEPT_EDITS:
+      return "acceptEdits";
+    case PLAN_DEFAULT:
+      return "default";
+    default:
+      return null;
+  }
+}
+

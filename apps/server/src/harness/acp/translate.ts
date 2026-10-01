@@ -149,10 +149,18 @@ export class AcpTranslator {
       if (tool.state.status === "completed" || tool.state.status === "failed") continue;
       const result = acpToolResult(tool.state);
       const rejected = this.rejected.has(id);
+      // Cut off (Stop, or the run failed around it): it didn't fail itself (I-190).
+      const stopped = !rejected;
       events.push({
         type: "tool_end",
         toolCallId: id,
-        result: { ...result, status: "error", output: result.output || (rejected ? "" : stopReason === "aborted" ? "Stopped" : "Unfinished"), ...(rejected ? { rejected } : {}) },
+        result: {
+          ...result,
+          status: "error",
+          output: result.output || (rejected ? "" : stopReason === "aborted" ? "Stopped" : "Unfinished"),
+          ...(rejected ? { rejected } : {}),
+          ...(stopped ? { stopped } : {}),
+        },
       });
     }
     this.tools.clear();

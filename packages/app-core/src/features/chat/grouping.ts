@@ -46,8 +46,44 @@ export const DEFAULT_GROUPING_OPTIONS: GroupingOptions = {
  *  - `running` / `done` / `error`: from the tool result
  *  - `cancelled`: never got a result and the run is over (aborted / failed)
  *  - `rejected`: the user said no when the agent asked for permission (I-119)
+ *  - `stopped`: the run was stopped while it ran (I-190; the result says `stopped`)
  */
-export type ToolCallStatus = "streaming" | "pending" | "running" | "done" | "error" | "cancelled" | "rejected";
+export type ToolCallStatus = "streaming" | "pending" | "running" | "done" | "error" | "cancelled" | "rejected" | "stopped";
+
+/**
+ * How a finished call turned out, for its label (I-190): it ran (`done`), `failed`, was `rejected`
+ * or `stopped` (stopped while running, or never ran because the run ended). `null` while active.
+ */
+export type ToolOutcome = "done" | "failed" | "rejected" | "stopped";
+
+export function toolOutcome(status: ToolCallStatus): ToolOutcome | null {
+  switch (status) {
+    case "done":
+      return "done";
+    case "error":
+      return "failed";
+    case "rejected":
+      return "rejected";
+    case "stopped":
+    case "cancelled":
+      return "stopped";
+    default:
+      return null;
+  }
+}
+
+/** A group's calls by outcome (`ran`: done + failed, the calls that actually ran). */
+export function outcomeCounts(calls: readonly Pick<ToolCallPart, "status">[]): { ran: number; failed: number; rejected: number; stopped: number } {
+  const counts = { ran: 0, failed: 0, rejected: 0, stopped: 0 };
+  for (const c of calls) {
+    const outcome = toolOutcome(c.status);
+    if (outcome === "done" || outcome === "failed") counts.ran++;
+    if (outcome === "failed") counts.failed++;
+    else if (outcome === "rejected") counts.rejected++;
+    else if (outcome === "stopped") counts.stopped++;
+  }
+  return counts;
+}
 
 export interface ToolCallPart {
   type: "tool";
@@ -126,7 +162,12 @@ export function isActiveStatus(status: ToolCallStatus): boolean {
 }
 
 export function toolCallStatus(call: ToolCallBlock, result: ToolResult | undefined, isRunning: boolean): ToolCallStatus {
-  if (result) return result.rejected ? "rejected" : result.status;
+  if (result) {
+    if (result.rejected) return "rejected";
+    // `stopped` (I-190); older history only has the "Stopped" text the adapters wrote.
+    if (result.status === "error" && (result.stopped || result.output === "Stopped")) return "stopped";
+    return result.status;
+  }
   if (!isRunning) return "cancelled";
   return call.args === undefined ? "streaming" : "pending";
 }
