@@ -11,15 +11,18 @@
  *   SIGHUP, like closing a terminal window), their workspace is deleted, or the server stops.
  * - Backpressure: a client whose socket buffer is over {@link HIGH_WATER} pauses the pty until it
  *   drains, so `yes` can't fill the server's memory.
+ * - `foreground` says what a shell runs (e.g. "npm run dev"; null at its prompt), so closing a
+ *   busy tab can ask first (I-192).
  *
  * Shells get the server's environment minus Glade's own variables (`piChildEnv`) and package
  * manager noise, plus TERM=xterm-256color, COLORTERM=truecolor, TERM_PROGRAM=Glade and a UTF-8
  * locale when none is set (the desktop app starts without one).
  */
+import { execFile } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { TERMINAL_LIMITS, type TerminalExit, type TerminalInfo, type TerminalServerMessage } from "@glade/protocol";
 import { piChildEnv } from "../harness/pi/child-env.js";
 import { VERSION } from "../config.js";
@@ -34,6 +37,8 @@ export interface Pty {
   kill(signal?: string): void;
   pause?(): void;
   resume?(): void;
+  /** The foreground process's name (node-pty: `tcgetpgrp` on the pty), e.g. "zsh" at a prompt. */
+  readonly process?: string;
 }
 
 export interface PtySpawnOptions {
@@ -80,6 +85,12 @@ export interface TerminalServiceOptions {
   /** Output batching window (ms). */
   flushMs?: number;
   log?: (message: string) => void;
+  /**
+   * The command line of the job in the foreground of the shell `shellPid` (I-192): null when the
+   * shell itself is (at its prompt), undefined when it can't tell (then node-pty's `process`
+   * decides). Default: `ps` (the terminal's foreground process group).
+   */
+  foregroundCommand?: (shellPid: number) => Promise<string | null | undefined>;
 }
 
 /** Pause the pty while a client has more than this queued (bytes). */
@@ -200,6 +211,39 @@ export class TerminalService {
   /** The shells of a workspace running (or exited) on this server. */
   list(workspaceId: string): TerminalInfo[] {
     return [...this.terminals.values()].filter((t) => t.info.workspaceId === workspaceId).map((t) => ({ ...t.info }));
+  }
+
+  /** Like {@link list}, with what each shell is running in the foreground (I-192: confirm before closing). */
+  async listWithForeground(workspaceId: string): Promise<TerminalInfo[]> {
+    const infos = this.list(workspaceId);
+    return Promise.all(infos.map(async (info) => ({ ...info, foreground: await this.foreground(info.id) })));
+  }
+
+  /**
+   * The program running in the shell's foreground (e.g. `npm run dev`), or null at an idle
+   * prompt, after an exit, or for an unknown id. `foregroundCommand` (ps) knows the terminal's
+   * foreground job; when it can't tell, node-pty's `process` (the foreground process's name) does.
+   */
+  async foreground(terminalId: string): Promise<string | null> {
+    const term = this.terminals.get(terminalId);
+    const pty = term?.pty;
+    if (!term || !pty || term.info.exit) return null;
+    const lookup = this.options.foregroundCommand ?? foregroundCommandLine;
+    const command = await lookup(pty.pid).catch(() => undefined);
+    if (command === null) return null;
+    let label = command?.trim();
+    if (!label) {
+      let name: string | undefined;
+      try {
+        name = pty.process?.trim() || undefined;
+      } catch {
+        name = undefined;
+      }
+      label = name && !isShellName(name, term.info.shell) ? name : undefined;
+    }
+    if (!label) return null;
+    label = label.replace(/\s+/g, " ");
+    return label.length > 200 ? `${label.slice(0, 199)}…` : label;
   }
 
   get(terminalId: string): TerminalInfo | null {
@@ -341,6 +385,51 @@ export class TerminalService {
       throw new TerminalError(501, `Terminals aren't available on this server: ${(err as Error).message}`);
     }
   }
+}
+
+/**
+ * Programs that don't count as running (like Terminal.app's "ask before closing" exceptions):
+ * shells at a prompt (also a nested `bash`), and tmux/screen clients (closing just detaches).
+ */
+const SHELL_NAMES = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh", "login", "tmux", "screen"]);
+
+export function isShellName(name: string, shell: string): boolean {
+  const bare = (s: string) => basename(s.replace(/^-/, ""));
+  const n = bare(name);
+  return n === bare(shell) || SHELL_NAMES.has(n);
+}
+
+function run(file: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { timeout: 3000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+}
+
+/**
+ * The foreground job of a shell's terminal: `ps` gives the terminal's foreground process group
+ * (`tpgid`); the shell's own group means it's at its prompt (null). Otherwise the job is that
+ * group: its leader, else its first member that isn't a shell (a pipeline's leader can be a
+ * forked shell running a builtin); only shells (a nested `bash`) count as a prompt. npm even sets
+ * its arguments to "npm run dev". Undefined when `ps` can't tell.
+ */
+export async function foregroundCommandLine(shellPid: number): Promise<string | null | undefined> {
+  if (process.platform === "win32") return undefined;
+  const pgid = Number((await run("ps", ["-o", "tpgid=", "-p", String(shellPid)])).trim());
+  if (!Number.isInteger(pgid) || pgid <= 0) return undefined;
+  if (pgid === shellPid) return null;
+  const isShell = (args: string) => isShellName(args.split(" ")[0] ?? "", "");
+  // Usually the group's leader is the program; only look further when it's gone or a shell.
+  const leader = (await run("ps", ["-o", "args=", "-p", String(pgid)]).catch(() => "")).trim();
+  if (leader && !isShell(leader)) return leader;
+  const members = (await run("ps", ["-A", "-o", "pid=,pgid=,args="]))
+    .split("\n")
+    .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+    .filter((m): m is RegExpExecArray => !!m && Number(m[2]) === pgid)
+    .map((m) => ({ pid: Number(m[1]), args: m[3]!.trim() }))
+    .filter((m) => m.args)
+    .sort((x, y) => x.pid - y.pid);
+  if (members.length === 0) return leader ? null : undefined;
+  return members.find((m) => !isShell(m.args))?.args ?? null;
 }
 
 function isDirectory(path: string): boolean {

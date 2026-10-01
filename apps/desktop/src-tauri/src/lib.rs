@@ -180,7 +180,8 @@ pub fn run() {
             prefs::desktop_prefs_set,
             prefs::login_item_get,
             prefs::login_item_set,
-            relaunch::relaunch
+            relaunch::relaunch,
+            menu::menu_chat_open
         ])
         .menu(menu::build)
         .on_menu_event(menu::handle)

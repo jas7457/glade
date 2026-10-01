@@ -9,7 +9,7 @@
  *
  *   POST   /api/workspaces/:id/terminals/:terminalId/start  StartTerminalRequest → TerminalInfo
  *          (starts a shell, or returns the running one; restarts an exited one)
- *   GET    /api/workspaces/:id/terminals                     → TerminalInfo[] (this server's)
+ *   GET    /api/workspaces/:id/terminals                     → TerminalInfo[] (this server's, with `foreground`)
  *   DELETE /api/terminals/:terminalId                        → 204 (SIGHUP; closing the tab)
  *   WS     /ws/terminal/:terminalId                          TerminalClientMessage ⇄ TerminalServerMessage
  *          (same auth as `/ws`: the local owner, or a paired device with a one-time `?ticket=`)
@@ -43,6 +43,11 @@ export interface TerminalInfo {
   startedAt: number;
   /** Set once the shell exited (the tab offers Restart). */
   exit: TerminalExit | null;
+  /**
+   * What runs in the shell's foreground (I-192), e.g. "npm run dev"; null at an idle prompt or
+   * after an exit. Only filled by `GET /api/workspaces/:id/terminals` (asked when closing a tab).
+   */
+  foreground?: string | null;
 }
 
 export interface TerminalExit {

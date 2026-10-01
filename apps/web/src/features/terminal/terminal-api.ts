@@ -20,6 +20,11 @@ export function startTerminal(workspaceId: string, terminalId: string, size: Sta
   return send(workspaceId)<TerminalInfo>("POST", `/workspaces/${encodeURIComponent(workspaceId)}/terminals/${encodeURIComponent(terminalId)}/start`, size);
 }
 
+/** The workspace's shells on its server, with what each runs in the foreground (I-192). */
+export function listTerminals(workspaceId: string): Promise<TerminalInfo[]> {
+  return send(workspaceId)<TerminalInfo[]>("GET", `/workspaces/${encodeURIComponent(workspaceId)}/terminals`);
+}
+
 /** Close the tab's shell (SIGHUP). */
 export function closeTerminal(workspaceId: string, terminalId: string): Promise<void> {
   return send(workspaceId)<void>("DELETE", `/terminals/${encodeURIComponent(terminalId)}`);

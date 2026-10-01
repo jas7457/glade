@@ -7,7 +7,7 @@
  * palette and `shortcutFor` all read it.
  */
 import { useEffect, useRef } from "preact/hooks";
-import { onMenuAction, type MenuAction } from "@glade/app-core/lib/desktop";
+import { onMenuAction, setChatMenuOpen, type MenuAction } from "@glade/app-core/lib/desktop";
 import { clearFocusedTerminal } from "@/features/terminal/focus";
 
 /** Commands with a global shortcut, keyed by command id, as `formatShortcut` key strings. */
@@ -46,7 +46,8 @@ export type PaneCommandId = keyof typeof PANE_SHORTCUTS;
 
 /**
  * Terminal tabs (I-187): ⌃` opens a new terminal tab (VS Code's key; ⌃⇧` works too). Bound by the
- * workspace view; a focused terminal lets it through instead of sending it to the shell.
+ * workspace view; a focused terminal lets it through instead of sending it to the shell. In the
+ * Mac app File → New Terminal owns the key and arrives as a menu action (I-192).
  */
 export const TERMINAL_SHORTCUTS = {
   "new-terminal": "ctrl+`",
@@ -55,6 +56,25 @@ export const TERMINAL_SHORTCUTS = {
 export function terminalShortcutFor(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey">): "new-terminal" | null {
   if (!e.ctrlKey || e.metaKey || e.altKey) return null;
   return e.code === "Backquote" || e.key === "`" ? "new-terminal" : null;
+}
+
+/**
+ * While mounted (a chat is shown): File → New Terminal is enabled in the Mac app's menu and runs
+ * `handler` (I-192).
+ */
+export function useNewTerminalMenu(handler: () => void): void {
+  const latest = useRef(handler);
+  latest.current = handler;
+  useEffect(() => {
+    const release = setChatMenuOpen();
+    const off = onMenuAction((action) => {
+      if (action === "new-terminal") latest.current();
+    });
+    return () => {
+      off();
+      release();
+    };
+  }, []);
 }
 
 /** ⌥ changes `key` on macOS (⌥B = "∫"), so the physical key (`code`) decides. */
@@ -126,8 +146,11 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey"
 /** Menu bar (tray) actions: handled by `useMenuBarActions` (app/menuBarActions.ts, I-150). */
 type MenuBarAction = "show-working" | "show-needs-you" | "remote-settings";
 
-/** Menu actions handled globally; the tab ones (`TAB_SHORTCUTS`) go to `useTabShortcuts`. */
-const MENU_ACTIONS: Record<Exclude<MenuAction, TabCommandId | MenuBarAction>, GlobalCommandId> = {
+/**
+ * Menu actions handled globally; the tab ones (`TAB_SHORTCUTS`) go to `useTabShortcuts`, New
+ * Terminal to `useNewTerminalMenu`.
+ */
+const MENU_ACTIONS: Record<Exclude<MenuAction, TabCommandId | MenuBarAction | "new-terminal">, GlobalCommandId> = {
   "new-chat": "new-chat",
   settings: "settings",
   "toggle-sidebar": "toggle-sidebar",

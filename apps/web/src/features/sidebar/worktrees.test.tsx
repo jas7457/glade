@@ -1,5 +1,6 @@
 /**
- * I-096 web: the delete dialog for worktree chats, the sidebar glyph and the create/delete actions.
+ * I-096 web: the delete dialog for worktree chats, the sidebar glyph and the create/delete actions;
+ * I-192: the delete dialog names programs the chat's terminals run.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
@@ -14,7 +15,10 @@ vi.mock("@glade/app-core/lib/api", () => ({
   },
 }));
 
+vi.mock("@/features/terminal/terminal-api", () => ({ listTerminals: vi.fn(async () => []) }));
+
 import type { WorkspaceWorktree, WorktreeStatus } from "@glade/protocol";
+import { listTerminals } from "@/features/terminal/terminal-api";
 import { api } from "@glade/app-core/lib/api";
 import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
 import { projects, workspaces } from "@glade/app-core/state/store";
@@ -99,6 +103,20 @@ describe("deleting a worktree chat", () => {
     expect(await done).toBe(true);
     expect(mocked.getWorktreeStatus).not.toHaveBeenCalled();
     expect(mocked.deleteWorkspace).toHaveBeenCalledWith("plain");
+    expect(listTerminals).not.toHaveBeenCalled(); // no terminal tabs
+  });
+
+  it("names the programs its terminals run (I-192)", async () => {
+    vi.mocked(listTerminals).mockResolvedValueOnce([
+      { id: "t1", workspaceId: "plain", cwd: "/repo", shell: "/bin/zsh", pid: 1, cols: 80, rows: 24, startedAt: 1, exit: null, foreground: "npm run dev" },
+    ]);
+    renderHosts();
+    const chat = { ...workspaces.value[1]!, layout: { terminals: [{ id: "t1", createdAt: 1 }] } };
+    const done = confirmDeleteChat(chat);
+    expect(await screen.findByText(/will be permanently deleted\. This can't be undone\. “npm run dev” in its terminal will be terminated\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(await done).toBe(true);
+    expect(listTerminals).toHaveBeenCalledWith("plain");
   });
 });
 

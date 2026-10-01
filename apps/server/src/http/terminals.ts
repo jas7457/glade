@@ -21,7 +21,7 @@ export function terminalRoutes(terminals: TerminalService): Hono {
     throw err;
   };
 
-  api.get("/workspaces/:id/terminals", (c) => c.json(terminals.list(c.req.param("id"))));
+  api.get("/workspaces/:id/terminals", async (c) => c.json(await terminals.listWithForeground(c.req.param("id"))));
 
   api.post("/workspaces/:id/terminals/:terminalId/start", async (c) => {
     const terminalId = c.req.param("terminalId");

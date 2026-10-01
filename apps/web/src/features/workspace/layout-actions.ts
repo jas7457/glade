@@ -16,12 +16,13 @@ import { getChatSession } from "@glade/app-core/state/chat-session";
 import { mainSessionsFor, sessions, upsert, workspaces, workspacesById } from "@glade/app-core/state/store";
 import { confirm } from "@glade/app-core/ui";
 import { notify } from "@glade/app-core/state/toasts";
-import { closeTerminal, newTerminalId, startTerminal } from "@/features/terminal";
+import { closeTerminal, confirmCloseTerminal, newTerminalId, startTerminal } from "@/features/terminal";
 import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
 import {
   activeSubagentId,
   isChangesPanelOpen,
   isSubagentPaneOpen,
+  isTerminalTab,
   addTerminalPatch,
   mainTabsOf,
   mergeLayout,
@@ -162,13 +163,25 @@ export function focusTerminalTab(workspaceId: string, terminalId: string, naviga
   if (workspace.layout?.activeTerminalId !== terminalId) void saveLayout(workspaceId, { activeTerminalId: terminalId });
 }
 
+/** Terminal tabs being asked about (a second ⌘W doesn't stack another dialog). */
+const closingTerminals = new Set<string>();
+
 /**
- * Close a terminal tab: its shell gets SIGHUP (like closing a terminal window; no confirm). When
- * it was focused, its right (else left) neighbour in the strip takes focus.
+ * Close a terminal tab: its shell gets SIGHUP (like closing a terminal window). A shell running a
+ * program asks first ("Terminate “npm run dev”?", I-192); an idle one closes right away. When it
+ * was focused, its right (else left) neighbour in the strip takes focus. False when cancelled.
  */
-export async function closeTerminalTab(workspaceId: string, terminalId: string, navigate: Navigate, opts: { focused: boolean }): Promise<void> {
+export async function closeTerminalTab(workspaceId: string, terminalId: string, navigate: Navigate, opts: { focused: boolean }): Promise<boolean> {
+  if (!workspacesById.value.get(workspaceId) || closingTerminals.has(terminalId)) return false;
+  closingTerminals.add(terminalId);
+  try {
+    if (!(await confirmCloseTerminal(workspaceId, terminalId))) return false;
+  } finally {
+    closingTerminals.delete(terminalId);
+  }
+  // Read again: the layout may have changed while we asked.
   const workspace = workspacesById.value.get(workspaceId);
-  if (!workspace) return;
+  if (!workspace || !isTerminalTab(workspace.layout, terminalId)) return false;
   const tabs = mainTabsOf(
     mainSessionsFor(workspaceId).map((s) => s.id),
     workspace.layout,
@@ -182,6 +195,7 @@ export async function closeTerminalTab(workspaceId: string, terminalId: string, 
   } else {
     void saveLayout(workspaceId, {}, layout);
   }
+  return true;
 }
 
 /** Rename a terminal tab (empty = back to "Terminal"). */

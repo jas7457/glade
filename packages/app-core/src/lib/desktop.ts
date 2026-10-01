@@ -29,6 +29,8 @@ export type MenuAction =
   | "command-palette"
   // Tab items (File → New Tab / Close Tab, Window → Show Next / Previous Tab).
   | "new-tab"
+  // File → New Terminal (⌃`, I-192; enabled while a chat is open, see `setChatMenuOpen`).
+  | "new-terminal"
   | "close-tab"
   | "next-tab"
   | "previous-tab"
@@ -52,6 +54,26 @@ export function onMenuAction(handler: (action: MenuAction) => void): () => void 
   return () => {
     disposed = true;
     unlisten?.();
+  };
+}
+
+let chatsOpen = 0;
+
+/**
+ * A chat is shown (I-192): enables the menu items that act on it (File → New Terminal) until the
+ * returned function is called. Counted, so overlapping mounts are fine. No-op outside the Mac app.
+ */
+export function setChatMenuOpen(): () => void {
+  const sync = (open: boolean) => {
+    if (!isDesktop()) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("menu_chat_open", { open })).catch(() => {});
+  };
+  if (chatsOpen++ === 0) sync(true);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    if (--chatsOpen === 0) sync(false);
   };
 }
 

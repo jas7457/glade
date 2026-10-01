@@ -13,7 +13,7 @@ import WebSocket from "ws";
 import { TERMINAL_MISSING_CLOSE_CODE, type PairingInvite, type PairResponse, type TerminalInfo, type TerminalServerMessage } from "@glade/protocol";
 import { createApp } from "../src/http/app.js";
 import { AuthService, CLOSE_REVOKED } from "../src/services/auth/auth-service.js";
-import { HIGH_WATER, TerminalService, type Pty, type PtySpawnOptions, type SpawnPty } from "../src/services/terminals.js";
+import { foregroundCommandLine, HIGH_WATER, isShellName, TerminalService, type Pty, type PtySpawnOptions, type SpawnPty } from "../src/services/terminals.js";
 import { createTestEnv, newChat, until, type TestEnv } from "./helpers.js";
 
 const cleanups: Array<() => unknown> = [];
@@ -28,6 +28,8 @@ class FakePty implements Pty {
   sizes: Array<[number, number]> = [];
   killed: string[] = [];
   paused = false;
+  /** node-pty's foreground process name. */
+  process = "zsh";
   private dataListeners = new Set<(d: string) => void>();
   private exitListeners = new Set<(e: { exitCode: number; signal?: number }) => void>();
   constructor(
@@ -204,6 +206,37 @@ describe("TerminalService", () => {
     expect(service.list("w1")).toEqual([]);
   });
 
+  it("tells what runs in the foreground (I-192): the command line, else node-pty's process name", async () => {
+    let command: string | null | undefined = undefined;
+    const { service, ptys } = make({ foregroundCommand: async () => command });
+    await service.start("w1", "t1", { cols: 80, rows: 24 });
+    const pty = ptys[0]!;
+    expect(await service.foreground("t1")).toBeNull(); // "zsh": at the prompt
+    pty.process = "node";
+    expect(await service.foreground("t1")).toBe("node");
+    command = "npm   run dev";
+    expect(await service.foreground("t1")).toBe("npm run dev");
+    expect(await service.listWithForeground("w1")).toMatchObject([{ id: "t1", foreground: "npm run dev" }]);
+    command = null; // ps: the shell's own group is in the foreground
+    expect(await service.foreground("t1")).toBeNull();
+    command = "x".repeat(300);
+    expect((await service.foreground("t1"))?.length).toBe(200);
+    command = "sleep 100";
+    pty.exit(0);
+    expect(await service.foreground("t1")).toBeNull(); // exited
+    expect(await service.foreground("nope")).toBeNull();
+  });
+
+  it("counts shells, tmux and screen as idle", () => {
+    expect(isShellName("zsh", "/bin/zsh")).toBe(true);
+    expect(isShellName("-zsh", "/bin/zsh")).toBe(true);
+    expect(isShellName("/bin/bash", "/bin/zsh")).toBe(true);
+    expect(isShellName("/opt/homebrew/bin/tmux", "")).toBe(true);
+    expect(isShellName("myshell", "/usr/local/bin/myshell")).toBe(true);
+    expect(isShellName("node", "/bin/zsh")).toBe(false);
+    expect(isShellName("vim", "/bin/zsh")).toBe(false);
+  });
+
   it("pauses the shell while a client is far behind", async () => {
     let buffered = 0;
     const { service, ptys } = make();
@@ -224,7 +257,13 @@ describe("terminal routes", () => {
   async function setup() {
     const env: TestEnv = createTestEnv();
     const f = fakeSpawner();
-    const terminals = new TerminalService({ cwdOf: (id) => env.store.getWorkspace(id)?.cwd ?? null, spawn: f.spawn, shell: "/bin/zsh", flushMs: 1 });
+    const terminals = new TerminalService({
+      cwdOf: (id) => env.store.getWorkspace(id)?.cwd ?? null,
+      spawn: f.spawn,
+      shell: "/bin/zsh",
+      flushMs: 1,
+      foregroundCommand: async () => undefined,
+    });
     const auth = new AuthService({
       db: env.store.db,
       environmentId: env.service.environment.id,
@@ -298,7 +337,10 @@ describe("terminal routes", () => {
     expect(res.status).toBe(200);
     const info = (await res.json()) as TerminalInfo;
     expect(info).toMatchObject({ id: "tab1", workspaceId: wid, cols: 90, rows: 20 });
-    expect(((await (await t.call("GET", `/api/workspaces/${wid}/terminals`)).json()) as TerminalInfo[]).map((i) => i.id)).toEqual(["tab1"]);
+    const list = async () => (await (await t.call("GET", `/api/workspaces/${wid}/terminals`)).json()) as TerminalInfo[];
+    expect(await list()).toMatchObject([{ id: "tab1", foreground: null }]);
+    t.ptys[0]!.process = "sleep"; // I-192: the tab asks before closing a busy shell
+    expect(await list()).toMatchObject([{ id: "tab1", foreground: "sleep" }]);
     t.ptys[0]!.emit("hello\r\n");
 
     const s = connect(`ws://127.0.0.1:${t.port}/ws/terminal/tab1`, "http://127.0.0.1:5317");
@@ -375,5 +417,24 @@ describe("node-pty (real shell)", () => {
     await until(() => r.messages.some((m) => m.type === "exit"), 5000);
     expect(r.messages.find((m) => m.type === "exit")).toMatchObject({ exit: { code: 7 } });
     expect(info.pid).toBeGreaterThan(0);
+  });
+
+  it.skipIf(process.platform === "win32")("knows what the shell runs in the foreground (ps)", async () => {
+    const eventually = async (check: () => Promise<boolean>) => {
+      for (const start = Date.now(); !(await check()); await new Promise((r) => setTimeout(r, 50))) {
+        if (Date.now() - start > 5000) throw new Error("condition not met in time");
+      }
+    };
+    const service = new TerminalService({ cwdOf: () => tmpdir(), shell: "/bin/sh", flushMs: 1 });
+    cleanups.push(() => service.dispose());
+    const info = await service.start("w", "fg", { cols: 80, rows: 24 });
+    const att = service.attach("fg", recorder().client)!;
+    att.input("echo ready\r");
+    await eventually(async () => (await foregroundCommandLine(info.pid)) === null);
+    expect(await service.foreground("fg")).toBeNull();
+    att.input("sleep 30\r");
+    await eventually(async () => (await service.foreground("fg")) === "sleep 30");
+    att.input("\x03");
+    await eventually(async () => (await service.foreground("fg")) === null);
   });
 });

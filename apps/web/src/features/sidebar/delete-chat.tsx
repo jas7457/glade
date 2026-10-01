@@ -12,6 +12,8 @@ import type { WorkspaceSummary, WorkspaceWorktree, WorktreeRemoval, WorktreeStat
 import { apiForWorkspace } from "@glade/app-core/state/env-api";
 import { Button, Dialog, SegmentedControl, Spinner, confirm, shortenSubject } from "@glade/app-core/ui";
 import { deleteWorkspace } from "@glade/app-core/state/actions";
+import { busyTerminalPrograms, terminatingNote } from "@/features/terminal/close-confirm";
+import { terminalsOf } from "@/features/workspace/layout";
 
 export interface DeleteChatOptions {
   /** Text after the quoted title (default "will be permanently deleted. This can't be undone."). */
@@ -30,9 +32,14 @@ interface Pending {
 
 const pending = signal<Pending | null>(null);
 
-/** Ask, then delete the chat. Resolves `true` once it's deleted. */
+/**
+ * Ask, then delete the chat. Resolves `true` once it's deleted. The dialog also names programs
+ * its terminal tabs are running, which deleting terminates (I-192).
+ */
 export async function confirmDeleteChat(chat: WorkspaceSummary, options: DeleteChatOptions = {}): Promise<boolean> {
   const { worktree } = chat;
+  const programs = terminalsOf(chat.layout).length ? await busyTerminalPrograms(chat.id) : [];
+  if (programs.length) options = { ...options, message: `${options.message ?? DEFAULT_MESSAGE} ${terminatingNote(programs)}` };
   if (!worktree) {
     const ok = await confirm({
       title: "Delete chat?",

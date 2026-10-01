@@ -25,7 +25,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Check, ChevronDown, CircleSlash, Mail, MailOpen, Maximize2, MessageSquarePlus, Minimize2, PanelRightClose, Pencil, Plus, Sparkles, SquareTerminal, Trash2, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
-import { paneShortcutFor, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, terminalShortcutFor, useTabShortcuts } from "@/app/shortcuts";
+import { paneShortcutFor, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, terminalShortcutFor, useNewTerminalMenu, useTabShortcuts } from "@/app/shortcuts";
 import { markSessionRead, markSessionUnread, renameFromSession } from "@glade/app-core/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@glade/app-core/state/store";
 import { Button, IconButton, Menu, MenuItem, MenuSeparator, SplitView, TabStrip, Tooltip, formatShortcut, type TabStripTab } from "@glade/app-core/ui";
@@ -158,10 +158,11 @@ export function WorkspaceView({ workspaceId, sessionId, terminalId = null }: Wor
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // ⌃` opens a terminal tab (I-187).
+  // ⌃` opens a terminal tab (I-187); in the Mac app File → New Terminal (I-192).
   const newTerminal = () => void openTerminalTab(workspaceId, navigate);
   const newTerminalRef = useRef(newTerminal);
   newTerminalRef.current = newTerminal;
+  useNewTerminalMenu(newTerminal);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || terminalShortcutFor(e) !== "new-terminal") return;

@@ -1,7 +1,7 @@
 /**
  * Terminal tabs in the workspace (I-187), with a mocked terminal widget, server calls and socket:
  * the tab kind in the main strip, ⌃` / the New Tab menu, switching, closing (SIGHUP via the API),
- * the output view and "Session ended".
+ * the output view and "Session ended"; I-192: closing a busy shell asks first.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
@@ -31,6 +31,7 @@ vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: v
 vi.mock("@/features/terminal/terminal-api", () => ({
   startTerminal: vi.fn(async (workspaceId: string, id: string) => ({ id, workspaceId, cwd: "/repo", shell: "/bin/zsh", pid: 1, cols: 80, rows: 24, startedAt: 1, exit: null })),
   closeTerminal: vi.fn(async () => undefined),
+  listTerminals: vi.fn(async () => []),
   terminalSocketUrl: vi.fn(async (_w: string, id: string) => `ws://host/ws/terminal/${id}`),
   newTerminalId: vi.fn(() => "term-new"),
 }));
@@ -166,6 +167,35 @@ describe("terminal tabs", () => {
     expect(terminalApi.closeTerminal).toHaveBeenCalledWith("w", "t1");
     expect(mainTabs().map((t) => t.textContent)).toEqual(["Fix login", "Tab 2"]);
     expect(workspacesById.value.get("w")!.layout).toMatchObject({ terminals: [], mainOrder: ["m1", "m2"], activeMainSessionId: "m2", activeTerminalId: null });
+  });
+
+  it("closing a terminal running a program asks first (I-192); Cancel keeps it, Terminate closes it", async () => {
+    const info = { id: "t1", workspaceId: "w", cwd: "/repo", shell: "/bin/zsh", pid: 1, cols: 80, rows: 24, startedAt: 1, exit: null };
+    vi.mocked(terminalApi.listTerminals).mockResolvedValue([{ ...info, foreground: "sleep 100" }]);
+    const router = renderAt("/projects/p/chats/w?tab=t1");
+    fireEvent.click(within(mainTabs()[1]!).getByRole("button", { name: "Close Terminal" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("Terminate “sleep 100”?");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(terminalApi.closeTerminal).not.toHaveBeenCalled();
+    expect(mainTabs()).toHaveLength(3);
+
+    // ⌘W asks too; Terminate closes it.
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+    const again = await screen.findByRole("alertdialog");
+    await userEvent.click(within(again).getByRole("button", { name: "Terminate" }));
+    await waitFor(() => expect(router.state.location.search).toBe("?tab=m2"));
+    expect(terminalApi.closeTerminal).toHaveBeenCalledWith("w", "t1");
+    expect(mainTabs().map((t) => t.textContent)).toEqual(["Fix login", "Tab 2"]);
+  });
+
+  it("an idle shell closes without asking", async () => {
+    vi.mocked(terminalApi.listTerminals).mockResolvedValue([{ id: "t1", workspaceId: "w", cwd: "/repo", shell: "/bin/zsh", pid: 1, cols: 80, rows: 24, startedAt: 1, exit: null, foreground: null }]);
+    renderAt("/projects/p/chats/w?tab=t1");
+    fireEvent.click(within(mainTabs()[1]!).getByRole("button", { name: "Close Terminal" }));
+    await waitFor(() => expect(terminalApi.closeTerminal).toHaveBeenCalledWith("w", "t1"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("'Session ended' after a restart, with New Session", async () => {
