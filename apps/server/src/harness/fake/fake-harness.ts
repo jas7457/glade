@@ -18,6 +18,7 @@ import {
   type SlashCommand,
   type ThinkingLevel,
   type Transcript,
+  type UiRequest,
   type UiResponse,
 } from "@glade/protocol";
 import { writeFile } from "node:fs/promises";
@@ -355,6 +356,11 @@ export class FakeSession implements HarnessSession {
       void this.nativeCall(Math.max(1, Number(native[1] ?? 1)), native[2]!.trim());
       return;
     }
+    const ask = /^ask (select|confirm|input) ([\s\S]+)$/.exec(request.text.trim());
+    if (ask) {
+      void this.askCall(request.text, ask[1] as "select" | "confirm" | "input", ask[2]!.trim());
+      return;
+    }
     const stored = this.stored;
     stored.contextTokens = (stored.contextTokens ?? 4_000) + FAKE_TOKENS_PER_PROMPT;
     stored.totalTokens += FAKE_TOKENS_PER_PROMPT;
@@ -378,6 +384,38 @@ export class FakeSession implements HarnessSession {
       { type: "run_end" },
     ];
     void this.play(events).then(() => this.agentCommand(request.text));
+  }
+
+  /** Answers awaited by `ask …` prompts, by request id. */
+  private readonly asked = new Map<string, (response: UiResponse) => void>();
+
+  /**
+   * A question from the agent without a model (I-193; tests and `GLADE_HARNESS=fake` sandboxes):
+   * `ask select Which database? | PostgreSQL | SQLite`, `ask confirm Delete it?`, `ask input Name
+   * the branch`. The run waits for the answer and replies with it ("You picked: SQLite").
+   */
+  private async askCall(text: string, kind: "select" | "confirm" | "input", rest: string): Promise<void> {
+    const nextId = () => `${this.sessionRef}-${this.idCounter++}`;
+    const [title, ...options] = rest.split("|").map((p) => p.trim());
+    const id = `ask-${nextId()}`;
+    const ui: UiRequest =
+      kind === "select" ? { id, kind, title: title!, options } : kind === "confirm" ? { id, kind, title: title!, message: options[0] } : { id, kind, title: title! };
+    await this.play([
+      { type: "run_start" },
+      { type: "state", state: { isRunning: true } },
+      { type: "message_start", message: { id: nextId(), role: "user", content: [{ type: "text", text }], timestamp: Date.now() } },
+      { type: "ui_request", request: ui },
+    ]);
+    const response = await new Promise<UiResponse>((resolve) => this.asked.set(id, resolve));
+    const answer = "cancelled" in response ? "You didn't answer." : "confirmed" in response ? (response.confirmed ? "You said yes." : "You said no.") : `You picked: ${response.value}`;
+    const replyId = nextId();
+    const message = { id: replyId, role: "assistant" as const, content: [{ type: "text" as const, text: answer }], timestamp: Date.now() };
+    await this.play([
+      { type: "message_start", message: { ...message, streaming: true } },
+      { type: "message_end", message: { ...message, stopReason: "stop" } },
+      { type: "state", state: { isRunning: false, ...this.statsState() } },
+      { type: "run_end" },
+    ]);
   }
 
   /** Native sub-agents still running (`native …` prompts, I-188): stopped with the session. */
@@ -517,6 +555,7 @@ export class FakeSession implements HarnessSession {
   }
 
   async abort(): Promise<void> {
+    this.asked.clear();
     for (const agent of this.natives) this.events.native({ type: "native_subagent_end", id: agent, status: "stopped" });
     this.natives.clear();
     this.emit({ type: "state", state: { isRunning: false } });
@@ -621,6 +660,9 @@ export class FakeSession implements HarnessSession {
 
   respondToUi(response: UiResponse): void {
     this.uiResponses.push(response);
+    const answer = this.asked.get(response.id);
+    this.asked.delete(response.id);
+    answer?.(response);
   }
 
   onEvent(listener: (event: AgentEvent) => void): () => void {

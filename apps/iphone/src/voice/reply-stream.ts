@@ -201,6 +201,7 @@ function endsBlock(markdown: string): boolean {
 /** One text block's final sentences (and the rest as the tail). */
 function textPieces(markdown: string, ended: boolean, keyBase: string): { pieces: ReplyPiece[]; tail: ReplyPiece | null } {
   const s = toSpeakable(markdown);
+  for (const seg of s.segments) if (seg.src) seg.at = keyBase;
   const sentences = splitSentences(s.text);
   const pieces: ReplyPiece[] = [];
   let prevEnd = -1;

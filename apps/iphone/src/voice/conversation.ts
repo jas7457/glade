@@ -12,12 +12,12 @@
  * (the composer's `startRef`) and the conversation continues in it.
  */
 import { effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
-import type { Transcript, UiRequest } from "@glade/protocol";
+import type { Transcript, UiRequest, UiResponse } from "@glade/protocol";
 import { getChatSession, runAction } from "@glade/app-core/state/chat-session";
 import { apiForSession } from "@glade/app-core/state/env-api";
 import { harnessCapabilities, harnessLabel } from "@glade/app-core/state/harnesses";
 import { envIdOfSession, sessionsById } from "@glade/app-core/state/store";
-import { ANSWER_WORDS, permissionQuestion, type PermissionRequest } from "./answers";
+import { ANSWER_WORDS, isVoiceQuestion, questionText, type VoiceQuestion } from "./answers";
 import type { ListenEvent, SpeakEvent, VoiceEngine } from "./engine";
 import { initialVoiceState, step, type VoiceEffect, type VoiceEvent, type VoiceState } from "./machine";
 import { planTurn } from "./reply-stream";
@@ -25,9 +25,9 @@ import { planTurn } from "./reply-stream";
 export interface ChatSnapshot {
   isRunning: boolean;
   transcript: Transcript;
-  /** The first pending permission card, if any. */
-  permission: PermissionRequest | null;
-  /** Another kind of question is pending (select/input…): answered on screen. */
+  /** The first pending question when voice can answer it (permission, select, confirm, input). */
+  question: VoiceQuestion | null;
+  /** A question voice can't answer is pending (an editor): answered on screen. */
   otherRequest: boolean;
 }
 
@@ -36,7 +36,7 @@ export interface VoiceChat {
   watch(onChange: (s: ChatSnapshot) => void): () => void;
   /** Sends like the composer's Send (steers / queues while the agent works). */
   send(text: string): Promise<{ ok: true } | { ok: false; message: string }>;
-  respond(requestId: string, optionId: string): void;
+  respond(response: UiResponse): void;
   /** The agent's name for questions ("Claude Code wants to …"); null: "The agent". */
   agentName(): string | null;
   /** The chat's session id (null until New Chat's first message created it). */
@@ -46,8 +46,8 @@ export interface VoiceChat {
 export interface ConversationOptions {
   /** The "still working" cue's interval. */
   tickMs?: number;
-  /** Silence that ends an utterance. */
-  endSilenceMs?: number;
+  /** Silence that ends an utterance (read at every `listen`: Settings → Voice can change it). */
+  endSilenceMs?: number | (() => number);
   /** Voice and rate for speaking (read at every `speak`). */
   voice?: () => { voiceId?: string; rate?: number };
 }
@@ -127,14 +127,16 @@ export class Conversation {
     } else {
       this.dispatch({ type: "reply", plan: planTurn(s.transcript, !s.isRunning) });
     }
-    const asked = s.permission;
+    const asked = s.question;
     if (asked && asked.id !== this.askedId) {
+      const gone = this.askedId;
       this.askedId = asked.id;
-      this.dispatch({ type: "permission", request: asked, question: permissionQuestion(asked, this.bridge.agentName()) });
+      if (gone) this.dispatch({ type: "question-gone", requestId: gone });
+      this.dispatch({ type: "question", request: asked, question: questionText(asked, this.bridge.agentName()) });
     } else if (!asked && this.askedId) {
       const gone = this.askedId;
       this.askedId = null;
-      this.dispatch({ type: "permission-gone", requestId: gone });
+      this.dispatch({ type: "question-gone", requestId: gone });
     }
   }
 
@@ -146,7 +148,7 @@ export class Conversation {
         return;
       case "listen":
         engine
-          .startListening({ endSilenceMs: this.options.endSilenceMs, contextualStrings: ANSWER_WORDS }, (e) => this.dispatch(listenEvent(e)))
+          .startListening({ endSilenceMs: this.endSilenceMs(), contextualStrings: ANSWER_WORDS }, (e) => this.dispatch(listenEvent(e)))
           .catch((err: Error) => this.dispatch({ type: "listen-error", message: err.message || "Can't listen", recoverable: false }));
         return;
       case "stop-listening":
@@ -181,8 +183,8 @@ export class Conversation {
         });
         return;
       case "respond":
-        this.askedId = effect.requestId;
-        this.bridge.respond(effect.requestId, effect.optionId);
+        this.askedId = effect.response.id;
+        this.bridge.respond(effect.response);
         return;
       case "ticker":
         if (this.ticker) clearInterval(this.ticker);
@@ -192,6 +194,11 @@ export class Conversation {
         void engine.endSession().catch(() => {});
         return;
     }
+  }
+
+  private endSilenceMs(): number | undefined {
+    const ms = this.options.endSilenceMs;
+    return typeof ms === "function" ? ms() : ms;
   }
 
   private async boot(): Promise<void> {
@@ -234,12 +241,13 @@ function speakEvent(e: SpeakEvent): VoiceEvent {
 function snapshotOf(sessionId: string): ChatSnapshot {
   const store = getChatSession(sessionId);
   const requests: UiRequest[] = store.uiRequests.value;
-  const permission = (requests.find((r) => r.kind === "permission") as PermissionRequest | undefined) ?? null;
+  // Permission cards first (the agent is blocked on them), then the other questions in order.
+  const question = requests.find((r) => r.kind === "permission") ?? requests.find(isVoiceQuestion) ?? null;
   return {
     isRunning: store.state.value.isRunning,
     transcript: store.transcript.value,
-    permission,
-    otherRequest: requests.some((r) => r.kind !== "permission"),
+    question: question && isVoiceQuestion(question) ? question : null,
+    otherRequest: requests.some((r) => !isVoiceQuestion(r)),
   };
 }
 
@@ -267,10 +275,10 @@ async function sendToSession(sessionId: string, text: string): Promise<{ ok: tru
   return ok ? { ok: true } : { ok: false, message };
 }
 
-function respondIn(sessionId: string, requestId: string, optionId: string): void {
+function respondIn(sessionId: string, response: UiResponse): void {
   const store = getChatSession(sessionId);
-  store.uiRequests.value = store.uiRequests.value.filter((r) => r.id !== requestId);
-  void runAction(() => apiForSession(sessionId).respondToUi(sessionId, { id: requestId, value: optionId }), "Could not send answer");
+  store.uiRequests.value = store.uiRequests.value.filter((r) => r.id !== response.id);
+  void runAction(() => apiForSession(sessionId).respondToUi(sessionId, response), "Could not send answer");
 }
 
 function agentNameOf(sessionId: string): string | null {
@@ -284,7 +292,7 @@ export function chatVoiceBridge(sessionId: string): VoiceChat {
   return {
     watch: (onChange) => watchSession(sessionId, onChange),
     send: (text) => sendToSession(sessionId, text),
-    respond: (requestId, optionId) => respondIn(sessionId, requestId, optionId),
+    respond: (response) => respondIn(sessionId, response),
     agentName: () => agentNameOf(sessionId),
     sessionId: () => sessionId,
   };
@@ -298,7 +306,7 @@ export function newChatVoiceBridge(start: (text: string) => Promise<string | nul
   let sessionId: string | null = null;
   let listener: ((s: ChatSnapshot) => void) | null = null;
   let unwatch: (() => void) | null = null;
-  const empty: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, permission: null, otherRequest: false };
+  const empty: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, question: null, otherRequest: false };
   return {
     watch(onChange) {
       listener = onChange;
@@ -317,7 +325,7 @@ export function newChatVoiceBridge(start: (text: string) => Promise<string | nul
       if (listener) unwatch = watchSession(id, listener);
       return { ok: true };
     },
-    respond: (requestId, optionId) => sessionId && respondIn(sessionId, requestId, optionId),
+    respond: (response) => sessionId && respondIn(sessionId, response),
     agentName: () => (sessionId ? agentNameOf(sessionId) : null),
     sessionId: () => sessionId,
   };

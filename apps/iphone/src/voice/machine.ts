@@ -18,19 +18,21 @@
  * (barge-in, `speech-start`) and listens; talking while the agent works sends the words like the
  * composer's Send (steer, or queued where the agent can't steer). A permission card is read out
  * ("… Allow?") and answered by voice (answers.ts); "no" picks the rejection and asks what to do
- * instead, and the next utterance is sent. An unclear answer is asked again once, then the
- * question stays on screen (with buttons).
+ * instead, and the next utterance is sent. The agent's other questions (I-193: pick one of
+ * several, yes/no, type an answer) are read out and answered the same way. An unclear answer is
+ * asked again once, then the question stays on screen (with buttons).
  */
+import type { UiResponse } from "@glade/protocol";
 import type { CueName } from "./engine";
-import type { PermissionRequest } from "./answers";
-import { matchPermissionAnswer, permissionRetryQuestion } from "./answers";
+import type { VoiceQuestion } from "./answers";
+import { matchAnswer, retryText } from "./answers";
 import { appendSpeakable, newPieces, sliceSpeakable, type ReplyPiece, type TurnPlan } from "./reply-stream";
 import { plainSpeakable, type Speakable } from "./speakable";
 
 export type AskStep =
   /** Reading the question. */
   | "question"
-  /** Waiting for yes / yes always / no. */
+  /** Waiting for the answer (yes / yes always / no, an option, the text). */
   | "answer"
   /** Rejected: waiting for what to do instead (sent as the next message). */
   | "instead"
@@ -46,7 +48,7 @@ export type Phase =
   | { name: "working" }
   /** Reading the reply (`state.reading`). */
   | { name: "speaking" }
-  | { name: "asking"; request: PermissionRequest; step: AskStep; retried: boolean; speech: Speakable | null; word: [number, number] | null }
+  | { name: "asking"; request: VoiceQuestion; step: AskStep; retried: boolean; speech: Speakable | null; word: [number, number] | null }
   | { name: "error"; message: string; retry: "send" | "listen" | "start"; text?: string }
   | { name: "closed" };
 
@@ -106,8 +108,9 @@ export type VoiceEvent =
    * (the reply that was already there when voice mode opened).
    */
   | { type: "reply"; plan: TurnPlan; silent?: boolean }
-  | { type: "permission"; request: PermissionRequest; question: string }
-  | { type: "permission-gone"; requestId: string }
+  /** The agent asks something (a permission card or another question), `question` said aloud. */
+  | { type: "question"; request: VoiceQuestion; question: string }
+  | { type: "question-gone"; requestId: string }
   | { type: "word"; start: number; end: number }
   | { type: "speak-done" }
   | { type: "speak-cancelled" }
@@ -116,7 +119,7 @@ export type VoiceEvent =
   | { type: "mute"; muted: boolean }
   | { type: "stop-speaking" }
   /** An answer button on screen. */
-  | { type: "answer"; optionId: string }
+  | { type: "answer"; response: UiResponse }
   | { type: "retry" }
   | { type: "close" };
 
@@ -132,7 +135,7 @@ export type VoiceEffect =
   | { type: "stop-speaking" }
   | { type: "cue"; cue: CueName }
   | { type: "send"; text: string }
-  | { type: "respond"; requestId: string; optionId: string }
+  | { type: "respond"; response: UiResponse }
   /** Start or stop the "still working" ticker (a `tick` event every few seconds). */
   | { type: "ticker"; on: boolean }
   | { type: "end-session" };
@@ -275,10 +278,10 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       if (!text) return { state: pump({ ...state, partial: "" }, effects), effects };
       if (isSpeaking(phase)) effects.push({ type: "stop-speaking" });
       if (phase.name === "asking" && phase.step !== "instead") {
-        const option = matchPermissionAnswer(text, phase.request.options);
-        if (option) return answered(state, phase, option.id, text, effects);
+        const response = matchAnswer(phase.request, text);
+        if (response) return answered(state, phase, response, text, effects);
         if (!phase.retried) {
-          const speech = plainSpeakable(permissionRetryQuestion(phase.request.options));
+          const speech = plainSpeakable(retryText(phase.request));
           effects.push({ type: "speak", speech });
           return done({ partial: "", heard: text, phase: { ...phase, step: "question", retried: true, speech, word: null } });
         }
@@ -327,14 +330,14 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
       return done({ running: false, phase: rest(next, effects) });
     }
 
-    case "permission": {
+    case "question": {
       if (isSpeaking(phase)) effects.push({ type: "stop-speaking" });
       const speech = plainSpeakable(event.question);
       effects.push({ type: "ticker", on: false }, { type: "speak", speech });
       return done({ partial: "", reading: skipQueued(state.reading), phase: { name: "asking", request: event.request, step: "question", retried: false, speech, word: null } });
     }
 
-    case "permission-gone":
+    case "question-gone":
       if (phase.name !== "asking" || phase.request.id !== event.requestId || phase.step === "instead") return { state, effects };
       if (phase.speech) effects.push({ type: "stop-speaking" });
       return done({ phase: rest(state, effects) });
@@ -386,7 +389,7 @@ export function step(state: VoiceState, event: VoiceEvent): StepResult {
     case "answer":
       if (phase.name !== "asking" || phase.step === "instead") return { state, effects };
       if (phase.speech) effects.push({ type: "stop-speaking" });
-      return answered(state, phase, event.optionId, state.heard, effects);
+      return answered(state, phase, event.response, state.heard, effects);
 
     case "retry":
       if (phase.name !== "error") return { state, effects };
@@ -414,9 +417,10 @@ function finishQuestion(state: VoiceState, effects: VoiceEffect[]): StepResult {
   return { state, effects };
 }
 
-function answered(state: VoiceState, phase: Phase & { name: "asking" }, optionId: string, heard: string, effects: VoiceEffect[]): StepResult {
-  const option = phase.request.options.find((o) => o.id === optionId);
-  effects.push({ type: "respond", requestId: phase.request.id, optionId });
+function answered(state: VoiceState, phase: Phase & { name: "asking" }, response: UiResponse, heard: string, effects: VoiceEffect[]): StepResult {
+  const request = phase.request;
+  const option = request.kind === "permission" && "value" in response ? request.options.find((o) => o.id === response.value) : undefined;
+  effects.push({ type: "respond", response });
   if (option?.kind.startsWith("reject") && option.focusComposer) {
     // "No, and tell … what to do differently": the next utterance is the new instruction.
     const speech = plainSpeakable(INSTEAD_QUESTION);

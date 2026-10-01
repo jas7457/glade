@@ -4,7 +4,7 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import type { VoiceInfo } from "./engine";
 import { setVoiceEngine } from "./engine-provider";
 import { createFakeVoiceEngine, type FakeVoiceEngine } from "./fake-engine";
-import { bestVoice, groupVoices, reloadVoiceSettings, resolveVoice, setSpeakingRate, setVoiceChoice, speakingRate, voiceChoice } from "./settings";
+import { bestVoice, DEFAULT_PAUSE_MS, groupVoices, pauseBeforeSending, reloadVoiceSettings, resolveVoice, setPauseBeforeSending, setSpeakingRate, setVoiceChoice, speakingRate, voiceChoice } from "./settings";
 import { PREVIEW_TEXT, VoiceSettingsScreen } from "./VoiceSettingsScreen";
 
 const v = (id: string, language: string, quality: VoiceInfo["quality"], extra: Partial<VoiceInfo> = {}): VoiceInfo => ({ id, name: id, language, quality, ...extra });
@@ -42,6 +42,23 @@ describe("voice choice", () => {
     expect(speakingRate.value).toBe(1.5);
     setSpeakingRate(9);
     expect(speakingRate.value).toBe(2);
+  });
+
+  it("the pause before sending (I-193): 1.6 s by default, 0.8 … 3 s in steps, stored", () => {
+    localStorage.clear();
+    reloadVoiceSettings();
+    expect(pauseBeforeSending.value).toBe(DEFAULT_PAUSE_MS);
+    expect(DEFAULT_PAUSE_MS).toBe(1600);
+    setPauseBeforeSending(2390);
+    expect(pauseBeforeSending.value).toBe(2400);
+    setPauseBeforeSending(100);
+    expect(pauseBeforeSending.value).toBe(800);
+    setPauseBeforeSending(9000);
+    reloadVoiceSettings();
+    expect(pauseBeforeSending.value).toBe(3000);
+    localStorage.setItem("glade.iphone.voice", JSON.stringify({ pauseMs: "x" }));
+    reloadVoiceSettings();
+    expect(pauseBeforeSending.value).toBe(1600);
   });
 });
 
@@ -87,5 +104,14 @@ describe("Settings → Voice", () => {
     fireEvent.click(screen.getByRole("button", { name: /Stop Preview/ }));
     await act(async () => {});
     expect(engine.speaking).toBeNull();
+  });
+
+  it("Pause Before Sending: a slider with the value and an explanation", async () => {
+    await renderScreen();
+    expect(screen.getByTestId("pause-value").textContent).toBe("1.6 seconds");
+    expect(screen.getByText(/How long you can pause before what you said is sent/)).toBeTruthy();
+    fireEvent.input(screen.getByLabelText("Pause before sending"), { target: { value: "2200" } });
+    expect(pauseBeforeSending.value).toBe(2200);
+    expect(screen.getByTestId("pause-value").textContent).toBe("2.2 seconds");
   });
 });

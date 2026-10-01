@@ -1,7 +1,7 @@
 /**
  * Settings → Voice (I-180): the voice replies are read with (installed Apple voices grouped by
  * quality; Automatic = the best installed English one, Premium > Enhanced > default), a Preview,
- * and the speaking rate. Stored on the phone (voice/settings.ts).
+ * the speaking rate and the pause before what you said is sent (I-193). Stored on the phone (voice/settings.ts).
  */
 import { ChevronLeft, Play, Square } from "lucide-preact";
 import { useEffect, useState } from "preact/hooks";
@@ -11,7 +11,23 @@ import { ListGroup, NavBar, NavIconButton, PhoneButton, Screen, ScreenBody } fro
 import { CheckRow } from "~/ui/phone-extra";
 import type { VoiceInfo, VoiceQuality } from "./engine";
 import { voiceEngine } from "./engine-provider";
-import { bestVoice, groupVoices, MAX_RATE, MIN_RATE, resolveVoice, setSpeakingRate, setVoiceChoice, speakingRate, voiceChoice } from "./settings";
+import {
+  bestVoice,
+  DEFAULT_PAUSE_MS,
+  groupVoices,
+  MAX_PAUSE_MS,
+  MAX_RATE,
+  MIN_PAUSE_MS,
+  MIN_RATE,
+  PAUSE_STEP_MS,
+  pauseBeforeSending,
+  resolveVoice,
+  setPauseBeforeSending,
+  setSpeakingRate,
+  setVoiceChoice,
+  speakingRate,
+  voiceChoice,
+} from "./settings";
 
 const QUALITY: Record<VoiceQuality, string> = { premium: "Premium", enhanced: "Enhanced", default: "Standard" };
 
@@ -95,6 +111,34 @@ export function VoiceSettingsScreen() {
           </PhoneButton>
         </div>
 
+        <ListGroup
+          header="Pause Before Sending"
+          footer="How long you can pause before what you said is sent. Make it longer if your messages get cut off while you think; shorter for quicker replies."
+        >
+          <div class="flex items-center gap-3 px-4 py-3">
+            <span class="text-[13px] text-fg-muted">Shorter</span>
+            <input
+              type="range"
+              aria-label="Pause before sending"
+              min={MIN_PAUSE_MS}
+              max={MAX_PAUSE_MS}
+              step={PAUSE_STEP_MS}
+              value={pauseBeforeSending.value}
+              onInput={(e) => setPauseBeforeSending(Number((e.currentTarget as HTMLInputElement).value))}
+              class="min-w-0 flex-1 accent-[var(--color-accent)]"
+            />
+            <span class="text-[13px] text-fg-muted">Longer</span>
+          </div>
+          <div class="flex items-center justify-between px-4 py-1.5">
+            <span class="text-[15px] text-fg-muted" data-testid="pause-value">
+              {seconds(pauseBeforeSending.value)}
+            </span>
+            <PhoneButton kind="plain" block={false} onClick={() => setPauseBeforeSending(DEFAULT_PAUSE_MS)}>
+              Reset
+            </PhoneButton>
+          </div>
+        </ListGroup>
+
         <ListGroup header="Voice" footer="Download better voices in iOS Settings → Accessibility → Spoken Content → Voices. Enhanced and Premium voices sound much more natural.">
           <CheckRow title="Automatic" subtitle={best ? `The best installed voice: ${best.name} (${QUALITY[best.quality]})` : "The best installed voice"} checked={!choice || !current || current.id !== choice} onClick={() => pick(null)} />
         </ListGroup>
@@ -110,6 +154,12 @@ export function VoiceSettingsScreen() {
       </ScreenBody>
     </Screen>
   );
+}
+
+/** 1600 → "1.6 seconds". */
+export function seconds(ms: number): string {
+  const s = (ms / 1000).toFixed(1).replace(/\.0$/, "");
+  return `${s} ${s === "1" ? "second" : "seconds"}`;
 }
 
 function languageName(tag: string): string {

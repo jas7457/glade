@@ -16,9 +16,9 @@ const options: PermissionOption[] = [
 /** A scriptable chat. */
 function fakeChat() {
   let listener: ((s: ChatSnapshot) => void) | null = null;
-  let snap: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, permission: null, otherRequest: false };
+  let snap: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, question: null, otherRequest: false };
   const sent: string[] = [];
-  const responses: Array<[string, string]> = [];
+  const responses: Array<[string, string | boolean]> = [];
   let sendResult: { ok: true } | { ok: false; message: string } = { ok: true };
   const chat: VoiceChat = {
     watch(onChange) {
@@ -30,9 +30,9 @@ function fakeChat() {
       sent.push(text);
       return sendResult;
     },
-    respond: (requestId, optionId) => {
-      responses.push([requestId, optionId]);
-      update({ permission: null });
+    respond: (response) => {
+      responses.push([response.id, "value" in response ? response.value : "confirmed" in response ? response.confirmed : "cancelled"]);
+      update({ question: null });
     },
     agentName: () => "Claude Code",
     sessionId: () => "s1",
@@ -130,7 +130,7 @@ describe("Conversation", () => {
     const c = new Conversation(engine, chat);
     c.start();
     await flush();
-    update({ isRunning: true, permission: { id: "q1", kind: "permission", title: "Allow Bash?", message: "rm -rf build", options } });
+    update({ isRunning: true, question: { id: "q1", kind: "permission", title: "Allow Bash?", message: "rm -rf build", options } });
     expect(engine.speaking).toBe("Claude Code wants to use Bash: rm -rf build. Allow?");
     engine.finishSpeaking();
     await engine.hear("no");
@@ -142,6 +142,33 @@ describe("Conversation", () => {
     await engine.hear("delete only the cache");
     await flush();
     expect(sent).toEqual(["delete only the cache"]);
+  });
+
+  it("a select question (I-193): read with its options, answered by name", async () => {
+    const { chat, responses, update } = fakeChat();
+    const c = new Conversation(engine, chat);
+    c.start();
+    await flush();
+    update({ isRunning: true, question: { id: "s1", kind: "select", title: "Which database?", options: ["PostgreSQL", "SQLite"] } });
+    expect(engine.speaking).toBe("Which database? The options are PostgreSQL or SQLite.");
+    engine.finishSpeaking();
+    await engine.hear("let's use sqlite");
+    expect(responses).toEqual([["s1", "SQLite"]]);
+    expect(c.state.value.phase.name).toBe("working");
+  });
+
+  it("uses the pause setting when it listens (I-193)", async () => {
+    const { chat } = fakeChat();
+    let pause = 1600;
+    const listen = vi.spyOn(engine, "startListening");
+    const c = new Conversation(engine, chat, { endSilenceMs: () => pause });
+    c.start();
+    await flush();
+    expect(listen.mock.calls[0]![0]).toMatchObject({ endSilenceMs: 1600 });
+    pause = 2400;
+    c.dispatch({ type: "mute", muted: true });
+    c.dispatch({ type: "mute", muted: false });
+    expect(listen.mock.calls.at(-1)![0]).toMatchObject({ endSilenceMs: 2400 });
   });
 
   it("send failure → error, Retry sends again", async () => {
@@ -280,8 +307,14 @@ describe("chat bridges", () => {
     const stop = bridge.watch((s) => seen.push(s));
     store.state.value = { ...store.state.value, isRunning: true };
     store.uiRequests.value = [{ id: "q", kind: "permission", title: "Allow?", options }];
-    expect(seen.at(-1)).toMatchObject({ isRunning: true, permission: { id: "q" }, otherRequest: false });
-    bridge.respond("q", "allow");
+    expect(seen.at(-1)).toMatchObject({ isRunning: true, question: { id: "q" }, otherRequest: false });
+    // Permission cards come first; an editor can't be answered by voice.
+    store.uiRequests.value = [{ id: "e", kind: "editor", title: "Edit" }, { id: "s", kind: "select", title: "Pick", options: ["a"] }, { id: "q", kind: "permission", title: "Allow?", options }];
+    expect(seen.at(-1)).toMatchObject({ question: { id: "q" }, otherRequest: true });
+    store.uiRequests.value = [{ id: "e", kind: "editor", title: "Edit" }, { id: "s", kind: "select", title: "Pick", options: ["a"] }];
+    expect(seen.at(-1)).toMatchObject({ question: { id: "s" }, otherRequest: true });
+    store.uiRequests.value = [{ id: "q", kind: "permission", title: "Allow?", options }];
+    bridge.respond({ id: "q", value: "allow" });
     expect(store.uiRequests.value).toEqual([]);
     expect(api.respondToUi).toHaveBeenCalledWith("s1", { id: "q", value: "allow" });
     expect(await bridge.send("more")).toEqual({ ok: true });

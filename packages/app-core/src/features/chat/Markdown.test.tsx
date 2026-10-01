@@ -30,6 +30,33 @@ describe("Markdown", () => {
   });
 });
 
+describe("Markdown highlight (I-193: the word being read aloud)", () => {
+  const md = "# Plan\n\nRun **the tests** with `pnpm test`, then [read the docs](https://example.com).\n\nLast line here.";
+  const marks = (c: Element) => [...c.querySelectorAll("mark[data-reading]")].map((m) => m.textContent);
+  const at = (word: string, from = 0): [number, number] => [md.indexOf(word, from), md.indexOf(word, from) + word.length];
+
+  it("wraps the range in a mark, inside emphasis and links, and moves with it", async () => {
+    const { container, rerender } = render(<Markdown text={md} highlight={at("tests")} />);
+    await waitFor(() => expect(marks(container)).toEqual(["tests"]));
+    expect(container.querySelector("[data-streamdown=strong] mark")).not.toBeNull();
+    rerender(<Markdown text={md} highlight={at("docs")} />);
+    await waitFor(() => expect(marks(container)).toEqual(["docs"]));
+    expect(container.querySelector("a mark")).not.toBeNull();
+    rerender(<Markdown text={md} highlight={at("line")} />);
+    await waitFor(() => expect(marks(container)).toEqual(["line"]));
+    expect(container.textContent).toContain("Run the tests with");
+    rerender(<Markdown text={md} highlight={at("Plan")} />);
+    await waitFor(() => expect(marks(container)).toEqual(["Plan"]));
+    rerender(<Markdown text={md} highlight={null} />);
+    await waitFor(() => expect(marks(container)).toEqual([]));
+  });
+
+  it("marks inline code as a whole", async () => {
+    const { container } = render(<Markdown text={md} highlight={at("pnpm")} />);
+    await waitFor(() => expect(marks(container)).toEqual(["pnpm test"]));
+  });
+});
+
 describe("fenced", () => {
   it("uses a fence longer than any backtick run in the source", () => {
     expect(fenced("a ``` b", "md")).toBe("````md\na ``` b\n````");
