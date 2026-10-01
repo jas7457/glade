@@ -2,7 +2,8 @@
  * Conversation mode's full-screen view (I-180), over the chat like ChatGPT's voice mode: a large
  * animated orb for listening / thinking / speaking, what you're saying (live), the reply growing as
  * it streams and is read (I-183) with the current word highlighted, and the controls: mute the mic,
- * stop speaking, close (back to the chat, where everything is in the transcript). A permission question shows its
+ * stop speaking, close (back to the chat, where everything is in the transcript). The chevron
+ * minimizes it instead (I-193): the conversation goes on over the chat. A question shows its
  * answers as big buttons too. When speech isn't possible, a sheet says how to allow it.
  *
  * With the fake engine (browser / simulator until the native one lands) a small "Say…" field
@@ -10,9 +11,10 @@
  */
 import { ChevronDown, Mic, MicOff, Square, X } from "lucide-preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { PermissionOption } from "@glade/protocol";
+import type { UiResponse } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { PhoneButton, Sheet } from "~/ui/phone";
+import { questionLabel, type VoiceQuestion } from "./answers";
 import type { Conversation } from "./conversation";
 import type { VoiceEngine } from "./engine";
 import { isFakeVoiceEngine } from "./fake-engine";
@@ -26,6 +28,8 @@ export interface VoiceViewProps {
   engine: VoiceEngine;
   title?: string;
   onClose: () => void;
+  /** Steps aside, the conversation goes on (I-193); without it the chevron closes too. */
+  onMinimize?: () => void;
 }
 
 type Look = "listening" | "thinking" | "speaking" | "muted" | "error" | "idle";
@@ -39,7 +43,7 @@ function lookOf(state: VoiceState): Look {
   return state.muted ? "muted" : "listening";
 }
 
-function statusText(state: VoiceState): string {
+export function statusText(state: VoiceState): string {
   const p = state.phase;
   switch (p.name) {
     case "starting":
@@ -55,7 +59,7 @@ function statusText(state: VoiceState): string {
     case "speaking":
       return "Speaking";
     case "asking":
-      return p.step === "instead" ? (p.speech ? "Asking" : "What should it do instead?") : "Permission needed";
+      return p.step === "instead" ? (p.speech ? "Asking" : "What should it do instead?") : questionLabel(p.request);
     case "error":
       return "Something went wrong";
     case "closed":
@@ -63,7 +67,7 @@ function statusText(state: VoiceState): string {
   }
 }
 
-export function VoiceView({ conversation, engine, title, onClose }: VoiceViewProps) {
+export function VoiceView({ conversation, engine, title, onClose, onMinimize }: VoiceViewProps) {
   const state = conversation.state.value;
   const chat = conversation.chat.value;
   const p = state.phase;
@@ -87,7 +91,7 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
       class="fixed inset-0 z-40 flex flex-col bg-window text-fg animate-[phone-fade_160ms_ease-out]"
     >
       <header class="flex shrink-0 items-center justify-between px-2 pt-[env(safe-area-inset-top)]">
-        <button type="button" aria-label="Back to chat" onClick={onClose} class="flex size-11 items-center justify-center rounded-full text-accent active:opacity-50">
+        <button type="button" aria-label="Back to chat" onClick={onMinimize ?? onClose} class="flex size-11 items-center justify-center rounded-full text-accent active:opacity-50">
           <ChevronDown size={26} />
         </button>
         <div class="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-fg-strong">{title ?? "Voice"}</div>
@@ -114,8 +118,10 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
 
           {p.name === "asking" && speech && <SpokenText speech={speech} word={word} class="text-[22px] font-medium" />}
           {question && !speech && <p class="text-[20px] leading-snug text-fg-strong">{question.title}</p>}
-          {question && question.message && <p class="mt-2 font-mono text-[14px] break-words whitespace-pre-wrap text-fg-muted">{question.message}</p>}
-          {question && <AnswerButtons options={question.options} onAnswer={(id) => conversation.dispatch({ type: "answer", optionId: id })} />}
+          {question && (question.kind === "permission" || question.kind === "confirm") && question.message && (
+            <p class={cn("mt-2 text-[14px] break-words whitespace-pre-wrap text-fg-muted", question.kind === "permission" && "font-mono")}>{question.message}</p>
+          )}
+          {question && <AnswerButtons question={question} onAnswer={(response) => conversation.dispatch({ type: "answer", response })} />}
 
           {!state.partial && shownReply && (
             <SpokenText speech={shownReply.speech} tail={shownReply.tail} word={p.name === "speaking" ? shownReply.word : null} class="text-left text-[19px]" />
@@ -135,7 +141,7 @@ export function VoiceView({ conversation, engine, title, onClose }: VoiceViewPro
           {chat?.otherRequest && !question && (
             <div class="mt-4 flex flex-col items-center gap-2">
               <p class="text-[15px] text-fg-muted">The agent is asking something on screen.</p>
-              <PhoneButton kind="tinted" block={false} onClick={onClose}>
+              <PhoneButton kind="tinted" block={false} onClick={onMinimize ?? onClose}>
                 Show Chat
               </PhoneButton>
             </div>
@@ -240,13 +246,35 @@ export function SpokenText({ speech, tail, word, class: className }: { speech: S
   );
 }
 
-/** The permission's options as big buttons (allow first). */
-function AnswerButtons({ options, onAnswer }: { options: PermissionOption[]; onAnswer: (id: string) => void }) {
+/**
+ * A question's answers as big buttons: a permission's options (in the agent's order), a select's
+ * options (numbered, as they're read), Yes / No for a confirm. An input is answered by talking (or
+ * in the chat).
+ */
+function AnswerButtons({ question, onAnswer }: { question: VoiceQuestion; onAnswer: (response: UiResponse) => void }) {
+  const id = question.id;
+  let buttons: Array<{ key: string; label: string; primary?: boolean; danger?: boolean; response: UiResponse }>;
+  switch (question.kind) {
+    case "permission":
+      buttons = question.options.map((o) => ({ key: o.id, label: o.label, primary: o.kind === "allow_once", danger: o.kind.startsWith("reject"), response: { id, value: o.id } }));
+      break;
+    case "select":
+      buttons = question.options.map((o, i) => ({ key: `${i}`, label: question.options.length > 1 ? `${i + 1}. ${o}` : o, response: { id, value: o } }));
+      break;
+    case "confirm":
+      buttons = [
+        { key: "yes", label: "Yes", primary: true, response: { id, confirmed: true } },
+        { key: "no", label: "No", danger: true, response: { id, confirmed: false } },
+      ];
+      break;
+    case "input":
+      return <p class="mt-4 text-[15px] text-fg-muted">Say your answer.</p>;
+  }
   return (
     <div class="mt-5 flex w-full flex-col gap-2.5" aria-label="Answers">
-      {options.map((o) => (
-        <PhoneButton key={o.id} kind={o.kind === "allow_once" ? "filled" : "tinted"} class={cn("min-h-13 text-left", o.kind.startsWith("reject") && "text-danger")} onClick={() => onAnswer(o.id)}>
-          {o.label}
+      {buttons.map((b) => (
+        <PhoneButton key={b.key} kind={b.primary ? "filled" : "tinted"} class={cn("min-h-13 text-left", b.danger && "text-danger")} onClick={() => onAnswer(b.response)}>
+          {b.label}
         </PhoneButton>
       ))}
     </div>

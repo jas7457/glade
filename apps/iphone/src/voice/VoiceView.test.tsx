@@ -15,14 +15,14 @@ const options: PermissionOption[] = [
 function setup(engineOptions: Parameters<typeof createFakeVoiceEngine>[0] = {}) {
   const engine: FakeVoiceEngine = createFakeVoiceEngine({ wordMs: 0, hearMs: 0, ...engineOptions });
   let listener: ((s: ChatSnapshot) => void) | null = null;
-  let snap: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, permission: null, otherRequest: false };
-  const responses: string[] = [];
+  let snap: ChatSnapshot = { isRunning: false, transcript: { messages: [], toolResults: {} }, question: null, otherRequest: false };
+  const responses: Array<string | boolean> = [];
   const chat: VoiceChat = {
     watch: (fn) => ((listener = fn), fn(snap), () => (listener = null)),
     send: async () => ({ ok: true }),
-    respond: (_id, optionId) => {
-      responses.push(optionId);
-      update({ permission: null });
+    respond: (response) => {
+      responses.push("value" in response ? response.value : "confirmed" in response ? response.confirmed : "cancelled");
+      update({ question: null });
     },
     agentName: () => "Claude Code",
     sessionId: () => "s1",
@@ -138,7 +138,7 @@ describe("VoiceView", () => {
     const { engine, conversation, update, responses } = setup();
     act(() => conversation.start());
     await tick();
-    update({ isRunning: true, permission: { id: "q", kind: "permission", title: "Allow Bash?", message: "git push", options } });
+    update({ isRunning: true, question: { id: "q", kind: "permission", title: "Allow Bash?", message: "git push", options } });
     expect(status()).toBe("Permission needed");
     expect(screen.getByTestId("voice-spoken").textContent).toBe("Claude Code wants to use Bash: git push. Allow?");
     act(() => engine.finishSpeaking());
@@ -149,11 +149,34 @@ describe("VoiceView", () => {
     expect(screen.queryByRole("button", { name: "Yes" })).toBeNull();
   });
 
+  it("a select question (I-193): spoken, numbered buttons, answered by number", async () => {
+    const { engine, conversation, update, responses } = setup();
+    act(() => conversation.start());
+    await tick();
+    update({ isRunning: true, question: { id: "s", kind: "select", title: "Which database?", options: ["PostgreSQL", "SQLite"] } });
+    expect(status()).toBe("The agent asks");
+    expect(screen.getByTestId("voice-spoken").textContent).toBe("Which database? The options are PostgreSQL or SQLite.");
+    act(() => engine.finishSpeaking());
+    expect(screen.getByRole("button", { name: "2. SQLite" })).toBeTruthy();
+    await act(() => engine.hear("the second one"));
+    expect(responses).toEqual(["SQLite"]);
+  });
+
+  it("a confirm question: Yes / No buttons", async () => {
+    const { engine, conversation, update, responses } = setup();
+    act(() => conversation.start());
+    await tick();
+    update({ isRunning: true, question: { id: "c", kind: "confirm", title: "Delete the branch?" } });
+    act(() => engine.finishSpeaking());
+    fireEvent.click(screen.getByRole("button", { name: "No" }));
+    expect(responses).toEqual([false]);
+  });
+
   it("answering a permission by voice", async () => {
     const { engine, conversation, update, responses } = setup();
     act(() => conversation.start());
     await tick();
-    update({ isRunning: true, permission: { id: "q", kind: "permission", title: "Allow Bash?", options } });
+    update({ isRunning: true, question: { id: "q", kind: "permission", title: "Allow Bash?", options } });
     await act(() => engine.hear("yes please"));
     expect(responses).toEqual(["allow"]);
   });

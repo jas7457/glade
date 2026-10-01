@@ -18,6 +18,7 @@
 import { Fragment } from "preact";
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useComputed } from "@preact/signals";
 import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
 import { subagentSessionsOf, type AgentColor, type MessageAnchor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
@@ -48,6 +49,7 @@ import { useStickToBottom } from "./useStickToBottom";
 import { useLoadEarlier } from "./useLoadEarlier";
 import { findJumpTarget, flashElement, jumpElement, pendingJump, takeJump } from "./jump-to-message";
 import { notify } from "@glade/app-core/state/toasts";
+import { highlightFor } from "@glade/app-core/state/reading-highlight";
 import { workingStatus, type WorkingLabel } from "./working";
 import "./chat.css";
 
@@ -270,7 +272,7 @@ function TurnView({ parts, timestamp }: { parts: TurnPart[]; timestamp: number }
 function PartView({ part, onOpenImage }: { part: TurnPart; onOpenImage?: () => void }) {
   switch (part.type) {
     case "text":
-      return <ReplyText text={part.text} streaming={part.streaming} />;
+      return <ReplyText partKey={part.key} text={part.text} streaming={part.streaming} />;
     case "thinking":
       return <ThinkingView text={part.text} streaming={part.streaming} />;
     case "tool":
@@ -289,10 +291,12 @@ function PartView({ part, onOpenImage }: { part: TurnPart; onOpenImage?: () => v
 }
 
 /** Assistant reply text; revealed smoothly while it streams (I-072). */
-function ReplyText({ text, streaming }: { text: string; streaming: boolean }) {
+function ReplyText({ partKey, text, streaming }: { partKey: string; text: string; streaming: boolean }) {
   const shown = useSmoothText(text, streaming);
+  // The word being read aloud (I-193); only the reply it's in re-renders as it moves.
+  const highlight = useComputed(() => highlightFor(partKey)).value;
   // Still revealing after the message ended: keep tolerating unterminated markdown until done.
-  return <Markdown text={shown} streaming={streaming || shown.length < text.length} class="my-1.5" />;
+  return <Markdown text={shown} streaming={streaming || shown.length < text.length} highlight={highlight} class="my-1.5" />;
 }
 
 export function ErrorNotice({ kind, message, details }: { kind: "error" | "aborted"; message: string; details?: string }) {

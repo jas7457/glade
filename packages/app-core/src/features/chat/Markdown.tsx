@@ -5,11 +5,19 @@
  * Memoized on its props, so completed messages never re-render while another one streams.
  * Streamdown additionally memoizes per markdown block, so a streaming message only re-parses
  * its last block.
+ *
+ * `highlight` marks a range of the markdown (I-193: the word being read aloud): only the block
+ * holding it is rendered again, with a rehype step that wraps that range (reading-mark.ts).
  */
-import { memo } from "preact/compat";
-import { Streamdown, type ControlsConfig, type PluginConfig } from "streamdown";
+import { createContext } from "preact";
+import { memo, useContext, useMemo } from "preact/compat";
+import { Block, parseMarkdownIntoBlocks, Streamdown, type BlockProps, type ControlsConfig, type PluginConfig } from "streamdown";
+
+/** One entry of Streamdown's `rehypePlugins`. */
+type Pluggable = NonNullable<BlockProps["rehypePlugins"]>[number];
 import { code } from "@streamdown/code";
 import { cn } from "@glade/app-core/lib/cn";
+import { blockStarts, rehypeReadingMark } from "./reading-mark";
 import "./markdown.css";
 
 export interface MarkdownProps {
@@ -21,6 +29,8 @@ export interface MarkdownProps {
   /** Max height of fenced code blocks (px). */
   codeMaxHeight?: number;
   class?: string;
+  /** [start, end) of `text` to highlight (the word being read aloud, I-193). */
+  highlight?: [number, number] | null;
 }
 
 const plugins: PluginConfig = { code };
@@ -32,9 +42,26 @@ const controls: ControlsConfig = {
 };
 const linkSafety = { enabled: false };
 
-export const Markdown = memo(function Markdown({ text, streaming = false, bare = false, codeMaxHeight = 480, class: className }: MarkdownProps) {
+/** The highlight and where each block starts, for `ReadingBlock`. */
+const ReadingContext = createContext<{ starts: number[]; range: [number, number] } | null>(null);
+
+/** Streamdown's block, with the highlight's rehype step when the highlight is in it. */
+function ReadingBlock(props: BlockProps) {
+  const reading = useContext(ReadingContext);
+  const start = reading?.starts[props.index];
+  if (!reading || start === undefined || reading.range[1] <= start || reading.range[0] >= start + props.content.length) return <Block {...props} />;
+  const mark: Pluggable = [rehypeReadingMark, { start: reading.range[0] - start, end: reading.range[1] - start }];
+  return <Block {...props} rehypePlugins={[...(props.rehypePlugins ?? []), mark]} />;
+}
+
+export const Markdown = memo(function Markdown({ text, streaming = false, bare = false, codeMaxHeight = 480, class: className, highlight = null }: MarkdownProps) {
+  const from = highlight?.[0];
+  const to = highlight?.[1];
+  const starts = useMemo(() => (from === undefined ? null : blockStarts(text, parseMarkdownIntoBlocks(text))), [text, from === undefined]);
+  const reading = useMemo(() => (starts && from !== undefined && to !== undefined ? { starts, range: [from, to] as [number, number] } : null), [starts, from, to]);
   return (
-    <Streamdown
+    <ReadingContext.Provider value={reading}>
+      <Streamdown
       className={cn("pi-md selectable", bare && "pi-md-bare", className)}
       isAnimating={streaming}
       parseIncompleteMarkdown={streaming}
@@ -43,9 +70,11 @@ export const Markdown = memo(function Markdown({ text, streaming = false, bare =
       linkSafety={linkSafety}
       lineNumbers={false}
       codeBlockMaxHeight={codeMaxHeight}
+      BlockComponent={ReadingBlock}
     >
       {text}
     </Streamdown>
+    </ReadingContext.Provider>
   );
 });
 

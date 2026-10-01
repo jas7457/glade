@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionOption } from "@glade/protocol";
-import { matchPermissionAnswer, permissionQuestion, permissionRetryQuestion, rejectOption, type PermissionRequest } from "./answers";
+import {
+  isVoiceQuestion,
+  matchAnswer,
+  matchConfirmAnswer,
+  matchPermissionAnswer,
+  matchSelectAnswer,
+  permissionQuestion,
+  permissionRetryQuestion,
+  questionText,
+  rejectOption,
+  retryText,
+  type PermissionRequest,
+} from "./answers";
 
 const claude: PermissionOption[] = [
   { id: "allow", label: "Yes", kind: "allow_once" },
@@ -76,5 +88,70 @@ describe("permissionQuestion", () => {
   it("asks again with the choices", () => {
     expect(permissionRetryQuestion(claude)).toBe("Sorry, I didn't catch that. Say yes, yes always, or no.");
     expect(permissionRetryQuestion(codexProceed)).toBe("Sorry, I didn't catch that. Say yes or no.");
+  });
+});
+
+describe("other questions (I-193)", () => {
+  const dbs = ["PostgreSQL", "SQLite", "MySQL (via Docker)"];
+  const pick = (said: string, options = dbs) => matchSelectAnswer(said, options);
+
+  it("a select by name, fuzzy", () => {
+    expect(pick("PostgreSQL")).toBe(0);
+    expect(pick("postgres sql")).toBe(0);
+    expect(pick("let's go with SQLite please")).toBe(1);
+    expect(pick("sequel light")).toBeNull();
+    // How SQL is often said (and recognized).
+    expect(pick("sequel lite")).toBe(1);
+    expect(pick("my sequel")).toBe(2);
+    expect(pick("MySQL")).toBe(2);
+    expect(pick("my sql via docker")).toBe(2);
+    expect(pick("Postgre SQL")).toBe(0);
+    expect(pick("I'll take the one with docker")).toBe(2);
+  });
+
+  it("a select by number or position", () => {
+    expect(pick("the second one")).toBe(1);
+    expect(pick("number 3")).toBe(2);
+    expect(pick("1")).toBe(0);
+    expect(pick("the last one")).toBe(2);
+    expect(pick("option four")).toBeNull();
+  });
+
+  it("an unclear or ambiguous select answer matches nothing", () => {
+    expect(pick("hmm")).toBeNull();
+    expect(pick("the weather")).toBeNull();
+    expect(matchSelectAnswer("yes", ["Yes, keep it", "Yes, delete it"])).toBeNull();
+    expect(matchSelectAnswer("yes delete it", ["Yes, keep it", "Yes, delete it"])).toBe(1);
+  });
+
+  it("a confirm by yes / no", () => {
+    expect(matchConfirmAnswer("yeah sure")).toBe(true);
+    expect(matchConfirmAnswer("no thanks")).toBe(false);
+    expect(matchConfirmAnswer("don't")).toBe(false);
+    expect(matchConfirmAnswer("banana")).toBeNull();
+  });
+
+  it("the response for each kind", () => {
+    expect(matchAnswer({ id: "s", kind: "select", title: "Which?", options: dbs }, "sqlite")).toEqual({ id: "s", value: "SQLite" });
+    expect(matchAnswer({ id: "c", kind: "confirm", title: "Delete?" }, "nope")).toEqual({ id: "c", confirmed: false });
+    expect(matchAnswer({ id: "i", kind: "input", title: "Name?" }, " Glade app ")).toEqual({ id: "i", value: "Glade app" });
+    expect(matchAnswer({ id: "i", kind: "input", title: "Name?" }, "  ")).toBeNull();
+    expect(matchAnswer({ id: "p", kind: "permission", title: "Allow?", options: claude }, "yes")).toEqual({ id: "p", value: "allow" });
+  });
+
+  it("which questions voice answers", () => {
+    expect(isVoiceQuestion({ id: "e", kind: "editor", title: "Edit" })).toBe(false);
+    expect(isVoiceQuestion({ id: "s", kind: "select", title: "Pick", options: [] })).toBe(false);
+    expect(isVoiceQuestion({ id: "s", kind: "select", title: "Pick", options: ["a"] })).toBe(true);
+  });
+
+  it("says the question", () => {
+    expect(questionText({ id: "s", kind: "select", title: "Which database?", options: dbs }, null)).toBe("Which database? The options are PostgreSQL, SQLite or MySQL (via Docker).");
+    expect(questionText({ id: "s", kind: "select", title: "Pick a **file**", options: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"] }, null)).toBe(
+      "Pick a file. The options are: 1: a.ts. 2: b.ts. 3: c.ts. 4: d.ts. 5: e.ts.",
+    );
+    expect(questionText({ id: "c", kind: "confirm", title: "Delete the branch?", message: "feature/x is merged" }, null)).toBe("Delete the branch? feature/x is merged. Yes or no?");
+    expect(questionText({ id: "i", kind: "input", title: "What should the file be called" }, null)).toBe("What should the file be called.");
+    expect(retryText({ id: "s", kind: "select", title: "Which?", options: dbs })).toBe("Sorry, I didn't catch that. Say the name or the number of an option.");
   });
 });

@@ -22,6 +22,11 @@ export interface SpeechSegment {
   verbatim: boolean;
   /** An announcement ("There's a code block on screen."), shown apart from the reply's words. */
   note: boolean;
+  /**
+   * The transcript block `src` is in: `<messageId>:<block index>` (the chat's part key), set by
+   * reply-stream.ts, so the word being read can be highlighted in the chat too (I-193).
+   */
+  at?: string;
 }
 
 export interface Speakable {
@@ -269,6 +274,18 @@ export function sourceRange(s: Speakable, start: number, end: number): [number, 
     to = to === null ? z : Math.max(to, z);
   }
   return from === null || to === null ? null : [from, to];
+}
+
+/** Where the spoken range [start, end) is in the chat: its block (`at`) and markdown range, or null. */
+export function chatRange(s: Speakable, start: number, end: number): { at: string; range: [number, number] } | null {
+  const seg = s.segments.find((x) => x.at && x.src && !x.note && x.end > start && x.start < end);
+  if (!seg?.at) return null;
+  // Only the part of the range in that block (a word never spans two blocks; a separator has no source).
+  const inBlock = s.segments.filter((x) => x.at === seg.at && x.end > start && x.start < end);
+  const from = Math.max(start, inBlock[0]!.start);
+  const to = Math.min(end, inBlock.at(-1)!.end);
+  const range = sourceRange({ text: s.text, segments: inBlock }, from, to);
+  return range ? { at: seg.at, range } : null;
 }
 
 /** Plain words (a note or a question) as a speakable. */

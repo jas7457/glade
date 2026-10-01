@@ -154,7 +154,7 @@ describe("conversation state machine", () => {
   });
 
   describe("permission by voice", () => {
-    const asking = run([{ type: "run-start" }, { type: "permission", request, question: "Claude wants to use Bash. Allow?" }], started);
+    const asking = run([{ type: "run-start" }, { type: "question", request, question: "Claude wants to use Bash. Allow?" }], started);
 
     it("reads the question, then waits for the answer", () => {
       expect(asking.state.phase).toMatchObject({ name: "asking", step: "question" });
@@ -165,23 +165,23 @@ describe("conversation state machine", () => {
 
     it("yes → allow, back to working", () => {
       const r = run([{ type: "speak-done" }, { type: "final", text: "yes" }], asking.state);
-      expect(r.effects).toContainEqual({ type: "respond", requestId: "q1", optionId: "allow" });
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "q1", value: "allow" } });
       expect(r.state.phase.name).toBe("working");
     });
 
     it("answering over the question stops reading it", () => {
       const r = run([{ type: "speech-start" }, { type: "final", text: "yes always" }], asking.state);
       expect(types(r.effects)[0]).toBe("stop-speaking");
-      expect(r.effects).toContainEqual({ type: "respond", requestId: "q1", optionId: "always" });
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "q1", value: "always" } });
     });
 
     it("no → reject, asks what to do instead, then sends that", () => {
       let r = run([{ type: "speak-done" }, { type: "final", text: "no" }], asking.state);
-      expect(r.effects).toContainEqual({ type: "respond", requestId: "q1", optionId: "reject" });
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "q1", value: "reject" } });
       expect(r.effects).toContainEqual({ type: "speak", speech: plainSpeakable(INSTEAD_QUESTION) });
       expect(r.state.phase).toMatchObject({ name: "asking", step: "instead" });
       // The stopped run ends meanwhile: still waiting.
-      r = run([reply, { type: "run-end" }, { type: "speak-done" }, { type: "permission-gone", requestId: "q1" }], r.state);
+      r = run([reply, { type: "run-end" }, { type: "speak-done" }, { type: "question-gone", requestId: "q1" }], r.state);
       expect(r.state.phase).toMatchObject({ name: "asking", step: "instead" });
       r = run([{ type: "final", text: "use yarn instead" }], r.state);
       expect(r.effects).toContainEqual({ type: "send", text: "use yarn instead" });
@@ -197,13 +197,13 @@ describe("conversation state machine", () => {
       expect(r.effects).toContainEqual({ type: "speak", speech: plainSpeakable(SCREEN_NOTICE) });
       expect(r.state.phase).toMatchObject({ step: "screen" });
       // A button still answers.
-      r = run([{ type: "speak-done" }, { type: "answer", optionId: "allow" }], r.state);
-      expect(r.effects).toContainEqual({ type: "respond", requestId: "q1", optionId: "allow" });
+      r = run([{ type: "speak-done" }, { type: "answer", response: { id: "q1", value: "allow" } }], r.state);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "q1", value: "allow" } });
       expect(r.state.phase.name).toBe("working");
     });
 
     it("answered elsewhere (on the Mac) → back to working", () => {
-      const r = run([{ type: "permission-gone", requestId: "q1" }], asking.state);
+      const r = run([{ type: "question-gone", requestId: "q1" }], asking.state);
       expect(r.state.phase.name).toBe("working");
       expect(types(r.effects)).toEqual(["stop-speaking", "ticker:true"]);
     });
@@ -212,13 +212,51 @@ describe("conversation state machine", () => {
       const speaking = run([reply, { type: "run-end" }], asking.state).state;
       expect(speaking.phase.name).toBe("asking");
       const reading = run([{ type: "run-start" }, { type: "reply", plan: plan(["One.", "Two."]) }], started).state;
-      let r = run([{ type: "permission", request, question: "Allow?" }], reading);
+      let r = run([{ type: "question", request, question: "Allow?" }], reading);
       expect(types(r.effects)[0]).toBe("stop-speaking");
       // What was queued is skipped; what the agent writes after the answer is read.
-      r = run([{ type: "speak-done" }, { type: "final", text: "yes" }, { type: "permission-gone", requestId: "q1" }], r.state);
+      r = run([{ type: "speak-done" }, { type: "final", text: "yes" }, { type: "question-gone", requestId: "q1" }], r.state);
       expect(r.state.phase.name).toBe("working");
       r = run([{ type: "reply", plan: plan(["One.", "Two.", "Three."]) }], r.state);
       expect(speaks(r.effects)).toEqual([{ text: "Three.", queue: false, offset: 10 }]);
+    });
+  });
+
+  describe("other questions by voice (I-193)", () => {
+    const select = { id: "s1", kind: "select" as const, title: "Which database?", options: ["PostgreSQL", "SQLite"] };
+    const asking = run([{ type: "run-start" }, { type: "question", request: select, question: "Which database? The options are PostgreSQL or SQLite." }], started);
+
+    it("a select: by name or by number", () => {
+      expect(asking.state.phase).toMatchObject({ name: "asking", step: "question" });
+      let r = run([{ type: "speak-done" }, { type: "final", text: "sqlite" }], asking.state);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "s1", value: "SQLite" } });
+      expect(r.state.phase.name).toBe("working");
+      r = run([{ type: "final", text: "the first one" }], asking.state);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "s1", value: "PostgreSQL" } });
+    });
+
+    it("a select: unclear → asked once more, then on screen; a button still answers", () => {
+      let r = run([{ type: "speak-done" }, { type: "final", text: "banana" }], asking.state);
+      expect(speaks(r.effects)).toEqual([{ text: "Sorry, I didn't catch that. Say the name or the number of an option.", queue: false, offset: 0 }]);
+      r = run([{ type: "speak-done" }, { type: "final", text: "what" }], r.state);
+      expect(r.state.phase).toMatchObject({ step: "screen" });
+      r = run([{ type: "answer", response: { id: "s1", value: "SQLite" } }], r.state);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "s1", value: "SQLite" } });
+    });
+
+    it("a confirm: yes / no", () => {
+      const confirm = { id: "c1", kind: "confirm" as const, title: "Delete it?" };
+      const r = run([{ type: "question", request: confirm, question: "Delete it? Yes or no?" }, { type: "speak-done" }, { type: "final", text: "no" }], started);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "c1", confirmed: false } });
+      // No "what instead" for questions other than permissions.
+      expect(r.state.phase.name).toBe("listening");
+    });
+
+    it("an input: the words are the answer", () => {
+      const input = { id: "i1", kind: "input" as const, title: "Name the branch" };
+      const r = run([{ type: "question", request: input, question: "Name the branch." }, { type: "speak-done" }, { type: "final", text: "fix login" }], started);
+      expect(r.effects).toContainEqual({ type: "respond", response: { id: "i1", value: "fix login" } });
+      expect(r.effects.some((e) => e.type === "send")).toBe(false);
     });
   });
 

@@ -1,7 +1,7 @@
 /**
  * Conversation mode settings (I-180), stored on the phone (localStorage, like the theme): the
- * voice replies are read with (null: the best installed one, see `bestVoice`) and the speaking
- * rate (0.5 … 2, 1 = normal).
+ * voice replies are read with (null: the best installed one, see `bestVoice`), the speaking
+ * rate (0.5 … 2, 1 = normal) and the pause that ends what the user says (I-193: 0.8 … 3 s).
  */
 import { signal } from "@preact/signals";
 import type { VoiceInfo, VoiceQuality } from "./engine";
@@ -11,10 +11,20 @@ const KEY = "glade.iphone.voice";
 interface Stored {
   voiceId: string | null;
   rate: number;
+  pauseMs: number;
 }
 
 export const MIN_RATE = 0.5;
 export const MAX_RATE = 2;
+/** The pause before what the user said is sent (ms): the recognizer's end-of-speech silence. */
+export const MIN_PAUSE_MS = 800;
+export const MAX_PAUSE_MS = 3000;
+export const DEFAULT_PAUSE_MS = 1600;
+export const PAUSE_STEP_MS = 200;
+
+function clampPause(ms: number): number {
+  return Math.min(MAX_PAUSE_MS, Math.max(MIN_PAUSE_MS, Math.round(ms / PAUSE_STEP_MS) * PAUSE_STEP_MS));
+}
 
 function read(): Stored {
   try {
@@ -22,9 +32,10 @@ function read(): Stored {
     return {
       voiceId: typeof raw.voiceId === "string" ? raw.voiceId : null,
       rate: typeof raw.rate === "number" && raw.rate >= MIN_RATE && raw.rate <= MAX_RATE ? raw.rate : 1,
+      pauseMs: typeof raw.pauseMs === "number" && Number.isFinite(raw.pauseMs) ? clampPause(raw.pauseMs) : DEFAULT_PAUSE_MS,
     };
   } catch {
-    return { voiceId: null, rate: 1 };
+    return { voiceId: null, rate: 1, pauseMs: DEFAULT_PAUSE_MS };
   }
 }
 
@@ -32,10 +43,12 @@ const initial = read();
 /** The chosen voice's id; null = automatic (the best installed English voice). */
 export const voiceChoice = signal<string | null>(initial.voiceId);
 export const speakingRate = signal<number>(initial.rate);
+/** "Pause before sending": the silence that ends an utterance (`ListenOptions.endSilenceMs`). */
+export const pauseBeforeSending = signal<number>(initial.pauseMs);
 
 function save(): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ voiceId: voiceChoice.value, rate: speakingRate.value } satisfies Stored));
+    localStorage.setItem(KEY, JSON.stringify({ voiceId: voiceChoice.value, rate: speakingRate.value, pauseMs: pauseBeforeSending.value } satisfies Stored));
   } catch {
     /* storage unavailable */
   }
@@ -51,11 +64,17 @@ export function setSpeakingRate(rate: number): void {
   save();
 }
 
+export function setPauseBeforeSending(ms: number): void {
+  pauseBeforeSending.value = clampPause(ms);
+  save();
+}
+
 /** Re-reads storage (tests). */
 export function reloadVoiceSettings(): void {
   const s = read();
   voiceChoice.value = s.voiceId;
   speakingRate.value = s.rate;
+  pauseBeforeSending.value = s.pauseMs;
 }
 
 const RANK: Record<VoiceQuality, number> = { premium: 3, enhanced: 2, default: 1 };

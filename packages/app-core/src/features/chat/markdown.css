@@ -206,3 +206,10 @@
 .pi-md [data-streamdown="table-header-cell"] { font-weight: 600; color: var(--pi-md-heading); }
 
 .pi-md [data-streamdown="image"] { border-radius: 8px; max-width: 100%; }
+
+/* The word being read aloud (I-193): a background only, so moving it never reflows the lines. */
+.pi-md mark[data-reading] {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  color: inherit;
+  border-radius: 4px;
+}
