@@ -64,20 +64,13 @@ export function handleUsageMessage(message: UsageMessage, envId?: string, notify
   }
 }
 
-/** An agent's limits as a chat shows them: `mine` = they're the chat's own (its agent and model's provider). */
-export interface ChatUsageEntry extends HarnessUsageLimits {
-  mine: boolean;
-}
-
 /**
- * The agents' limits in the order a chat shows them (I-191): the chat's own agent first when its
- * limits apply to the chat's model (same provider; e.g. pi's Claude subscription only for an
- * Anthropic model), then the others in the server's order (the default agent first). Without a
- * chat (`harnessId` null) the server's order stands and nothing is `mine`.
+ * The limits a chat's usage popover shows (I-191, I-195): only its own agent's, and only when they
+ * apply to the chat's model (same provider; e.g. pi's Claude subscription only for an Anthropic
+ * model). Other agents' limits are left out; without a known agent there are none.
  */
-export function usageForChat(entries: readonly HarnessUsageLimits[], harnessId: string | null | undefined, model?: ModelRef | null): ChatUsageEntry[] {
-  const list = entries.filter((e) => e.usage.limits.length > 0).map((e) => ({ ...e, mine: isMine(e, harnessId, model) }));
-  return [...list.filter((e) => e.mine), ...list.filter((e) => !e.mine)];
+export function usageForChat(entries: readonly HarnessUsageLimits[], harnessId: string | null | undefined, model?: ModelRef | null): HarnessUsageLimits[] {
+  return entries.filter((e) => e.usage.limits.length > 0 && isMine(e, harnessId, model));
 }
 
 function isMine(entry: HarnessUsageLimits, harnessId: string | null | undefined, model: ModelRef | null | undefined): boolean {

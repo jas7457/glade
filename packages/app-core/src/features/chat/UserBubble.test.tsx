@@ -39,6 +39,20 @@ describe("UserBubble", () => {
     expect(container.textContent?.startsWith("Compare ")).toBe(true);
   });
 
+  it("I-194: shows `inline code` as a code chip and ``` fences as code blocks, nothing else as Markdown", async () => {
+    const { container } = render(<UserBubble message={user("like my `glade` project with @src/a.ts **bold**\n```sh\npnpm dev\n```\n# done")} />);
+    const code = container.querySelector("code.pi-inline-code")!;
+    expect(code.textContent).toBe("glade");
+    expect(container.textContent).not.toContain("`glade`");
+    expect(container.textContent).toContain("**");
+    expect(container.textContent).toContain("# done");
+    expect(screen.getByText("src/a.ts").closest("[data-chip]")).toBeTruthy();
+    const block = screen.getByTestId("user-code-block");
+    expect(await screen.findByText("pnpm dev", { exact: false })).toBeTruthy();
+    expect(block.textContent).toContain("pnpm dev");
+    expect(container.textContent).not.toContain("```");
+  });
+
   it("collapses text longer than 15 lines with Show more / Show less", () => {
     const restore = stubLayout();
     try {

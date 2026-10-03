@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- `Inline code` and ``` fenced code blocks in your own messages now look like they do in the
+  agent's replies (code chip, highlighted block with a copy button). Everything else you type stays
+  as written, so pasted logs, globs and `#` lines aren't turned into Markdown.
 - iPhone voice mode: set how long you can pause before what you said is sent (Settings → Voice,
   default 1.6 s); the agent's other questions (pick an option, yes/no, type an answer) are read aloud
   and answered by voice, by name or number; the word being read is highlighted in the chat too, and
@@ -225,6 +228,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The usage popover shows only the limits of the chat's own agent (e.g. a pi chat no longer
+  lists Claude Code's and Codex's limits too). If they don't apply to the chat's model, it shows just
+  the context and cost.
 - When Claude finishes planning, the plan shows as a "Proposed plan" card followed by Claude Code's
   own "Ready to code?" choices; your choice switches the chat's permission mode.
 - The usage popover shows the plan limits of every agent that reports them (pi's Claude

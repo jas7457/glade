@@ -126,27 +126,28 @@ describe("limitAlerts / handleUsageMessage", () => {
   });
 });
 
-describe("usageForChat (I-191)", () => {
+describe("usageForChat (I-195)", () => {
   const entry = (harnessId: string, provider: string, limits = [limit()]): HarnessUsageLimits => ({ harnessId, label: harnessId, usage: usage(limits, { provider }) });
   const all = [entry("pi", "anthropic"), entry("claude", "anthropic"), entry("codex", "codex"), entry("empty", "x", [])];
-  const order = (list: ReturnType<typeof usageForChat>) => list.map((e) => `${e.harnessId}${e.mine ? "*" : ""}`);
+  const ids = (list: ReturnType<typeof usageForChat>) => list.map((e) => e.harnessId);
 
-  it("puts the chat's own agent first when its limits apply to the chat's model", () => {
-    expect(order(usageForChat(all, "codex", { provider: "codex", id: "gpt-6" }))).toEqual(["codex*", "pi", "claude"]);
-    expect(order(usageForChat(all, "claude", { provider: "anthropic", id: "claude-sonnet-4-5" }))).toEqual(["claude*", "pi", "codex"]);
-    expect(order(usageForChat(all, "claude", null))).toEqual(["claude*", "pi", "codex"]);
+  it("returns only the chat's own agent when its limits apply to the chat's model", () => {
+    expect(ids(usageForChat(all, "codex", { provider: "codex", id: "gpt-6" }))).toEqual(["codex"]);
+    expect(ids(usageForChat(all, "claude", { provider: "anthropic", id: "claude-sonnet-4-5" }))).toEqual(["claude"]);
+    expect(ids(usageForChat(all, "claude", null))).toEqual(["claude"]);
   });
 
-  it("keeps the server's order (default first) when the chat's agent has none or they don't apply", () => {
-    expect(order(usageForChat(all, "pi", { provider: "openai", id: "gpt-5" }))).toEqual(["pi", "claude", "codex"]);
-    expect(order(usageForChat(all, "fake", null))).toEqual(["pi", "claude", "codex"]);
-    expect(order(usageForChat(all, null, null))).toEqual(["pi", "claude", "codex"]);
+  it("returns nothing when the chat's agent has no limits or they don't apply to its model", () => {
+    expect(ids(usageForChat(all, "pi", { provider: "openai", id: "gpt-5" }))).toEqual([]);
+    expect(ids(usageForChat(all, "empty", null))).toEqual([]);
+    expect(ids(usageForChat(all, "fake", null))).toEqual([]);
+    expect(ids(usageForChat(all, null, null))).toEqual([]);
   });
 
   it("matches an older server's unnamed entry by the model's provider", () => {
     const legacy = [entry("", "anthropic")];
-    expect(order(usageForChat(legacy, "pi", { provider: "anthropic", id: "x" }))).toEqual(["*"]);
-    expect(order(usageForChat(legacy, "pi", { provider: "openai", id: "x" }))).toEqual([""]);
+    expect(ids(usageForChat(legacy, "pi", { provider: "anthropic", id: "x" }))).toEqual([""]);
+    expect(ids(usageForChat(legacy, "pi", { provider: "openai", id: "x" }))).toEqual([]);
   });
 });
 

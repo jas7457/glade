@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/preact";
 import type { HarnessUsageLimits, ModelRef, UsageLimits } from "@glade/protocol";
-import { usageLimits, type ChatUsageEntry } from "@glade/app-core/state/usage";
+import { usageLimits } from "@glade/app-core/state/usage";
 import { ContextMeter } from "./ContextMeter";
 import { UsageDetails } from "./usage/UsageDetails";
 
@@ -19,7 +19,7 @@ const limits = (over: Partial<UsageLimits> = {}): UsageLimits => ({
   ...over,
 });
 /** One agent's entry as the popover gets it. */
-const mine = (u: UsageLimits, over: Partial<ChatUsageEntry> = {}): ChatUsageEntry[] => [{ harnessId: "pi", label: "Pi", usage: u, mine: true, ...over }];
+const mine = (u: UsageLimits, over: Partial<HarnessUsageLimits> = {}): HarnessUsageLimits[] => [{ harnessId: "pi", label: "Pi", usage: u, ...over }];
 const codex: HarnessUsageLimits = {
   harnessId: "codex",
   label: "Codex",
@@ -109,32 +109,33 @@ describe("ContextMeter", () => {
     fireEvent.click(trigger);
     return screen.findByRole("dialog");
   };
-  const groups = (el: HTMLElement) => [...el.querySelectorAll("[data-testid='usage-agent']")].map((g) => `${g.getAttribute("data-harness")}${g.textContent!.includes("This chat") ? "*" : ""}`);
+  const groups = (el: HTMLElement) => [...el.querySelectorAll("[data-testid='usage-agent']")].map((g) => g.getAttribute("data-harness"));
 
-  it("opens a popover on click with every agent's limits, the chat's own first", async () => {
+  it("opens a popover on click with only the chat's own agent's limits (I-195)", async () => {
     usageLimits.value = new Map([["", [{ harnessId: "pi", label: "Pi", usage: limits() }, codex]]]);
     const dialog = await open(sonnet);
-    expect(bars(dialog).map(([label]) => label)).toEqual(["Context window", "Current session", "This week", "Fable this week", "5-hour limit", "This week"]);
-    expect(groups(dialog)).toEqual(["pi*", "codex"]);
-    expect(dialog.textContent).toContain("Codex (plus)");
+    expect(bars(dialog).map(([label]) => label)).toEqual(["Context window", "Current session", "This week", "Fable this week"]);
+    expect(groups(dialog)).toEqual(["pi"]);
+    expect(dialog.textContent).not.toContain("Codex");
+    expect(dialog.textContent).not.toContain("This chat");
   });
 
-  it("I-191: a Codex chat shows Codex's limits first", async () => {
+  it("a Codex chat shows only Codex's limits", async () => {
     usageLimits.value = new Map([["", [{ harnessId: "pi", label: "Pi", usage: limits() }, codex]]]);
     const dialog = await open({ provider: "codex", id: "gpt-6" }, "codex");
-    expect(groups(dialog)).toEqual(["codex*", "pi"]);
+    expect(groups(dialog)).toEqual(["codex"]);
   });
 
-  it("doesn't call another provider's limits the chat's own", async () => {
+  it("leaves out the agent's limits when they're another provider's", async () => {
     usageLimits.value = new Map([["", [{ harnessId: "pi", label: "Pi", usage: limits() }]]]);
     const dialog = await open(gpt);
-    expect(groups(dialog)).toEqual(["pi"]);
-    expect(dialog.querySelector("[data-limit-id='weekly_scoped:Fable']")!.textContent).not.toContain("this model");
+    expect(groups(dialog)).toEqual([]);
+    expect(bars(dialog)).toEqual([["Context window", "4"]]);
   });
 
   it("shows the limits of the Mac the chat runs on", async () => {
     usageLimits.value = new Map([["", [{ harnessId: "pi", label: "Pi", usage: limits() }]], ["MAC-B", [codex]]]);
-    render(<ContextMeter usage={usage} model={sonnet} harnessId="codex" envId="MAC-B" />);
+    render(<ContextMeter usage={usage} model={{ provider: "codex", id: "gpt-6" }} harnessId="codex" envId="MAC-B" />);
     fireEvent.click(screen.getByRole("button", { name: /Context usage/ }));
     const dialog = await screen.findByRole("dialog");
     expect(groups(dialog)).toEqual(["codex"]);

@@ -969,7 +969,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
   const capabilities = harnessCapabilities(summary?.harness, envId);
   // The usage popover is open (touch keeps the composer expanded meanwhile, I-191).
   const [meterOpen, setMeterOpen] = useState(false);
-  // I-191: the chat's agent's limits go first in the usage popover.
+  // I-195: the usage popover shows only the chat's agent's limits.
   const usageHarness = summary?.harness ?? defaultHarnessOf(envId)?.id ?? null;
   const slashCommands = useMemo(
     () => mergeCommands(builtinCommands(true, capabilities), harnessCommands),

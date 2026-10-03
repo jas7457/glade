@@ -6,6 +6,8 @@
  *   the raw lines.
  * - `@path` mentions (I-092) inside the text are shown as small path chips; the stored text is
  *   unchanged (selecting and copying still gives the `@path`).
+ * - `inline code` and ``` fenced blocks look like they do in replies (I-194); nothing else is
+ *   treated as Markdown, so pasted text stays as typed.
  * - Sub-agent reports arrive as prompts but aren't the user's words: they render as cards
  *   (AgentMessageCard, I-075).
  * - Long text collapses after ~15 lines with "Show more" (ui/Clamp, I-109); images open in a
@@ -32,6 +34,8 @@ import { useChatEnv } from "./chat-env";
 import { notify } from "@glade/app-core/state/toasts";
 import { Chip, Clamp } from "@glade/app-core/ui";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { fenced, Markdown } from "./Markdown";
+import { splitUserCode } from "./user-code";
 import { splitMentions } from "./mentions/parse";
 import { useImageLightbox } from "./ImageLightbox";
 import { useImageSrc } from "./image-src";
@@ -92,6 +96,24 @@ export function MentionText({ text }: { text: string }) {
   );
 }
 
+/** The user's text: plain, with `@path` chips, inline code chips and fenced code blocks (I-194). */
+export function UserText({ text }: { text: string }) {
+  const segments = useMemo(() => splitUserCode(text), [text]);
+  return (
+    <>
+      {segments.map((s, i) => {
+        if (s.type === "text") return <MentionText key={i} text={s.text} />;
+        if (s.type === "code") return <code key={i} class="pi-inline-code">{s.code}</code>;
+        return (
+          <div key={i} class="my-1.5 whitespace-normal" data-testid="user-code-block">
+            <Markdown text={fenced(s.code, s.language)} codeMaxHeight={360} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export const UserBubble = memo(function UserBubble({ message }: { message: UserMessage }) {
   const images = useMemo(() => message.content.filter((b): b is ImageBlock => b.type === "image"), [message.content]);
   const raw = message.content
@@ -122,7 +144,7 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
       {text && (
         <div class="relative max-w-[85%] rounded-[14px] bg-selected px-3.5 py-2 leading-[1.5]">
           <Clamp lines={LONG_BUBBLE_LINES} contentClass="selectable whitespace-pre-wrap break-words">
-            <MentionText text={text} />
+            <UserText text={text} />
           </Clamp>
         </div>
       )}
