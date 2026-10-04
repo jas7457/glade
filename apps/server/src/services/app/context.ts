@@ -16,6 +16,7 @@ import type { OpenIn } from "../open-in.js";
 import type { RevealPath } from "../reveal.js";
 import type { ServerRegistry } from "../server-registry.js";
 import type { UsageLimitsHub } from "../usage-hub.js";
+import type { LocalModelsServiceOptions } from "../local-models/service.js";
 import type { MessageIds, TranscriptWriter } from "./transcript-writer.js";
 
 export interface AppServiceOptions {
@@ -49,6 +50,8 @@ export interface AppServiceOptions {
   attachments?: AttachmentStore;
   /** Idle agent processes kept alive (I-159: not a setting; default {@link MAX_IDLE_PROCESSES}; tests lower it). */
   maxIdleProcesses?: number;
+  /** Local models (I-196): backend and timing overrides (tests). Polling starts with `localModels.start()`. */
+  localModels?: Partial<Pick<LocalModelsServiceOptions, "backend" | "fastMs" | "slowMs" | "pendingTimeoutMs" | "memoryBytes" | "now">>;
 }
 
 /** The live pool keeps at most this many idle agent processes (I-159); working ones are never stopped. */

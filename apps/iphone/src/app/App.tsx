@@ -9,6 +9,7 @@ import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { ChatScreen } from "~/screens/ChatScreen";
 import { ConnectScreen } from "~/screens/ConnectScreen";
 import { DeviceScreen } from "~/screens/DeviceScreen";
+import { LocalModelsScreen } from "~/screens/LocalModelsScreen";
 import { HomeScreen } from "~/screens/HomeScreen";
 import { NewChatScreen } from "~/screens/NewChatScreen";
 import { SettingsScreen } from "~/screens/SettingsScreen";
@@ -46,6 +47,7 @@ export const iphoneRoutes: RouteObject[] = [
   { path: "/chats/:chatId", element: <DesktopChatRedirect /> },
   { path: "/settings", element: <SettingsScreen /> },
   { path: "/settings/devices/:envId", element: <DeviceScreen /> },
+  { path: "/settings/devices/:envId/local-models", element: <LocalModelsScreen /> },
   { path: "/settings/voice", element: <VoiceSettingsScreen /> },
   { path: "*", element: <Navigate to="/" replace /> },
 ];

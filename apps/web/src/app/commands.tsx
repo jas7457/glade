@@ -310,7 +310,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
         id: `settings:${section}`,
         title: `Settings: ${label}`,
         group: "Actions",
-        keywords: ["preferences"],
+        keywords: section === "local-models" ? ["preferences", "llama", "load", "unload"] : ["preferences"],
         icon: <Icon />,
         run: () => navigate(routes.settings(section)),
       };

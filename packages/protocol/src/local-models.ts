@@ -62,7 +62,7 @@ export interface LocalModelsState {
    * UI shows it with setup help.
    */
   error: string | null;
-  /** Every model the server knows, loaded ones first, then by name. */
+  /** Every model the server knows: loaded (and sleeping) first, then by name; loading ones stay in place. */
   models: LocalModel[];
   /** How many models it keeps loaded at most (llama-server `--models-max`); `null` = unknown/unlimited. */
   maxLoaded: number | null;

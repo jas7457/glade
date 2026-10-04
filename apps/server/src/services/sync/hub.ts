@@ -407,6 +407,7 @@ export class SyncClient {
         return this.markDirty("environment", null);
       case "models":
       case "usage_limits":
+      case "local_models":
         if (this.shell?.state === "live") this.enqueue("shell", { ...message, seq: this.shell.sent });
         return;
       case "open_chat":

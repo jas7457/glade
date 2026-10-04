@@ -7,6 +7,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Local Models** (Settings → Local Models, and on the iPhone under each Mac): see the models in
+  llama.cpp's `llama-server` on a Mac and load or unload them, from that Mac, another Mac or your
+  phone. Shows what's loaded, sizes, context, how much of the Mac's memory they use, and which chats
+  use a model; asks before unloading one in use or loading one that may not fit. If llama-server
+  isn't running, it shows the command to start it. Loaded models appear in pi's model picker.
+  Glade never unloads or downloads models by itself.
 - `Inline code` and ``` fenced code blocks in your own messages now look like they do in the
   agent's replies (code chip, highlighted block with a copy button). Everything else you type stays
   as written, so pasted logs, globs and `#` lines aren't turned into Markdown.

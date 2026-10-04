@@ -45,6 +45,7 @@ import type {
   EnvironmentInfo,
   UpdateEnvironmentRequest,
   AttachmentUploadResponse,
+  LocalModelsState,
 } from "@glade/protocol";
 import { COMMAND_ID_HEADER } from "@glade/protocol";
 
@@ -306,6 +307,13 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     listModels: (refresh = false) => request<ModelInfo[]>("GET", `/models${refresh ? "?refresh=1" : ""}`),
     getSettings: () => request<Settings>("GET", "/settings"),
     updateSettings: (patch: DeepPartial<Settings>) => request<Settings>("PATCH", "/settings", patch),
+
+    // Local models on the environment's Mac (I-196)
+    /** `refresh`: ask the model server now instead of the last known state. */
+    getLocalModels: (refresh = false) => request<LocalModelsState>("GET", `/local-models${refresh ? "?refresh=1" : ""}`),
+    loadLocalModel: (model: string, contextLength?: number) =>
+      request<LocalModelsState>("POST", "/local-models/load", contextLength ? { model, contextLength } : { model }),
+    unloadLocalModel: (model: string) => request<LocalModelsState>("POST", "/local-models/unload", { model }),
 
     // Native folder dialog on the server's machine (use `pickFolder()` from lib/native instead).
     pickFolder: (body: { prompt?: string; defaultPath?: string } = {}) =>

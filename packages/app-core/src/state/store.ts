@@ -31,6 +31,7 @@ import { clientOrders, interleave, orderKey } from "./env-order";
 import { handleSessionEvent, reloadIfChangedElsewhere } from "./chat-session";
 import { notify } from "./toasts";
 import { handleUsageMessage } from "./usage";
+import { handleLocalModelsMessage } from "./local-models";
 import { harnesses, loadHarnesses } from "./harnesses";
 import { requestOpenChat } from "./open-chat";
 import { buildTopLevel, flattenProjects, foldersOfProject, workspaceFolderId, type TopEntry } from "./folders";
@@ -417,6 +418,10 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
     case "usage_limits":
       // Each Mac's own accounts (I-191): a chat shows the limits of the Mac it runs on.
       handleUsageMessage(message, envId);
+      break;
+    case "local_models":
+      // Each Mac's own model server (I-196).
+      handleLocalModelsMessage(message.state, envId);
       break;
     case "open_chat":
       requestOpenChat(message);

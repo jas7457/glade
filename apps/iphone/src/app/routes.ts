@@ -13,4 +13,6 @@ export const paths = {
   /** Settings → Voice (conversation mode, I-180). */
   voiceSettings: () => "/settings/voice",
   device: (envId: string) => `/settings/devices/${encodeURIComponent(envId)}`,
+  /** A paired Mac's local models (I-196). */
+  localModels: (envId: string) => `/settings/devices/${encodeURIComponent(envId)}/local-models`,
 };

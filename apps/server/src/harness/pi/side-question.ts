@@ -26,6 +26,8 @@ export interface PiSideQuestionOptions extends SideQuestionCall {
   spawn?: SpawnFn;
   /** Overall limit (default 3 minutes). */
   timeoutMs?: number;
+  /** Extra environment for the pi process (e.g. `LLAMA_BASE_URL`, I-196). */
+  env?: Record<string, string>;
   log?: (msg: string) => void;
 }
 
@@ -78,7 +80,7 @@ export function piSideQuestion(options: PiSideQuestionOptions): Promise<SideQues
     }, options.timeoutMs ?? 180_000);
     timer.unref();
     try {
-      child = spawn(piPath, sideQuestionArgs(systemPrompt, model), { cwd, env: piChildEnv() });
+      child = spawn(piPath, sideQuestionArgs(systemPrompt, model), { cwd, env: piChildEnv(process.env, options.env) });
     } catch (err) {
       finish({ answer: "", error: `Could not start pi: ${(err as Error).message}` });
       return;

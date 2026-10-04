@@ -67,6 +67,7 @@ import { UpdateChecker } from "../services/update-check.js";
 import { UPDATE_UNAVAILABLE_DEV, UpdateJob } from "../services/update-job.js";
 import { TerminalService } from "../services/terminals.js";
 import { createTerminalWsHandler, terminalRoutes } from "./terminals.js";
+import { localModelsRoutes } from "./local-models.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -163,6 +164,8 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
     { internal: true },
   );
   app.route("/api", terminalRoutes(terminals));
+  // Local models (I-196): llama-server's models on this Mac. Paired devices may load/unload too.
+  app.route("/api", localModelsRoutes(service.localModels));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
   app.get("/ws/terminal/:terminalId", nodeWs.upgradeWebSocket(createTerminalWsHandler(terminals, auth)));

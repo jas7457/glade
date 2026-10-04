@@ -32,6 +32,7 @@ import { lastServedPort, managesTransport, RemoteTransport } from "./services/tr
 import { TailscaleTransport } from "./services/transports/tailscale.js";
 import { FolderInfoService } from "./services/folder-info.js";
 import { createPowerTracker } from "./services/power.js";
+import { llamaBaseUrlEnv } from "./services/local-models/settings.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
 import { UpdateChecker } from "./services/update-check.js";
@@ -142,6 +143,8 @@ harnesses.register(
     : new PiHarness({
         utilityCwd: config.scratchDir,
         subagents: () => store.getSettings().agent.subagents,
+        // I-196: pi's llama.cpp provider talks to the same llama-server as Settings → Local Models.
+        env: () => llamaBaseUrlEnv(store.getSettings().localModels.url),
         log: env("DEBUG") ? log : undefined,
       }),
 );
@@ -286,6 +289,8 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: listenPort
   }
   remote?.start();
   updates.start();
+  // I-196: watch the local model server while clients are connected.
+  service.localModels.start();
   void service.startTranscriptImport().catch((err: Error) => console.warn(`[glade] importing conversations failed: ${err.message}`));
 });
 injectWebSocket(server);

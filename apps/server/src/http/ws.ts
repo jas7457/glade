@@ -66,6 +66,9 @@ export function createWsHandler(service: AppService, auth?: AuthService): (c: Co
         unsubscribe = service.subscribe(send);
         const usage = service.usageLimitsMessage();
         if (usage) send(usage);
+        // I-196: the last known local models state (a fresh one follows when the poller checks).
+        const localModels = service.localModelsMessage();
+        if (localModels) send(localModels);
         const raw = ws.raw as RawSocket | undefined;
         detach =
           auth?.attachSocket(identity, {

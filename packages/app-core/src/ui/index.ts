@@ -51,3 +51,5 @@ export { FolderBrowser, type FolderBrowserProps } from "./FolderBrowser";
 export { RemoteBadge, remoteStatusTone, type RemoteBadgeProps, type RemoteStatus } from "./RemoteBadge";
 export { StatusDot, type StatusDotProps, type StatusTone } from "./StatusDot";
 export { QrCode, qrPath, type QrCodeProps } from "./QrCode";
+export { Meter, type MeterProps, type MeterTone } from "./Meter";
+export { CopyableCode, type CopyableCodeProps } from "./CopyableCode";

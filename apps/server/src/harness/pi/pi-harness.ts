@@ -59,6 +59,16 @@ export interface PiHarnessOptions {
   extensionPath?: () => string | null;
   /** Is a command installed? (I-155; default: a cached PATH lookup.) */
   which?: WhichFn;
+  /**
+   * Extra environment for every pi process, read at each start (I-196: `LLAMA_BASE_URL` from
+   * `Settings.localModels.url`). Per-session variables win over these.
+   */
+  env?: () => Record<string, string>;
+  /**
+   * Forced model refreshes ask pi twice, this long apart, since its first answer comes from its
+   * stored catalog (default 1500 ms; 0 = once).
+   */
+  modelsSettleMs?: number;
 }
 
 const defaultWhich = cachedWhich();
@@ -91,7 +101,7 @@ export class PiHarness implements AgentHarness {
   async listModels(force = false): Promise<ModelInfo[]> {
     if (!force && this.modelsCache && Date.now() - this.modelsCache.at < 60_000) return this.modelsCache.models;
     // Concurrent callers share one utility process.
-    this.modelsInflight ??= this.fetchModels().finally(() => {
+    this.modelsInflight ??= this.fetchModels(force).finally(() => {
       this.modelsInflight = null;
     });
     return this.modelsInflight;
@@ -106,17 +116,28 @@ export class PiHarness implements AgentHarness {
     return this.modelsCache?.defaults ?? { model: null, thinkingLevel: null };
   }
 
-  private async fetchModels(): Promise<ModelInfo[]> {
+  /**
+   * `settle` (forced refreshes): pi answers `get_available_models` at once from its stored catalog
+   * and refreshes providers from the network in the background (e.g. llama.cpp's loaded models,
+   * I-196), so ask again after {@link PiHarnessOptions.modelsSettleMs} and use that answer.
+   */
+  private async fetchModels(settle = false): Promise<ModelInfo[]> {
     // Extensions stay enabled: they can register providers/models (and handle provider auth).
     const proc = this.spawn(this.options.utilityCwd, ["--no-session", "--no-skills"]);
     try {
-      const [data, state] = await Promise.all([
+      const [first, state] = await Promise.all([
         proc.request<{ models: PiModel[] }>({ type: "get_available_models" }),
         proc.request<Record<string, unknown>>({ type: "get_state" }).catch((err: Error) => {
           this.options.log?.(`get_state (defaults) failed: ${err.message}`);
           return null;
         }),
       ]);
+      let data = first;
+      const settleMs = this.options.modelsSettleMs ?? 1500;
+      if (settle && settleMs > 0) {
+        await new Promise((r) => setTimeout(r, settleMs));
+        data = await proc.request<{ models: PiModel[] }>({ type: "get_available_models" }).catch(() => data);
+      }
       const models = data.models.map(translateModel);
       this.modelsCache = { at: Date.now(), models, defaults: translateDefaults(state ?? {}) };
       return models;
@@ -180,18 +201,18 @@ export class PiHarness implements AgentHarness {
 
   /** `pi -p` in the utility folder (or `cwd`); titles build on this (`harness/title.ts`). */
   complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
-    return piOneShot({ piPath: this.command, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, log: this.options.log });
+    return piOneShot({ piPath: this.command, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, env: this.options.env?.(), log: this.options.log });
   }
 
   /** A throwaway `pi -p --mode json` without tools or session (I-140, `side-question.ts`). */
   answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
-    return piSideQuestion({ ...call, piPath: this.command, log: this.options.log });
+    return piSideQuestion({ ...call, piPath: this.command, env: this.options.env?.(), log: this.options.log });
   }
 
   async dispose(): Promise<void> {}
 
   private spawn(cwd: string, args: string[], env?: Record<string, string>): PiRpcProcess {
-    const proc = new PiRpcProcess({ command: this.command, args: ["--mode", "rpc", ...args], cwd, env: piChildEnv(process.env, env) });
+    const proc = new PiRpcProcess({ command: this.command, args: ["--mode", "rpc", ...args], cwd, env: piChildEnv(process.env, { ...this.options.env?.(), ...env }) });
     proc.on("stderr", (text) => this.options.log?.(`[pi ${cwd}] ${text.trimEnd()}`));
     proc.start();
     return proc;

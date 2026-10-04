@@ -2,14 +2,15 @@
  * Settings screen (main pane). The section list lives in the sidebar (SettingsNav); this renders
  * the selected section at `/settings/:section`. The AI pages (host sections) say which device
  * they belong to; another device's are view only (I-155): the panel's controls are disabled
- * (a disabled fieldset) and a note says where to change them.
+ * (a disabled fieldset) and a note says where to change them. Local Models is the exception
+ * (I-196): Load/Unload work on any Mac; only its Server URL field is view only there.
  */
 import { useEffect } from "preact/hooks";
 import { Navigate, useParams } from "react-router";
 import { lastSettings, rememberSettings } from "@/app/lastSettings";
 import { SETTINGS_SECTIONS, routes, type SettingsSection } from "@glade/app-core/app/routes";
 import { FormGroup, FormRow, Titlebar } from "@glade/app-core/ui";
-import { HOST_SECTIONS, SECTION_INFO } from "./sections";
+import { ACTION_SECTIONS, HOST_SECTIONS, SECTION_INFO } from "./sections";
 import { Laptop } from "lucide-preact";
 import { RemoteAccessSettings } from "@/features/environments";
 import { hostDeviceName, hostEnvId, hostReadOnly } from "@glade/app-core/state/host-settings";
@@ -20,6 +21,7 @@ import { ModelSettings } from "./ModelSettings";
 import { AgentSettings } from "./AgentSettings";
 import { CommandSettings } from "./CommandSettings";
 import { PromptSettings } from "./PromptSettings";
+import { LocalModelSettings } from "./LocalModelSettings";
 
 const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   general: GeneralSettings,
@@ -27,6 +29,7 @@ const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   agent: AgentSettings,
   commands: CommandSettings,
   prompts: PromptSettings,
+  "local-models": LocalModelSettings,
   remote: RemoteAccessSettings,
 };
 
@@ -38,7 +41,8 @@ export function SettingsView({ section }: { section: SettingsSection }) {
   const Panel = PANELS[section];
   const host = HOST_SECTIONS.includes(section);
   const envId = host ? (hostEnvId() ?? null) : null;
-  const readOnly = host && hostReadOnly.value;
+  // Local Models (I-196) stays usable on another Mac: its panel disables only its settings field.
+  const readOnly = host && hostReadOnly.value && !ACTION_SECTIONS.includes(section);
   // I-133: remember the page (and a host section's environment) so `/settings` reopens it.
   useEffect(() => rememberSettings(section, envId), [section, envId]);
   return (

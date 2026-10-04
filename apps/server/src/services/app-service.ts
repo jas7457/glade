@@ -68,6 +68,8 @@ import { Workspaces } from "./app/workspaces.js";
 import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
 import { UsageLimitsHub } from "./usage-hub.js";
+import { LocalModelsService } from "./local-models/service.js";
+import { validateLocalModelsPatch } from "./local-models/settings.js";
 import { SyncHub, type SyncOptions } from "./sync/hub.js";
 import { Environment, type EnvironmentOptions } from "./environment.js";
 
@@ -107,6 +109,8 @@ export class AppService {
   readonly sync: SyncHub;
   /** This server as an environment (I-123): id, name, capabilities. */
   readonly environment: Environment;
+  /** Local models on this Mac (I-196): llama-server's models, load/unload. `start()` begins polling. */
+  readonly localModels: LocalModelsService;
 
   constructor(options: AppServiceOptions & { sync?: SyncOptions; environment?: EnvironmentOptions }) {
     const ctx = createAppContext(options);
@@ -125,6 +129,20 @@ export class AppService {
     });
     ctx.usage = usage.enabled ? usage : null;
     ctx.usage?.start();
+    // Local models (I-196): chats using a llama.cpp model count as its users; a load or unload
+    // refreshes the agents' model lists (pi only lists the models llama-server has loaded).
+    this.localModels = new LocalModelsService({
+      url: () => ctx.store.getSettings().localModels.url,
+      broadcast: (m) => ctx.broadcast(m),
+      users: () =>
+        ctx.store
+          .listSessions()
+          .filter((s) => LocalModelsService.isLocalModel(s.model))
+          .map((s) => ({ sessionId: s.id, model: s.model, running: this.records.summarizeSession(s).running })),
+      onLoadedChange: () => void this.listModels(true).catch((err: Error) => options.log?.(`models refresh after a local model change failed: ${err.message}`)),
+      log: options.log,
+      ...options.localModels,
+    });
     ctx.leases = options.registry
       ? new LeaseManager(options.dataDir ?? options.store.dataDir, options.registry, {
           scanMs: options.leaseScanMs,
@@ -160,6 +178,7 @@ export class AppService {
       ctx.leases.start();
     }
     this.leaseSync.recoverInterruptedRuns();
+    this.watchForLocalModels();
 
     this.sync = new SyncHub(
       {
@@ -255,10 +274,15 @@ export class AppService {
       };
     }
     listeners.add(listener);
-    usage?.setClientCount(listeners.size - this.internalListeners.size);
+    const counted = () => {
+      const clients = listeners.size - this.internalListeners.size;
+      usage?.setClientCount(clients);
+      this.localModels.setClientCount(clients);
+    };
+    counted();
     return () => {
       listeners.delete(listener);
-      usage?.setClientCount(listeners.size - this.internalListeners.size);
+      counted();
     };
   }
   private readonly internalListeners = new Set<Listener>();
@@ -271,6 +295,34 @@ export class AppService {
   /** The `usage_limits` message for a newly connected client, or `null` when there are none. */
   usageLimitsMessage(): ServerMessage | null {
     return this.ctx.usage?.message() ?? null;
+  }
+
+  /** The `local_models` message for a newly connected client, or `null` before the first check (I-196). */
+  localModelsMessage(): ServerMessage | null {
+    return this.localModels.message();
+  }
+
+  /** Settings (a new model server URL) and chats (`usedBy`) feed the local models state (I-196). */
+  private watchForLocalModels(): void {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = this.subscribe(
+      (message) => {
+        if (message.type === "settings") this.localModels.urlChanged();
+        else if ((message.type === "session_upsert" || message.type === "session_removed") && !timer && this.localModels.current()?.models.length) {
+          // Coalesced: sessions change often while chats run.
+          timer = setTimeout(() => {
+            timer = null;
+            this.localModels.usersChanged();
+          }, 100);
+          timer.unref?.();
+        }
+      },
+      { internal: true },
+    );
+    this.unwatch.push(() => {
+      off();
+      if (timer) clearTimeout(timer);
+    });
   }
 
   /** Track which sessions are on screen, so finished runs there don't get marked unread. */
@@ -303,6 +355,7 @@ export class AppService {
   }
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
+    validateLocalModelsPatch(patch);
     const settings = this.ctx.store.updateSettings(sanitizeSettingsPatch(patch));
     this.ctx.broadcast({ type: "settings", settings });
     return settings;
@@ -443,8 +496,9 @@ export class AppService {
     return this.sessions.readSessionText(sessionId);
   }
 
+  /** Push `open_chat`; → how many client windows got it (server-side listeners don't count). */
   requestOpenChat(sessionId: string): number {
-    return this.sessions.requestOpenChat(sessionId);
+    return Math.max(0, this.sessions.requestOpenChat(sessionId) - this.internalListeners.size);
   }
 
   createSession(workspaceId: string, req: CreateSessionRequest, how: NewSessionKind = { kind: "main" }): Promise<SessionDetail> {
@@ -615,6 +669,7 @@ export class AppService {
     ctx.leases?.stop();
     for (const off of this.unwatch.splice(0)) off();
     ctx.usage?.stop();
+    this.localModels.stop();
     ctx.agentTimers.clearAll();
     ctx.agents.flush();
     await Promise.all([...ctx.live.keys()].map((id) => this.pool.closeLive(id, { quiet: true })));

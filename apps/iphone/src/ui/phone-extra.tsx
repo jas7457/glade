@@ -86,3 +86,23 @@ export function DeviceMarker({ name, class: className }: { name: string; class?:
     </span>
   );
 }
+
+/**
+ * A list row with wrapping detail lines under the title and a trailing control (a button), e.g. a
+ * local model with its size, status and Load/Unload (I-196). Not tappable itself.
+ */
+export function ActionRow({ title, lines, trailing, testId }: { title: ComponentChildren; lines?: ComponentChildren[]; trailing?: ComponentChildren; testId?: string }) {
+  return (
+    <div data-testid={testId} class="flex min-h-11 w-full items-center gap-3 py-2 pr-2 pl-4 select-none">
+      <div class="min-w-0 flex-1">
+        <div class="break-words">{title}</div>
+        {lines?.filter(Boolean).map((line, i) => (
+          <div key={i} class="mt-0.5 text-[13px] break-words text-fg-muted">
+            {line}
+          </div>
+        ))}
+      </div>
+      {trailing && <div class="flex shrink-0 items-center">{trailing}</div>}
+    </div>
+  );
+}

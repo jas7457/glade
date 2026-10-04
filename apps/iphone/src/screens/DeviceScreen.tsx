@@ -2,7 +2,7 @@
  * One paired Mac in Settings (I-164, doc §5.5): its name, status and address; Rename (this
  * phone's own name for it, I-138), Pair Again when its token was refused, Disconnect (forgets it
  * and its token), and a read-only view of its AI settings (I-155: another device's settings are
- * view-only). `/settings/devices/:envId`.
+ * view-only), and a Local Models row (I-196: load/unload models on it). `/settings/devices/:envId`.
  */
 import { useSignal } from "@preact/signals";
 import { ChevronLeft } from "lucide-preact";
@@ -12,6 +12,7 @@ import { connectionFor } from "@glade/app-core/state/env-registry";
 import { environmentAddress } from "@glade/app-core/state/environments";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { removeSavedEnvironment, savedEnvironments, setEnvironmentAlias } from "@glade/app-core/state/saved-environments";
+import { isUsable, loadedCount, localModelsOf } from "@glade/app-core/state/local-models";
 import { visibleModelsOf } from "@glade/app-core/state/store";
 import { paths } from "~/app/routes";
 import { canRetryMac, macStatusHint, macStatusShort, macStatusTitle, retryMac } from "~/lib/mac-status";
@@ -80,6 +81,12 @@ export function DeviceScreen() {
         {canRetryMac(state) && (
           <ListGroup header={macStatusTitle(state, name)} footer={macStatusHint(state, name)}>
             <ListRow title="Retry" tone="accent" onClick={() => retryMac(envId)} />
+          </ListGroup>
+        )}
+
+        {state === "connected" && (
+          <ListGroup footer={`Load and unload models in ${name}'s llama-server.`}>
+            <ListRow title="Local Models" detail={localModelsDetail(envId)} chevron onClick={() => navigate(paths.localModels(envId))} />
           </ListGroup>
         )}
 
@@ -167,6 +174,15 @@ function AiSettings({ envId, name, allModels, onShowAll }: { envId: string; name
       </ListGroup>
     </>
   );
+}
+
+/** "2 loaded", "Not running", nothing before the Mac said. */
+function localModelsDetail(envId: string): string | undefined {
+  const lm = localModelsOf(envId);
+  if (!lm) return undefined;
+  if (!lm.reachable) return "Not running";
+  if (!isUsable(lm)) return "Not usable";
+  return `${loadedCount(lm)} loaded`;
 }
 
 function capitalize(s: string): string {

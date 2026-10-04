@@ -82,7 +82,8 @@ the model with the next prompt.
   (agent-teams) drive that terminal, and minus the agent identity / server listening config
   (`GLADE_URL`, `GLADE_TOKEN`, `GLADE_PORT`, `GLADE_SERVER_KIND`, …) under both the `GLADE_` and
   the pre-rename `PI_UI_` prefix; the data folder variable is kept. Applies to RPC processes and
-  one-shot `complete` runs.
+  one-shot `complete` runs. Plus `LLAMA_BASE_URL` from `Settings.localModels.url` (I-196) unless
+  the server's env has it.
 - `statSession`/`readSessionText` read session files directly (`session-reader.ts`); `complete` =
   `pi -p --no-session --no-tools --no-skills --no-context-files`; `getUsageLimits` = the Anthropic
   usage client with the token from `~/.pi/agent/auth.json` (`anthropic-auth.ts`).
@@ -375,6 +376,9 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
 | POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
+| GET    | `/local-models[?refresh=1]`   | → `LocalModelsState` (I-196): the local model server's models; `refresh` asks it now, else the cached state (asked on first use) |
+| POST   | `/local-models/load`          | `LoadLocalModelRequest` `{ model, contextLength? }` → `LocalModelsState` (the model now `loading`); 400 bad body, 404 unknown model, 409 already loaded/loading or llama-server's model limit, 502 llama-server failed / isn't running. `contextLength` is validated but ignored (the router's load takes only the model) |
+| POST   | `/local-models/unload`        | `UnloadLocalModelRequest` `{ model }` → `LocalModelsState`; 404 / 409 not loaded / 502 as above. Load/unload are allowed from paired devices (not host-only) |
 
 WebSocket `/ws`: server pushes `ServerMessage`:
 
@@ -386,10 +390,31 @@ WebSocket `/ws`: server pushes `ServerMessage`:
 | `workspace_upsert` | `{ workspace: WorkspaceSummary }`, after every workspace change **and every session change** (rolled-up status) |
 | `workspace_removed` | `{ workspaceId }`, its sessions are gone too (no `session_removed`s) |
 | `project_upsert` / `project_removed`, `settings`, `models`, `usage_limits`, `hello` | as before |
+| `local_models` | `{ state: LocalModelsState }` (I-196), on every change (ignoring `fetchedAt`) and to new connections once known |
 
 Client sends `{ type: "viewing", sessionIds: string[] }` (every session on screen in a visible
 window, replacing the previous list) so runs finishing there aren't marked unread. The web
 reports them with `socket.watch(sessionId)` (counted per view, released on unmount).
+
+### Local models (I-196)
+
+`services/local-models/`: Glade's server manages the model server on its own Mac (localhost
+only); devices use it through the routes above. `backend.ts` is the interface (list/load/unload),
+`llama-server.ts` the first backend: llama.cpp's `llama-server` in router mode (`GET /models`,
+`GET /props`, `POST /models/load|unload`; a single-model server or something else on the URL is an
+`error`, nothing listening is `reachable: false`). Sizes are `meta.size` once loaded, else the GGUF
+file(s) named by `-m`/`--model` in the router's args; `LLAMA_API_KEY` in the server's env is sent
+as a bearer token. `LocalModelsService` (owned by `AppService`, started in `index.ts`) caches the
+state, polls every 2 s while something loads/unloads and every 30 s otherwise, only while a client
+is connected (loads/unloads Glade started are watched until they settle regardless), pushes
+`local_models` on changes, fills `usedBy` from chats whose model is `{ provider: "llama.cpp" }`, and
+re-checks at once when `Settings.localModels.url` changes. When the set of loaded models changes it
+refreshes the agents' model lists (`listModels(true)` → `models` push): pi only lists llama.cpp
+models the router has loaded, and answers from its stored catalog first, so `PiHarness` asks a
+forced refresh twice, 1.5 s apart. pi processes get `LLAMA_BASE_URL` = the setting unless the
+server's env sets it. Glade never unloads or downloads models on its own; note llama-server itself
+unloads its least recently used model when a load would pass `--models-max` (default 4), so the
+setup help recommends `--models-max 0` (no limit, no LRU eviction).
 
 ## Chat status
 
@@ -511,6 +536,8 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   button at all.
 
 ## Decisions
+
+- **Local models (I-196)**: Glade's server talks to the model server on its own Mac only (localhost); devices load/unload through Glade's API over remote access, so the model server is never exposed. llama.cpp's `llama-server` router is the first backend (the user's local-model research (ADR-0006): native in pi, unaffected by LM Studio's M5 bug #2040); LM Studio can be added behind the same backend interface. Glade **never unloads or downloads models on its own** (user decision): only explicit Load/Unload; the setup help recommends `--models-max 0` so llama-server doesn't evict models either.
 
 - **Installing never quits the app** (2026-09-26, I-082, user decision): `pnpm tauri:install`
   builds, copies the bundle to `/Applications/.Glade.app.incoming` and swaps it in with renames;
