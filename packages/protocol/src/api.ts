@@ -325,6 +325,11 @@ export interface Settings {
     /** Also on battery power (Remote Access). */
     whileSharedOnBattery: boolean;
   };
+  /** Local model server on this Mac (I-196, `local-models.ts`). */
+  localModels: {
+    /** llama-server router's base URL. Also passed to pi as `LLAMA_BASE_URL`. */
+    url: string;
+  };
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
@@ -361,6 +366,7 @@ export function defaultSettings(): Settings {
     },
     prompts: [],
     power: { whileWorking: true, whileShared: true, whileSharedOnBattery: false },
+    localModels: { url: "http://127.0.0.1:8080" },
   };
 }
 
@@ -609,6 +615,8 @@ export type ServerMessage = (
   | { type: "pairing_pending"; pending: PendingPairing[] }
   /** Why the Mac is kept awake (I-147), after every change. Local-owner sockets only; not sequenced. */
   | { type: "power"; power: import("./power.js").PowerStatus }
+  /** The local model server's state (I-196), after every change (load/unload progress, models found). Not sequenced. */
+  | { type: "local_models"; state: import("./local-models.js").LocalModelsState }
   /** The Update Now job (I-154), after every change (throttled). Local-owner sockets only; not sequenced. */
   | { type: "update"; update: import("./version.js").UpdateJobStatus }
   // Sequenced sync (I-122) ---------------------------------------------------------------------
