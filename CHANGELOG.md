@@ -241,6 +241,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The project plan (PLAN.md) now describes each request in plain words instead of quoting it, and
+  agents are told to write it that way from now on.
+
 - **Drag chats and folders into any order** in the sidebar, inside a project and in the Chats
   section: mix chats and folders (chat, folder, chat), drag chats into, out of and within folders.
   A see-through copy follows the pointer and a line shows where it will land (a folder lights up and
