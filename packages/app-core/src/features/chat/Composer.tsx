@@ -47,6 +47,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import { useNavigate } from "react-router";
 import { ArrowUp, ClockArrowUp, MessageCircleQuestionMark, Paperclip, Plus, Square, Terminal, TriangleAlert, X } from "lucide-preact";
 import {
+  DEFAULT_AGENT_MODEL_SETTINGS,
   DEFAULT_IMAGE_LIMITS,
   MAX_ATTACHMENT_BYTES,
   activeElsewhereMessage,
@@ -68,7 +69,18 @@ import { loadChatCommands, runAction, useChatSession } from "@glade/app-core/sta
 import { createWorkspace } from "@glade/app-core/state/actions";
 import { attachFilesToText } from "@glade/app-core/state/attachments";
 import { defaultHarnessOf, harnessCapabilities, newChatHarnessFor } from "@glade/app-core/state/harnesses";
-import { envIdOfProject, envIdOfSession, sessionsById, shellOf, visibleModelsOf, workspacesById } from "@glade/app-core/state/store";
+import {
+  agentDefaultsOf,
+  agentModelsOf,
+  defaultHarnessIdOf,
+  envIdOfProject,
+  envIdOfSession,
+  modelsForHarness,
+  sessionsById,
+  shellOf,
+  visibleModelsOf,
+  workspacesById,
+} from "@glade/app-core/state/store";
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { isSlashCommandHidden } from "@glade/app-core/state/slash-visibility";
 import { notify } from "@glade/app-core/state/toasts";
@@ -106,10 +118,10 @@ import { useOptionSheet, type OptionSheetItem, type OptionSheetSection } from ".
 import { agentSheetSection } from "./context-bar/AgentPicker";
 
 // ---------------------------------------------------------------------------------------------
-// Drafts survive switching chats (in memory).
+// Drafts survive switching chats (in memory) and restarts into a new version (drafts.ts, I-197).
 // ---------------------------------------------------------------------------------------------
 
-const drafts = new Map<string, string>();
+import { drafts } from "./drafts";
 
 // ---------------------------------------------------------------------------------------------
 // Presentational composer
@@ -1145,7 +1157,6 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   // I-123: pickers follow the host (the project's environment, or the one chosen for a standalone chat).
   const envId = projectId ? envIdOfProject(projectId) : (chosenEnv ?? undefined);
   const shell = shellOf(envId);
-  const defaults = shell.settings.value.models;
   const [pickedModel, setPickedModel] = useState<ModelRef | null>(null);
   const [pickedLevel, setPickedLevel] = useState<ThinkingLevel | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1162,17 +1173,23 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   const folderCommands = useFolderCommands(projectId, envId, otherHarness);
   const slashCommands = useMemo(() => mergeCommands(NEW_CHAT_COMMANDS, (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))), [folderCommands]);
 
-  // Glade's default model, else ("Default") the harness's own default (I-050), else the first.
+  // I-198: the picked agent's own settings: Glade's default model for that agent, else
+  // ("Default") the agent's own default (I-050), else its first model.
+  const agentId = target?.id ?? defaultHarnessIdOf(shell);
+  const defaults = agentId ? agentModelsOf(shell, agentId) : DEFAULT_AGENT_MODEL_SETTINGS;
+  const agentModels = modelsForHarness(shell.models.value, target?.id);
   const defaultModel = defaults.defaultModel && models.some((m) => sameModel(m, defaults.defaultModel)) ? defaults.defaultModel : null;
-  const harness = shell.harnessDefaults.value;
-  // The host's harness default is the default agent's: not for another agent (it starts on its own default).
-  const harnessModel = !defaultModel && !otherHarness && harness?.model ? harness.model : null;
+  const harness = agentDefaultsOf(target?.id, envId);
+  // Another agent's default only when it's one of its models (an older host answers with the
+  // default agent's whatever agent is asked for).
+  const harnessModel =
+    !defaultModel && harness?.model && (!otherHarness || agentModels.some((m) => sameModel(m, harness.model))) ? harness.model : null;
   const first = models[0];
   // A model picked for another agent doesn't carry over (I-173).
   const picked = pickedModel && models.some((m) => sameModel(m, pickedModel)) ? pickedModel : null;
   const model: ModelRef | null = picked ?? defaultModel ?? harnessModel ?? (first ? { provider: first.provider, id: first.id } : null);
   // The harness's default may be hidden from the picker; still describe it correctly.
-  const info = modelInfo(models, model) ?? modelInfo(shell.models.value, model);
+  const info = modelInfo(models, model) ?? modelInfo(agentModels, model);
   const levels = info?.thinkingLevels ?? ["off"];
   const followsHarness = !picked && harnessModel !== null;
   const defaultLevel = followsHarness ? (harness?.thinkingLevel ?? defaults.defaultThinkingLevel) : defaults.defaultThinkingLevel;

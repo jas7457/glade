@@ -8,11 +8,11 @@
  * `updateHostSettings(patch)` like `updateSettings(patch)`.
  */
 import { computed } from "@preact/signals";
-import type { DeepPartial, Settings } from "@glade/protocol";
+import type { AgentModelSettings, DeepPartial, HarnessDefaults, ModelInfo, QuickTasksModel, Settings } from "@glade/protocol";
 import { updateSettings } from "./actions";
 import { connectionFor, environmentLabel, isLocalEnvironment, primaryEnvironmentId, settingsEnvironmentId } from "./env-registry";
 import { defaultHarnessOf, harnessesOf, loadHarnesses } from "./harnesses";
-import { envIdOf, loadModels, shellOf, sortedProjects, visibleModelsOf } from "./store";
+import { agentDefaultsOf, agentModelsOf, envIdOf, loadModels, modelsForHarness, quickTasksModelOf, shellOf, sortedProjects, visibleModelsOf } from "./store";
 
 /** The environment being edited, `undefined` for the local/primary one (or a disconnected pick). */
 export function hostEnvId(): string | undefined {
@@ -36,6 +36,34 @@ export const hostVisibleModels = computed(() => visibleModelsOf(hostShell()));
 export const hostHarnessDefaults = computed(() => hostShell().harnessDefaults.value);
 export const hostHarnesses = computed(() => harnessesOf(hostEnvId()));
 export const hostDefaultHarness = computed(() => defaultHarnessOf(hostEnvId()));
+/** The Glade-wide quick-tasks model of the edited environment (`null` = automatic; I-198). */
+export const hostQuickTasks = computed<QuickTasksModel | null>(() => quickTasksModelOf(hostShell()));
+
+/** Agent `harness`'s model settings on the edited environment (I-198). */
+export function hostAgentModels(harness: string): AgentModelSettings {
+  return agentModelsOf(hostShell(), harness);
+}
+
+/** Every model agent `harness` lists on the edited environment (hidden ones too). */
+export function hostModelsFor(harness: string): ModelInfo[] {
+  return modelsForHarness(hostShell().models.value, harness);
+}
+
+/** Agent `harness`'s models shown in pickers on the edited environment (its hidden ones filtered out). */
+export function hostVisibleModelsFor(harness: string): ModelInfo[] {
+  return visibleModelsOf(hostShell(), harness);
+}
+
+/** Agent `harness`'s own default model/thinking on the edited environment (what "Default" means). */
+export function hostAgentDefaults(harness: string): HarnessDefaults | null {
+  return agentDefaultsOf(harness, hostEnvId());
+}
+
+/** Change agent `harness`'s model settings on the edited environment (I-198). */
+export function updateHostAgentModels(harness: string, patch: Partial<AgentModelSettings>): Promise<boolean> {
+  return updateHostSettings({ models: { agents: { [harness]: patch } } });
+}
+
 /** Projects of the edited environment (project-scoped prompts and commands). */
 export const hostProjects = computed(() => {
   const env = hostEnvId() ?? primaryEnvironmentId();

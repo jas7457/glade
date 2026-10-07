@@ -1,4 +1,7 @@
-/** Settings → Agents (I-155, I-159, I-173): pi and Claude Code with found/not found and Enable; no install advice; models by agent. */
+/**
+ * Settings → Agents (I-155, I-159, I-173, I-198): pi and Claude Code with found/not found and
+ * Enable; no install advice; each agent's own page with only its models; the quick-tasks model.
+ */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -30,7 +33,7 @@ import { ConfirmHost, TooltipProvider } from "@glade/app-core/ui";
 import { models, settings } from "@glade/app-core/state/store";
 import { harnesses } from "@glade/app-core/state/harnesses";
 import { agentCatalogs } from "@glade/app-core/state/agent-catalog";
-import { SettingsRoute } from "./SettingsView";
+import { SettingsAgentRoute, SettingsRoute } from "./SettingsView";
 import { groupModelsByAgent } from "./ModelSettings";
 import { fallbackCatalog } from "./AgentSettings";
 
@@ -45,6 +48,7 @@ function renderAt(section: string) {
       <MemoryRouter initialEntries={[`/settings/${section}`]}>
         <Routes>
           <Route path="/settings/:section" element={<SettingsRoute />} />
+          <Route path="/settings/agent/:harness" element={<SettingsAgentRoute />} />
         </Routes>
       </MemoryRouter>
       <ConfirmHost />
@@ -52,7 +56,8 @@ function renderAt(section: string) {
   );
 }
 
-const card = (name: string) => screen.getByRole("heading", { level: 2, name }).closest("section") as HTMLElement;
+/** An agent's row on the Agents page. */
+const card = (name: string) => screen.getByRole("button", { name }).parentElement as HTMLElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -74,9 +79,10 @@ describe("Agents page", () => {
 
   it("lists pi and Claude Code only, without install advice or custom ACP agents (I-159)", async () => {
     renderAt("agent");
-    await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Claude Code" })).toBeTruthy());
     expect(request).toHaveBeenCalledWith("GET", "/agent-catalog");
-    expect([...document.querySelectorAll("h2")].map((h) => h.textContent)).toEqual(["pi", "Claude Code"]);
+    const agents = screen.getByRole("heading", { level: 2, name: "Agents" }).closest("section")!;
+    expect(within(agents).getAllByRole("switch").map((s) => s.getAttribute("aria-label"))).toEqual(["Enable pi", "Enable Claude Code"]);
 
     const pi = card("pi");
     expect(pi.textContent).toContain("Installed, used for new chats");
@@ -91,7 +97,7 @@ describe("Agents page", () => {
 
   it("a CLI that isn't found: the switch is off and disabled, and says what it looked for (I-159)", async () => {
     renderAt("agent");
-    await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Claude Code" })).toBeTruthy());
     const claude = card("Claude Code");
     const toggle = within(claude).getByRole("switch", { name: "Enable Claude Code" }) as HTMLButtonElement;
     expect(toggle.getAttribute("aria-checked")).toBe("false"); // stored preference is on, but it isn't found
@@ -119,7 +125,7 @@ describe("Agents page", () => {
   });
 });
 
-describe("Models page (I-155)", () => {
+describe("models per agent (I-155, I-198)", () => {
   const model = (provider: string, id: string, harness?: string): ModelInfo => ({ provider, id, name: id.toUpperCase(), thinkingLevels: ["off"], input: ["text"], harness });
 
   it("groups models by agent, then provider", () => {
@@ -133,11 +139,37 @@ describe("Models page (I-155)", () => {
     expect(claude.map(([g]) => g)).toEqual(["Claude Code", "pi · openai"]);
   });
 
-  it("shows the agent groups and the agents that choose their own model", () => {
-    models.value = [model("anthropic", "haiku", "pi")];
-    renderAt("models");
-    expect(screen.getByText("pi · anthropic")).toBeTruthy();
-    const own = screen.getByText("Mine").parentElement!;
-    expect(own.textContent).toContain("Chooses its own model");
+  it("an agent's page lists only its models; hiding one there doesn't hide the other agent's (I-198)", async () => {
+    catalog = [CATALOG[0]!, { ...CATALOG[1]!, installed: true, offered: true }];
+    harnesses.value = [PI, { id: "claude", label: "Claude Code", isDefault: false, capabilities: CAPS }];
+    models.value = [model("anthropic", "opus", "pi"), model("openai", "gpt", "pi"), model("anthropic", "opus", "claude"), model("anthropic", "sonnet", "claude")];
+    renderAt("agent/claude");
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Claude Code" })).toBeTruthy());
+    expect(screen.getByRole("switch", { name: "Show SONNET" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Show GPT" })).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Show OPUS" }));
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { agents: { claude: { hiddenModels: ["anthropic/opus"] } } } });
+    expect(settings.value.models.agents.pi).toBeUndefined();
+  });
+
+  it("an agent that chooses its own model has no model settings", async () => {
+    catalog = [...CATALOG, { id: "acp-mine", label: "Mine", kind: "known", command: "mine-acp", lookedFor: ["mine-acp"], installed: true, enabled: true, offered: true, isDefault: false }];
+    renderAt("agent/acp-mine");
+    await waitFor(() => expect(screen.getByText("Mine chooses its own model.")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Default model" })).toBeNull();
+  });
+
+  it("the quick-tasks model is picked as agent + model, only agents that can run quick tasks (I-198)", async () => {
+    harnesses.value = [{ ...PI, capabilities: { ...CAPS, quickTasks: true } }, { id: "claude", label: "Claude Code", isDefault: false, capabilities: CAPS }];
+    models.value = [model("anthropic", "claude-haiku-4-5", "pi"), model("anthropic", "sonnet", "claude")];
+    renderAt("agent");
+    const trigger = screen.getByRole("button", { name: "Quick tasks model" });
+    expect(trigger.textContent).toContain("Automatic (pi · CLAUDE-HAIKU-4-5)");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const item = await screen.findByRole("menuitemradio", { name: "CLAUDE-HAIKU-4-5" });
+    // Claude Code can't run quick tasks here: its models aren't offered.
+    expect(screen.queryByRole("menuitemradio", { name: "SONNET" })).toBeNull();
+    fireEvent.click(item);
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { quickTasks: { harness: "pi", model: { provider: "anthropic", id: "claude-haiku-4-5" } } } });
   });
 });

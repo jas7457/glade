@@ -10,6 +10,8 @@ import { routes } from "@glade/app-core/app/routes";
 import { cn } from "@glade/app-core/lib/cn";
 import { SidebarGroup, SidebarItem, SidebarList, StatusDot, sidebarClass } from "@glade/app-core/ui";
 import { updateAvailable } from "@glade/app-core/state/version";
+import { agentsBehind } from "@glade/app-core/state/agent-versions";
+import { hostEnvId } from "@glade/app-core/state/host-settings";
 import { SettingsDeviceSwitcher } from "@/features/environments";
 import { HOST_SECTIONS, SECTION_INFO, SETTINGS_GROUPS } from "./sections";
 
@@ -38,8 +40,13 @@ export function SettingsNav() {
                   key={section}
                   icon={<Icon />}
                   label={label}
-                  badge={section === "general" && updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
-                  selected={pathname === routes.settings(section)}
+                  badge={
+                    (section === "general" && updateAvailable.value) || (section === "agent" && agentsBehind(hostEnvId()).value > 0) ? (
+                      <StatusDot tone="info" label="Update available" />
+                    ) : undefined
+                  }
+                  // An agent's page (I-198) is under Agents.
+                  selected={pathname === routes.settings(section) || pathname.startsWith(`${routes.settings(section)}/`)}
                   onSelect={() => navigate(routes.settings(section))}
                 />
               );

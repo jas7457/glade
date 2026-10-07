@@ -35,6 +35,7 @@ export { SidebarGroup, SidebarList, type SidebarGroupProps, type SidebarListProp
 export { SIDEBAR_METRICS, sidebarClass, type SidebarIndent } from "./sidebar-metrics";
 export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./StatusIndicator";
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
+export { FormLinkRow, type FormLinkRowProps } from "./FormLinkRow";
 export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";
 export { SearchPopover, matchesQuery, type SearchPopoverProps, type SearchPopoverItem, type SearchPopoverSection } from "./SearchPopover";
 export { CommandPalette, type CommandPaletteProps, type CommandPaletteItem, type CommandPaletteSection } from "./CommandPalette";

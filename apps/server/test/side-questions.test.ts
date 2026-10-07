@@ -122,11 +122,11 @@ describe("side question endpoints (FakeHarness)", () => {
 
   it("uses the Side questions model when the harness lists it, else the chat's", async () => {
     const sid = await newSession();
-    env.store.updateSettings({ models: { sideQuestionModel: { provider: "fake", id: "fast" } } });
+    env.store.updateSettings({ models: { agents: { fake: { sideQuestionModel: { provider: "fake", id: "fast" } } } } });
     await ask(sid, "q1");
     await until(ended(sid));
     expect(env.harness.sideQuestions[0]!.model).toEqual({ provider: "fake", id: "fast" });
-    env.store.updateSettings({ models: { sideQuestionModel: { provider: "gone", id: "x" } } });
+    env.store.updateSettings({ models: { agents: { fake: { sideQuestionModel: { provider: "gone", id: "x" } } } } });
     await ask(sid, "q2");
     await until(() => sideEvents(sid).filter((e) => e.type === "side_end").length === 2);
     expect(env.harness.sideQuestions[1]!.model).toEqual({ provider: "fake", id: "smart" });

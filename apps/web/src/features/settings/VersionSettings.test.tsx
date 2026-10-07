@@ -42,14 +42,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("General → Glade", () => {
-  it("shows the build, local changes, the update command and the quit hint", async () => {
+  it("shows the build, local changes, the update command and the restart hint", async () => {
     server.status = status({ state: "up-to-date", checkedAt: at });
     renderAbout();
     await waitFor(() => expect(screen.getByTestId("build-line").textContent).toMatch(/^Built from 1f00e8a on /));
     expect(screen.getByText(/With local changes/)).toBeTruthy();
     expect(screen.getByTestId("version-status").textContent).toBe("Up to date");
     expect(screen.getByTestId("update-command").textContent).toBe("git pull && pnpm install && pnpm tauri:install");
-    expect(screen.getByText(/quit Glade completely \(from the menu bar: Quit Glade Completely\)/)).toBeTruthy();
+    expect(screen.getByText(/restarts into the new version on its own/)).toBeTruthy();
   });
 
   it.each<[VersionStatus["check"], string]>([

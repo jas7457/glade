@@ -38,6 +38,11 @@ export interface HarnessCapabilities {
    * Absent = false.
    */
   permissionModes?: boolean;
+  /**
+   * I-198: can run Glade's quick tasks (titles, summaries, search, commit messages) as one-shot
+   * completions, so it can be picked as the quick-tasks agent. Absent = false.
+   */
+  quickTasks?: boolean;
 }
 
 export interface HarnessInfo {

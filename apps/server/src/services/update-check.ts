@@ -10,6 +10,10 @@
  *
  * Runs at startup, every few hours and on demand (`POST /api/version/check`). Also compares
  * another device's build with ours for Connections ({@link UpdateChecker.compare}).
+ *
+ * I-197: the status also says when a newer build was installed into this app's bundle
+ * (`installed`, from services/installed-build.ts); {@link UpdateChecker.onChange} fires after
+ * every finished check (the server pushes the status as `version`).
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -46,6 +50,8 @@ const SHA = /^[0-9a-f]{7,40}$/;
 export interface UpdateCheckerOptions {
   /** This server's build (services/build-info.ts). */
   build: () => BuildInfo | null;
+  /** A different build installed into this app's bundle (I-197), when known. */
+  installed?: () => BuildInfo | null;
   git?: GitRun;
   /** Whether a path exists (tests). */
   exists?: (path: string) => boolean;
@@ -63,6 +69,7 @@ export class UpdateChecker {
   private running: Promise<VersionStatus> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly compared = new Map<string, BuildComparison>();
+  private readonly listeners = new Set<(status: VersionStatus) => void>();
 
   constructor(private readonly options: UpdateCheckerOptions) {
     this.git = options.git ?? runGit;
@@ -71,7 +78,14 @@ export class UpdateChecker {
   }
 
   status(): VersionStatus {
-    return { build: this.options.build(), check: this.last, checking: this.running !== null };
+    const installed = this.options.installed?.() ?? null;
+    return { build: this.options.build(), check: this.last, checking: this.running !== null, ...(installed ? { installed } : {}) };
+  }
+
+  /** After every finished check. Returns an unsubscribe function. */
+  onChange(listener: (status: VersionStatus) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** Check now and at every interval (the timer doesn't keep the process alive). */
@@ -85,6 +99,7 @@ export class UpdateChecker {
   dispose(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.listeners.clear();
   }
 
   /** Runs a check (joins one in progress) and answers with the new status. */
@@ -96,7 +111,11 @@ export class UpdateChecker {
       .finally(() => {
         this.running = null;
       })
-      .then(() => this.status());
+      .then(() => {
+        const status = this.status();
+        for (const listener of this.listeners) listener(status);
+        return status;
+      });
     return this.running;
   }
 

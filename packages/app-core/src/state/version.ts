@@ -4,11 +4,15 @@
  * the top of Settings → General (I-160) and as a quiet dot on the sidebar's Settings row. Also compares other
  * devices' builds with ours for Connections.
  *
+ * I-197: the server also pushes its status as `version` (a check finished, or a newer build was
+ * installed into the Mac app's bundle: `installed`), followed by {@link startVersionSync}.
+ *
  * Portable client core (F-022): the text helpers are pure.
  */
 import { computed, signal } from "@preact/signals";
-import type { BuildComparison, BuildInfo, VersionStatus } from "@glade/protocol";
+import type { BuildComparison, BuildInfo, ServerMessage, VersionStatus } from "@glade/protocol";
 import { request } from "@glade/app-core/lib/api";
+import { socket as localSocket, type Socket } from "@glade/app-core/lib/socket";
 
 /** The local server's status; null until loaded (or on servers from before I-149). */
 export const versionStatus = signal<VersionStatus | null>(null);
@@ -56,13 +60,28 @@ export async function checkVersionNow(): Promise<void> {
   }
 }
 
-/** The server checks every 4 h; the page picks up its result now and then. */
+/** Applies the local server's `version` push (I-197). */
+export function receiveVersionMessage(message: ServerMessage): void {
+  if (message.type === "batch") {
+    for (const m of message.messages) receiveVersionMessage(m);
+    return;
+  }
+  if (message.type === "version" && isVersionStatus(message.version)) {
+    versionStatus.value = message.version;
+    versionError.value = null;
+  }
+}
+
+/** The server checks every 4 h; the page picks up its result now and then (and every push). */
 const REFRESH_MS = 30 * 60 * 1000;
 let started = false;
 
-export function startVersionSync(): void {
+export function startVersionSync(socket: Socket = localSocket): void {
   if (started) return;
   started = true;
+  socket.onMessage(receiveVersionMessage);
+  // Catch up on what was pushed while disconnected (e.g. an install during a reconnect).
+  socket.onReconnect(() => void loadVersion());
   // Give the server's startup check a moment (it runs `git ls-remote`).
   setTimeout(() => void loadVersion(), 1000);
   setTimeout(() => void loadVersion(), 30_000);

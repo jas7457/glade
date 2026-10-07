@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
-import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
+import { MemoryRouter, Route, RouterProvider, Routes, createMemoryRouter } from "react-router";
 
 vi.mock("@glade/app-core/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@glade/app-core/lib/api")>();
@@ -25,7 +25,7 @@ vi.mock("@glade/app-core/lib/api-folder", () => ({
   searchFiles: vi.fn(async () => ({ entries: [], truncated: false })),
   getHarnessDefaults: vi.fn(async () => ({ model: null, thinkingLevel: null })),
 }));
-vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}) } }));
+vi.mock("@glade/app-core/lib/socket", () => ({ socket: { send: vi.fn(), watch: vi.fn(() => () => {}), onMessage: vi.fn(() => () => {}) } }));
 vi.mock("@/features/workspace", () => ({
   WorkspaceView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
 }));
@@ -41,7 +41,7 @@ import { restorableRoute } from "@/app/lastRoute";
 import { chatPath, parseEnvPath, routes } from "@glade/app-core/app/routes";
 import { routeContext } from "@/app/paths";
 import { resetClientOrders } from "@glade/app-core/state/env-order";
-import { newChatHarness } from "@glade/app-core/state/harnesses";
+import { harnesses, newChatHarness } from "@glade/app-core/state/harnesses";
 import { models, projects, projectsById, sessions, workspaces, workspacesById } from "@glade/app-core/state/store";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { fakeEnv, makeModel, resetEnvironmentsForTest, useEnvironments } from "@glade/app-core/test/env-fixtures";
@@ -221,18 +221,21 @@ describe("pickers follow the host", () => {
 });
 
 describe("settings", () => {
-  it("host sections show the device picked in the sidebar switcher; another device's are view only (I-155)", async () => {
+  it("host sections show the device picked in the sidebar switcher; another device's are view only (I-155, I-198)", async () => {
     const { b } = seedTwoEnvironments();
+    harnesses.value = [harness("fake", "Fake agent", true)];
     const updateSettings = vi.fn(async (patch: object) => ({ ...b.shell.settings.value, ...patch }));
     (b.api as unknown as { updateSettings: unknown }).updateSettings = updateSettings;
-    const { SettingsView, SettingsNav } = await import("@/features/settings");
+    const { SettingsAgentRoute, SettingsNav } = await import("@/features/settings");
     const { settingsEnvironmentId } = await import("@glade/app-core/state/env-registry");
     settingsEnvironmentId.value = "B";
     render(
       <TooltipProvider>
-        <MemoryRouter initialEntries={["/settings/models"]}>
+        <MemoryRouter initialEntries={["/settings/agent/fake"]}>
           <SettingsNav />
-          <SettingsView section="models" />
+          <Routes>
+            <Route path="/settings/agent/:harness" element={<SettingsAgentRoute />} />
+          </Routes>
         </MemoryRouter>
       </TooltipProvider>,
     );
@@ -242,13 +245,16 @@ describe("settings", () => {
     expect(switcher.textContent).toContain("Studio");
     expect(within(screen.getByRole("group", { name: "App" })).queryByRole("button", { name: "Settings for device" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Settings for device" })).toHaveLength(1);
-    // B's models, not the local ones, under B's name, view only.
+    // B's agent page renders: B's models, not the local ones, under B's name; settings view only.
+    expect(screen.getByRole("heading", { level: 1, name: "Fake agent" })).toBeTruthy();
     expect(screen.getByLabelText("Device").textContent).toContain("Studio");
-    expect(screen.getByRole("note").textContent).toContain("View only. Change this on Studio.");
+    expect(screen.getByRole("note").textContent).toContain("View only. Change these settings on Studio");
     expect(screen.getByText("Only On B")).toBeTruthy();
     expect(screen.queryByText("Only On A")).toBeNull();
     const toggle = screen.getByRole("switch", { name: "Show Only On B" });
     expect(toggle.closest("fieldset")?.disabled).toBe(true);
+    // The Version group isn't view only there (Check/Update work on another Mac).
+    expect(screen.getByRole("heading", { level: 2, name: "Version" }).closest("fieldset")?.disabled ?? false).toBe(false);
     // The page's own device is "This Mac" and editable.
     settingsEnvironmentId.value = null;
     await waitFor(() => expect(switcher.textContent).toContain("This Mac"));
@@ -257,6 +263,7 @@ describe("settings", () => {
     expect(screen.getByText("Only On A")).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Show Only On A" }).closest("fieldset")?.disabled).toBe(false);
     expect(updateSettings).not.toHaveBeenCalled();
+    harnesses.value = null;
   });
 
   it("a refused write from another device says where to change it (I-155)", async () => {
@@ -266,7 +273,7 @@ describe("settings", () => {
     const { updateSettings } = await import("@glade/app-core/state/actions");
     const { toasts } = await import("@glade/app-core/state/toasts");
     const before = b.shell.settings.value;
-    expect(await updateSettings({ models: { hiddenModels: ["x/y"] } }, "B")).toBe(false);
+    expect(await updateSettings({ models: { agents: { fake: { hiddenModels: ["x/y"] } } } }, "B")).toBe(false);
     expect(b.shell.settings.value).toBe(before);
     expect(toasts.value.at(-1)?.message).toBe("View only. Change this on Studio.");
   });

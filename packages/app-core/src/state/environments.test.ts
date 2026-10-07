@@ -140,10 +140,10 @@ describe("merged stores", () => {
   it("keeps each environment's settings apart", () => {
     const b = fakeEnv({ id: "B" });
     useEnvironments(b);
-    const hidden = { ...defaultSettings(), models: { ...defaultSettings().models, hiddenModels: ["x/y"] } };
+    const hidden = { ...defaultSettings(), models: { ...defaultSettings().models, agents: { pi: { hiddenModels: ["x/y"] } } } };
     store.applyShellSnapshot({ projects: [], workspaces: [], sessions: [], settings: hidden }, "B");
-    expect(b.shell.settings.value.models.hiddenModels).toEqual(["x/y"]);
-    expect(store.settings.value.models.hiddenModels).toEqual([]);
+    expect(b.shell.settings.value.models.agents.pi?.hiddenModels).toEqual(["x/y"]);
+    expect(store.settings.value.models.agents).toEqual({});
   });
 });
 

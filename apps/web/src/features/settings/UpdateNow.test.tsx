@@ -30,7 +30,7 @@ vi.mock("@glade/app-core/lib/desktop", async (importOriginal) => {
 import { TooltipProvider } from "@glade/app-core/ui";
 import { sessions } from "@glade/app-core/state/store";
 import { versionStatus } from "@glade/app-core/state/version";
-import { busyLocalChats, cancelRestartWait, restartChoice, restartWaiting, restartWhenIdle, updateJob, whenIdle } from "@/state/update";
+import { busyLocalChats, restartChoice, restartWaiting, restartWhenIdle, resetAutoRestart, updateJob, whenIdle } from "@/state/update";
 import { VersionSettings } from "./VersionSettings";
 
 const at = "2026-09-27T12:00:00.000Z";
@@ -67,7 +67,7 @@ beforeEach(() => {
   versionStatus.value = null;
   updateJob.value = null;
   sessions.value = [];
-  cancelRestartWait();
+  resetAutoRestart();
   server.version = VERSION;
   server.afterStart = null;
   server.calls = [];
@@ -177,13 +177,13 @@ describe("Restart Glade to finish", () => {
     await waitFor(() => expect(shell.relaunch).toHaveBeenCalledTimes(1));
   });
 
-  it("Don't Wait stops waiting", async () => {
+  it("Cancel stops waiting", async () => {
     server.job = job("installed", ["done", "done", "done"]);
     sessions.value = [session("a", "working")];
     renderAbout();
     fireEvent.click(await screen.findByRole("button", { name: "Restart Glade" }));
     fireEvent.click(screen.getByRole("button", { name: "Restart When Chats Finish" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Don't Wait" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     sessions.value = [];
     await new Promise((r) => setTimeout(r, 10));
     expect(shell.relaunch).not.toHaveBeenCalled();

@@ -223,6 +223,11 @@ export interface AgentHarness {
    * connected, at most every 15 s): for harnesses where reading them is costly.
    */
   readonly usageLimitsPolling?: { intervalMs?: number; minIntervalMs?: number };
+  /**
+   * The agent's CLI was updated (I-198): drop long-lived processes/caches so the next use runs the
+   * new version (Codex's shared app-server). Harnesses that start a process per chat don't need it.
+   */
+  reload?(): void;
   dispose(): Promise<void>;
 }
 

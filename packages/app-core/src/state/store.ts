@@ -9,14 +9,18 @@
  * environment's shell (`localShell`). Everything that applies server data takes the environment
  * it came from.
  */
-import { computed, signal } from "@preact/signals";
+import { computed, signal, type Signal } from "@preact/signals";
 import {
   activeMainSessionId,
   defaultSettings,
   mainSessionsOf,
   type Folder,
+  agentModelSettings,
+  quickTasksModel,
+  type AgentModelSettings,
   type HarnessDefaults,
   type ModelInfo,
+  type QuickTasksModel,
   type Project,
   type ServerMessage,
   type SessionSummary,
@@ -68,10 +72,85 @@ export function modelsForHarness(models: ModelInfo[], harness?: string | null): 
   return id ? models.filter((m) => !m.harness || m.harness === id) : models;
 }
 
-/** Models of a shell shown in pickers for `harness` (see {@link modelsForHarness}), hidden ones filtered out. */
+/**
+ * The id of a shell's default agent (I-198: the owner of an older server's global model settings,
+ * see `agentModelSettings`): the harness list's default, else the `agent.defaultHarness` setting,
+ * else the first listed model's agent. `null` before anything says.
+ */
+export function defaultHarnessIdOf(shell: EnvShell): string | null {
+  const list = shell.harnesses?.value;
+  return list?.find((h) => h.isDefault)?.id ?? list?.[0]?.id ?? shell.settings.value.agent?.defaultHarness ?? shell.models.value[0]?.harness ?? null;
+}
+
+/** Agent `harness`'s model settings on a shell (defaults filled in; I-198). */
+export function agentModelsOf(shell: EnvShell, harness: string): AgentModelSettings {
+  return agentModelSettings(shell.settings.value, harness, defaultHarnessIdOf(shell));
+}
+
+/** The Glade-wide quick-tasks model of a shell (`null` = automatic; I-198). */
+export function quickTasksModelOf(shell: EnvShell): QuickTasksModel | null {
+  return quickTasksModel(shell.settings.value, defaultHarnessIdOf(shell));
+}
+
+/**
+ * Models of a shell shown in pickers for `harness` (see {@link modelsForHarness}), that agent's
+ * hidden ones filtered out (I-198: hiding is per agent).
+ */
 export function visibleModelsOf(shell: EnvShell, harness?: string | null): ModelInfo[] {
-  const hidden = new Set(shell.settings.value.models.hiddenModels);
-  return modelsForHarness(shell.models.value, harness).filter((m) => !hidden.has(`${m.provider}/${m.id}`));
+  const list = modelsForHarness(shell.models.value, harness);
+  const id = harness ?? shell.models.value[0]?.harness ?? defaultHarnessIdOf(shell);
+  if (!id) return list;
+  const hidden = new Set(agentModelsOf(shell, id).hiddenModels);
+  return list.filter((m) => !hidden.has(`${m.provider}/${m.id}`));
+}
+
+/**
+ * Each agent's own defaults (`GET /api/models/default?harness=`, I-198), per shell. The default
+ * agent's are the shell's `harnessDefaults` (loaded with the models).
+ */
+let agentDefaults = new WeakMap<EnvShell, Map<string, Signal<HarnessDefaults | null>>>();
+const agentDefaultsLoading = new Set<Signal<HarnessDefaults | null>>();
+
+function agentDefaultsSignal(shell: EnvShell, harness: string): Signal<HarnessDefaults | null> {
+  let map = agentDefaults.get(shell);
+  if (!map) agentDefaults.set(shell, (map = new Map()));
+  let s = map.get(harness);
+  if (!s) map.set(harness, (s = signal<HarnessDefaults | null>(null)));
+  return s;
+}
+
+/**
+ * Agent `harness`'s own default model + thinking level on an environment (what its "Default"
+ * means), `null` until known. Reading it starts loading it once (`loadAgentDefaults`).
+ */
+export function agentDefaultsOf(harness: string | null | undefined, envId?: string | null): HarnessDefaults | null {
+  const shell = shellOf(envId);
+  if (!harness || harness === defaultHarnessIdOf(shell)) return shell.harnessDefaults.value;
+  const s = agentDefaultsSignal(shell, harness);
+  if (s.peek() === null && !agentDefaultsLoading.has(s)) void loadAgentDefaults(harness, envId);
+  return s.value;
+}
+
+/** Forget every agent's loaded defaults (tests). */
+export function resetAgentDefaults(): void {
+  agentDefaults = new WeakMap();
+}
+
+/** Load (or with `refresh`, re-read) agent `harness`'s own defaults on an environment. */
+export async function loadAgentDefaults(harness: string, envId?: string | null, refresh = false): Promise<void> {
+  const conn = clientOf(envId);
+  const shell = conn?.shell ?? localShell;
+  const s = agentDefaultsSignal(shell, harness);
+  if (agentDefaultsLoading.has(s)) return;
+  agentDefaultsLoading.add(s);
+  try {
+    s.value = await getHarnessDefaults(refresh, conn?.request, harness);
+  } catch {
+    // Not fatal: "Default" then names no model (and isn't asked again on every render).
+    if (s.peek() === null) s.value = { model: null, thinkingLevel: null };
+  } finally {
+    agentDefaultsLoading.delete(s);
+  }
 }
 
 /** Models shown in pickers (hidden ones filtered out), local environment. */
@@ -277,6 +356,8 @@ export async function loadModels(refresh = false, envId?: string): Promise<void>
       /* not fatal: "Default" then falls back to the first model */
     },
   );
+  // Other agents' defaults already asked for (I-198) are re-read with a refresh too.
+  if (refresh) for (const harness of agentDefaults.get(shell)?.keys() ?? []) void loadAgentDefaults(harness, envId, true);
   try {
     shell.models.value = await (conn?.api ?? api).listModels(refresh);
   } catch (err) {

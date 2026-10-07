@@ -27,3 +27,4 @@ export * from "./power.js";
 export * from "./folders.js";
 export * from "./terminal.js";
 export * from "./local-models.js";
+export * from "./agent-versions.js";

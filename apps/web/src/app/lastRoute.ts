@@ -33,6 +33,7 @@ export function restorableRoute(stored: string | null, data: RouteData): string 
   if (chat) return data.workspacesById.has(chat.params.chatId!) ? stored : null;
   const project = matchPath("/projects/:projectId", pathname);
   if (project) return data.projectsById.has(project.params.projectId!) ? stored : null;
+  if (matchPath("/settings/agent/:harness", pathname)) return stored;
   const settings = matchPath("/settings/:section", pathname);
   if (settings) return (SETTINGS_SECTIONS as readonly string[]).includes(settings.params.section!) ? stored : null;
   return null;

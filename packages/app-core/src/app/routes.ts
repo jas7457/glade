@@ -40,10 +40,13 @@ export const routes = {
     withTab(`${envPrefix(envId)}/projects/${projectId}/chats/${workspaceId}`, tab),
   /** A settings section; without one, `/settings` reopens the last section you had open (I-133). */
   settings: (section?: SettingsSection) => (section ? `/settings/${section}` : "/settings"),
+  /** One agent's page under Settings → Agents (I-198): its version, defaults and models. */
+  settingsAgent: (harnessId: string) => `/settings/agent/${encodeURIComponent(harnessId)}`,
 };
 
 // `about` and `appearance` were folded into General (I-160, I-161); their old links open General.
-export const SETTINGS_SECTIONS = ["general", "models", "agent", "commands", "prompts", "local-models", "remote"] as const;
+// `models` was folded into Agents (I-198): `/settings/models` opens Agents.
+export const SETTINGS_SECTIONS = ["general", "agent", "commands", "prompts", "local-models", "remote"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**

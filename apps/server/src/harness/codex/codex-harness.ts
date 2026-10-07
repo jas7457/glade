@@ -168,6 +168,11 @@ export class CodexHarness implements AgentHarness {
     return limits ? codexUsageLimits(limits) : null;
   }
 
+  /** After `codex update` (I-198): use the new binary from the next start on. */
+  reload(): void {
+    this.server.reload();
+  }
+
   async dispose(): Promise<void> {
     await this.server.dispose();
   }

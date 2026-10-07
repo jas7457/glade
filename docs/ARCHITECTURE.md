@@ -41,7 +41,7 @@ AppService never see harness-native data.
 Harnesses are registered in a `HarnessRegistry` (`harness/registry.ts`) in `src/index.ts`. Each
 session runs in the harness that created it (`Session.harness`); a chat whose harness isn't
 installed returns a clear 409. New chats and app-level things (models, folder commands, defaults,
-usage limits, search's fast model) use the default harness: the `agent.defaultHarness` setting when
+usage limits) use the default harness (quick tasks: the quick-tasks agent when set, I-198): the `agent.defaultHarness` setting when
 installed, else the first registered. Sub-agents run in their parent's harness.
 `GET /api/harnesses` lists `HarnessInfo` (default first); the web (`state/harnesses.ts`) hides
 controls for missing capabilities and uses the harness label in copy. Shared helpers:
@@ -140,10 +140,23 @@ listed (callers pass a project id, never a path).
 
 ## Default model (I-050)
 
-Glade's "Default" model setting (`settings.models.defaultModel = null`) means the **harness's**
-default: `GET /api/models/default` → `HarnessDefaults` (pi: `get_state` of the model-listing
+Glade's "Default" model setting (an agent's `defaultModel = null`, I-198) means the **harness's**
+default: `GET /api/models/default[?harness=<id>]` → `HarnessDefaults` (pi: `get_state` of the model-listing
 utility process, cached with the model list; `?refresh=1` refreshes both). The new-chat composer
 preselects it (and its thinking level) and sends `model: null`, so pi applies its own settings.
+
+## Model settings per agent (I-198)
+
+Every agent has its own model list, ids and thinking levels, so model settings are per agent:
+`settings.models.agents.<harnessId>` (`AgentModelSettings`: default model + thinking for new chats,
+sub-agent model + thinking, side-question model, hidden models), read through
+`agentModelSettings()` (defaults filled in; an older server's global fields read as its default
+agent's). A new chat, its sub-agents and side questions only ever use their own agent's settings.
+One Glade-wide `settings.models.quickTasks` (agent + model, `null` = automatic) runs titles, `/name`,
+summaries, search and commit messages for chats of every agent; agents that can do it say so with
+`capabilities.quickTasks`. Stored pre-I-198 settings are migrated to the default agent's entry
+(`smallModel` → `quickTasks`). Settings → Agents has one page per agent (version + Update, defaults,
+models); the global Models page was folded into it.
 
 ## Workspaces and sessions (I-035)
 
@@ -188,7 +201,7 @@ Bearer <token>`; the token names the calling session):
 | Method | Path | Body → result |
 | --- | --- | --- |
 | GET | `/agents` | → `ListAgentsResponse` (a main session's sub-agents, or a sub-agent's teammates) |
-| POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429). Model/thinking: the request's → `settings.models.subagentModel`/`subagentThinkingLevel` (if the parent's harness lists the model) → the parent's (I-078) |
+| POST | `/agents/spawn` | `SpawnAgentRequest` → `SpawnAgentResponse`; main sessions only (403), unique active name per parent (409), ≤ `MAX_ACTIVE_AGENTS` (4) active per workspace (429). Model/thinking: the request's → the parent's agent's `subagentModel`/`subagentThinkingLevel` (`settings.models.agents.<harness>`, I-198; if the parent's harness lists the model) → the parent's (I-078) |
 | POST | `/agents/message` | `{ to, text }` → 204; `to: "main"` = the parent |
 | POST | `/agents/close` | `{ name }` → `{ closed, alreadyClosed? }` (now if idle, else at the end of its turn, 30 s max); closing a closed agent is not an error (`alreadyClosed: true`), 404 only for unknown names |
 | POST | `/agents/report-done` | `{ summary, keepOpen? }` → `{ closing }`; sub-agents only |
@@ -370,7 +383,7 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | POST   | `/sessions/:id/export`        | `{ reveal? }` (body optional) → `{ path }` (HTML file; pi: `~/Downloads/pi-session-….html`) |
 | POST   | `/fs/reveal`                  | `{ path }` → 204; reveals a file this server exported in Finder (404 for other paths, 501 off macOS) |
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
-| GET    | `/models/default[?refresh=1]` | → `HarnessDefaults` `{ model, thinkingLevel }`: what the harness uses when no model is given (I-050) |
+| GET    | `/models/default[?refresh=1][&harness=<id>]` | → `HarnessDefaults` `{ model, thinkingLevel }`: what the harness uses when no model is given (I-050); `harness` = that agent's (404 when not offered), else the default agent's (I-198) |
 | GET    | `/commands?projectId=[&refresh=1]` | → `SlashCommand[]`: harness commands for a project's folder (no `projectId` = scratch); 404 unknown project |
 | GET    | `/files?projectId=&q=[&limit=]` | → `FileSearchResponse` `{ entries: FileEntry[], truncated }`, ranked, default 50 (max 200); 404 unknown project |
 | GET    | `/settings`                   | → `Settings`                                   |
@@ -537,6 +550,26 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Model settings are per agent; quick tasks are Glade-wide (I-198, 2026-10-05, user decision)**:
+  defaults, sub-agent/side-question models and hidden models live per agent, so no agent is ever
+  handed another agent's model and hiding a model in one agent can't hide it in another. One
+  quick-tasks model (agent + model) serves every chat, so background work can go to one cheap or
+  local model.
+- **Agents are updated from Glade with their own updater (I-198)**: each device checks its agents'
+  installed vs newest version (pi and Codex: npm; Claude Code: its release channel at
+  `downloads.claude.ai/claude-code-releases/<channel>`) and Update runs `pi update self` /
+  `claude update` / `codex update`, right away when none of that agent's chats are working, else when
+  they finish. Afterwards the agent's model list is reloaded. Manual for now (no auto-updates).
+- **The Mac app restarts itself into a newly installed build (I-197, 2026-10-05, user decision)**:
+  the desktop server notices a different build in its own bundle (Update Now or `pnpm tauri:install`)
+  and the app restarts right away when no chat is working, else as soon as they finish
+  (cancelable). No countdown, no setting. How: the bundle carries its stamp as `app/build.json`
+  next to `server.mjs`; the desktop server polls it every 3 s (`services/installed-build.ts`; after
+  the swap the path resolves into the new bundle) and reports a different commit/build time as
+  `VersionStatus.installed` (held back while Update Now still runs, so the restart can't cut off the
+  installer's last steps). Only the Mac app's own window acts on it; composer drafts are saved to
+  localStorage just before the relaunch and restored once.
+
 - **Local models (I-196)**: Glade's server talks to the model server on its own Mac only (localhost); devices load/unload through Glade's API over remote access, so the model server is never exposed. llama.cpp's `llama-server` router is the first backend (the user's local-model research (ADR-0006): native in pi, unaffected by LM Studio's M5 bug #2040); LM Studio can be added behind the same backend interface. Glade **never unloads or downloads models on its own** (user decision): only explicit Load/Unload; the setup help recommends `--models-max 0` so llama-server doesn't evict models either.
 
 - **Installing never quits the app** (2026-09-26, I-082, user decision): `pnpm tauri:install`
@@ -628,10 +661,11 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **Titles**: instant title from the first message, then (if enabled) replaced by a model-generated
   title via the harness's one-shot `complete` (`harness/title.ts`). User-edited titles are never
   overwritten. `/name` without a title (`POST /sessions/:id/title/generate`, I-074) names the chat
-  from a conversation excerpt with the same prompt and marks it user-set. One **small model** does
-  all quick tasks (titles, `/name`, summaries, the ⌘K finder): `settings.models.smallModel`, or when
-  unset `anthropic/claude-haiku-4-5` if the harness lists it, else the chat's model (a default, not a
-  stored value; the old `titleModel` key is migrated).
+  from a conversation excerpt with the same prompt and marks it user-set. One **quick-tasks model** does
+  all quick tasks (titles, `/name`, summaries, the ⌘K finder, commit messages): `settings.models.quickTasks`
+  (agent + model, I-198; was `smallModel`, earlier `titleModel`, both migrated), used for chats of every
+  agent when that agent is offered and can (`capabilities.quickTasks`); else titles use the chat's own
+  harness and the rest the default harness, with `anthropic/claude-haiku-4-5` if listed, else the chat's model.
 - **Tool grouping** is a pure function with options (e.g. whether thinking breaks a group) so the
   behaviour can be changed in one place.
 - **Closed sub-agents are deleted** (I-055, user decision 2026-09-26): closing a sub-agent removes
@@ -757,7 +791,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **iPhone conversation mode** (I-180): `apps/iphone/src/voice/engine.ts` is the contract; the native engine is a Swift Tauri mobile plugin (`src-tauri/plugins/voice`), the fake one drives tests and the simulator. Replies are synthesized with `AVSpeechSynthesizer.write` and played through a voice-processing `AVAudioEngine`, so echo cancellation covers them and the mic can stay open for barge-in; words are timed from markers against playback. Recognition is on-device only, one task per utterance. Voice mode is hosted at the app root (a `voiceMode` signal) so a conversation begun on New Chat survives the switch to the chat; a pure state machine + `Conversation` runner sit on a `VoiceChat` interface; app-core only gains `sendAccessory` / `startRef` props.
 - **Speech markers per chunk** (I-181): `AVSpeechSynthesizer.write` renders long text in chunks; each ends with an empty buffer and `byteSampleOffset` restarts at 0, so markers are mapped against the frames scheduled before their chunk, and a reply ends at `didFinish`, not at an empty buffer.
 - **Codex Plan mode** (I-186): Codex's Plan collaboration mode, sent on `turn/start` only while planning (and once when leaving), keeping the approvals/sandbox of the mode it came from; approving returns to that mode. A proposed plan is a plan notice without entries (markdown in `text`), rendered as a "Proposed plan" card; the implement question is asked after `run_end`. `commands_changed` is a harness-neutral event telling clients to reload loaded slash commands.
-- **New chats ask the picked agent** (I-184/I-185): folder commands (`GET /api/commands?harness=`) and starting modes (`GET /api/permission-modes`, `AgentHarness.getPermissionModes`) come from the agent chosen in the new-chat composer; only `/models/default` still uses the default agent. The starting mode is sent only when it differs from the agent's default and is saved on the new main session only.
+- **New chats ask the picked agent** (I-184/I-185): folder commands (`GET /api/commands?harness=`) and starting modes (`GET /api/permission-modes`, `AgentHarness.getPermissionModes`) come from the agent chosen in the new-chat composer; `/models/default` takes `?harness=` since I-198. The starting mode is sent only when it differs from the agent's default and is saved on the new main session only.
 - **Terminal tabs** (I-187): they belong to the workspace (`WorkspaceLayout.terminals`, sharing `mainOrder`), not an agent. The shell (node-pty, `$SHELL -l`, the agents' env stripping) lives only in the server that started it and runs until its tab closes, the workspace is deleted or the server stops; elsewhere the tab shows "Session ended". Each tab has its own WebSocket (`/ws/terminal/:id`, same device auth + one-time tickets) so heavy output can't eat the sync socket's budget. Scrollback is raw output replayed into a reset xterm. The desktop bundle ships node-pty's N-API prebuilds (execute bit on `spawn-helper` fixed at runtime too). Paired devices get terminals (same trust as agents).
 - **Voice reads as it streams** (I-183): `planTurn(transcript, ended)` yields final pieces with stable keys (message, block, markdown start) plus the unfinished tail; the machine keeps `state.reading` and queues each new piece (`SpeakOptions.queue`, offsets shifted into the whole reply). Barge-in, Stop or the user talking ends reading that turn; a reply already there when voice mode opens isn't read. The native engine synthesizes the next queued item while the current plays, each with its own marker timeline and start frame.
 - **Native sub-agents** (I-188): an agent's own sub-agents (Claude's Task, Codex's spawn_agent) are Glade `subagent` sessions marked `native`, fed by the optional `HarnessSession.onNativeSubagent` (separate from `onEvent`) with no process of their own: events folded through `LivePool.inject`, the run owned by the server with a lease, read-only (409), outside the agent API, never restarted, ended when the parent's process stops or exits. Spawn cards link by `SpawnedAgentRef.toolCallId` before name matching.

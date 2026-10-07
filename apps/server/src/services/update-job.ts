@@ -134,7 +134,8 @@ export class UpdateJob {
     return this.running;
   }
 
-  private busy(): boolean {
+  /** Checking or running a step (I-197: the restart waits until the job is done). */
+  busy(): boolean {
     return this.state === "checking" || this.state === "running";
   }
 

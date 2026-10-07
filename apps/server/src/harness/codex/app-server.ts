@@ -74,8 +74,31 @@ export class CodexAppServer {
   private readonly skillCache = new Map<string, Promise<SkillMetadata[]>>();
   private readonly execs = new Map<string, (delta: CommandExecOutputDeltaNotification) => void>();
   private disposed = false;
+  /** The codex CLI was updated (I-198): close this process once no chat uses it. */
+  private reloadWhenIdle = false;
 
   constructor(private readonly options: CodexAppServerOptions) {}
+
+  /**
+   * Run the newly installed `codex` from the next use on (I-198, after an agent update). Closes
+   * the process now when no chat is attached, else when the last one detaches; the model list is
+   * read again either way (from the new process once it runs).
+   */
+  reload(): void {
+    this.models = null;
+    if (this.threads.size === 0) this.closeConnection();
+    else this.reloadWhenIdle = true;
+  }
+
+  private closeConnection(): void {
+    this.reloadWhenIdle = false;
+    const connection = this.live;
+    this.live = null;
+    this.connection = null;
+    this.models = null;
+    this.skillCache.clear();
+    connection?.rpc.close();
+  }
 
   /** The running process (started if needed). */
   async ensure(): Promise<Connection> {
@@ -139,6 +162,7 @@ export class CodexAppServer {
     this.threads.set(threadId, listener);
     return () => {
       if (this.threads.get(threadId) === listener) this.threads.delete(threadId);
+      if (this.reloadWhenIdle && this.threads.size === 0) this.closeConnection();
     };
   }
 

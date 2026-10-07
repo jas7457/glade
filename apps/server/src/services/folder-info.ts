@@ -95,9 +95,14 @@ export class FolderInfoService {
     return { entries: rankFiles(entries, query, cap), truncated };
   }
 
-  /** The harness's own default model/thinking level (`null`s when it can't tell). */
-  async getDefaults(force = false): Promise<HarnessDefaults> {
-    return (await this.harnessFor().getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
+  /**
+   * The harness's own default model/thinking level (`null`s when it can't tell), of `harnessId`
+   * (I-198; 404 when this device doesn't offer it), else of the default agent.
+   */
+  async getDefaults(force = false, harnessId?: string | null): Promise<HarnessDefaults> {
+    const harness = harnessId ? this.options.harness(harnessId) : this.harnessFor();
+    if (!harness) throw new HttpError(404, `The agent "${harnessId}" isn't available on this device`);
+    return (await harness.getDefaults?.(force)) ?? { model: null, thinkingLevel: null };
   }
 
   private cached<T>(map: Map<string, CacheEntry<T>>, key: string, ttl: number, force: boolean, load: () => Promise<T>): Promise<T> {

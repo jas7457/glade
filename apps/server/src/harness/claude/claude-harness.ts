@@ -54,6 +54,8 @@ export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
   sideQuestions: true,
   models: true,
   permissionModes: true,
+  // I-198: one-shot `complete` (and titles) for quick tasks.
+  quickTasks: true,
 };
 
 export interface ClaudeHarnessOptions {

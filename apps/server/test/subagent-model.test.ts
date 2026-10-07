@@ -1,6 +1,7 @@
 /**
  * I-078: the sub-agent model/thinking settings. Precedence: the spawn request (or agent
- * definition) → `settings.models.subagentModel`/`subagentThinkingLevel` → the parent's.
+ * definition) → the parent agent's `subagentModel`/`subagentThinkingLevel` (I-198:
+ * `settings.models.agents.<harness>`) → the parent's.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestEnv, flush, newChat, type TestEnv } from "./helpers.js";
@@ -28,12 +29,12 @@ describe("sub-agent model and thinking (I-078)", () => {
   });
 
   it("uses the settings over the parent's", async () => {
-    env.service.updateSettings({ models: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } });
+    env.service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } } } });
     expect(await spawnFrom()).toMatchObject({ model: { provider: "fake", id: "fast" }, thinkingLevel: "low" });
   });
 
   it("an explicit model/thinking in the request wins over the settings", async () => {
-    env.service.updateSettings({ models: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } });
+    env.service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } } } });
     expect(await spawnFrom({ model: "smart", thinking: "medium" })).toMatchObject({
       model: { provider: "fake", id: "smart" },
       thinkingLevel: "medium",
@@ -41,12 +42,12 @@ describe("sub-agent model and thinking (I-078)", () => {
   });
 
   it("each setting applies on its own", async () => {
-    env.service.updateSettings({ models: { subagentThinkingLevel: "off" } });
+    env.service.updateSettings({ models: { agents: { fake: { subagentThinkingLevel: "off" } } } });
     expect(await spawnFrom()).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "off" });
   });
 
   it("falls back to the parent's model when the setting's model isn't in the parent's harness", async () => {
-    env.service.updateSettings({ models: { subagentModel: { provider: "elsewhere", id: "tiny" } } });
+    env.service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "elsewhere", id: "tiny" } } } } });
     expect((await spawnFrom()).model).toEqual({ provider: "fake", id: "smart" });
   });
 });

@@ -15,15 +15,18 @@ const mocked = vi.mocked(api);
 
 describe("mergeSettings", () => {
   it("deep merges objects and replaces arrays/scalars", () => {
-    const base = { ...defaultSettings(), models: { ...defaultSettings().models, hiddenModels: ["a/b"] } };
-    const out = mergeSettings(base, { general: { generateTitles: false }, models: { hiddenModels: ["c/d"] } });
+    const base = { ...defaultSettings(), models: { ...defaultSettings().models, agents: { pi: { hiddenModels: ["a/b"], defaultThinkingLevel: "low" as const } } } };
+    const out = mergeSettings(base, { general: { generateTitles: false }, models: { agents: { pi: { hiddenModels: ["c/d"] } } } });
     expect(out.general).toEqual({ ...base.general, generateTitles: false });
-    expect(out.models.hiddenModels).toEqual(["c/d"]);
+    expect(out.models.agents.pi).toEqual({ hiddenModels: ["c/d"], defaultThinkingLevel: "low" });
     expect(out.appearance).toBe(base.appearance);
   });
   it("replaces a null model ref", () => {
-    const out = mergeSettings(defaultSettings(), { models: { defaultModel: { provider: "p", id: "m" } } });
-    expect(out.models.defaultModel).toEqual({ provider: "p", id: "m" });
+    const out = mergeSettings(defaultSettings(), { models: { agents: { claude: { defaultModel: { provider: "p", id: "m" } } } } });
+    expect(out.models.agents.claude?.defaultModel).toEqual({ provider: "p", id: "m" });
+    const quick = mergeSettings(out, { models: { quickTasks: { harness: "pi", model: { provider: "a", id: "h" } } } });
+    expect(quick.models.quickTasks).toEqual({ harness: "pi", model: { provider: "a", id: "h" } });
+    expect(mergeSettings(quick, { models: { quickTasks: null } }).models.quickTasks).toBeNull();
   });
 });
 

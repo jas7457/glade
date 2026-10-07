@@ -29,9 +29,17 @@ describe("resolveLastSettings", () => {
 
 describe("rememberSettings", () => {
   it("round-trips through localStorage", () => {
-    rememberSettings("models", "mini");
-    expect(readStored("glade.lastSettings")).toBe(JSON.stringify({ section: "models", envId: "mini" }));
-    expect(lastSettings((id) => id === "mini")).toEqual({ section: "models", envId: "mini" });
+    rememberSettings("prompts", "mini");
+    expect(readStored("glade.lastSettings")).toBe(JSON.stringify({ section: "prompts", envId: "mini" }));
+    expect(lastSettings((id) => id === "mini")).toEqual({ section: "prompts", envId: "mini" });
+  });
+  it("remembers an agent's page under Agents (I-198)", () => {
+    rememberSettings("agent", null, "claude");
+    expect(lastSettings()).toEqual({ section: "agent", envId: null, agent: "claude" });
+    expect(resolveLastSettings(JSON.stringify({ section: "prompts", envId: null, agent: "claude" }))).toEqual({ section: "prompts", envId: null });
+  });
+  it("the folded Models page reopens Agents (I-198)", () => {
+    expect(resolveLastSettings(JSON.stringify({ section: "models", envId: "mini" }), (id) => id === "mini")).toEqual({ section: "agent", envId: "mini" });
   });
 });
 
@@ -39,5 +47,6 @@ describe("routes.settings", () => {
   it("without a section is plain /settings (reopens the last one); with one, a deep link", () => {
     expect(routes.settings()).toBe("/settings");
     expect(routes.settings("prompts")).toBe("/settings/prompts");
+    expect(routes.settingsAgent("claude")).toBe("/settings/agent/claude");
   });
 });

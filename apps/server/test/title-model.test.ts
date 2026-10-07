@@ -1,5 +1,5 @@
 /**
- * I-023: generated titles default to Haiku when it's available.
+ * I-023: generated titles default to Haiku when it's available (I-198: unless a quick-tasks model is set).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ModelInfo, ModelRef } from "@glade/protocol";
@@ -46,9 +46,9 @@ describe("title model", () => {
     expect(await titleModelFor({ provider: "fake", id: "fast" })).toEqual({ provider: "fake", id: "fast" });
   });
 
-  it("an explicit small model wins", async () => {
+  it("an explicit quick-tasks model wins", async () => {
     env.harness.listModels = async () => [...FAKE_MODELS, HAIKU];
-    env.service.updateSettings({ models: { smallModel: { provider: "fake", id: "fast" } } });
+    env.service.updateSettings({ models: { quickTasks: { harness: "fake", model: { provider: "fake", id: "fast" } } } });
     expect(await titleModelFor()).toEqual({ provider: "fake", id: "fast" });
   });
 

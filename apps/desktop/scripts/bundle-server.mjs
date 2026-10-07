@@ -14,6 +14,10 @@
  *
  * I-149: the server is stamped with the commit it's built from (sha, build time, local changes,
  * repo folder) via esbuild's `define` (`__GLADE_BUILD__`, read by apps/server/src/services/build-info.ts).
+ *
+ *   app/build.json   — the same stamp as a file (I-197): a running app's server watches the one in
+ *                      its bundle (services/installed-build.ts), so it notices when `pnpm
+ *                      tauri:install` swapped a newer build in and restarts into it.
  */
 import { execSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -61,6 +65,7 @@ mkdirSync(join(outDir, "pi-extension"), { recursive: true });
 cpSync(piExtension, join(outDir, "pi-extension", "glade-tools.ts"));
 copyNodePty();
 writeFileSync(join(outDir, "package.json"), JSON.stringify({ type: "module" }) + "\n");
+writeFileSync(join(outDir, "build.json"), JSON.stringify(stamp) + "\n");
 console.log(`[bundle] done → ${outDir}`);
 
 /** The git stamp of this checkout, computed by the server's own build-info.ts (compiled on the fly). */

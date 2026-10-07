@@ -39,7 +39,10 @@ export function searchFiles(projectId: string | null, q: string, limit?: number,
   return via<FileSearchResponse>("GET", `/files${query({ projectId, q, limit })}`);
 }
 
-/** The harness's own default model + thinking level (what "Default" means). */
-export function getHarnessDefaults(refresh = false, via: RequestFn = request): Promise<HarnessDefaults> {
-  return via<HarnessDefaults>("GET", `/models/default${query({ refresh })}`);
+/**
+ * The harness's own default model + thinking level (what "Default" means): of `harness` (I-198),
+ * else the default agent's.
+ */
+export function getHarnessDefaults(refresh = false, via: RequestFn = request, harness?: string | null): Promise<HarnessDefaults> {
+  return via<HarnessDefaults>("GET", `/models/default${query({ refresh, harness })}`);
 }

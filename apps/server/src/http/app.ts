@@ -68,6 +68,8 @@ import { UPDATE_UNAVAILABLE_DEV, UpdateJob } from "../services/update-job.js";
 import { TerminalService } from "../services/terminals.js";
 import { createTerminalWsHandler, terminalRoutes } from "./terminals.js";
 import { localModelsRoutes } from "./local-models.js";
+import { agentVersionsRoutes } from "./agent-versions.js";
+import type { AgentVersionsService } from "../services/agent-versions/service.js";
 
 export interface CreateAppOptions {
   service: AppService;
@@ -101,9 +103,11 @@ export interface CreateAppOptions {
   updateJob?: UpdateJob;
   /** Terminal tabs (I-187). Default: node-pty shells in the workspaces' folders. */
   terminals?: TerminalService;
+  /** Agent versions and updates (I-198); routes are mounted only when given. */
+  agentVersions?: AgentVersionsService;
 }
 
-export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, updateJob, power, terminals: givenTerminals }: CreateAppOptions) {
+export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDir, snapshotStatic = false, pickFolder = createFolderPicker(), folderInfo, search, updates, updateJob, power, terminals: givenTerminals, agentVersions }: CreateAppOptions) {
   const app = new Hono();
   const nodeWs = createNodeWebSocket({ app });
 
@@ -166,6 +170,8 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   app.route("/api", terminalRoutes(terminals));
   // Local models (I-196): llama-server's models on this Mac. Paired devices may load/unload too.
   app.route("/api", localModelsRoutes(service.localModels));
+  // Agent versions and updates (I-198): paired devices may check and update too.
+  if (agentVersions) app.route("/api", agentVersionsRoutes(agentVersions));
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
   app.get("/ws/terminal/:terminalId", nodeWs.upgradeWebSocket(createTerminalWsHandler(terminals, auth)));

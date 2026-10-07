@@ -31,11 +31,15 @@ import { AuthService } from "./services/auth/auth-service.js";
 import { lastServedPort, managesTransport, RemoteTransport } from "./services/transports/manager.js";
 import { TailscaleTransport } from "./services/transports/tailscale.js";
 import { FolderInfoService } from "./services/folder-info.js";
-import { createPowerTracker } from "./services/power.js";
+import { createPowerTracker, isRelevantMessage } from "./services/power.js";
+import { AgentVersionsService, busyChatsOf, throttle as throttleAgentVersions } from "./services/agent-versions/service.js";
+import { defaultReadInstalled, testingOverrides } from "./services/agent-versions/versions.js";
+import { AGENT_UPDATE_COMMANDS } from "@glade/protocol";
 import { llamaBaseUrlEnv } from "./services/local-models/settings.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
 import { UpdateChecker } from "./services/update-check.js";
+import { InstalledBuildWatcher } from "./services/installed-build.js";
 import { UPDATE_UNAVAILABLE_DEV, UpdateJob, throttle } from "./services/update-job.js";
 import { migrateLegacyDataDir } from "./store/migrate-data-dir.js";
 import { NewerSchemaError } from "./store/db/database.js";
@@ -242,13 +246,40 @@ const auth = new AuthService({
   tailscaleLogin: async () => (remote ? remote.ownLogin() : null),
 });
 // I-149: is this build behind origin's main? (read-only `git ls-remote`, at startup + every 4 h)
-const updates = new UpdateChecker({ build: () => service.environment.build(), log: env("DEBUG") ? log : undefined });
+// I-197: a newer build installed into this app's bundle (Mac app's release server only); pushed as `version`.
+const installedBuild = new InstalledBuildWatcher({
+  running: serverKind === "desktop" ? service.environment.build() : null,
+  onChange: () => auth.pushLocal({ type: "version", version: updates.status() }),
+  log,
+});
+// Not while Update Now still runs (the installer finishes after the swap); reported when it's done.
+const updates = new UpdateChecker({ build: () => service.environment.build(), installed: () => (updateJob.busy() ? null : installedBuild.poll()), log: env("DEBUG") ? log : undefined });
+updates.onChange((version) => auth.pushLocal({ type: "version", version }));
 // I-154: Update Now (pull, install, rebuild), only in the Mac app's server; pushed as `update`.
 const updateJob = new UpdateJob({ build: () => service.environment.build(), unavailableReason: serverKind === "desktop" ? null : UPDATE_UNAVAILABLE_DEV });
 updateJob.onChange(throttle((update) => auth.pushLocal({ type: "update", update })));
+updateJob.onChange(() => {
+  if (!updateJob.busy() && installedBuild.installed()) auth.pushLocal({ type: "version", version: updates.status() });
+});
 // I-147/I-150: why the Mac is kept awake (only the Mac app's shell holds the assertion) + menu bar state.
 const power = createPowerTracker({ service, auth, canHold: serverKind === "desktop" });
+// I-198: agent versions + Update (waits for the agent's working chats; reloads its models after).
+const agentIds = Object.keys(AGENT_UPDATE_COMMANDS);
+const agentVersions = new AgentVersionsService({
+  label: (id) => harnesses.get(id)?.info.label ?? id,
+  busyChats: (id) => busyChatsOf(service.listSessions(), id),
+  onUpdated: async (id) => {
+    harnesses.get(id)?.reload?.();
+    await service.listModels(true);
+  },
+  onChange: throttleAgentVersions((status) => auth.pushLocal({ type: "agent_versions", status })),
+  readInstalled: defaultReadInstalled(testingOverrides("VERSION", agentIds)),
+  updateCommands: { ...AGENT_UPDATE_COMMANDS, ...testingOverrides("UPDATE", agentIds) },
+  log,
+});
+service.subscribe((message) => isRelevantMessage(message) && agentVersions.sessionsChanged(), { internal: true });
 const { app, injectWebSocket, terminals } = createApp({
+  agentVersions,
   service,
   updates,
   updateJob,
@@ -289,8 +320,10 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: listenPort
   }
   remote?.start();
   updates.start();
+  installedBuild.start();
   // I-196: watch the local model server while clients are connected.
   service.localModels.start();
+  agentVersions.start();
   void service.startTranscriptImport().catch((err: Error) => console.warn(`[glade] importing conversations failed: ${err.message}`));
 });
 injectWebSocket(server);
@@ -310,7 +343,9 @@ async function shutdown(signal: string): Promise<void> {
     power.dispose();
     remote?.dispose();
     updates.dispose();
+    installedBuild.dispose();
     updateJob.dispose();
+    agentVersions.dispose();
     await service.dispose();
     registry.release();
   } catch (err) {

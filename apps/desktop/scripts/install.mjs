@@ -5,9 +5,11 @@
  *
  * I-082: a running Glade is **not** quit. The new bundle is copied next to the installed one and
  * swapped in with renames, so the running app keeps its already-loaded files (its server serves
- * the web app from a copy taken at startup) and the next launch starts the new version. Quit Glade
- * completely (menu bar → Quit Glade Completely, or ⌥⌘Q; I-150: ⌘Q only closes it to the menu bar)
- * and reopen it whenever it suits you.
+ * the web app from a copy taken at startup) and the next launch starts the new version.
+ *
+ * I-197: the running Glade notices the new build in its bundle (`app/build.json`) and restarts into
+ * it on its own: right away when none of its chats are working, else as soon as they all finish
+ * (an agent running this from a chat is one of them, so it waits for that turn to end).
  *
  * I-059 (renamed from pi-ui): the pre-rename `/Applications/pi-ui.app` is removed once Glade.app is
  * installed and pi-ui isn't running (its data folder stays; Glade copies it on first start).
@@ -72,7 +74,7 @@ try {
 console.log(`[install] installed ${target}`);
 console.log(
   running(target)
-    ? "[install] Glade is running: restart it to use the new version (Settings → General → Restart Glade, or menu bar → Quit Glade Completely and reopen it)."
+    ? "[install] Glade is running: it restarts into the new version on its own, right away or as soon as its working chats finish (Cancel / Restart Now in its window)."
     : "[install] Open Glade to use the new version.",
 );
 

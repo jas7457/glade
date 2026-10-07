@@ -59,7 +59,7 @@ describe("Store", () => {
     store.upsertSession({ ...session, id: "s3", kind: "subagent", parentSessionId: "s1", agentName: "reviewer" });
     store.upsertSession({ ...session, title: "Tab" });
     store.removeWorkspace("w2"); // takes its sessions along
-    store.updateSettings({ general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } });
+    store.updateSettings({ general: { generateTitles: false }, models: { agents: { pi: { hiddenModels: ["a/b"] } } } });
     store.flush();
 
     const reloaded = new Store(dir);
@@ -74,9 +74,9 @@ describe("Store", () => {
     const settings = reloaded.getSettings();
     expect(settings.general.generateTitles).toBe(false);
     expect(settings.general.generateSummaries).toBe(true); // default preserved
-    expect(settings.models.hiddenModels).toEqual(["a/b"]);
+    expect(settings.models.agents.pi?.hiddenModels).toEqual(["a/b"]);
     // Only overrides are stored (and exported as JSON for the desktop app).
-    const overrides = { general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } };
+    const overrides = { general: { generateTitles: false }, models: { agents: { pi: { hiddenModels: ["a/b"] } } } };
     expect(reloaded.getSettingsOverrides()).toEqual(overrides);
     expect(JSON.parse(readFileSync(join(dir, "settings.export.json"), "utf8"))).toEqual(overrides);
     expect(existsSync(join(dir, "settings.json"))).toBe(false);
@@ -111,8 +111,8 @@ describe("settings migration", () => {
     db.close();
     const store = new Store(dir, 0);
     expect(store.getSettings().general).toEqual({ generateTitles: false, generateSummaries: true });
-    store.updateSettings({ models: { hiddenModels: ["a/b"] } });
-    expect(store.getSettingsOverrides()).toEqual({ general: { generateTitles: false }, models: { hiddenModels: ["a/b"] } });
+    store.updateSettings({ models: { agents: { pi: { hiddenModels: ["a/b"] } } } });
+    expect(store.getSettingsOverrides()).toEqual({ general: { generateTitles: false }, models: { agents: { pi: { hiddenModels: ["a/b"] } } } });
     // An older client's patch doesn't bring them back either.
     store.updateSettings({ general: { sendKey: "enter" } } as never);
     expect(store.getSettingsOverrides().general).toEqual({ generateTitles: false });
@@ -162,8 +162,12 @@ describe("settings migration", () => {
     const store = new Store(dir, 0);
     expect(store.getSettings().agent).toEqual({ defaultHarness: null, subagents: false });
     expect(store.getSettings().harnesses).toEqual({ acp: { agents: [mine] } });
-    store.updateSettings({ models: { hiddenModels: ["a/b"] } });
-    expect(store.getSettingsOverrides()).toEqual({ agent: { subagents: false }, harnesses: { acp: { agents: [mine] } }, models: { hiddenModels: ["a/b"] } });
+    store.updateSettings({ models: { agents: { pi: { hiddenModels: ["a/b"] } } } });
+    expect(store.getSettingsOverrides()).toEqual({
+      agent: { subagents: false },
+      harnesses: { acp: { agents: [mine] } },
+      models: { agents: { pi: { hiddenModels: ["a/b"] } } },
+    });
     // An older client's patch doesn't bring them back either.
     store.updateSettings({ agent: { maxIdleProcesses: 2 }, harnesses: { pi: { piPath: "x" } } } as never);
     expect(store.getSettingsOverrides()).toMatchObject({ agent: { subagents: false }, harnesses: { acp: { agents: [mine] } } });
@@ -173,20 +177,89 @@ describe("settings migration", () => {
     expect(migrateSettings(current)).toBe(current);
   });
 
-  it("renames models.titleModel to smallModel, keeping the choice (I-074)", () => {
+  it("renames models.titleModel to smallModel, keeping the choice (I-074), which becomes the quick-tasks model (I-198)", () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-settings-"));
     const haiku = { provider: "anthropic", id: "claude-haiku-4-5" };
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ models: { titleModel: haiku, hiddenModels: ["a/b"] } }));
     const store = new Store(dir, 0);
-    expect(store.getSettings().models).toMatchObject({ smallModel: haiku, hiddenModels: ["a/b"], subagentModel: null, subagentThinkingLevel: null });
-    expect(store.getSettings().models).not.toHaveProperty("titleModel");
-    expect(store.getSettingsOverrides()).toEqual({ models: { smallModel: haiku, hiddenModels: ["a/b"] } });
+    expect(store.getSettings().models).toEqual({ quickTasks: { harness: "pi", model: haiku }, agents: { pi: { hiddenModels: ["a/b"] } } });
+    expect(store.getSettingsOverrides()).toEqual({ models: { quickTasks: { harness: "pi", model: haiku }, agents: { pi: { hiddenModels: ["a/b"] } } } });
     rmSync(dir, { recursive: true, force: true });
     // A value already under smallModel wins; migrated files are left alone.
     const both = { models: { titleModel: null, smallModel: haiku } } as never;
-    expect(migrateSettings(both)).toEqual({ models: { smallModel: haiku } });
-    const current = { models: { smallModel: null } };
+    expect(migrateSettings(both)).toEqual({ models: { quickTasks: { harness: "pi", model: haiku } } });
+    const current = { models: { quickTasks: null, agents: {} } };
     expect(migrateSettings(current)).toBe(current);
+  });
+
+  describe("per-agent model settings (I-198)", () => {
+    const sonnet = { provider: "anthropic", id: "claude-sonnet-5-5" };
+    const haiku = { provider: "anthropic", id: "claude-haiku-4-5" };
+    const legacy = {
+      defaultModel: sonnet,
+      defaultThinkingLevel: "high",
+      smallModel: haiku,
+      subagentModel: haiku,
+      sideQuestionModel: haiku,
+      subagentThinkingLevel: "low",
+      hiddenModels: ["anthropic/claude-opus-4-8"],
+    };
+    const piModels = {
+      defaultModel: sonnet,
+      defaultThinkingLevel: "high",
+      subagentModel: haiku,
+      sideQuestionModel: haiku,
+      subagentThinkingLevel: "low",
+      hiddenModels: ["anthropic/claude-opus-4-8"],
+    };
+
+    it("moves the global fields to the default agent (pi when unset) and smallModel to quickTasks", () => {
+      expect(migrateSettings({ models: legacy } as never)).toEqual({ models: { quickTasks: { harness: "pi", model: haiku }, agents: { pi: piModels } } });
+      expect(migrateSettings({ agent: { defaultHarness: "claude" }, models: legacy } as never)).toEqual({
+        agent: { defaultHarness: "claude" },
+        models: { quickTasks: { harness: "claude", model: haiku }, agents: { claude: piModels } },
+      });
+      // smallModel null = automatic.
+      expect(migrateSettings({ models: { smallModel: null } } as never)).toEqual({ models: { quickTasks: null } });
+    });
+
+    it("keeps values already under the agent and an existing quickTasks", () => {
+      const quick = { harness: "claude", model: { provider: "anthropic", id: "haiku" } };
+      const stored = { models: { defaultModel: sonnet, hiddenModels: ["x/y"], smallModel: haiku, quickTasks: quick, agents: { pi: { defaultModel: haiku }, codex: { hiddenModels: ["o/p"] } } } };
+      expect(migrateSettings(stored as never)).toEqual({
+        models: { quickTasks: quick, agents: { pi: { defaultModel: haiku, hiddenModels: ["x/y"] }, codex: { hiddenModels: ["o/p"] } } },
+      });
+    });
+
+    it("migrates the database's legacy values on read and on the next write; an older client's patch lands under the default agent", () => {
+      const dir = tempDir();
+      new Store(dir, 0).flush();
+      const db = openDatabase(join(dir, DB_FILE));
+      db.prepare("INSERT INTO settings (id, data_json, updated_at) VALUES (1, ?, 1) ON CONFLICT (id) DO UPDATE SET data_json = excluded.data_json").run(
+        JSON.stringify({ models: legacy }),
+      );
+      db.close();
+      const store = new Store(dir, 0);
+      expect(store.getSettings().models).toEqual({ quickTasks: { harness: "pi", model: haiku }, agents: { pi: piModels } });
+      store.updateSettings({ general: { generateTitles: false } });
+      expect(store.getSettingsOverrides().models).toEqual({ quickTasks: { harness: "pi", model: haiku }, agents: { pi: piModels } });
+      // An older client still sends the global fields.
+      store.updateSettings({ models: { defaultModel: haiku, hiddenModels: [], smallModel: null } } as never);
+      expect(store.getSettingsOverrides().models).toEqual({ quickTasks: null, agents: { pi: { ...piModels, defaultModel: haiku, hiddenModels: [] } } });
+    });
+
+    it("deep-merges an agent's entry, replaces its hidden list and clears quickTasks with null", () => {
+      const store = new Store(tempDir(), 0);
+      store.updateSettings({ models: { agents: { pi: { defaultModel: sonnet, hiddenModels: ["a/b", "c/d"] } }, quickTasks: { harness: "pi", model: haiku } } });
+      store.updateSettings({ models: { agents: { pi: { hiddenModels: ["e/f"] }, claude: { defaultModel: { provider: "anthropic", id: "opus" } } } } });
+      expect(store.getSettings().models.agents).toEqual({
+        pi: { defaultModel: sonnet, hiddenModels: ["e/f"] },
+        claude: { defaultModel: { provider: "anthropic", id: "opus" } },
+      });
+      expect(store.getSettings().models.quickTasks).toEqual({ harness: "pi", model: haiku });
+      store.updateSettings({ models: { quickTasks: null } });
+      expect(store.getSettings().models.quickTasks).toBeNull();
+    });
   });
 });
 

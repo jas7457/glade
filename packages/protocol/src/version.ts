@@ -18,6 +18,12 @@
  *   POST /api/version/update/cancel  → UpdateJobStatus (before the install step only)
  *
  * The Mac shell then relaunches the new bundle (the `relaunch` command, packages/app-core/src/lib/desktop.ts).
+ *
+ * I-197: the restart is automatic. The desktop server notices when a newer build has been put in
+ * place of its app bundle (Update Now, or `pnpm tauri:install` run from a terminal or a chat) and
+ * reports it as `VersionStatus.installed` (pushed as `version` on the local socket). The Mac app's
+ * own window then restarts right away when no chat of this server is working, else as soon as
+ * they all finish (cancelable). Never in `pnpm dev`, browsers or other devices.
  */
 
 /** Which commit a server was built from. */
@@ -74,6 +80,12 @@ export interface VersionStatus {
   check: UpdateCheck | null;
   /** A check is running. */
   checking: boolean;
+  /**
+   * I-197: a different build now sits in this server's app bundle (installed after this server
+   * started), so restarting the app runs it. Absent/null when nothing new was installed, and
+   * always for `dev` servers.
+   */
+  installed?: BuildInfo | null;
 }
 
 /**
@@ -118,7 +130,7 @@ export interface UpdateStep {
  * - `refused`: a guard said no (`error` says why); nothing was changed.
  * - `failed`: a step failed (`error`; the log tail says more).
  * - `cancelled`: stopped by Cancel.
- * - `installed`: the new version is in place; restart Glade to use it.
+ * - `installed`: the new version is in place; Glade restarts into it (I-197: automatically).
  */
 export type UpdateJobState = "idle" | "checking" | "running" | "refused" | "failed" | "cancelled" | "installed";
 

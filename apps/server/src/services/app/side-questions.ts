@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import {
   SIDE_QUESTION_SYSTEM_PROMPT,
+  agentModelSettings,
   applyAgentEvent,
   modelKey,
   sameModel,
@@ -60,7 +61,7 @@ export class SideQuestions {
     this.leaseSync.assertNotBusyElsewhere(id);
     const live = await this.pool.ensureLive(id);
     const workspace = this.records.requireWorkspace(record.workspaceId);
-    const model = (await this.availableModel(harness, this.ctx.store.getSettings().models.sideQuestionModel)) ?? live.session.getState().model ?? record.model;
+    const model = (await this.availableModel(harness, agentModelSettings(this.ctx.store.getSettings(), harness.id).sideQuestionModel)) ?? live.session.getState().model ?? record.model;
     const parentId = req.parentId || undefined;
     if (parentId) {
       const parent = live.transcript.messages.find((m) => m.id === parentId);

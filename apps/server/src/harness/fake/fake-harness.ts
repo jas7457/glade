@@ -184,6 +184,8 @@ export const FAKE_CAPABILITIES: HarnessCapabilities = {
   subagents: false,
   shell: true,
   sideQuestions: true,
+  // I-198: titles (`generateTitle`); summaries/search need `complete`, which the fake lacks.
+  quickTasks: true,
 };
 
 /** The fake harness's side answer (I-140): canned, streamed word by word. */

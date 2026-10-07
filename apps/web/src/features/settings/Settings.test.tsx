@@ -12,7 +12,7 @@ import { TooltipProvider } from "@glade/app-core/ui";
 import { models, settings, workspaces } from "@glade/app-core/state/store";
 import { harnesses } from "@glade/app-core/state/harnesses";
 import { makeWorkspace } from "@glade/app-core/test/fixtures";
-import { SettingsIndexRoute, SettingsRoute } from "./SettingsView";
+import { SettingsAgentRoute, SettingsIndexRoute, SettingsRoute } from "./SettingsView";
 import { groupModels } from "./ModelSettings";
 import { SettingsNav } from "./SettingsNav";
 import { SETTINGS_GROUPS } from "./sections";
@@ -40,6 +40,7 @@ function renderAt(path: string) {
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/settings/:section" element={<SettingsRoute />} />
+          <Route path="/settings/agent/:harness" element={<SettingsAgentRoute />} />
         </Routes>
       </MemoryRouter>
     </TooltipProvider>,
@@ -124,43 +125,49 @@ describe("settings", () => {
     }
   });
 
-  it("Agent: a card per harness, titled after it (I-066)", () => {
+  it("Agent: a row per harness, named after it (I-066), opening its page (I-198)", () => {
     const { unmount } = renderAt("/settings/agent");
-    expect(screen.getByRole("heading", { name: "pi" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "pi" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Agent for new chats" })).toBeNull();
     unmount();
     harnesses.value = [harness("fake", "Fake agent", { isDefault: true })];
     renderAt("/settings/agent");
-    expect(screen.getByRole("heading", { name: "Fake agent" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Fake agent" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Fake agent" })).toBeTruthy();
   });
 
-  it("Agent: with several harnesses, pick the one for new chats and see each one's settings", () => {
+  it("Agent: with several harnesses, pick the one for new chats and see each one's row", () => {
     harnesses.value = [harness("pi", "pi", { isDefault: true }), harness("other", "Other")];
     renderAt("/settings/agent");
     expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "pi" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "pi" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Other" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agent for new chats" }).textContent).toContain("pi");
   });
 
-  it("Models: hiding a model", () => {
-    models.value = [
-      { provider: "a", id: "m1", name: "M1", thinkingLevels: ["off"], input: ["text"] },
-      { provider: "a", id: "m2", name: "M2", thinkingLevels: ["off"], input: ["text"] },
-    ];
+  it("the folded /settings/models opens Agents (I-198)", () => {
     renderAt("/settings/models");
-    fireEvent.click(screen.getByRole("switch", { name: "Show M2" }));
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { hiddenModels: ["a/m2"] } });
+    expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeTruthy();
   });
 
-  it("Models: small model and sub-agent model/thinking (I-074, I-078)", async () => {
+  it("Agent page: hiding a model hides it for that agent only (I-198)", () => {
     models.value = [
       { provider: "a", id: "m1", name: "M1", thinkingLevels: ["off"], input: ["text"] },
       { provider: "a", id: "m2", name: "M2", thinkingLevels: ["off"], input: ["text"] },
     ];
-    settings.value = { ...defaultSettings(), models: { ...defaultSettings().models, hiddenModels: ["a/m2"] } };
-    renderAt("/settings/models");
-    expect(screen.getByText("Small model")).toBeTruthy();
-    expect(screen.getByText(/Used for quick tasks: naming chats, summaries and search/)).toBeTruthy();
+    renderAt("/settings/agent/pi");
+    expect(screen.getByRole("heading", { level: 1, name: "pi" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Show M2" }));
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { agents: { pi: { hiddenModels: ["a/m2"] } } } });
+  });
+
+  it("Agent page: sub-agent model/thinking for that agent, thinking levels its models support (I-078, I-198)", async () => {
+    models.value = [
+      { provider: "a", id: "m1", name: "M1", thinkingLevels: ["off", "low", "high"], input: ["text"] },
+      { provider: "a", id: "m2", name: "M2", thinkingLevels: ["off"], input: ["text"] },
+    ];
+    settings.value = { ...defaultSettings(), models: { quickTasks: null, agents: { pi: { hiddenModels: ["a/m2"] } } } };
+    renderAt("/settings/agent/pi");
     const pick = async (select: string, option: RegExp) => {
       const trigger = screen.getByRole("button", { name: select });
       expect(trigger.textContent).toContain("Same as the");
@@ -171,15 +178,20 @@ describe("settings", () => {
       fireEvent.click(item);
     };
     await pick("Sub-agent model", /^M1$/);
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { subagentModel: { provider: "a", id: "m1" } } });
-    await pick("Sub-agent thinking", /^Low$/);
-    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { subagentThinkingLevel: "low" } });
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { agents: { pi: { subagentModel: { provider: "a", id: "m1" } } } } });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Sub-agent thinking" }), { key: "Enter" });
+    await screen.findByRole("menuitemradio", { name: /^Low$/ });
+    // Only levels pi's models support.
+    expect(screen.queryByRole("menuitemradio", { name: /^Medium$/ })).toBeNull();
+    expect(screen.queryByRole("menuitemradio", { name: /^Extra High$/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Low$/ }));
+    expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { agents: { pi: { subagentThinkingLevel: "low" } } } });
   });
 
-  it("Models: the empty state names the harness", () => {
+  it("Agent page: the empty state names the agent", () => {
     models.value = [];
     harnesses.value = [harness("other", "Other", { isDefault: true })];
-    renderAt("/settings/models");
+    renderAt("/settings/agent/other");
     expect(screen.getByText(/Check that Other is configured/)).toBeTruthy();
   });
 
@@ -224,7 +236,8 @@ describe("settings navigation", () => {
     // About and Appearance were folded into General (I-160, I-161).
     expect(app.textContent).not.toContain("Appearance");
     expect(app.textContent).not.toContain("About");
-    expect(ai.textContent).toContain("Models");
+    // Models was folded into Agents (I-198).
+    expect(ai.textContent).not.toMatch(/(?<!Local )Models/);
     // Always "Agents" (I-155), not the harness's name.
     expect(ai.textContent).toContain("Agents");
     expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-current")).toBe("page");
@@ -248,6 +261,7 @@ describe("settings reopens the last section (I-133)", () => {
         { path: "/", element: <div>home</div> },
         { path: "/settings", element: <SettingsIndexRoute /> },
         { path: "/settings/:section", element: <SettingsRoute /> },
+        { path: "/settings/agent/:harness", element: <SettingsAgentRoute /> },
       ],
       { initialEntries: [path] },
     );
@@ -269,6 +283,17 @@ describe("settings reopens the last section (I-133)", () => {
     expect(screen.getByRole("heading", { name: "Prompts" })).toBeTruthy();
   });
 
+  it("reopens an agent's page, and a refresh on it stays there (I-198)", async () => {
+    const router = renderRouter(routes.settingsAgent("pi"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "pi" })).toBeTruthy());
+    await act(() => router.navigate("/"));
+    await act(() => router.navigate(routes.settings()));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/agent/pi"));
+    // Back to Agents.
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/agent"));
+  });
+
   it("a deep link to a section still wins (and becomes the remembered one)", async () => {
     localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "prompts", envId: null }));
     const router = renderRouter("/settings/remote");
@@ -287,10 +312,10 @@ describe("settings reopens the last section (I-133)", () => {
       await act(() => router.navigate("/settings"));
       await waitFor(() => expect(router.state.location.pathname).toBe("/settings/general"));
     }
-    localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "models", envId: "gone" }));
+    localStorage.setItem("glade.lastSettings", JSON.stringify({ section: "local-models", envId: "gone" }));
     settingsEnvironmentId.value = "stale";
     await act(() => router.navigate("/settings"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/models"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/local-models"));
     expect(settingsEnvironmentId.value).toBeNull();
   });
 });

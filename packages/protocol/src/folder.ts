@@ -15,6 +15,7 @@ import type { PermissionModeInfo } from "./events.js";
 import type { ModelRef, ThinkingLevel } from "./models.js";
 
 /** What the harness uses when no model/thinking level is given (pi: `~/.pi/agent/settings.json`). */
+/** `GET /api/models/default[?refresh=1][&harness=<id>]` (I-198: `harness` = that agent's own default; else the default agent's). */
 export interface HarnessDefaults {
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;

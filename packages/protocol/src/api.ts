@@ -240,6 +240,78 @@ export interface WorkspaceSummary extends Workspace {
 // Settings
 // ---------------------------------------------------------------------------------------------
 
+/** The quick-tasks model (I-198): which agent runs quick tasks, and with which of its models. */
+export interface QuickTasksModel {
+  /** Harness id; it must support one-shot completion (`HarnessCapabilities`/`complete`). */
+  harness: string;
+  model: ModelRef;
+}
+
+/** One agent's model settings (I-198), `Settings.models.agents.<harnessId>`. */
+export interface AgentModelSettings {
+  /** Model for new chats with this agent. `null` = the agent's own default. */
+  defaultModel: ModelRef | null;
+  /** Thinking level for new chats with this agent (clamped to the model's levels). */
+  defaultThinkingLevel: ThinkingLevel;
+  /** Model for sub-agents of this agent's chats (I-078). `null` = the parent chat's model. */
+  subagentModel: ModelRef | null;
+  /** Thinking level for sub-agents (I-078). `null` = the parent chat's level. */
+  subagentThinkingLevel: ThinkingLevel | null;
+  /** Model for side questions in this agent's chats (`/btw`, I-140). `null` = the chat's model. */
+  sideQuestionModel: ModelRef | null;
+  /** Model keys (`provider/id`) hidden from this agent's pickers. */
+  hiddenModels: string[];
+}
+
+export const DEFAULT_AGENT_MODEL_SETTINGS: Readonly<AgentModelSettings> = Object.freeze({
+  defaultModel: null,
+  defaultThinkingLevel: "medium",
+  subagentModel: null,
+  subagentThinkingLevel: null,
+  sideQuestionModel: null,
+  hiddenModels: [],
+});
+
+/**
+ * The global model fields from before I-198. Servers migrate stored settings; clients still meet
+ * them in settings sent by an older server (another Mac that hasn't updated), where
+ * {@link agentModelSettings} reads them as the default agent's.
+ */
+export interface LegacyModelSettings {
+  defaultModel?: ModelRef | null;
+  defaultThinkingLevel?: ThinkingLevel;
+  smallModel?: ModelRef | null;
+  subagentModel?: ModelRef | null;
+  sideQuestionModel?: ModelRef | null;
+  subagentThinkingLevel?: ThinkingLevel | null;
+  hiddenModels?: string[];
+}
+
+/**
+ * Agent `harnessId`'s model settings with defaults filled in. `legacyOwner` is the agent the old
+ * global fields belong to (the default agent): settings from an older server, without
+ * `models.agents`, are read as that agent's.
+ */
+export function agentModelSettings(settings: Pick<Settings, "models">, harnessId: string, legacyOwner?: string | null): AgentModelSettings {
+  const models = settings.models as Settings["models"] & LegacyModelSettings;
+  const own = models.agents?.[harnessId];
+  if (!models.agents && legacyOwner === harnessId) {
+    const legacy: Partial<AgentModelSettings> = {};
+    for (const key of ["defaultModel", "defaultThinkingLevel", "subagentModel", "subagentThinkingLevel", "sideQuestionModel", "hiddenModels"] as const) {
+      if (models[key] !== undefined) (legacy as Record<string, unknown>)[key] = models[key];
+    }
+    return { ...DEFAULT_AGENT_MODEL_SETTINGS, hiddenModels: [], ...legacy };
+  }
+  return { ...DEFAULT_AGENT_MODEL_SETTINGS, hiddenModels: [], ...(own ?? {}) } as AgentModelSettings;
+}
+
+/** The quick-tasks model, also from an older server's `smallModel` (run by `legacyOwner`). */
+export function quickTasksModel(settings: Pick<Settings, "models">, legacyOwner?: string | null): QuickTasksModel | null {
+  const models = settings.models as Settings["models"] & LegacyModelSettings;
+  if (models.quickTasks !== undefined) return models.quickTasks;
+  return models.smallModel && legacyOwner ? { harness: legacyOwner, model: models.smallModel } : null;
+}
+
 export interface Settings {
   general: {
     // `sendKey` and `busyBehavior` were removed in I-153: ↩ sends/steers, ⌘↩ sends a follow-up.
@@ -251,23 +323,24 @@ export interface Settings {
      */
     generateSummaries: boolean;
   };
+  /**
+   * Models (I-198): one Glade-wide quick-tasks model, everything else per agent. Before I-198 these
+   * were global (`defaultModel`, `defaultThinkingLevel`, `smallModel`, `subagentModel`,
+   * `sideQuestionModel`, `subagentThinkingLevel`, `hiddenModels`); the server moves stored values to
+   * the default agent's entry and `smallModel` to `quickTasks` (see `LegacyModelSettings`).
+   */
   models: {
-    /** Model for new chats. `null` = harness default. */
-    defaultModel: ModelRef | null;
-    defaultThinkingLevel: ThinkingLevel;
     /**
-     * Small, fast model for quick tasks: chat titles, `/name`, chat summaries and search (I-074;
-     * was `titleModel`). `null` = Haiku when the harness lists it, else the chat's model.
+     * Quick tasks for every chat whatever its agent: chat titles, `/name`, chat summaries, search,
+     * commit messages (I-074, I-097). `null` = automatic: the default agent, with Claude Haiku 4.5
+     * when it lists it, else (titles) the chat's model / the agent's default.
      */
-    smallModel: ModelRef | null;
-    /** Model for sub-agents (I-078). `null` = the parent chat's model. */
-    subagentModel: ModelRef | null;
-    /** Model for side questions (`/btw`, I-140). `null` = the chat's model. */
-    sideQuestionModel: ModelRef | null;
-    /** Thinking level for sub-agents (I-078). `null` = the parent chat's level. */
-    subagentThinkingLevel: ThinkingLevel | null;
-    /** Model keys (`provider/id`) hidden from the picker. */
-    hiddenModels: string[];
+    quickTasks: QuickTasksModel | null;
+    /**
+     * Per agent, keyed by harness id (`pi`, `claude`, `codex`). A missing agent or field means the
+     * default: read through {@link agentModelSettings}.
+     */
+    agents: Record<string, Partial<AgentModelSettings>>;
   };
   appearance: {
     theme: "system" | "light" | "dark";
@@ -341,13 +414,8 @@ export function defaultSettings(): Settings {
       generateSummaries: true,
     },
     models: {
-      defaultModel: null,
-      defaultThinkingLevel: "medium",
-      smallModel: null,
-      subagentModel: null,
-      sideQuestionModel: null,
-      subagentThinkingLevel: null,
-      hiddenModels: [],
+      quickTasks: null,
+      agents: {},
     },
     appearance: {
       theme: "system",
@@ -619,6 +687,13 @@ export type ServerMessage = (
   | { type: "local_models"; state: import("./local-models.js").LocalModelsState }
   /** The Update Now job (I-154), after every change (throttled). Local-owner sockets only; not sequenced. */
   | { type: "update"; update: import("./version.js").UpdateJobStatus }
+  /**
+   * The version status (I-197), when it changes: a check finished, or a new build was installed
+   * into this app's bundle (`installed`). Local-owner sockets only; not sequenced.
+   */
+  | { type: "version"; version: import("./version.js").VersionStatus }
+  /** Agent versions and updates (I-198), after every change (throttled while an update runs). Local-owner sockets only; not sequenced. */
+  | { type: "agent_versions"; status: import("./agent-versions.js").AgentVersionsStatus }
   // Sequenced sync (I-122) ---------------------------------------------------------------------
   /** Several pushes at once (sent every ~50 ms). */
   | { type: "batch"; messages: ServerMessage[] }

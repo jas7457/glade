@@ -3,7 +3,7 @@
  *
  *   GET /commands?projectId=[&harness=][&refresh=1]                 → SlashCommand[] (harness commands for the folder)
  *   GET /files?projectId=&q=[&limit=]                               → FileSearchResponse (`@` mentions)
- *   GET /models/default[?refresh=1]                                 → HarnessDefaults
+ *   GET /models/default[?refresh=1][&harness=]                      → HarnessDefaults (I-198: `harness` = that agent's own; 404 when not offered)
  *   GET /permission-modes?projectId=[&harness=][&provider=&model=]  → FolderPermissionModes (I-184)
  *
  * `projectId` omitted/empty = the scratch folder; `harness` omitted = the default agent (I-185).
@@ -28,6 +28,6 @@ export function folderRoutes(folderInfo: FolderInfoService): Hono {
     const limit = Number(c.req.query("limit") ?? "") || undefined;
     return c.json(await folderInfo.searchFiles(c.req.query("projectId") || null, c.req.query("q") ?? "", limit));
   });
-  api.get("/models/default", async (c) => c.json(await folderInfo.getDefaults(truthy(c.req.query("refresh")))));
+  api.get("/models/default", async (c) => c.json(await folderInfo.getDefaults(truthy(c.req.query("refresh")), c.req.query("harness") || null)));
   return api;
 }

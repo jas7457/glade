@@ -77,7 +77,7 @@ export class PiHarness implements AgentHarness {
   readonly id = "pi";
   readonly info: HarnessDescription = {
     label: "pi",
-    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true, sideQuestions: true },
+    capabilities: { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true, sideQuestions: true, quickTasks: true },
   };
   /** Claude subscription limits when pi is logged in to Anthropic with OAuth (read-only). */
   getUsageLimits = () => fetchAnthropicUsageLimits({ token: () => readPiAnthropicAuth() });

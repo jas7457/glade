@@ -6,24 +6,22 @@ import {
   firstMainSession,
   messageText as transcriptText,
   parseAgentMessage,
-  sameModel,
   type GenerateTitleResponse,
-  type ModelInfo,
-  type ModelRef,
   type Session,
   type Transcript,
   type UpdateWorkspaceRequest,
   type WorkspaceSummary,
 } from "@glade/protocol";
-import { canGenerateTitles, conversationExcerpt, generateTitleWith } from "../../harness/title.js";
+import { conversationExcerpt } from "../../harness/title.js";
 import type { AgentHarness } from "../../harness/types.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
+import { quickTitle, quickTitleRunner, type QuickTaskRunner } from "./quick-tasks.js";
 import type { Records } from "./records.js";
 import type { Transcripts } from "./transcripts.js";
 
-/** Default small model when `settings.models.smallModel` is unset (used only if available). */
-export const DEFAULT_SMALL_MODEL: ModelRef = { provider: "anthropic", id: "claude-haiku-4-5" };
+/** Default small model when no quick-tasks model is set (used only if available). */
+export { DEFAULT_SMALL_MODEL } from "./quick-tasks.js";
 
 /** What titles need from the workspaces module, wired by `AppService`. */
 export interface TitlesHooks {
@@ -49,18 +47,15 @@ export class Titles {
   async generateTitle(id: string, firstMessage: string): Promise<void> {
     const settings = this.ctx.store.getSettings();
     const session = this.ctx.store.getSession(id);
-    const harness = session && this.ctx.harnesses.get(session.harness);
-    if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
+    if (!settings.general.generateTitles || !session) return;
     // A sub-agent's report/message isn't the user's words (I-100).
     if (parseAgentMessage(firstMessage)) return;
     const workspace = this.ctx.store.getWorkspace(session.workspaceId);
     if (!workspace) return;
-    // The chat's own harness writes its title (the small model is one of its models).
-    const title = await generateTitleWith(harness, {
-      firstMessage,
-      cwd: workspace.cwd,
-      model: settings.models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model,
-    });
+    // The quick-tasks agent writes it (I-198), else the chat's own harness.
+    const runner = await this.runnerFor(session);
+    if (!runner) return;
+    const title = await quickTitle(runner, { firstMessage, cwd: workspace.cwd });
     const current = this.ctx.store.getSession(id);
     if (!title || !current || current.titleSource !== "auto") return;
     const next = { ...current, title };
@@ -77,11 +72,12 @@ export class Titles {
   async generateAgentTitle(id: string, task: string): Promise<void> {
     const settings = this.ctx.store.getSettings();
     const session = this.ctx.store.getSession(id);
-    const harness = session && this.ctx.harnesses.get(session.harness);
-    if (!settings.general.generateTitles || !harness || !canGenerateTitles(harness)) return;
+    if (!settings.general.generateTitles || !session) return;
     const workspace = this.ctx.store.getWorkspace(session.workspaceId);
     if (!workspace) return;
-    const title = await generateTitleWith(harness, { firstMessage: task, cwd: workspace.cwd, model: await this.smallModelFor(harness, session) });
+    const runner = await this.runnerFor(session);
+    if (!runner) return;
+    const title = await quickTitle(runner, { firstMessage: task, cwd: workspace.cwd });
     const current = this.ctx.store.getSession(id);
     if (!title || !current || current.titleSource !== "user" || current.title !== current.agentName) return;
     this.records.saveSession({ ...current, title, titleSource: "auto" });
@@ -96,18 +92,14 @@ export class Titles {
   async generateSessionTitle(id: string): Promise<GenerateTitleResponse> {
     const session = this.records.requireSession(id);
     const harness = this.records.requireHarness(session);
-    if (!canGenerateTitles(harness)) throw new HttpError(501, `${harness.info.label} can't generate titles`);
+    const runner = await this.runnerFor(session);
+    if (!runner) throw new HttpError(501, `${harness.info.label} can't generate titles`);
     const workspace = this.records.requireWorkspace(session.workspaceId);
     const messages = await this.conversationText(session, harness);
     const excerpt = conversationExcerpt(messages);
     const firstMessage = messages.find((m) => m.role === "user" && m.text.trim() && !parseAgentMessage(m.text))?.text;
     if (!excerpt || !firstMessage) throw new HttpError(409, "Nothing to name yet: this chat has no messages");
-    const title = await generateTitleWith(harness, {
-      firstMessage,
-      excerpt,
-      cwd: workspace.cwd,
-      model: await this.smallModelFor(harness, session),
-    });
+    const title = await quickTitle(runner, { firstMessage, excerpt, cwd: workspace.cwd });
     if (!title) throw new HttpError(500, "The model didn't come up with a title");
     const current = this.records.requireSession(id);
     const mainTabs = this.ctx.store.listSessions(current.workspaceId).filter((s) => s.kind === "main");
@@ -126,16 +118,10 @@ export class Titles {
   }
 
   /**
-   * The small model for quick tasks (titles, `/name`; I-074): `settings.models.smallModel`, else
-   * Haiku when the harness lists it, else the session's model.
+   * Who titles a session (titles, `/name`; I-074, I-198): the quick-tasks agent and model, else
+   * the session's own harness with Haiku when it lists it, else the session's model.
    */
-  private async smallModelFor(harness: AgentHarness, session: Session): Promise<ModelRef | null> {
-    return this.ctx.store.getSettings().models.smallModel ?? (await this.defaultSmallModel(harness)) ?? session.model;
-  }
-
-  /** Quick tasks use a cheap, fast model by default (Haiku) when it's available. */
-  private async defaultSmallModel(harness: AgentHarness): Promise<ModelRef | null> {
-    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => sameModel(m, DEFAULT_SMALL_MODEL)) ? DEFAULT_SMALL_MODEL : null;
+  private runnerFor(session: Session): Promise<QuickTaskRunner | null> {
+    return quickTitleRunner(this.ctx.store.getSettings(), this.ctx.harnesses, { harness: this.ctx.harnesses.get(session.harness), model: session.model });
   }
 }

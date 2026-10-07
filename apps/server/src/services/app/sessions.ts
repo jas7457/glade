@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import {
   activeMainSessionId,
+  agentModelSettings,
   defaultSessionState,
   emptyTranscript,
   quickTitle,
@@ -122,6 +123,7 @@ export class Sessions {
     if (!this.ctx.harnesses.isInstalled(harness)) throw new HttpError(400, `${harness.info.label} isn't installed on ${this.ctx.deviceName()}`);
     // Harnesses without Glade's model picker (ACP agents, I-119) choose their own model.
     const usesModels = harness.info.capabilities.models !== false;
+    const agentDefaults = agentModelSettings(settings, harness.id);
     const now = Date.now();
     const session: Session = {
       id: randomUUID(),
@@ -137,8 +139,9 @@ export class Sessions {
       unread: false,
       createdAt: now,
       lastActivityAt: now,
-      model: usesModels ? (req.model ?? settings.models.defaultModel) : null,
-      thinkingLevel: usesModels ? (req.thinkingLevel ?? settings.models.defaultThinkingLevel) : null,
+      // I-198: this agent's own defaults, never another agent's.
+      model: usesModels ? (req.model ?? agentDefaults.defaultModel) : null,
+      thinkingLevel: usesModels ? (req.thinkingLevel ?? agentDefaults.defaultThinkingLevel) : null,
       // I-184: the mode picked before the first message (the harness falls back to its own
       // default for one it doesn't know). Sub-agents never get one: they start in their default.
       ...(how.kind === "main" && req.permissionMode && harness.info.capabilities.permissionModes ? { permissionMode: req.permissionMode } : {}),

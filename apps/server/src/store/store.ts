@@ -45,7 +45,17 @@ import { ulid } from "./db/ids.js";
 import { BlobStore, CHATS_DIR, LEGACY_BLOBS_DIR } from "./blobs.js";
 import { externalizeImages } from "./images.js";
 import { migrateImagesPerChat, moveAttachmentsIntoChats, type ImageMigrationResult } from "./migrate-images.js";
-import { dropRemovedAgentSettings, dropRemovedAppearance, dropRemovedGeneral, migrateSettings, readLegacyData, type LegacyData } from "./import-json.js";
+import {
+  dropRemovedAgentSettings,
+  dropRemovedAppearance,
+  dropRemovedGeneral,
+  legacyModelsOwner,
+  migrateAgentModels,
+  migrateSettings,
+  migrateSmallModel,
+  readLegacyData,
+  type LegacyData,
+} from "./import-json.js";
 import {
   agentMessageMeta,
   mergeTranscripts,
@@ -957,9 +967,15 @@ export class Store {
   updateSettings(patch: DeepPartial<Settings>): Settings {
     const next = transaction(this.db, () => {
       const row = this.db.prepare("SELECT data_json FROM settings WHERE id = 1").get() as { data_json: string } | undefined;
-      const current = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
+      const stored = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
+      // I-198: pre-I-198 global model fields (stored, or from an older client's patch) move to the
+      // default agent's entry before merging, so the patch's values land there too.
+      const owner = legacyModelsOwner(stored);
+      const current = migrateAgentModels(migrateSmallModel(stored), owner);
       // Removed settings (e.g. I-153's `sendKey`, also from an older client's patch) are dropped on write.
-      const merged = dropRemovedAgentSettings(dropRemovedAppearance(dropRemovedGeneral(deepMerge(current as Settings, patch) as DeepPartial<Settings>)));
+      const merged = dropRemovedAgentSettings(
+        dropRemovedAppearance(dropRemovedGeneral(deepMerge(current as Settings, migrateAgentModels(patch, owner)) as DeepPartial<Settings>)),
+      );
       this.putSettings(merged, Date.now());
       this.event("settings", null);
       return merged;

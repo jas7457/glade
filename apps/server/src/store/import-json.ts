@@ -145,16 +145,58 @@ export function readLegacyData(dataDir: string): LegacyData {
 
 // Upgrades older versions applied when loading their JSON (moved here from the JSON store) -------
 
-/** Stored-settings upgrades. Returns the same object when nothing changes. */
-export function migrateSettings(stored: DeepPartial<Settings>): DeepPartial<Settings> {
-  return migrateSmallModel(dropRemovedAgentSettings(dropRemovedAppearance(dropRemovedGeneral(stored))));
+/**
+ * Stored-settings upgrades. Returns the same object when nothing changes. `modelsOwner`: the agent
+ * the pre-I-198 global model fields belong to (default: the stored `agent.defaultHarness`, else pi).
+ */
+export function migrateSettings(stored: DeepPartial<Settings>, modelsOwner?: string): DeepPartial<Settings> {
+  return migrateAgentModels(migrateSmallModel(dropRemovedAgentSettings(dropRemovedAppearance(dropRemovedGeneral(stored)))), modelsOwner);
+}
+
+/** The agent the pre-I-198 global model fields of stored settings belong to: the default agent, else pi. */
+export function legacyModelsOwner(stored: DeepPartial<Settings>): string {
+  const owner = (stored as { agent?: { defaultHarness?: unknown } }).agent?.defaultHarness;
+  return typeof owner === "string" && owner ? owner : "pi";
+}
+
+/** Pre-I-198 global model fields that are per agent now (`models.agents.<id>`). */
+const LEGACY_AGENT_MODEL_KEYS = ["defaultModel", "defaultThinkingLevel", "subagentModel", "subagentThinkingLevel", "sideQuestionModel", "hiddenModels"] as const;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * I-198: the global model settings move to the agent they were used with (`owner`, see
+ * {@link legacyModelsOwner}): `models.<field>` → `models.agents.<owner>.<field>` (a value already
+ * there wins), and the small model becomes the quick-tasks model (`{ harness: owner, model }`;
+ * `null` stays automatic; a `quickTasks` already there wins). The legacy keys are removed. Applied on
+ * read, to the stored overrides before each write and to patches from older clients.
+ */
+export function migrateAgentModels(stored: DeepPartial<Settings>, owner = legacyModelsOwner(stored)): DeepPartial<Settings> {
+  const models = (stored as { models?: unknown }).models;
+  if (!isRecord(models) || ![...LEGACY_AGENT_MODEL_KEYS, "smallModel"].some((k) => k in models)) return stored;
+  const rest: Record<string, unknown> = { ...models };
+  const agents: Record<string, unknown> = isRecord(rest.agents) ? { ...rest.agents } : {};
+  const own: Record<string, unknown> = isRecord(agents[owner]) ? { ...(agents[owner] as Record<string, unknown>) } : {};
+  for (const key of LEGACY_AGENT_MODEL_KEYS) {
+    if (!(key in rest)) continue;
+    if (!(key in own) && rest[key] !== undefined) own[key] = rest[key];
+    delete rest[key];
+  }
+  if ("smallModel" in rest) {
+    const small = rest.smallModel;
+    if (!("quickTasks" in rest) && small !== undefined) rest.quickTasks = isRecord(small) ? { harness: owner, model: small } : null;
+    delete rest.smallModel;
+  }
+  if (Object.keys(own).length) agents[owner] = own;
+  if (Object.keys(agents).length || "agents" in rest) rest.agents = agents;
+  return { ...stored, models: rest } as DeepPartial<Settings>;
 }
 
 /**
  * I-074: `models.titleModel` became `models.smallModel` (one small model for titles, `/name`,
  * summaries and search). A value already under `smallModel` wins.
  */
-function migrateSmallModel(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+export function migrateSmallModel(stored: DeepPartial<Settings>): DeepPartial<Settings> {
   const models = (stored as { models?: Record<string, unknown> }).models;
   if (!models || !("titleModel" in models)) return stored;
   const { titleModel, ...rest } = models;

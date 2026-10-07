@@ -53,6 +53,11 @@ export interface SearchServiceOptions {
   summaries?: SummaryStore;
   /** One-shot fast model; without it summaries are off and `ask` uses keyword ranking. */
   smallModel?: SmallModel;
+  /**
+   * The model {@link smallModel} runs with (I-198: the quick-tasks model, `create.ts`). Omitted:
+   * Haiku when the default harness lists it, else the harness default.
+   */
+  smallModelRef?: () => Promise<ModelRef | null>;
   /** Background poll interval (0 = no timer; tests). Default 20 s. */
   pollMs?: number;
   /** Delay after a run ends before re-reading the file and summarizing. Default 1.5 s. */
@@ -386,10 +391,9 @@ export class SearchService {
     this.indexSession(session, workspace, text);
   }
 
-  /** The small model setting, else Haiku when the harness lists it, else the harness default. */
+  /** The quick-tasks model (from the wiring), else Haiku when the harness lists it, else the harness default. */
   private async smallModelRef(): Promise<ModelRef | null> {
-    const configured = this.options.app.getSettings().models.smallModel;
-    if (configured) return configured;
+    if (this.options.smallModelRef) return this.options.smallModelRef();
     const all = await this.options.app.listModels().catch(() => [] as ModelInfo[]);
     // The default harness's models come first (I-173: other harnesses' follow, tagged).
     const models = all.filter((m) => !m.harness || m.harness === all[0]?.harness);

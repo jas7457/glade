@@ -34,7 +34,7 @@ export function VersionSettings() {
       footer={
         updateHere
           ? undefined
-          : "After installing, quit Glade completely (from the menu bar: Quit Glade Completely) and open it again. Closing the window or ⌘Q keeps the old version running."
+          : "After installing, the Glade app restarts into the new version on its own: right away, or once its working chats finish."
       }
     >
       <FormRow

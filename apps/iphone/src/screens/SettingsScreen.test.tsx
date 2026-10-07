@@ -28,7 +28,10 @@ describe("iPhone settings", () => {
     const studio = fakeEnv("m1", "Studio");
     studio.shell.harnesses.value = [{ id: "pi", label: "pi", isDefault: true, capabilities: {} as never }];
     studio.shell.models.value = [{ provider: "anthropic", id: "sonnet", name: "Claude Sonnet", thinkingLevels: ["off"], input: ["text"] }];
-    studio.shell.settings.value = { ...studio.shell.settings.value, models: { ...studio.shell.settings.value.models, defaultModel: { provider: "anthropic", id: "sonnet" } } };
+    studio.shell.settings.value = {
+      ...studio.shell.settings.value,
+      models: { quickTasks: { harness: "pi", model: { provider: "anthropic", id: "sonnet" } }, agents: { pi: { defaultModel: { provider: "anthropic", id: "sonnet" }, defaultThinkingLevel: "high" } } },
+    };
     connections.value = [studio, fakeEnv("m2", "Air", "needs-pairing")];
     savedEnvironments.value = [
       { id: "m1", name: "Studio", urls: ["http://m1.test:4327"], token: "t" },
@@ -52,6 +55,11 @@ describe("iPhone settings", () => {
     renderAt(paths.device("m1"));
     expect(screen.getByText("pi")).toBeTruthy();
     expect(screen.getAllByText("Claude Sonnet").length).toBeGreaterThan(0);
+    // I-198: the default agent's own defaults, and the quick-tasks model.
+    expect(screen.getByText("Default Model").closest("div")!.textContent).toContain("Claude Sonnet");
+    expect(screen.getByText("High")).toBeTruthy();
+    expect(screen.getByText("Quick Tasks Model").closest("div")!.textContent).toContain("Claude Sonnet");
+    expect(screen.queryByText("Small Model")).toBeNull();
     expect(screen.getByText(/View only/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pair Again/ })).toBeNull();
   });

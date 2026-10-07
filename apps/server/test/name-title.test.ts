@@ -87,8 +87,8 @@ describe("generateSessionTitle", () => {
     expect(env.store.getWorkspace(chat.wid)).toMatchObject({ title: "Fixing the login bug", titleSource: "user" });
   });
 
-  it("uses the small model setting", async () => {
-    env.service.updateSettings({ models: { smallModel: { provider: "fake", id: "fast" } } });
+  it("uses the quick-tasks model setting (I-198)", async () => {
+    env.service.updateSettings({ models: { quickTasks: { harness: "fake", model: { provider: "fake", id: "fast" } } } });
     const chat = await chatWithTurns();
     await env.service.generateSessionTitle(chat.sid);
     expect(calls.at(-1)!.model).toEqual({ provider: "fake", id: "fast" });

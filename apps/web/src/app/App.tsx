@@ -4,10 +4,11 @@
 import { RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
 import { ConfirmHost, Toaster, TooltipProvider } from "@glade/app-core/ui";
 import { PairRoute, PendingPairingHost } from "@/features/environments";
-import { SettingsIndexRoute, SettingsRoute } from "@/features/settings";
+import { SettingsAgentRoute, SettingsIndexRoute, SettingsRoute } from "@/features/settings";
 import { DeleteChatHost } from "@/features/sidebar";
 import { Layout } from "./Layout";
 import { NotFound } from "./NotFound";
+import { RestartNotice } from "./RestartNotice";
 import { ChatRoute, HomeRoute, ProjectRoute } from "./RouteViews";
 
 export const appRoutes: RouteObject[] = [
@@ -27,6 +28,8 @@ export const appRoutes: RouteObject[] = [
       { path: "/pair", element: <PairRoute /> },
       { path: "/settings", element: <SettingsIndexRoute /> },
       { path: "/settings/:section", element: <SettingsRoute /> },
+      // One agent's page under Settings → Agents (I-198).
+      { path: "/settings/agent/:harness", element: <SettingsAgentRoute /> },
       { path: "*", element: <NotFound /> },
     ],
   },
@@ -43,6 +46,7 @@ export function App() {
       <DeleteChatHost />
       <PendingPairingHost />
       <Toaster />
+      <RestartNotice />
     </TooltipProvider>
   );
 }

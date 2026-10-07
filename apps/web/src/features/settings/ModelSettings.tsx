@@ -1,19 +1,26 @@
+/**
+ * Model settings (I-198): per agent on its page under Settings → Agents (`AgentModelGroups`:
+ * "Defaults" and "Models", only that agent's models), and the one Glade-wide quick-tasks model
+ * (`QuickTasksRow`, on the Agents page), picked as agent + model. The global Models page was
+ * folded into Agents. Helpers for grouping models live here too.
+ */
 import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
-import { THINKING_LEVELS, modelKey, parseModelKey, type ModelInfo, type ThinkingLevel } from "@glade/protocol";
+import { THINKING_LEVELS, modelKey, parseModelKey, sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
 import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@glade/app-core/ui";
 import {
-  hostEnvId,
-  hostHarnessDefaults as harnessDefaults,
-  hostModels as models,
-  hostSettings as settings,
-  hostVisibleModels as visibleModels,
-  loadHostModels as loadModels,
-  updateHostSettings as updateSettings,
+  hostAgentDefaults,
+  hostAgentModels,
+  hostDefaultHarness,
+  hostHarnesses,
+  hostModelsFor,
+  hostQuickTasks,
+  hostVisibleModelsFor,
+  loadHostModels,
+  updateHostAgentModels,
+  updateHostSettings,
 } from "@glade/app-core/state/host-settings";
-import { harnessLabel } from "@glade/app-core/state/harnesses";
 import { modelGroup } from "@glade/app-core/features/chat/Pickers";
-import { hostDeviceName, hostHarnesses } from "@glade/app-core/state/host-settings";
 
 export const THINKING_LABELS: Record<ThinkingLevel, string> = {
   off: "Off",
@@ -49,55 +56,120 @@ export function groupModelsByAgent(list: readonly ModelInfo[], labelOf: (harness
     .flatMap(([agent, ms]) => groupModels(ms).map(([provider, pms]) => [provider === agent ? agent : `${agent} · ${provider}`, pms] as [string, ModelInfo[]]));
 }
 
-/** The server's default small model when it's available (`DEFAULT_SMALL_MODEL`). */
-const SMALL_DEFAULT = { provider: "anthropic", id: "claude-haiku-4-5" };
+/**
+ * The thinking levels an agent's models support, in order (I-198: per agent); every level when it
+ * lists no models or none says. `keep` (the stored value) is always included so it still shows.
+ */
+export function agentThinkingLevels(list: readonly ModelInfo[], keep?: ThinkingLevel | null): ThinkingLevel[] {
+  const supported = new Set<ThinkingLevel>(list.flatMap((m) => m.thinkingLevels ?? []));
+  if (supported.size === 0) return [...THINKING_LEVELS];
+  if (keep) supported.add(keep);
+  return THINKING_LEVELS.filter((l) => supported.has(l));
+}
 
-function modelOptions(list: readonly ModelInfo[], none: string): SelectOption<string>[] {
+/** The model the server picks for quick tasks when it's listed (`DEFAULT_SMALL_MODEL`). */
+const QUICK_DEFAULT = { provider: "anthropic", id: "claude-haiku-4-5" };
+
+function modelOptions(list: readonly ModelInfo[], none: string, current?: ModelRef | null): SelectOption<string>[] {
+  // A stored model that's hidden (or gone) still shows as the value.
+  const extra = current && !list.some((m) => sameModel(m, current)) ? [{ value: modelKey(current), label: current.id, group: current.provider }] : [];
   return [
     { value: "", label: none },
     ...groupModels(list).flatMap(([provider, ms]) => ms.map((m) => ({ value: modelKey(m), label: m.name, group: provider }))),
+    ...extra,
   ];
 }
 
-export function ModelSettings() {
-  const s = settings.value.models;
-  const all = models.value;
-  const visible = visibleModels.value;
+const nameIn = (list: readonly ModelInfo[], ref: ModelRef | null | undefined) => (ref ? (list.find((m) => sameModel(m, ref))?.name ?? ref.id) : null);
+
+/** `<harness>/<provider>/<id>`: a quick-tasks option's value. */
+export const quickTasksKey = (harness: string, model: ModelRef) => `${harness}/${modelKey(model)}`;
+export function parseQuickTasksKey(key: string): { harness: string; model: ModelRef } | null {
+  const slash = key.indexOf("/");
+  const model = slash > 0 ? parseModelKey(key.slice(slash + 1)) : null;
+  return model ? { harness: key.slice(0, slash), model } : null;
+}
+
+/**
+ * The Glade-wide quick-tasks model (I-198): titles, `/name`, summaries, search and commit
+ * messages, for chats of every agent. Options are grouped by agent (only agents that can run quick
+ * tasks), plus Automatic, whose label says what it falls back to.
+ */
+export function QuickTasksRow() {
+  const current = hostQuickTasks.value;
+  const offered = (hostHarnesses.value ?? []).filter((h) => h.capabilities.quickTasks);
+  const defaultAgent = hostDefaultHarness.value;
+  const haiku = defaultAgent ? hostModelsFor(defaultAgent.id).find((m) => sameModel(m, QUICK_DEFAULT)) : undefined;
+  const several = (hostHarnesses.value?.length ?? 0) > 1;
+  const automatic = haiku && defaultAgent ? `Automatic (${several ? `${defaultAgent.label} · ` : ""}${haiku.name})` : "Automatic (the chat's model)";
+
+  const options: SelectOption<string>[] = [{ value: "", label: automatic }];
+  for (const h of offered) {
+    const visible = hostVisibleModelsFor(h.id);
+    for (const [provider, ms] of groupModels(visible)) {
+      const group = provider === h.label ? h.label : `${h.label} · ${provider}`;
+      for (const m of ms) options.push({ value: quickTasksKey(h.id, m), label: m.name, group });
+    }
+  }
+  const value = current ? quickTasksKey(current.harness, current.model) : "";
+  if (current && !options.some((o) => o.value === value)) {
+    // Hidden, or its agent is off / can't run quick tasks any more: still show what's stored.
+    const label = hostHarnesses.value?.find((h) => h.id === current.harness)?.label ?? current.harness;
+    options.push({ value, label: nameIn(hostModelsFor(current.harness), current.model) ?? current.model.id, group: label });
+  }
+
+  return (
+    <FormRow label="Quick tasks model" description="Names chats and writes summaries, search answers and commit messages, for chats of every agent. A small, fast model works best.">
+      <Select
+        aria-label="Quick tasks model"
+        class="w-[240px]"
+        value={value}
+        options={options}
+        onChange={(key) => void updateHostSettings({ models: { quickTasks: parseQuickTasksKey(key) } })}
+      />
+    </FormRow>
+  );
+}
+
+/** One agent's "Defaults" and "Models" groups (I-198): only its models, its own settings. */
+export function AgentModelGroups({ harness }: { harness: string }) {
+  const info = hostHarnesses.value?.find((h) => h.id === harness);
+  const s = hostAgentModels(harness);
+  const all = hostModelsFor(harness);
+  const visible = hostVisibleModelsFor(harness);
   const hidden = new Set(s.hiddenModels);
   const [refreshing, setRefreshing] = useState(false);
-  // I-074: the server picks Haiku for quick tasks when it's listed, else the chat's model.
-  const smallDefault = all.find((m) => m.provider === SMALL_DEFAULT.provider && m.id === SMALL_DEFAULT.id);
-  // I-050: name the harness's own default so "Default" isn't a mystery.
-  const harnessModel = harnessDefaults.value?.model;
-  const harnessModelName = harnessModel ? (all.find((m) => m.provider === harnessModel.provider && m.id === harnessModel.id)?.name ?? harnessModel.id) : null;
-
-  const env = hostEnvId();
-  const labelOf = (harness: string | undefined) => harnessLabel(harness ?? null, env);
-  // Agents that choose their own model (ACP agents) have no list here.
-  const ownModel = (hostHarnesses.value ?? []).filter((h) => h.capabilities.models === false);
+  const label = info?.label ?? harness;
+  const caps = info?.capabilities;
+  // I-050: name the agent's own default so "Default" isn't a mystery.
+  const own = hostAgentDefaults(harness);
+  const ownName = nameIn(all, own?.model);
+  const levels = agentThinkingLevels(all, s.defaultThinkingLevel);
+  const subLevels = agentThinkingLevels(all, s.subagentThinkingLevel);
+  const set = (patch: Parameters<typeof updateHostAgentModels>[1]) => void updateHostAgentModels(harness, patch);
 
   const refresh = async () => {
     setRefreshing(true);
-    await loadModels(true);
+    await loadHostModels(true);
     setRefreshing(false);
   };
   const setVisible = (key: string, show: boolean) => {
     const next = new Set(hidden);
     if (show) next.delete(key);
     else next.add(key);
-    void updateSettings({ models: { hiddenModels: [...next] } });
+    set({ hiddenModels: [...next] });
   };
 
   return (
     <>
       <FormGroup title="Defaults">
-        <FormRow label="Default model" description="Used for new chats.">
+        <FormRow label="Default model" description={`Used for new ${label} chats.`}>
           <Select
             aria-label="Default model"
             class="w-[240px]"
             value={s.defaultModel ? modelKey(s.defaultModel) : ""}
-            options={modelOptions(visible, harnessModelName ? `Default (${harnessModelName})` : "Agent default")}
-            onChange={(key) => void updateSettings({ models: { defaultModel: parseModelKey(key) } })}
+            options={modelOptions(visible, ownName ? `Default (${ownName})` : "Agent default", s.defaultModel)}
+            onChange={(key) => set({ defaultModel: parseModelKey(key) })}
           />
         </FormRow>
         <FormRow label="Default thinking level">
@@ -105,54 +177,48 @@ export function ModelSettings() {
             aria-label="Default thinking level"
             class="w-[240px]"
             value={s.defaultThinkingLevel}
-            options={THINKING_LEVELS.map((l) => ({ value: l, label: THINKING_LABELS[l] }))}
-            onChange={(defaultThinkingLevel) => void updateSettings({ models: { defaultThinkingLevel } })}
+            options={levels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))}
+            onChange={(defaultThinkingLevel) => set({ defaultThinkingLevel })}
           />
         </FormRow>
-        <FormRow label="Small model" description="Used for quick tasks: naming chats, summaries and search. A small, fast model works best.">
-          <Select
-            aria-label="Small model"
-            class="w-[240px]"
-            value={s.smallModel ? modelKey(s.smallModel) : ""}
-            options={modelOptions(visible, smallDefault ? `Default (${smallDefault.name})` : "Same as the chat")}
-            onChange={(key) => void updateSettings({ models: { smallModel: parseModelKey(key) } })}
-          />
-        </FormRow>
-        <FormRow label="Side questions model" description="Answers side questions (/btw, Ask Aside) while the agent works. A faster model answers sooner.">
-          <Select
-            aria-label="Side questions model"
-            class="w-[240px]"
-            value={s.sideQuestionModel ? modelKey(s.sideQuestionModel) : ""}
-            options={modelOptions(visible, "Same as the chat")}
-            onChange={(key) => void updateSettings({ models: { sideQuestionModel: parseModelKey(key) } })}
-          />
-        </FormRow>
-      </FormGroup>
-
-      <FormGroup title="Sub-agents">
-        <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
-          <Select
-            aria-label="Sub-agent model"
-            class="w-[240px]"
-            value={s.subagentModel ? modelKey(s.subagentModel) : ""}
-            options={modelOptions(visible, "Same as the parent chat")}
-            onChange={(key) => void updateSettings({ models: { subagentModel: parseModelKey(key) } })}
-          />
-        </FormRow>
-        <FormRow label="Sub-agent thinking">
-          <Select
-            aria-label="Sub-agent thinking"
-            class="w-[240px]"
-            value={s.subagentThinkingLevel ?? ""}
-            options={[{ value: "", label: "Same as the parent chat" }, ...THINKING_LEVELS.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}
-            onChange={(level) => void updateSettings({ models: { subagentThinkingLevel: (level || null) as ThinkingLevel | null } })}
-          />
-        </FormRow>
+        {caps?.subagents !== false && (
+          <>
+            <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
+              <Select
+                aria-label="Sub-agent model"
+                class="w-[240px]"
+                value={s.subagentModel ? modelKey(s.subagentModel) : ""}
+                options={modelOptions(visible, "Same as the parent chat", s.subagentModel)}
+                onChange={(key) => set({ subagentModel: parseModelKey(key) })}
+              />
+            </FormRow>
+            <FormRow label="Sub-agent thinking">
+              <Select
+                aria-label="Sub-agent thinking"
+                class="w-[240px]"
+                value={s.subagentThinkingLevel ?? ""}
+                options={[{ value: "", label: "Same as the parent chat" }, ...subLevels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}
+                onChange={(level) => set({ subagentThinkingLevel: (level || null) as ThinkingLevel | null })}
+              />
+            </FormRow>
+          </>
+        )}
+        {caps?.sideQuestions !== false && (
+          <FormRow label="Side questions model" description="Answers side questions (/btw, Ask Aside) while the agent works. A faster model answers sooner.">
+            <Select
+              aria-label="Side questions model"
+              class="w-[240px]"
+              value={s.sideQuestionModel ? modelKey(s.sideQuestionModel) : ""}
+              options={modelOptions(visible, "Same as the chat", s.sideQuestionModel)}
+              onChange={(key) => set({ sideQuestionModel: parseModelKey(key) })}
+            />
+          </FormRow>
+        )}
       </FormGroup>
 
       <FormGroup
-        title="Available models"
-        footer={`The models ${hostDeviceName.value}'s agents can use, by agent and provider. Hidden models don't appear in the model picker.`}
+        title="Models"
+        footer={`The models ${label} can use, by provider. Hidden models don't appear in its model picker.`}
         actions={
           <Button size="sm" onClick={() => void refresh()} disabled={refreshing}>
             {refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
@@ -161,9 +227,9 @@ export function ModelSettings() {
         }
       >
         {all.length === 0 ? (
-          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${harnessLabel(null, hostEnvId())} is configured with a provider.`}</span>} />
+          <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${label} is configured with a provider.`}</span>} />
         ) : (
-          groupModelsByAgent(all, labelOf).map(([group, ms]) => (
+          groupModels(all).map(([group, ms]) => (
             <div key={group}>
               <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{group}</div>
               {ms.map((m) => {
@@ -180,12 +246,6 @@ export function ModelSettings() {
             </div>
           ))
         )}
-        {ownModel.map((h) => (
-          <div key={h.id}>
-            <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{h.label}</div>
-            <div class="flex h-8 items-center border-t border-separator px-3 text-fg-muted">Chooses its own model</div>
-          </div>
-        ))}
       </FormGroup>
     </>
   );

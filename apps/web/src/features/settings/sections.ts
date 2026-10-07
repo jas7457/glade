@@ -1,11 +1,11 @@
 /** Settings section metadata (labels + icons) and the sidebar categories they're grouped in. */
-import { BookText, Cpu, Globe, HardDrive, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
+import { BookText, Globe, HardDrive, Settings2, SlashSquare, SquareTerminal } from "lucide-preact";
 import type { SettingsSection } from "@glade/app-core/app/routes";
 
-export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Cpu }> = {
+export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof Settings2 }> = {
   general: { label: "General", Icon: Settings2 },
-  models: { label: "Models", Icon: Cpu },
-  // Always "Agents" (I-155): the page lists every agent the device can run.
+  // Always "Agents" (I-155): the page lists every agent the device can run, each with its own page
+  // (I-198: version, defaults and models; the Models page was folded in here).
   agent: { label: "Agents", Icon: SquareTerminal },
   commands: { label: "Slash Commands", Icon: SlashSquare },
   prompts: { label: "Prompts", Icon: BookText },
@@ -19,13 +19,14 @@ export const SECTION_INFO: Record<SettingsSection, { label: string; Icon: typeof
  * switcher at the top of that group (I-155) picks whose settings they show; another device's are
  * view only, except Local Models' Load/Unload (actions, not settings; see {@link ACTION_SECTIONS}).
  */
-export const HOST_SECTIONS: readonly SettingsSection[] = ["agent", "models", "local-models", "commands", "prompts"];
+export const HOST_SECTIONS: readonly SettingsSection[] = ["agent", "local-models", "commands", "prompts"];
 
 /**
  * Host sections whose panel works on another device too (I-196: loading a model on another Mac is
- * an action); the panel itself makes its settings fields view only there.
+ * an action; I-198: checking for and running an agent's update, and opening an agent's page); the
+ * panel itself makes its settings fields view only there.
  */
-export const ACTION_SECTIONS: readonly SettingsSection[] = ["local-models"];
+export const ACTION_SECTIONS: readonly SettingsSection[] = ["agent", "local-models"];
 
 export interface SettingsGroup {
   title: string;
@@ -35,5 +36,5 @@ export interface SettingsGroup {
 /** Sidebar categories in order. Every section must appear in exactly one group. */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   { title: "App", sections: ["general", "remote"] },
-  { title: "AI", sections: ["agent", "models", "local-models", "commands", "prompts"] },
+  { title: "AI", sections: ["agent", "local-models", "commands", "prompts"] },
 ];

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/pr
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@glade/protocol";
 import { TooltipProvider } from "@glade/app-core/ui";
-import { harnessDefaults, models, sessions, settings, workspacesById } from "@glade/app-core/state/store";
+import { harnessDefaults, models, resetAgentDefaults, sessions, settings, workspacesById } from "@glade/app-core/state/store";
 import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
 import { enterAction, parseShellInput } from "./composer-utils";
@@ -401,9 +401,10 @@ describe("Composer send keys (I-153)", () => {
 
 describe("Composer (new chat)", () => {
   it("creates the chat with the default model/thinking and navigates to it", async () => {
+    harnesses.value = [{ id: "pi", label: "pi", isDefault: true, capabilities: ALL_CAPS }];
     settings.value = {
       ...defaultSettings(),
-      models: { ...defaultSettings().models, defaultModel: { provider: "anthropic", id: "haiku" }, defaultThinkingLevel: "xhigh" },
+      models: { ...defaultSettings().models, agents: { pi: { defaultModel: { provider: "anthropic", id: "haiku" }, defaultThinkingLevel: "xhigh" } } },
     };
     // Workspace "new1" with its first session "s-new1".
     const session = makeSession({ id: "s-new1", workspaceId: "new1", title: "Hi", running: true });
@@ -433,6 +434,7 @@ describe("Composer (new chat)", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/p1/chats/new1"));
     expect(getChatSession("s-new1").status.value).toBe("ready");
     expect(workspacesById.value.has("new1")).toBe(true);
+    harnesses.value = null;
   });
 
   it("falls back to the first visible model and hides thinking for non-reasoning models", () => {
@@ -459,6 +461,65 @@ describe("Composer (new chat)", () => {
     } finally {
       harnessDefaults.value = null;
     }
+  });
+});
+
+describe("Composer (new chat: the picked agent's own model settings, I-198)", () => {
+  const PI_MODELS: ModelInfo[] = MODELS.map((m) => ({ ...m, harness: "pi" }));
+  const CLAUDE_MODELS: ModelInfo[] = [
+    { provider: "anthropic", id: "sonnet", name: "Sonnet", thinkingLevels: ["off", "low", "medium", "high"], input: ["text"], harness: "claude" },
+    { provider: "anthropic", id: "opus", name: "Opus", thinkingLevels: ["off", "low", "medium", "high"], input: ["text"], harness: "claude" },
+  ];
+
+  beforeEach(async () => {
+    models.value = [...PI_MODELS, ...CLAUDE_MODELS];
+    harnesses.value = [
+      { id: "pi", label: "pi", isDefault: true, capabilities: ALL_CAPS },
+      { id: "claude", label: "Claude Code", isDefault: false, capabilities: ALL_CAPS },
+    ];
+    (await import("@glade/app-core/state/harnesses")).newChatHarness.value = "claude";
+    resetAgentDefaults();
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+  });
+  afterEach(async () => {
+    (await import("@glade/app-core/state/harnesses")).newChatHarness.value = null;
+    harnesses.value = null;
+    vi.mocked(folderApi.getHarnessDefaults).mockReset();
+    vi.mocked(folderApi.getHarnessDefaults).mockImplementation(async () => ({ model: null, thinkingLevel: null }));
+  });
+
+  it("uses that agent's default model and thinking, never the default agent's", async () => {
+    settings.value = {
+      ...defaultSettings(),
+      models: {
+        quickTasks: null,
+        agents: { pi: { defaultModel: { provider: "anthropic", id: "haiku" } }, claude: { defaultModel: { provider: "anthropic", id: "opus" }, defaultThinkingLevel: "low" } },
+      },
+    };
+    renderAt(<Composer projectId="p1" />);
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Opus");
+    expect(screen.getByRole("button", { name: "Thinking level" }).textContent).toContain("Low");
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "Hi" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ harness: "claude", model: { provider: "anthropic", id: "opus" }, thinkingLevel: "low" })),
+    );
+  });
+
+  it('"Default" is the agent\'s own default, asked for with ?harness= (and sends no model)', async () => {
+    vi.mocked(folderApi.getHarnessDefaults).mockImplementation(async (_r, _via, harness) =>
+      harness === "claude" ? { model: { provider: "anthropic", id: "opus" }, thinkingLevel: "high" } : { model: null, thinkingLevel: null },
+    );
+    renderAt(<Composer projectId="p1" />);
+    // Before it answers: the agent's first model; then its own default (not the first).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Opus"));
+    expect(screen.getByRole("button", { name: "Thinking level" }).textContent).toContain("High");
+    expect(vi.mocked(folderApi.getHarnessDefaults).mock.calls.some((c) => c[2] === "claude")).toBe(true);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "Hi" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ harness: "claude", model: null, thinkingLevel: "high" })));
   });
 });
 

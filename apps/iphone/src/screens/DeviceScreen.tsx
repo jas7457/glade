@@ -13,7 +13,7 @@ import { environmentAddress } from "@glade/app-core/state/environments";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { removeSavedEnvironment, savedEnvironments, setEnvironmentAlias } from "@glade/app-core/state/saved-environments";
 import { isUsable, loadedCount, localModelsOf } from "@glade/app-core/state/local-models";
-import { visibleModelsOf } from "@glade/app-core/state/store";
+import { agentDefaultsOf, agentModelsOf, modelsForHarness, quickTasksModelOf, visibleModelsOf } from "@glade/app-core/state/store";
 import { paths } from "~/app/routes";
 import { canRetryMac, macStatusHint, macStatusShort, macStatusTitle, retryMac } from "~/lib/mac-status";
 import { ListGroup, ListRow, NavBar, NavIconButton, PhoneButton, PhoneInput, Screen, ScreenBody, Sheet } from "~/ui/phone";
@@ -146,8 +146,12 @@ function AiSettings({ envId, name, allModels, onShowAll }: { envId: string; name
   const harnesses = shell.harnesses.value ?? [];
   const all = shell.models.value;
   const models = visibleModelsOf(shell);
-  const nameOf = (ref: ModelRef | null | undefined) => (ref ? (all.find((m) => sameModel(m, ref))?.name ?? ref.id) : null);
-  const harnessDefault = nameOf(shell.harnessDefaults.value?.model);
+  const nameOf = (ref: ModelRef | null | undefined, list = all) => (ref ? (list.find((m) => sameModel(m, ref))?.name ?? ref.id) : null);
+  const quick = quickTasksModelOf(shell);
+  const labelOf = (id: string) => harnesses.find((h) => h.id === id)?.label ?? id;
+  const quickName = quick ? `${harnesses.length > 1 ? `${labelOf(quick.harness)} · ` : ""}${nameOf(quick.model, modelsForHarness(all, quick.harness))}` : "Automatic";
+  // I-198: model settings are per agent (agents that choose their own model have none).
+  const withModels = harnesses.filter((h) => h.capabilities.models !== false);
   const shown = allModels ? models : models.slice(0, MODEL_LIMIT);
   return (
     <>
@@ -158,13 +162,25 @@ function AiSettings({ envId, name, allModels, onShowAll }: { envId: string; name
           harnesses.map((h) => <ListRow key={h.id} title={h.label} detail={h.isDefault ? "Default" : undefined} />)
         )}
         <ListRow title="Sub-agents" detail={settings.agent.subagents ? "On" : "Off"} />
+        <ListRow title="Quick Tasks Model" detail={quickName} />
       </ListGroup>
-      <ListGroup header="Models" footer={footer}>
-        <ListRow title="Default Model" detail={nameOf(settings.models.defaultModel) ?? (harnessDefault ? `Agent default (${harnessDefault})` : "Agent default")} />
-        <ListRow title="Thinking" detail={capitalize(settings.models.defaultThinkingLevel)} />
-        <ListRow title="Small Model" detail={nameOf(settings.models.smallModel) ?? "Automatic"} />
-        <ListRow title="Sub-agent Model" detail={nameOf(settings.models.subagentModel) ?? "Same as the chat"} />
-      </ListGroup>
+      {withModels.map((h, i) => {
+        const own = agentModelsOf(shell, h.id);
+        const list = modelsForHarness(all, h.id);
+        const agentDefault = nameOf(agentDefaultsOf(h.id, envId)?.model, list);
+        return (
+          <ListGroup key={h.id} header={withModels.length > 1 ? `${h.label} Models` : "Models"} footer={i === withModels.length - 1 ? footer : undefined}>
+            <ListRow title="Default Model" detail={nameOf(own.defaultModel, list) ?? (agentDefault ? `Agent default (${agentDefault})` : "Agent default")} />
+            <ListRow title="Thinking" detail={capitalize(own.defaultThinkingLevel)} />
+            <ListRow title="Sub-agent Model" detail={nameOf(own.subagentModel, list) ?? "Same as the chat"} />
+          </ListGroup>
+        );
+      })}
+      {withModels.length === 0 && (
+        <ListGroup footer={footer}>
+          <ListRow title={<span class="text-fg-muted">No model settings</span>} />
+        </ListGroup>
+      )}
       <ListGroup header={`Available Models (${models.length})`}>
         {models.length === 0 && <ListRow title={<span class="text-fg-muted">None</span>} />}
         {shown.map((m) => (

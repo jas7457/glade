@@ -113,7 +113,7 @@ describe("two servers on one data folder (I-062)", () => {
     await a.service.updateWorkspace(wa.workspace.id, { title: "From A" });
     await b.service.updateWorkspace(wb.workspace.id, { title: "From B" });
     a.service.updateSettings({ general: { generateTitles: false } });
-    b.service.updateSettings({ models: { hiddenModels: ["fake/fast"] } });
+    b.service.updateSettings({ models: { agents: { fake: { hiddenModels: ["fake/fast"] } } } });
     a.store.flush();
     b.store.flush();
 
@@ -122,7 +122,7 @@ describe("two servers on one data folder (I-062)", () => {
     expect(titles).toEqual({ [wa.workspace.id]: "From A", [wb.workspace.id]: "From B" });
     expect(fresh.listSessions().map((s) => s.id).sort()).toEqual([wa.session.session.id, wb.session.session.id].sort());
     expect(fresh.getSettings().general.generateTitles).toBe(false);
-    expect(fresh.getSettings().models.hiddenModels).toEqual(["fake/fast"]);
+    expect(fresh.getSettings().models.agents.fake?.hiddenModels).toEqual(["fake/fast"]);
     // And each server ends up with the other's changes as well.
     await until(() => a.service.listWorkspaces().length === 2 && b.service.listWorkspaces().length === 2, 4000);
   });

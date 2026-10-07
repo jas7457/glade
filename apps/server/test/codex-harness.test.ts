@@ -701,6 +701,27 @@ describe("Codex harness", () => {
     expect(codex.connections).toHaveLength(1); // one shared process
   });
 
+  it("starts the updated codex after reload: now when no chat is attached, else when the last one leaves (I-198)", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const h = harness(codex);
+    await h.listModels();
+    expect(codex.connections).toHaveLength(1);
+    h.reload();
+    await h.listModels();
+    expect(codex.connections).toHaveLength(2);
+
+    const { session, run } = await openSession(h);
+    await run("hi");
+    const before = codex.connections.length;
+    h.reload();
+    await h.listModels(true);
+    expect(codex.connections).toHaveLength(before); // the chat keeps its process
+    await session.dispose();
+    open.splice(open.indexOf(session), 1);
+    await h.listModels(true);
+    expect(codex.connections).toHaveLength(before + 1);
+  });
+
   it("traces every app-server message both ways with GLADE_CODEX_TRACE (I-179)", async () => {
     const file = join(dir, "trace.jsonl");
     const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });

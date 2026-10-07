@@ -7,6 +7,7 @@ import {
   MAX_ACTIVE_AGENTS,
   THINKING_LEVELS,
   agentLabel,
+  agentModelSettings,
   sameModel,
   type CloseAgentResponse,
   type ListAgentsResponse,
@@ -80,7 +81,8 @@ export class AgentTeam {
     }
     // Precedence (I-078): the spawn request / agent definition → the sub-agent settings → the parent's.
     const harness = this.records.requireHarness(caller);
-    const settingsModels = ctx.store.getSettings().models;
+    // I-198: the parent's agent's sub-agent settings.
+    const settingsModels = agentModelSettings(ctx.store.getSettings(), harness.id);
     const model = req.model
       ? await this.resolveModel(harness, req.model)
       : ((await this.availableModel(harness, settingsModels.subagentModel)) ?? caller.model);

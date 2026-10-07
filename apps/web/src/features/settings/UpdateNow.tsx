@@ -1,18 +1,23 @@
 /**
  * Settings → General → Glade in the Mac app (I-154, I-160): Update Now when a newer Glade is on main,
  * the job's steps with their live state, Cancel (before the install step), a collapsible log and
- * the reason when it refused or failed. Once installed: "Restart Glade to finish", which asks
- * first when chats are working ("Restart When Chats Finish" / "Restart Now").
+ * the reason when it refused or failed. Once installed, Glade restarts on its own (I-197:
+ * "Restarting…", or "Restarting when chats finish…" with Cancel / Restart Now while chats work).
+ * After Cancel (or when the new build isn't in this app's bundle): "Restart Glade to finish",
+ * which asks first when chats are working ("Restart When Chats Finish" / "Restart Now").
  */
 import { useState } from "preact/hooks";
 import { Check, Circle, Minus, RotateCw, X } from "lucide-preact";
 import type { UpdateJobStatus, UpdateStep } from "@glade/protocol";
 import { Button, Disclosure, FormRow, Spinner } from "@glade/app-core/ui";
+import { versionStatus } from "@glade/app-core/state/version";
 import {
   busyChats,
   cancelRestartWait,
   cancelUpdate,
+  installedBuild,
   restartChoice,
+  restarting,
   restartNow,
   restartWaiting,
   restartWhenIdle,
@@ -26,9 +31,11 @@ export function UpdateNow({ job, behind }: { job: UpdateJobStatus; behind: boole
   const actionError = updateActionError.value;
   const busy = job.state === "checking" || job.state === "running";
   const started = job.state !== "idle";
+  // Also installed another way (I-197: `pnpm tauri:install` from a terminal or a chat).
+  const installed = job.state === "installed" || (!busy && !!installedBuild(versionStatus.value));
   return (
     <>
-      {job.state === "installed" ? (
+      {installed ? (
         <RestartRow />
       ) : busy ? (
         <FormRow label={job.state === "checking" ? "Checking the repo…" : "Updating Glade…"} description="Glade keeps working while it builds.">
@@ -113,11 +120,18 @@ function UpdateLog({ job }: { job: UpdateJobStatus }) {
 function RestartRow() {
   const [asking, setAsking] = useState(false);
   const busy = busyChats.value;
+  if (restarting.value) {
+    return (
+      <FormRow label="Restarting…" description="The new version is installed. Glade reopens where you are.">
+        <Spinner size={12} />
+      </FormRow>
+    );
+  }
   if (restartWaiting.value) {
     return (
       <FormRow label="Restarting when chats finish…" description={busy > 0 ? `${chats(busy)} still working.` : "Restarting…"}>
         <Button size="sm" onClick={() => cancelRestartWait()}>
-          Don't Wait
+          Cancel
         </Button>
         <Button size="sm" onClick={() => void restartNow()}>
           Restart Now

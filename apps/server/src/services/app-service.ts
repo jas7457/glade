@@ -63,7 +63,8 @@ import { SessionActions } from "./app/session-actions.js";
 import { SideQuestions } from "./app/side-questions.js";
 import { Transcripts, type ImportSummary } from "./app/transcripts.js";
 import { Sessions, type NewSessionKind } from "./app/sessions.js";
-import { DEFAULT_SMALL_MODEL, Titles } from "./app/titles.js";
+import { quickCompletionRunner, validateModelsPatch } from "./app/quick-tasks.js";
+import { Titles } from "./app/titles.js";
 import { Workspaces } from "./app/workspaces.js";
 import type { AttachmentStore } from "./attachments.js";
 import { LeaseManager } from "./leases.js";
@@ -356,6 +357,7 @@ export class AppService {
 
   updateSettings(patch: DeepPartial<Settings>): Settings {
     validateLocalModelsPatch(patch);
+    validateModelsPatch(patch);
     const settings = this.ctx.store.updateSettings(sanitizeSettingsPatch(patch));
     this.ctx.broadcast({ type: "settings", settings });
     return settings;
@@ -396,16 +398,13 @@ export class AppService {
   }
 
   /**
-   * One-shot completion with the default harness's small model (I-097 commit messages): the
-   * small-model setting, else Haiku when listed, else the harness default. `null` when unavailable.
+   * One-shot quick-task completion (I-097 commit messages): the quick-tasks agent and model
+   * (I-198), else the default harness with Haiku when listed, else its default. `null` when unavailable.
    */
   async completeQuick(prompt: string, cwd: string): Promise<string | null> {
-    const harness = this.ctx.harnesses.default();
-    if (!harness.complete) return null;
-    const configured = this.ctx.store.getSettings().models.smallModel;
-    const models = configured ? [] : await harness.listModels().catch(() => [] as ModelInfo[]);
-    const small = models.some((m) => m.provider === DEFAULT_SMALL_MODEL.provider && m.id === DEFAULT_SMALL_MODEL.id) ? DEFAULT_SMALL_MODEL : null;
-    return harness.complete({ prompt, cwd, model: configured ?? small, timeoutMs: 60_000 });
+    const runner = await quickCompletionRunner(this.ctx.store.getSettings(), this.ctx.harnesses);
+    if (!runner?.harness.complete) return null;
+    return runner.harness.complete({ prompt, cwd, model: runner.model, timeoutMs: 60_000 });
   }
 
   // -------------------------------------------------------------------------------------------
