@@ -8,7 +8,7 @@ designed to support other harnesses (e.g. Claude Code) later. Read
 ## Picking up where we left off (new sessions start here)
 
 1. Read `PLAN.md` top to bottom: `## Inbox` holds every open item (`- [ ] **I-###**`) with the
-   user's words, notes, decisions and open questions; ticked items have an `Outcome:` line.
+   user's intent (in the agent's own words, never quotes: see the issue-queue skill), notes, decisions and open questions; ticked items have an `Outcome:` line.
    `## Future features` holds ideas that are *not* planned. Look for "Open question" and
    "Status:" lines: they are the loose ends.
 2. Skim `CHANGELOG.md` `[Unreleased]` for what the user already has, and `git log --oneline -20`.
@@ -40,6 +40,9 @@ We keep a strict ledger of planned and finished work:
 4. Never delete plan items. If something is dropped, strike it through and say why:
    `- [ ] ~~Thing~~ — dropped: reason`.
 5. Decisions that shape the codebase go in the "Decisions" section of `docs/ARCHITECTURE.md`.
+6. **Write the user's intent, never their words.** PLAN.md, docs, commit messages and code comments
+   describe what the user wants and decided in your own words; no verbatim quotes (the repo is going
+   public, and dictated requests ramble). No personal paths or private-project details either.
 
 ## Issue queue
 

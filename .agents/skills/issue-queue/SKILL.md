@@ -26,10 +26,18 @@ Triggered by the user describing problems, bugs, annoyances, or feature ideas.
 
    ```markdown
    - [ ] **I-007** Short imperative title — `area`
-     - Reported: 2026-09-26 — "user's own words, trimmed"
+     - Reported: 2026-09-26 — what the user wants and why, in your own words (see below)
      - Notes: what you found (files, repro, suspected cause), acceptance criteria if obvious.
      - Open question: … (only if something truly blocks the work)
    ```
+
+   **Record intent, never quotes** (user decision, 2026-10-05; the repo is going public). Don't
+   copy the user's words into PLAN.md (or any other file): they often dictate and ramble. Write
+   what they want, why, and any constraints or decisions they stated, clearly and completely enough
+   that an agent can act on it without the chat. Keep every requirement and nuance; drop the
+   filler. The same goes for answers and decisions: `Decided (user, 2026-10-05): <the decision>`,
+   not a quote. Paths, names and personal details from the user's machine or other private projects
+   don't belong in PLAN.md either.
 
    `area` is one of: `server`, `pi-adapter`, `protocol`, `shell` (app/, ui/, sidebar, projects),
    `chat` (features/chat), `settings`, `docs`, `infra`. Pick the one that owns most of the change.
@@ -41,7 +49,7 @@ Also in intake mode: "what's queued?" → summarize open Inbox items grouped by 
 
 **Future features.** When the user describes an idea they want documented but *not* planned ("for later",
 "someday", "future feature"), add it to the `## Future features` section of PLAN.md instead of the Inbox,
-with the next `F-###` id, the user's words, background and a design sketch. Never work on future features.
+with the next `F-###` id, the user's intent (own words, no quotes), background and a design sketch. Never work on future features.
 When the user promotes one ("let's do F-003"), create an Inbox item with a new `I-###` id that links to it,
 and strike the F entry through with "promoted to I-###".
 
@@ -93,7 +101,9 @@ If they name ids, only those; otherwise all open Inbox items without open questi
   so half-finished work that happens to be staged is never swept into a commit.
 
 - Intake never changes code. If a report is urgent, say so and ask; don't just start.
-- Keep the user's wording in `Reported:` so intent isn't lost when paraphrasing.
+- `Reported:` states the user's intent in your words, completely (every requirement, constraint
+  and preference they gave), never as a quote. If you're unsure what they meant, ask, then record
+  the answer as a decision.
 - If an item is really a design question, record it with an `Open question:` and ask it once.
 - Done items stay in the Inbox (ticked) as the history. Periodically the lead may move ticked
   items to a `## Done inbox items` section at the bottom of PLAN.md to keep the top short.
