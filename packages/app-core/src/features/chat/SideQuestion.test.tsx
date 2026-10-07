@@ -1,6 +1,6 @@
 /**
- * Side questions in the web app (I-140): the card, the composer's Ask Aside button (visibility,
- * ⌥↩, placeholder), "Tell the Agent" prefilling the composer, the `/btw` built-in, and where cards
+ * Side questions in the web app (I-140): the card, Ask Aside on the composer's Send button (⌥ held,
+ * ⌥↩, placeholder; I-200), "Tell the Agent" prefilling the composer, the `/btw` built-in, and where cards
  * sit in the transcript.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,7 @@ import { SideQuestionCard } from "./SideQuestionCard";
 import { prefillComposer } from "./composer-prefill";
 import { builtinCommands } from "./slash/builtins";
 import { groupTranscript } from "./grouping";
+import { MODIFIER_SHOW_DELAY_MS } from "./use-held-modifiers";
 
 vi.mock("@glade/app-core/lib/api", () => ({
   api: {
@@ -56,8 +57,7 @@ function renderComposer(chatId = "c1") {
 }
 
 const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
-const slot = () => screen.getByTestId("ask-aside-slot");
-const askButton = () => slot().querySelector("button")!;
+const sendButton = () => screen.getByRole("button", { name: /^(Send|Steer|Send follow-up|Queue message|Ask Aside)$/ }) as HTMLButtonElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,61 +70,75 @@ afterEach(() => {
   harnesses.value = null;
 });
 
-describe("Ask Aside button (I-140)", () => {
-  it("keeps its slot but is invisible unless the agent is running and there's text", () => {
+describe("Ask Aside on the Send button (I-140, I-200)", () => {
+  /** Hold ⌥ past the no-flicker delay. */
+  const holdAlt = async () => {
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    await new Promise((r) => setTimeout(r, MODIFIER_SHOW_DELAY_MS + 60));
+  };
+  const releaseAlt = () => fireEvent.keyUp(window, { key: "Alt", altKey: false });
+
+  it("no separate button; Send becomes Ask Aside while ⌥ is held, only while running", async () => {
     const store = readyChat("c1", false);
     renderComposer();
-    // Idle, with text: slot reserved, button hidden and not clickable.
+    expect(screen.queryByRole("button", { name: /ask aside/i })).toBeNull();
+    // Idle, with text: ⌥ changes nothing.
     fireEvent.input(box(), { target: { value: "what now?" } });
-    expect(slot().className).toContain("invisible");
-    expect(askButton().disabled).toBe(true);
-    expect(askButton().tabIndex).toBe(-1);
+    await holdAlt();
+    expect(sendButton().getAttribute("aria-label")).toBe("Send");
+    releaseAlt();
     expect(box().placeholder).toBe("Ask anything…");
-    // Running, empty: still hidden; the placeholder names the keys, ⌥↩ included (I-153).
+    // Running, empty: the placeholder names the keys, ⌥↩ included (I-153); ⌥ shows Ask Aside, disabled.
     store.state.value = { ...store.state.value, isRunning: true };
     fireEvent.input(box(), { target: { value: "" } });
-    expect(slot().className).toContain("invisible");
     expect(box().placeholder).toBe("↩ steer · ⌘↩ follow-up · ⌥↩ ask aside");
-    // Running with text: shown.
+    await holdAlt();
+    expect(sendButton().getAttribute("aria-label")).toBe("Ask Aside");
+    expect(sendButton().disabled).toBe(true);
+    // Running with text: enabled.
     fireEvent.input(box(), { target: { value: "what now?" } });
-    expect(slot().className).not.toContain("invisible");
-    expect(askButton().disabled).toBe(false);
+    expect(sendButton().disabled).toBe(false);
+    releaseAlt();
+    expect(sendButton().getAttribute("aria-label")).toBe("Steer");
   });
 
-  it("asks the text aside on click, clearing the box; restores it when it fails", async () => {
+  it("asks the text aside on ⌥-click, clearing the box; restores it when it fails", async () => {
     readyChat("c1", true);
     renderComposer();
     fireEvent.input(box(), { target: { value: " which file? " } });
-    fireEvent.click(askButton());
+    fireEvent.click(sendButton(), { altKey: true });
     await waitFor(() => expect(api.askSideQuestion).toHaveBeenCalledWith("c1", "which file?"));
     expect(box().value).toBe("");
     expect(api.prompt).not.toHaveBeenCalled();
     vi.mocked(api.askSideQuestion).mockRejectedValueOnce(new Error("nope"));
     fireEvent.input(box(), { target: { value: "again" } });
-    fireEvent.click(askButton());
+    fireEvent.click(sendButton(), { altKey: true });
     await waitFor(() => expect(box().value).toBe("again"));
   });
 
-  it("⌥↩ asks aside only while running with text (a typed /btw prefix is dropped)", async () => {
+  it("⌥↩ asks aside only while running (idle it sends; a typed /btw prefix is dropped)", async () => {
     const store = readyChat("c1", false);
     renderComposer();
     fireEvent.input(box(), { target: { value: "idle question" } });
     fireEvent.keyDown(box(), { key: "Enter", altKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith("c1", { text: "idle question", images: undefined, behavior: undefined }));
     expect(api.askSideQuestion).not.toHaveBeenCalled();
-    expect(api.prompt).not.toHaveBeenCalled();
     store.state.value = { ...store.state.value, isRunning: true };
     fireEvent.input(box(), { target: { value: "/btw is it done?" } });
     fireEvent.keyDown(box(), { key: "Enter", altKey: true });
     await waitFor(() => expect(api.askSideQuestion).toHaveBeenCalledWith("c1", "is it done?"));
-    expect(api.prompt).not.toHaveBeenCalled();
+    expect(api.prompt).toHaveBeenCalledTimes(1);
   });
 
-  it("isn't there for harnesses without side questions", () => {
+  it("⌥ does nothing for harnesses without side questions", async () => {
     setCaps({ sideQuestions: false });
     readyChat("c1", true);
     renderComposer();
-    expect(screen.queryByTestId("ask-aside-slot")).toBeNull();
     expect(box().placeholder).toBe("↩ steer · ⌘↩ follow-up");
+    fireEvent.input(box(), { target: { value: "hm" } });
+    await holdAlt();
+    expect(sendButton().getAttribute("aria-label")).toBe("Steer");
+    releaseAlt();
   });
 
   it("without steering, the placeholder says messages are queued; ⌥↩ still asks aside (I-153)", async () => {
@@ -140,22 +154,22 @@ describe("Ask Aside button (I-140)", () => {
 });
 
 describe("composer buttons don't pop in and out (I-151)", () => {
-  it("keeps Send in place (disabled without text) while running; only Ask Aside appears", () => {
+  it("keeps Send in place (disabled without text) while running; held keys swap it in place", async () => {
     readyChat("c1", true);
     renderComposer();
-    const send = () => screen.getByRole("button", { name: "Steer" }) as HTMLButtonElement;
-    expect(send().disabled).toBe(true);
-    expect(slot().className).toContain("invisible");
+    expect(sendButton().getAttribute("aria-label")).toBe("Steer");
+    expect(sendButton().disabled).toBe(true);
     fireEvent.input(box(), { target: { value: "hey" } });
-    expect(send().disabled).toBe(false);
-    expect(slot().className).not.toContain("invisible");
-    // Holding ⌘ swaps the send button in place; Ask Aside's slot stays put (I-153).
-    const before = send();
+    expect(sendButton().disabled).toBe(false);
+    // Holding ⌘ / ⌥ swaps the send button in place (I-153, I-200).
+    const before = sendButton();
     fireEvent.keyDown(window, { key: "Meta", metaKey: true });
-    expect(screen.getByRole("button", { name: "Send follow-up" })).toBe(before);
-    expect(slot().className).not.toContain("invisible");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send follow-up" })).toBe(before));
     fireEvent.keyUp(window, { key: "Meta", metaKey: false });
-    expect(send()).toBe(before);
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask Aside" })).toBe(before));
+    fireEvent.keyUp(window, { key: "Alt", altKey: false });
+    expect(sendButton()).toBe(before);
   });
 });
 

@@ -17,11 +17,16 @@ export interface TooltipProps {
   children: ComponentChildren;
 }
 
-/** Small native-looking tooltip. Requires <TooltipProvider> at the app root. */
-export function Tooltip({ content, side = "bottom", children }: TooltipProps) {
+/**
+ * Small native-looking tooltip. Requires <TooltipProvider> at the app root. Other props (e.g. from
+ * an `asChild` trigger wrapping it, like <ContextMenu>) pass through to the child.
+ */
+export function Tooltip({ content, side = "bottom", children, ...rest }: TooltipProps & Record<string, unknown>) {
   return (
     <RadixTooltip.Root>
-      <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+      <RadixTooltip.Trigger asChild {...rest}>
+        {children}
+      </RadixTooltip.Trigger>
       <RadixTooltip.Portal>
         <RadixTooltip.Content
           side={side}

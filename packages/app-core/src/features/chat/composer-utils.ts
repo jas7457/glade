@@ -16,22 +16,15 @@ export interface KeyLike {
 }
 
 /**
- * What Enter does in the composer (I-153; no settings):
- *  - ↩ sends (steers while the agent is working),
- *  - ⌘↩ / Ctrl↩ sends a follow-up (waits until the agent has finished; plain send when idle),
- *  - ⌥↩ asks aside (I-140; the composer decides whether that applies),
- *  - ⇧↩ inserts a new line (`null`: the textarea's default).
- * Never while an IME composition is active.
+ * Whether Enter sends in the composer (I-153, I-200; no settings), and with which modifiers:
+ * ↩ / ⌘↩ (or Ctrl↩) / ⌥↩ send in the mode `sendModeFor` picks for them (send-mode.ts); ⇧↩ inserts
+ * a new line (`null`: the textarea's default). Never while an IME composition is active.
  */
-export type EnterAction = "send" | "followUp" | "askAside";
-
-export function enterAction(e: KeyLike): EnterAction | null {
+export function sendKeyModifiers(e: KeyLike): { meta: boolean; alt: boolean } | null {
   if (e.key !== "Enter") return null;
   if (e.isComposing || e.keyCode === 229) return null;
   if (e.shiftKey) return null;
-  const mod = e.metaKey || e.ctrlKey;
-  if (e.altKey) return mod ? null : "askAside";
-  return mod ? "followUp" : "send";
+  return { meta: e.metaKey || e.ctrlKey, alt: e.altKey };
 }
 
 export interface Attachment extends PromptImage {

@@ -28,14 +28,18 @@
  * slash/`@` menus are off.
  *
  * Ask Aside (I-140, harnesses with the `sideQuestions` capability): while the agent is running and
- * there's text, a button next to Stop/Send (and ⌥↩) asks the text as a side question instead of
- * queueing it: answered now in a card, never seen by the agent. Its slot is always reserved so
- * nothing shifts when the chat goes idle; otherwise it's invisible. `/btw <question>` works anytime.
+ * there's text, ⌥↩ asks the text as a side question instead of queueing it: answered now in a
+ * card, never seen by the agent. `/btw <question>` works anytime.
  *
  * Send keys (I-153, fixed, no settings): ↩ sends (steers while running), ⌘↩ sends a follow-up
- * (after the agent finishes), ⌥↩ asks aside, ⇧↩ inserts a new line. While running, holding ⌘
- * turns the send button into its follow-up form (icon, tooltip, label; same size and slot), and
- * clicking it then sends a follow-up. Harnesses without steering queue either way.
+ * (after the agent finishes), ⌥↩ asks aside, ⇧↩ inserts a new line. Harnesses without steering
+ * queue either way.
+ *
+ * One Send button (I-200): its icon, colour, label and tooltip show what ↩ does with the modifiers
+ * held right now (`sendModeFor` in send-mode.ts: Send / Steer / Follow-up / Queue message / Ask
+ * Aside / Run command / a typed built-in / Insert prompt; `useHeldModifiers`), in the same size and
+ * slot, and clicking it with ⌘/⌥ held does that mode. No separate Ask Aside button. Right-clicking
+ * it (desktop) lists the modes that apply now with their keys (`sendMenuModes`).
  *
  * Touch (the iPhone app, I-164; `touch` prop, default `isIphoneApp()`): ↩ inserts a new line and
  * only the Send button sends (steers while running). Holding Send opens its options as a sheet
@@ -45,7 +49,21 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { ArrowUp, ClockArrowUp, MessageCircleQuestionMark, Paperclip, Plus, Square, Terminal, TriangleAlert, X } from "lucide-preact";
+import {
+  ArrowUp,
+  ClockArrowUp,
+  ListPlus,
+  MessageCircleQuestionMark,
+  Paperclip,
+  Plus,
+  ShipWheel,
+  Square,
+  SquareSlash,
+  Terminal,
+  TextCursorInput,
+  TriangleAlert,
+  X,
+} from "lucide-preact";
 import {
   DEFAULT_AGENT_MODEL_SETTINGS,
   DEFAULT_IMAGE_LIMITS,
@@ -84,10 +102,10 @@ import {
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { isSlashCommandHidden } from "@glade/app-core/state/slash-visibility";
 import { notify } from "@glade/app-core/state/toasts";
-import { Chip, Spinner, Tooltip } from "@glade/app-core/ui";
+import { Chip, ContextMenu, MenuItem, Spinner, Tooltip } from "@glade/app-core/ui";
 import {
-  enterAction,
   formatBytes,
+  sendKeyModifiers,
   parseShellInput,
   readImageFile,
   splitAttachableFiles,
@@ -113,7 +131,8 @@ import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/Mentio
 import { useFileSearch } from "./mentions/useFileSearch";
 import { composerPrefill, focusComposer, withPrefill } from "./composer-prefill";
 import { askSideQuestion } from "./side-question-actions";
-import { useMetaHeld } from "./use-meta-held";
+import { useHeldModifiers } from "./use-held-modifiers";
+import { sendMenuModes, sendModeFor, type SendBehavior, type SendMode, type SendModeCommand } from "./send-mode";
 import { useOptionSheet, type OptionSheetItem, type OptionSheetSection } from "./option-sheet";
 import { agentSheetSection } from "./context-bar/AgentPicker";
 
@@ -210,7 +229,7 @@ export interface ComposerBoxProps {
 /** How long Send must be held on touch to open its options (ms). */
 export const SEND_LONG_PRESS_MS = 450;
 
-export type SendBehavior = "steer" | "followUp";
+export type { SendBehavior };
 
 export function ComposerBox(props: ComposerBoxProps) {
   const { draftKey, isRunning = false, busy: loading = false, supportsImages, lockedReason } = props;
@@ -344,7 +363,8 @@ export function ComposerBox(props: ComposerBoxProps) {
   // Steer vs follow-up (I-153): only while running, for harnesses that steer, and not in shell mode.
   const steering = props.steering !== false;
   const choosesBehavior = isRunning && steering && !busy && !shellInput;
-  const followUpHeld = useMetaHeld(choosesBehavior);
+  // I-200: held ⌘/⌥ pick Send's mode; only while running (idle, they change nothing).
+  const held = useHeldModifiers(isRunning && !busy && !touch);
 
   /** Ask the typed text as a side question (a typed `/btw ` prefix is dropped); attachments stay. */
   const askAside = async () => {
@@ -432,6 +452,43 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
   };
 
+  /** A typed slash command ↩ runs here instead of sending it (I-200 shows it on Send). */
+  const typedCommand = ((): SendModeCommand | null => {
+    if (shellInput) return null;
+    const typed = text.trim();
+    const cmd = slash ? parseSlash(typed) : null;
+    if (!cmd) return null;
+    if (savedPromptFor(cmd.name)) return { kind: "savedPrompt", name: cmd.name };
+    const builtin = builtinFor(typed)?.builtin;
+    if (!builtin) return null;
+    return builtin.name === "btw" ? { kind: "btw" } : { kind: "builtin", name: builtin.name };
+  })();
+
+  /** What ↩ / Send does with these modifiers (send-mode.ts). */
+  const modeInput = {
+    running: isRunning,
+    steering,
+    sideQuestions: !!props.askAside,
+    shellInput: !!shellInput,
+    hasText: shellInput ? shellInput.command.length > 0 : text.trim().length > 0,
+    hasAttachments: images.length > 0 || files.length > 0,
+    command: typedCommand,
+  };
+  const modeFor = (mods: { meta: boolean; alt: boolean }) => {
+    const info = sendModeFor({ ...modeInput, ...mods });
+    return { ...info, enabled: info.enabled && !busy };
+  };
+  const sendMode = modeFor(held);
+
+  /** Send in the mode these modifiers pick (↩ keys and clicks alike). */
+  const sendAs = async (mods: { meta: boolean; alt: boolean }) => {
+    const { mode, enabled, behavior } = modeFor(mods);
+    if (!enabled) return;
+    // A typed `/btw` runs as its built-in (also when idle); ⌥ asks the text aside.
+    if (mode === "askAside" && typedCommand?.kind !== "btw") return askAside();
+    return send(behavior);
+  };
+
   const send = async (behavior: SendBehavior = "steer") => {
     if (!canSend) return;
     if (shellInput && props.shell) {
@@ -494,7 +551,7 @@ export function ComposerBox(props: ComposerBoxProps) {
         e.preventDefault();
         const command = flat[active]!;
         // Fully typed: run/send it. Otherwise complete the highlighted command first.
-        if (command.name === typingName) void send(e.metaKey || e.ctrlKey ? "followUp" : "steer");
+        if (command.name === typingName) void sendAs({ meta: e.metaKey || e.ctrlKey, alt: false });
         else complete(command);
         return;
       }
@@ -531,15 +588,10 @@ export function ComposerBox(props: ComposerBoxProps) {
       return;
     }
     // Touch (I-164): ↩ is a plain new line; only the Send button sends.
-    const action = touch ? null : enterAction(e);
-    if (action === "askAside" && canAskAside) {
+    const mods = touch ? null : sendKeyModifiers(e);
+    if (mods) {
       e.preventDefault();
-      void askAside();
-      return;
-    }
-    if (action === "send" || action === "followUp") {
-      e.preventDefault();
-      void send(action === "followUp" ? "followUp" : "steer");
+      void sendAs(mods);
       return;
     }
     if (e.key === "Escape" && isRunning && props.onStop) {
@@ -586,16 +638,6 @@ export function ComposerBox(props: ComposerBoxProps) {
     sendOptions.push({ key: "askAside", label: "Ask Aside", description: "Answered now; the agent won't see it", disabled: !canAskAside, onSelect: () => void askAside() });
   }
 
-  const sendButton = shellInput
-    ? { label: "Run command", tooltip: "Run command (↩)" }
-    : !isRunning
-      ? { label: "Send", tooltip: "Send (↩)" }
-      : !steering
-        ? { label: "Queue message", tooltip: "Queue message (↩): sent after the agent finishes" }
-        : followUpHeld
-          ? { label: "Send follow-up", tooltip: "Follow-up (⌘↩): sent after the agent finishes" }
-          : { label: "Steer", tooltip: "Steer (↩): delivered after the current step · hold ⌘ for a follow-up" };
-
   // Touch (I-164, like ChatGPT): a slim one-line pill ([+] text [send]) until you type into it;
   // then it grows full width with the text on top and the pickers in a row below. Same DOM in
   // both (CSS order/wrap only), so the textarea never remounts and keeps its focus.
@@ -605,6 +647,39 @@ export function ComposerBox(props: ComposerBoxProps) {
   useEffect(() => () => {
     if (blurTimer.current) clearTimeout(blurTimer.current);
   }, []);
+
+  const sendControl = (
+    <Tooltip content={sendMode.tooltip}>
+      <button
+        type="button"
+        aria-label={sendMode.label}
+        data-send-behavior={sendMode.mode}
+        aria-haspopup={hasSendOptions ? "dialog" : undefined}
+        disabled={!sendMode.enabled}
+        onClick={(e) => {
+          if (longPressed.current) {
+            // The long press opened the options; this is its trailing click.
+            longPressed.current = false;
+            return;
+          }
+          // ⌘/⌥-click does that mode (I-200), also before the held key shows.
+          void sendAs({ meta: held.meta || e.metaKey || e.ctrlKey, alt: held.alt || e.altKey });
+        }}
+        {...sendPressHandlers}
+        {...sendButtonTone(sendMode.mode)}
+        class={cn(
+          "flex items-center justify-center rounded-full select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
+          SEND_BUTTON_COLORS[sendMode.mode] ?? "bg-accent text-accent-fg",
+          touch ? "order-3 m-[9px] size-10 shrink-0 touch-manipulation" : "size-7",
+          // The slim pill while the agent works has nothing to send (it's empty): Stop takes
+          // Send's place, so the placeholder keeps room (tapping in brings Send back).
+          compact && isRunning && props.onStop && "hidden",
+        )}
+      >
+        <SendModeIcon mode={sendMode.mode} size={touch ? 20 : 16} />
+      </button>
+    </Tooltip>
+  );
 
   return (
     <div class={cn("w-full", props.class)}>
@@ -833,25 +908,6 @@ export function ComposerBox(props: ComposerBoxProps) {
           {touch ? <span class={cn("order-2 flex items-center self-center", compact && "hidden")}>{props.toolbarExtra}</span> : props.toolbarExtra}
           <div class={cn("flex-1", touch && (compact ? "hidden" : "order-2"))} />
           {loading && <Spinner size={14} class={cn("mr-1", touch && "order-3 m-2.5 self-center")} />}
-          {props.askAside && !touch && (
-            // The slot is always there (no layout shift, I-140); the button only shows while it applies.
-            <span class={cn("flex", !canAskAside && "invisible")} data-testid="ask-aside-slot">
-              <Tooltip content="Ask aside (⌥↩): answered now, the agent won't see it">
-                <button
-                  type="button"
-                  aria-label="Ask aside"
-                  aria-hidden={canAskAside ? undefined : true}
-                  tabIndex={canAskAside ? undefined : -1}
-                  disabled={!canAskAside}
-                  onClick={() => void askAside()}
-                  data-agent-color="violet"
-                  class="flex size-7 items-center justify-center rounded-full bg-agent text-window hover:opacity-85"
-                >
-                  <MessageCircleQuestionMark size={15} strokeWidth={2.5} />
-                </button>
-              </Tooltip>
-            </span>
-          )}
           {props.sendAccessory && <span class={cn("flex items-center self-center", touch && "order-3")}>{props.sendAccessory}</span>}
           {isRunning && props.onStop && (
             <Tooltip content="Stop (Esc)">
@@ -866,37 +922,26 @@ export function ComposerBox(props: ComposerBoxProps) {
             </Tooltip>
           )}
           {/* Always there (I-151): disabled without text, so buttons don't pop in and out. */}
-          <Tooltip content={sendButton.tooltip}>
-            <button
-              type="button"
-              aria-label={sendButton.label}
-              data-send-behavior={choosesBehavior ? (followUpHeld ? "followUp" : "steer") : undefined}
-              aria-haspopup={hasSendOptions ? "dialog" : undefined}
-              disabled={!canSend}
-              onClick={(e) => {
-                if (longPressed.current) {
-                  // The long press opened the options; this is its trailing click.
-                  longPressed.current = false;
-                  return;
-                }
-                void send(choosesBehavior && (followUpHeld || e.metaKey || e.ctrlKey) ? "followUp" : "steer");
+          {touch ? (
+            sendControl
+          ) : (
+            // Desktop: right-click lists the modes that apply now (I-200); touch holds Send for its sheet.
+            <ContextMenu
+              disabled={busy}
+              content={sendMenuModes(modeInput).map((m) => (
+                <MenuItem key={m.mode} icon={<SendModeIcon mode={m.mode} />} shortcut={m.shortcut} disabled={!m.enabled || busy} onSelect={() => void sendAs(m.mods)}>
+                  {m.menuLabel}
+                </MenuItem>
+              ))}
+              onCloseAutoFocus={(e) => {
+                // Back to typing, not to the Send button.
+                e.preventDefault();
+                textareaRef.current?.focus();
               }}
-              {...sendPressHandlers}
-              class={cn(
-                "flex items-center justify-center rounded-full bg-accent text-accent-fg select-none hover:brightness-110 disabled:bg-fg-subtle/40 disabled:text-window",
-                touch ? "order-3 m-[9px] size-10 shrink-0 touch-manipulation" : "size-7",
-                // The slim pill while the agent works has nothing to send (it's empty): Stop takes
-                // Send's place, so the placeholder keeps room (tapping in brings Send back).
-                compact && isRunning && props.onStop && "hidden",
-              )}
             >
-              {choosesBehavior && followUpHeld ? (
-                <ClockArrowUp size={16} strokeWidth={2.25} />
-              ) : (
-                <ArrowUp size={touch ? 20 : 16} strokeWidth={2.5} />
-              )}
-            </button>
-          </Tooltip>
+              {sendControl}
+            </ContextMenu>
+          )}
           {OptionSheet && touch && (
             <OptionSheet
               open={sendOptionsOpen}
@@ -919,6 +964,37 @@ export function ComposerBox(props: ComposerBoxProps) {
       </div>
     </div>
   );
+}
+
+/** Send's colour per mode (I-200): accent unless listed. */
+const SEND_BUTTON_COLORS: Partial<Record<SendMode, string>> = {
+  askAside: "bg-agent text-window",
+  runCommand: "bg-[var(--pi-tone)] text-window",
+};
+
+/** The attributes that set `SEND_BUTTON_COLORS`' variables: Ask Aside violet, Run command the shell tone. */
+function sendButtonTone(mode: SendMode): Record<string, string> {
+  if (mode === "askAside") return { "data-agent-color": "violet" };
+  if (mode === "runCommand") return { "data-tone": "shell" };
+  return {};
+}
+
+/** Send's icon per mode (I-200): each mode looks different, same size and slot. */
+const SEND_ICONS: Record<SendMode, { Icon: typeof ArrowUp; strokeWidth: number }> = {
+  send: { Icon: ArrowUp, strokeWidth: 2.5 },
+  steer: { Icon: ShipWheel, strokeWidth: 2.25 },
+  followUp: { Icon: ClockArrowUp, strokeWidth: 2.25 },
+  queue: { Icon: ListPlus, strokeWidth: 2.5 },
+  askAside: { Icon: MessageCircleQuestionMark, strokeWidth: 2.5 },
+  runCommand: { Icon: Terminal, strokeWidth: 2.5 },
+  runBuiltin: { Icon: SquareSlash, strokeWidth: 2.25 },
+  insertPrompt: { Icon: TextCursorInput, strokeWidth: 2.25 },
+};
+
+/** `size` omitted: the surrounding's (menu items size their icons). */
+function SendModeIcon({ mode, size }: { mode: SendMode; size?: number }) {
+  const { Icon, strokeWidth } = SEND_ICONS[mode];
+  return size ? <Icon size={size} strokeWidth={strokeWidth} /> : <Icon />;
 }
 
 /** The placeholder while the agent works (I-153): the keys that apply, short. */
