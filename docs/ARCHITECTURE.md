@@ -564,6 +564,11 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Sidebar order is manual and mixed (I-202, 2026-10-05, user decision)**: inside a project and in
+  the Chats section, chats and folders share one manual order (`Workspace.sortOrder` +
+  `Folder.sortOrder`); folders only hold chats, projects are always top level; pinned chats stay on
+  top; new items go to the top; activity never re-sorts; no Move Up/Down (drag only; the user doesn't
+  need keyboard reordering).
 - **Model settings are per agent; quick tasks are Glade-wide (I-198, 2026-10-05, user decision)**:
   defaults, sub-agent/side-question models and hidden models live per agent, so no agent is ever
   handed another agent's model and hiding a model in one agent can't hide it in another. One

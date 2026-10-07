@@ -241,6 +241,14 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- **Drag chats and folders into any order** in the sidebar, inside a project and in the Chats
+  section: mix chats and folders (chat, folder, chat), drag chats into, out of and within folders.
+  A see-through copy follows the pointer and a line shows where it will land (a folder lights up and
+  opens when you hover it). Things never leave their project. New chats and folders start at the
+  top; pinned chats stay above. Your current order is kept. Move Up/Down are gone.
+- **Folders are for chats only.** Projects are always top level; folders outside a project now live
+  in the Chats section and hold standalone chats. New Folder moved to the Chats header.
+
 - Glade checks for a new version of itself every 5 minutes (was every 4 hours).
 
 - **One Send button that shows what ↩ will do.** While the agent works it shows Steer; hold ⌘ for
