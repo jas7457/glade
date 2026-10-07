@@ -48,7 +48,7 @@ export interface SyncTarget {
   applyShell(message: ServerMessage, live: boolean): void;
   applyShellSnapshot(shell: ShellSnapshot): void;
   /** Returns true when the server has ids we don't (the client then asks for a snapshot). */
-  applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[] }): boolean;
+  applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[]; bookmarks?: string[] }): boolean;
   applySessionEvent(sessionId: string, event: AgentEvent): void;
   applySessionSnapshot(sessionId: string, page: TranscriptPage, live: SessionLiveState): void;
   applySessionLive(sessionId: string, live: SessionLiveState): void;

@@ -15,6 +15,7 @@ import {
   defaultSettings,
   mainSessionsOf,
   type Folder,
+  type Bookmark,
   compareListOrder,
   agentModelSettings,
   quickTasksModel,
@@ -48,6 +49,8 @@ export const workspaces = signal<WorkspaceSummary[]>([]);
 export const sessions = signal<SessionSummary[]>([]);
 /** Folders in the chat list (I-165), every environment's. */
 export const folders = signal<Folder[]>([]);
+/** Bookmarked messages (I-203), every environment's (`state/bookmarks.ts` has the logic). */
+export const bookmarks = signal<Bookmark[]>([]);
 export const models = signal<ModelInfo[]>([]);
 /** What the harness itself uses when no model is given (pi's settings); "Default" means this (I-050). */
 export const harnessDefaults = signal<HarnessDefaults | null>(null);
@@ -326,7 +329,7 @@ export async function loadAll(envId?: string): Promise<void> {
   const shell = conn?.shell ?? localShell;
   const key = envId ?? primaryEnvironmentId();
   try {
-    const [p, w, ss, s, f] = await Promise.all([
+    const [p, w, ss, s, f, b] = await Promise.all([
       client.listProjects(),
       client.listWorkspaces(),
       client.listSessions(),
@@ -335,10 +338,15 @@ export async function loadAll(envId?: string): Promise<void> {
       Promise.resolve()
         .then(() => client.listFolders())
         .catch(() => [] as Folder[]),
+      // Older servers have no bookmarks (I-203).
+      Promise.resolve()
+        .then(() => client.listBookmarks())
+        .catch(() => [] as Bookmark[]),
     ]);
     if (!shellSynced.has(key) && (envId === undefined || connectionFor(envId))) {
       projects.value = replaceEnv(projects.value, envId, tagAll(p, envId));
       folders.value = replaceEnv(folders.value, envId, tagAll(f, envId));
+      bookmarks.value = replaceEnv(bookmarks.value, envId, tagAll(b, envId));
       workspaces.value = replaceEnv(workspaces.value, envId, tagAll(w, envId));
       sessions.value = replaceEnv(sessions.value, envId, tagAll(ss, envId));
       shell.settings.value = s;
@@ -406,6 +414,7 @@ export function applyShellSnapshot(shell: ShellSnapshot, envId?: string): void {
   workspaces.value = replaceEnv(workspaces.value, envId, tagAll(shell.workspaces, envId));
   sessions.value = replaceEnv(sessions.value, envId, tagAll(shell.sessions, envId));
   folders.value = replaceEnv(folders.value, envId, tagAll(shell.folders ?? [], envId));
+  bookmarks.value = replaceEnv(bookmarks.value, envId, tagAll(shell.bookmarks ?? [], envId));
   const acpChanged = agentSettingsKey(target.settings.value) !== agentSettingsKey(shell.settings);
   target.settings.value = shell.settings;
   if (shell.environment) {
@@ -423,7 +432,7 @@ export function applyShellSnapshot(shell: ShellSnapshot, envId?: string): void {
  * has: ours that it doesn't have are dropped. Returns true when the server has some we don't
  * (take a snapshot).
  */
-export function applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[] }, envId?: string): boolean {
+export function applyShellCheck(check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[]; bookmarks?: string[] }, envId?: string): boolean {
   const env = envId ?? primaryEnvironmentId();
   const ids = { projects: new Set(check.projects), workspaces: new Set(check.workspaces), sessions: new Set(check.sessions) };
   const prune = <T extends { id: string; environmentId?: string }>(list: T[], keep: Set<string>) =>
@@ -432,12 +441,14 @@ export function applyShellCheck(check: { projects: string[]; workspaces: string[
   workspaces.value = prune(workspaces.value, ids.workspaces);
   sessions.value = prune(sessions.value, ids.sessions);
   if (check.folders) folders.value = prune(folders.value, new Set(check.folders));
+  if (check.bookmarks) bookmarks.value = prune(bookmarks.value, new Set(check.bookmarks));
   const count = (list: Array<{ environmentId?: string }>) => list.filter((x) => envIdOf(x) === env).length;
   return (
     count(projects.value) < ids.projects.size ||
     count(workspaces.value) < ids.workspaces.size ||
     count(sessions.value) < ids.sessions.size ||
-    (check.folders !== undefined && count(folders.value) < check.folders.length)
+    (check.folders !== undefined && count(folders.value) < check.folders.length) ||
+    (check.bookmarks !== undefined && count(bookmarks.value) < check.bookmarks.length)
   );
 }
 
@@ -449,6 +460,7 @@ export function removeEnvironmentItems(envId: string): void {
   workspaces.value = keep(workspaces.value);
   sessions.value = keep(sessions.value);
   folders.value = keep(folders.value);
+  bookmarks.value = keep(bookmarks.value);
 }
 
 /** Tests: forget that a snapshot was applied. */
@@ -465,6 +477,8 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
     case "workspace_removed":
       workspaces.value = workspaces.value.filter((w) => w.id !== message.workspaceId);
       sessions.value = sessions.value.filter((s) => s.workspaceId !== message.workspaceId);
+      // Its bookmarks went with it (the server pushes their removal too, I-203).
+      if (bookmarks.value.some((b) => b.workspaceId === message.workspaceId)) bookmarks.value = bookmarks.value.filter((b) => b.workspaceId !== message.workspaceId);
       break;
     case "session_upsert": {
       const previous = sessions.value.find((s) => s.id === message.session.id);
@@ -475,6 +489,7 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
     }
     case "session_removed":
       sessions.value = sessions.value.filter((s) => s.id !== message.sessionId);
+      if (bookmarks.value.some((b) => b.sessionId === message.sessionId)) bookmarks.value = bookmarks.value.filter((b) => b.sessionId !== message.sessionId);
       break;
     case "project_upsert":
       projects.value = upsert(projects.value, tag(message.project, envId));
@@ -487,6 +502,12 @@ export function handleServerMessage(message: ServerMessage, envId?: string): voi
       break;
     case "folder_removed":
       folders.value = folders.value.filter((f) => f.id !== message.folderId);
+      break;
+    case "bookmark_upsert":
+      bookmarks.value = upsert(bookmarks.value, tag(message.bookmark, envId));
+      break;
+    case "bookmark_removed":
+      bookmarks.value = bookmarks.value.filter((b) => b.id !== message.bookmarkId);
       break;
     case "settings": {
       // ACP agents added/removed (I-119) or agents turned on/off (I-155), maybe in another

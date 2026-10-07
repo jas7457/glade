@@ -12,6 +12,9 @@
  * Changes panel (I-097): the header's changes button opens it in the right pane, in place of the
  * sub-agents (their pane comes back when it closes; opening an agent closes it). Same width.
  *
+ * Bookmarks (I-203): ⌘D bookmarks the focused conversation's latest reply, ⌘⇧D opens the header's
+ * bookmark list.
+ *
  * Tab shortcuts: ⌘T new tab, ⌘W close the focused group's tab, ⌃Tab / ⌃⇧Tab cycle the focused
  * group's tabs ("focused" = the group containing keyboard focus, else the main group).
  * Every main tab can be closed; closing the last main tab deletes the chat after a confirm (I-061).
@@ -25,9 +28,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
 import { Check, ChevronDown, CircleSlash, Mail, MailOpen, Maximize2, MessageSquarePlus, Minimize2, PanelRightClose, Pencil, Plus, Sparkles, SquareTerminal, Trash2, X } from "lucide-preact";
 import { subagentSessionsOf, type SessionSummary } from "@glade/protocol";
-import { paneShortcutFor, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, terminalShortcutFor, useNewTerminalMenu, useTabShortcuts } from "@/app/shortcuts";
+import { bookmarkShortcutFor, paneShortcutFor, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, terminalShortcutFor, useNewTerminalMenu, useTabShortcuts } from "@/app/shortcuts";
 import { markSessionRead, markSessionUnread, renameFromSession } from "@glade/app-core/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@glade/app-core/state/store";
+import { bookmarkListOpen, toggleLatestReplyBookmark } from "@glade/app-core/state/bookmarks";
 import { Button, IconButton, Menu, MenuItem, MenuSeparator, SplitView, TabStrip, Tooltip, formatShortcut, type TabStripTab } from "@glade/app-core/ui";
 import type { TerminalTab } from "@glade/protocol";
 import { TerminalView, terminalTitles } from "@/features/terminal";
@@ -154,6 +158,26 @@ export function WorkspaceView({ workspaceId, sessionId, terminalId = null }: Wor
       if (e.defaultPrevented || paneShortcutFor(e) !== "toggle-subagents") return;
       e.preventDefault();
       togglePane.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // ⌘D bookmarks the focused conversation's latest reply, ⌘⇧D shows the chat's bookmarks (I-203).
+  const bookmarkKeys = useRef((_: "bookmark-reply" | "show-bookmarks") => {});
+  bookmarkKeys.current = (action) => {
+    if (action === "show-bookmarks") {
+      bookmarkListOpen.value = bookmarkListOpen.value === workspaceId ? null : workspaceId;
+      return;
+    }
+    const target = focusedGroup() === "subagents" ? activeSub : terminalId ? null : sessionId;
+    if (target) void toggleLatestReplyBookmark(target);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = e.defaultPrevented ? null : bookmarkShortcutFor(e);
+      if (!action) return;
+      e.preventDefault();
+      bookmarkKeys.current(action);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

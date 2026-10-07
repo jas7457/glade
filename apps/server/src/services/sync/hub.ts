@@ -6,7 +6,7 @@
  *   (`Store`), committed with the change. The store hands the hub every committed row in seq
  *   order (`Store.onEvents`): this server's right after the write, other servers' when its poll
  *   finds them (I-062), so a client of this server sees theirs with their seqs too.
- * - **Shell scope** (projects, folders, workspaces, sessions, settings, agents, the environment): rows mark entities dirty;
+ * - **Shell scope** (projects, folders, bookmarks, workspaces, sessions, settings, agents, the environment): rows mark entities dirty;
  *   every ~50 ms the dirty entities are read once (current record and live summary) and sent as
  *   the usual `*_upsert` / `*_removed` pushes, tagged `seq` (the entity's newest row) and `prev`.
  *   Pushes the app makes without a row (live status, leases elsewhere) mark entities dirty too and
@@ -208,6 +208,9 @@ export class SyncHub {
     } else if (kind === "folder") {
       const folder = store.getFolder(id);
       message = folder ? { type: "folder_upsert", folder } : { type: "folder_removed", folderId: id };
+    } else if (kind === "bookmark") {
+      const bookmark = store.getBookmark(id);
+      message = bookmark ? { type: "bookmark_upsert", bookmark } : { type: "bookmark_removed", bookmarkId: id };
     } else if (kind === "workspace") {
       const summary = store.getWorkspace(id) ? this.source.workspaceSummary(id) : null;
       message = summary ? { type: "workspace_upsert", workspace: summary } : { type: "workspace_removed", workspaceId: id };
@@ -363,10 +366,11 @@ export class SyncClient {
     return oldest !== null && afterSeq >= oldest - 1;
   }
 
-  private check(): { projects: string[]; workspaces: string[]; sessions: string[]; folders: string[] } {
+  private check(): { projects: string[]; workspaces: string[]; sessions: string[]; folders: string[]; bookmarks: string[] } {
     const { store } = this;
     return {
       folders: store.listFolders().map((f) => f.id),
+      bookmarks: store.listBookmarks().map((b) => b.id),
       projects: store.listProjects().map((p) => p.id),
       workspaces: store.listWorkspaces().map((w) => w.id),
       sessions: store.listSessions().map((s) => s.id),
@@ -401,6 +405,10 @@ export class SyncClient {
         return this.markDirty(`folder:${message.folder.id}`, null);
       case "folder_removed":
         return this.markDirty(`folder:${message.folderId}`, null);
+      case "bookmark_upsert":
+        return this.markDirty(`bookmark:${message.bookmark.id}`, null);
+      case "bookmark_removed":
+        return this.markDirty(`bookmark:${message.bookmarkId}`, null);
       case "settings":
         return this.markDirty("settings", null);
       case "environment":
@@ -460,6 +468,8 @@ export class SyncClient {
         return set(`project:${id}`, row.seq);
       case "folder":
         return set(`folder:${id}`, row.seq);
+      case "bookmark":
+        return set(`bookmark:${id}`, row.seq);
       case "workspace":
         return set(`workspace:${id}`, row.seq);
       case "settings":

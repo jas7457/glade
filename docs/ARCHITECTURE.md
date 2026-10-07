@@ -247,7 +247,7 @@ cut-off runs still show as interrupted on the next start.
 
 | What | Where |
 | --- | --- |
-| Everything Glade owns (I-121): projects, workspaces, sessions (with `session_ref` / `resume_json`), sub-agent records, settings, summaries, **conversations** (`messages`, `tool_results`, `transcripts`), `events`, `meta` | `<dataDir>/glade.db` (SQLite via `node:sqlite`, WAL; migrations in `apps/server/src/store/db/`) |
+| Everything Glade owns (I-121): projects, workspaces, sessions (with `session_ref` / `resume_json`), sub-agent records, settings, summaries, folders (I-165), bookmarks (I-203, migration 008: `bookmarks` table, `session_id`/`workspace_id` columns + the `Bookmark` as JSON; deleted with their session/workspace in the same transaction, orphans dropped on open), **conversations** (`messages`, `tool_results`, `transcripts`), `events`, `meta` | `<dataDir>/glade.db` (SQLite via `node:sqlite`, WAL; migrations in `apps/server/src/store/db/`) |
 | Harness session files (import and resume only) | pi: `~/.pi/agent/sessions/--<cwd>--/…` (never written by Glade) |
 | Settings export (read by the desktop app for the pi path) | `<dataDir>/settings.export.json` |
 | Pre-I-121 JSON files (`projects.json`, `workspaces.json`, `settings.json`, `agents.json`, `session-summaries.json`, `search-index.json`, `chats.json`, `acp-sessions/`) | imported once, then deleted after 3 successful starts with no older server around |
@@ -399,6 +399,11 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
 | GET    | `/models/default[?refresh=1][&harness=<id>]` | → `HarnessDefaults` `{ model, thinkingLevel }`: what the harness uses when no model is given (I-050); `harness` = that agent's (404 when not offered), else the default agent's (I-198) |
 | GET    | `/commands?projectId=[&refresh=1]` | → `SlashCommand[]`: harness commands for a project's folder (no `projectId` = scratch); 404 unknown project |
+| GET    | `/bookmarks[?workspaceId=\|?sessionId=]` | → `Bookmark[]` (I-203), newest first: every chat's on this environment, or one chat's / tab's. Clients also get them in the shell snapshot and pushes |
+| POST   | `/bookmarks`                  | `CreateBookmarkRequest` `{ sessionId, message: MessageAnchor, text, label?, selection? }` → `Bookmark`; label (first heading / line) and excerpt come from `text` (or `selection`); the same message again (no selection) returns the existing bookmark. 404 unknown session, 400 bad anchor |
+| PATCH  | `/bookmarks/:id`              | `UpdateBookmarkRequest` `{ label }` → `Bookmark`; `null`/blank = back to the automatic label |
+| DELETE | `/bookmarks/:id`              | → 204 (404 unknown) |
+| GET    | `/bookmarks/:id/content`      | → `BookmarkContent` `{ text }`: the selection, else the message's text now (live transcript, else the store: a user message, or the agent reply from the anchor to the end of its turn); `null` when the message is gone |
 | GET    | `/files?projectId=&q=[&limit=]` | → `FileSearchResponse` `{ entries: FileEntry[], truncated }`, ranked, default 50 (max 200); 404 unknown project |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
@@ -418,6 +423,7 @@ WebSocket `/ws`: server pushes `ServerMessage`:
 | `workspace_removed` | `{ workspaceId }`, its sessions are gone too (no `session_removed`s) |
 | `project_upsert` / `project_removed`, `settings`, `models`, `usage_limits`, `hello` | as before |
 | `local_models` | `{ state: LocalModelsState }` (I-196), on every change (ignoring `fetchedAt`) and to new connections once known |
+| `bookmark_upsert` / `bookmark_removed` | `{ bookmark: Bookmark }` / `{ bookmarkId }` (I-203): shell scope, from `bookmark` event rows (also when a chat's deletion removes them); `ShellSnapshot.bookmarks`, `live.check.bookmarks` |
 
 Client sends `{ type: "viewing", sessionIds: string[] }` (every session on screen in a visible
 window, replacing the previous list) so runs finishing there aren't marked unread. The web

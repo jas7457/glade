@@ -12,6 +12,8 @@
  *   (AgentMessageCard, I-075).
  * - Long text collapses after ~15 lines with "Show more" (ui/Clamp, I-109); images open in a
  *   lightbox (I-110); the time shows on hover (I-111).
+ * - Bookmarks (I-203): the bookmark toggle next to the time on hover, a ribbon beside a
+ *   bookmarked bubble; `data-anchor` lets the transcript's message menu find it (MessageBookmark.tsx).
  */
 import { memo } from "preact/compat";
 import { useMemo } from "preact/hooks";
@@ -40,6 +42,7 @@ import { splitMentions } from "./mentions/parse";
 import { useImageLightbox } from "./ImageLightbox";
 import { useImageSrc } from "./image-src";
 import { MessageTime } from "./MessageTime";
+import { BookmarkRibbon, MessageBookmarkButton, anchorKey } from "./MessageBookmark";
 
 const EXTENSION_ICONS: Array<[RegExp, LucideIcon]> = [
   [/\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?|ico|avif)$/i, FileImage],
@@ -124,9 +127,11 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
   // Sub-agent reports arrive as prompts but aren't the user's words (I-075).
   const agentMessage = useMemo(() => (images.length === 0 && files.length === 0 ? parseAgentMessage(raw) : null), [raw, images.length, files.length]);
   const { open, lightbox } = useImageLightbox(images);
+  const anchor = useMemo(() => ({ role: "user" as const, timestamp: message.timestamp }), [message.timestamp]);
   if (agentMessage) return <AgentMessageCard message={agentMessage} />;
+  const getText = () => text;
   return (
-    <div class="group/msg relative mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user">
+    <div class="group/msg relative mt-6 flex flex-col items-end gap-1.5 first:mt-0" data-role="user" data-anchor={anchorKey(anchor)}>
       {images.length > 0 && (
         <div class="relative flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((img, i) => (
@@ -143,13 +148,17 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
       )}
       {text && (
         <div class="relative max-w-[85%] rounded-[14px] bg-selected px-3.5 py-2 leading-[1.5]">
+          <BookmarkRibbon anchor={anchor} class="top-2.5 -left-5" />
           <Clamp lines={LONG_BUBBLE_LINES} contentClass="selectable whitespace-pre-wrap break-words">
             <UserText text={text} />
           </Clamp>
         </div>
       )}
       {/* Below the message, right-aligned (agent replies: below, left-aligned). Out of flow, so hovering doesn't shift anything. */}
-      <MessageTime timestamp={message.timestamp} class="absolute top-full right-0 mt-0.5" />
+      <div data-aux="footer" class="absolute top-full right-0 mt-0.5 flex items-center gap-1">
+        {text && <MessageBookmarkButton anchor={anchor} getText={getText} class="-my-0.5" />}
+        <MessageTime timestamp={message.timestamp} />
+      </div>
       {lightbox}
     </div>
   );

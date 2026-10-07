@@ -7,6 +7,9 @@
  * the sub-agents as cards, and the touch composer (↩ = new line, Send sends; holding Send offers
  * steer / follow-up / Ask Aside). Pickers open as sheets (`OptionSheetContext` → `SheetList`).
  *
+ * Bookmarks (I-203): long-press a message to bookmark it (the shared transcript's message menu);
+ * the nav bar's bookmark button (with the count, once there is one) lists them (BookmarksSheet).
+ *
  * `?tab=` a sub-agent's session: that agent's chat full screen with a back button to its parent.
  * The screen pins itself to the visible area above the keyboard (chat/keyboard.ts).
  */
@@ -30,6 +33,7 @@ import { paths } from "~/app/routes";
 import { useLeftEdgeSwipe } from "~/chat/edge-swipe";
 import { useKeyboardViewport } from "~/chat/keyboard";
 import { SubagentCards } from "~/chat/SubagentCards";
+import { BookmarksNavButton, BookmarksSheet } from "~/chat/BookmarksSheet";
 import { SidebarOverlay } from "~/chats/SidebarOverlay";
 import { SheetList } from "~/ui/SheetList";
 import { MacStatusNotice } from "~/ui/MacStatus";
@@ -54,6 +58,7 @@ export function ChatScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
   const { height, keyboardOpen } = useKeyboardViewport();
   const workspace = workspacesById.value.get(chatId);
   const subagent = subagentTab(chatId, search.get("tab"));
@@ -62,6 +67,13 @@ export function ChatScreen() {
   useLeftEdgeSwipe(() => setSidebarOpen(true), !subagent && !sidebarOpen);
 
   const openSubagent = (id: string) => navigate(paths.chat(envId, chatId, id), { state: { fromParent: true } satisfies ChatLocationState });
+  /** Show a session of this chat that holds a bookmark: a main tab, or a sub-agent full screen. */
+  const showSession = (id: string) => {
+    const s = sessionsById.value.get(id);
+    if (!s) return;
+    if (s.kind === "subagent") navigate(paths.chat(envId, chatId, id), { state: { fromParent: true } satisfies ChatLocationState });
+    else navigate(paths.chat(envId, chatId, id), { replace: true });
+  };
   const back = () => {
     if ((location.state as ChatLocationState | null)?.fromParent) navigate(-1);
     else navigate(paths.chat(envId, chatId, subagent?.parentSessionId), { replace: true });
@@ -96,6 +108,7 @@ export function ChatScreen() {
               </NavIconButton>
             )
           }
+          right={workspace && <BookmarksNavButton workspaceId={workspace.id} onOpen={() => setBookmarksOpen(true)} />}
         />
         <div class="min-h-0 flex-1 border-t-[0.5px] border-separator">
           {sessionId ? (
@@ -110,6 +123,9 @@ export function ChatScreen() {
         </div>
       </div>
       {!subagent && <SidebarOverlay open={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
+      {workspace && sessionId && (
+        <BookmarksSheet open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} workspaceId={workspace.id} sessionId={sessionId} onOpenSession={showSession} />
+      )}
     </OptionSheetContext.Provider>
   );
 }

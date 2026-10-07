@@ -8,6 +8,10 @@
  * Portable client core (F-022): no DOM or layout assumptions beyond `fetch`.
  */
 import type {
+  Bookmark,
+  BookmarkContent,
+  CreateBookmarkRequest,
+  UpdateBookmarkRequest,
   CompactResult,
   CreateFolderRequest,
   CreateProjectRequest,
@@ -241,6 +245,14 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     createFolder: (body: CreateFolderRequest) => command<Folder>("POST", "/folders", body),
     updateFolder: (id: string, body: UpdateFolderRequest) => request<Folder>("PATCH", `/folders/${id}`, body),
     deleteFolder: (id: string) => request<void>("DELETE", `/folders/${id}`),
+
+    // Bookmarks (I-203)
+    listBookmarks: () => request<Bookmark[]>("GET", "/bookmarks"),
+    createBookmark: (body: CreateBookmarkRequest) => command<Bookmark>("POST", "/bookmarks", body),
+    updateBookmark: (id: string, body: UpdateBookmarkRequest) => request<Bookmark>("PATCH", `/bookmarks/${id}`, body),
+    deleteBookmark: (id: string) => request<void>("DELETE", `/bookmarks/${id}`),
+    /** The bookmarked message's text as stored now (Copy, Reference). */
+    getBookmarkContent: (id: string) => request<BookmarkContent>("GET", `/bookmarks/${id}/content`),
     openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
     /** Whether the project's folder is a git repository (worktree chats, I-096). */
     getProjectGit: (id: string) => request<ProjectGitInfo>("GET", `/projects/${id}/git`),

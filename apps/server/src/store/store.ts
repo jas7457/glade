@@ -21,11 +21,15 @@
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  anchoredText,
   deepMerge,
   defaultSettings,
+  parseAttachedFiles,
+  type Bookmark,
   type ChatMessage,
   type DeepPartial,
   type Folder,
+  type MessageAnchor,
   type Project,
   type Session,
   type MessagePatch,
@@ -78,11 +82,13 @@ export interface StoreChange {
   settings: boolean;
   /** Folders in the chat list (I-165). */
   folders: { upserted: Folder[]; removed: string[] };
+  /** Bookmarked messages (I-203; optional for listeners written before them). */
+  bookmarks?: { upserted: Bookmark[]; removed: string[] };
 }
 
 /**
  * One row of the event log (I-122), as the sync hub sees it. `type`: "project" | "workspace" |
- * "session" | "agent" | "settings" | "environment" | "folder" (scope "shell") or "messages" (scope "session").
+ * "session" | "agent" | "settings" | "environment" | "folder" | "bookmark" (scope "shell") or "messages" (scope "session").
  */
 export interface EventRow {
   seq: number;
@@ -182,6 +188,7 @@ export class Store {
   private readonly sessions = new Map<string, Session>();
   private readonly agents = new Map<string, AgentRecord>();
   private readonly folders = new Map<string, Folder>();
+  private readonly bookmarks = new Map<string, Bookmark>();
   private settingsOverrides: DeepPartial<Settings> = {};
   private settingsCache: Settings | null = null;
   private lastSeq = 0;
@@ -207,6 +214,7 @@ export class Store {
     this.migrateSidebarOrderOnce();
     if (options.migrateImages !== false) this.imageMigration = this.moveImagesOut();
     this.lastSeq = Number((this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq);
+    this.dropOrphanBookmarks();
     this.pruneEvents();
     this.writeSettingsExport();
   }
@@ -431,6 +439,7 @@ export class Store {
       sessions: { upserted: [], removed: [] },
       settings: false,
       folders: { upserted: [], removed: [] },
+      bookmarks: { upserted: [], removed: [] },
     };
     for (const id of touched.get("project") ?? []) {
       const next = this.readRecord<Project>("projects", id);
@@ -452,6 +461,17 @@ export class Store {
       } else if (before) {
         this.folders.delete(id);
         change.folders.removed.push(id);
+      }
+    }
+    for (const id of touched.get("bookmark") ?? []) {
+      const next = this.readRecord<Bookmark>("bookmarks", id);
+      const before = this.bookmarks.get(id);
+      if (next) {
+        if (JSON.stringify(before) !== JSON.stringify(next)) change.bookmarks!.upserted.push(next);
+        this.bookmarks.set(id, next);
+      } else if (before) {
+        this.bookmarks.delete(id);
+        change.bookmarks!.removed.push(id);
       }
     }
     for (const id of touched.get("workspace") ?? []) {
@@ -510,6 +530,8 @@ export class Store {
       change.sessions.removed.length ||
       change.folders.upserted.length ||
       change.folders.removed.length ||
+      change.bookmarks!.upserted.length ||
+      change.bookmarks!.removed.length ||
       change.settings;
     return () => {
       if (any) {
@@ -571,6 +593,7 @@ export class Store {
     for (const s of all<Session>("SELECT data_json FROM sessions ORDER BY rowid")) this.sessions.set(s.id, s);
     for (const a of all<AgentRecord>("SELECT data_json FROM agents ORDER BY rowid")) this.agents.set(a.sessionId, a);
     for (const f of all<Folder>("SELECT data_json FROM folders ORDER BY rowid")) this.folders.set(f.id, f);
+    for (const b of all<Bookmark>("SELECT data_json FROM bookmarks ORDER BY rowid")) this.bookmarks.set(b.id, b);
     this.loadSettings();
   }
 
@@ -596,6 +619,7 @@ export class Store {
       this.sessions.clear();
       this.agents.clear();
       this.folders.clear();
+      this.bookmarks.clear();
       this.loadAll();
     }
   }
@@ -705,6 +729,30 @@ export class Store {
            data_json = excluded.data_json, updated_at = excluded.updated_at`,
       )
       .run(f.id, f.projectId, f.sortOrder, JSON.stringify(f), now);
+  }
+
+  private putBookmark(b: Bookmark, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO bookmarks (id, session_id, workspace_id, data_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET session_id = excluded.session_id, workspace_id = excluded.workspace_id,
+           data_json = excluded.data_json, updated_at = excluded.updated_at`,
+      )
+      .run(b.id, b.sessionId, b.workspaceId, JSON.stringify(b), now);
+  }
+
+  /** Delete the bookmarks of these sessions (inside the caller's transaction); returns their ids. */
+  private deleteBookmarkRows(sessionIds: Iterable<string>): string[] {
+    const ids: string[] = [];
+    for (const sid of sessionIds) {
+      const rows = this.db.prepare("SELECT id FROM bookmarks WHERE session_id = ?").all(sid) as Array<{ id: string }>;
+      for (const { id } of rows) {
+        this.db.prepare("DELETE FROM bookmarks WHERE id = ?").run(id);
+        this.event("bookmark", id);
+        ids.push(id);
+      }
+    }
+    return ids;
   }
 
   private putSettings(overrides: DeepPartial<Settings>, now: number): void {
@@ -818,6 +866,68 @@ export class Store {
     this.publish();
   }
 
+  // Bookmarks (I-203) ---------------------------------------------------------------------------
+
+  listBookmarks(): Bookmark[] {
+    return [...this.bookmarks.values()];
+  }
+
+  getBookmark(id: string): Bookmark | undefined {
+    return this.bookmarks.get(id);
+  }
+
+  upsertBookmark(bookmark: Bookmark): Bookmark {
+    transaction(this.db, () => {
+      this.putBookmark(bookmark, Date.now());
+      this.event("bookmark", bookmark.id);
+    });
+    this.bookmarks.set(bookmark.id, bookmark);
+    this.publish();
+    return bookmark;
+  }
+
+  removeBookmarks(ids: readonly string[]): void {
+    if (!ids.length) return;
+    transaction(this.db, () => {
+      for (const id of ids) {
+        this.db.prepare("DELETE FROM bookmarks WHERE id = ?").run(id);
+        this.event("bookmark", id);
+      }
+    });
+    for (const id of ids) this.bookmarks.delete(id);
+    this.publish();
+  }
+
+  /**
+   * The bookmarked message's text as stored now (`anchoredText`: a user message's text without its
+   * `Attached file:` lines, or an agent reply's text to the end of its turn); `null` when it's gone.
+   */
+  anchoredMessageText(sessionId: string, anchor: MessageAnchor): string | null {
+    const rows = this.db
+      .prepare("SELECT role, text, created_at FROM messages WHERE session_id = ? AND seq >= COALESCE((SELECT MIN(seq) FROM messages WHERE session_id = ? AND role = ? AND created_at = ?), 1e18) ORDER BY seq, rowid")
+      .all(sessionId, sessionId, anchor.role, anchor.timestamp) as Array<{ role: string; text: string | null; created_at: number }>;
+    const messages = rows.map((r) => ({
+      role: r.role,
+      timestamp: Number(r.created_at),
+      text: r.text === null ? null : r.role === "user" ? parseAttachedFiles(r.text).text : r.text,
+    }));
+    return anchoredText(messages, anchor);
+  }
+
+  /**
+   * Bookmarks whose session is gone (deleted by a server from before I-203, which doesn't know
+   * the table) are removed when the store opens.
+   */
+  private dropOrphanBookmarks(): void {
+    const orphans = [...this.bookmarks.values()].filter((b) => !this.sessions.has(b.sessionId)).map((b) => b.id);
+    if (!orphans.length) return;
+    try {
+      this.removeBookmarks(orphans);
+    } catch (err) {
+      console.warn(`[glade] store: removing bookmarks of deleted chats failed: ${(err as Error).message}`);
+    }
+  }
+
   // Environment (I-123) ------------------------------------------------------------------------
 
   /** The environment's display name, `null` when never set (the machine name is used then). */
@@ -859,6 +969,7 @@ export class Store {
   removeWorkspace(id: string): void {
     const doomed = [...this.sessions.values()].filter((s) => s.workspaceId === id);
     const removed = new Set<string>();
+    let bookmarks: string[] = [];
     transaction(this.db, () => {
       const rows = this.db.prepare("SELECT id FROM sessions WHERE workspace_id = ?").all(id) as Array<{ id: string }>;
       for (const sid of new Set([...doomed.map((s) => s.id), ...rows.map((r) => r.id)])) {
@@ -866,9 +977,11 @@ export class Store {
         this.deleteSessionRows(sid);
         this.event("session", sid, { payload: { workspaceId: id } });
       }
+      bookmarks = this.deleteBookmarkRows(removed); // they go with their chat (I-203)
       this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
       this.event("workspace", id);
     });
+    for (const bid of bookmarks) this.bookmarks.delete(bid);
     this.workspaces.delete(id);
     for (const s of doomed) this.sessions.delete(s.id);
     for (const sid of removed) this.blobs.removeChat(sid); // their images (I-163)
@@ -900,10 +1013,13 @@ export class Store {
   /** Removes the session and its conversation. */
   removeSession(id: string): void {
     const workspaceId = this.sessions.get(id)?.workspaceId;
+    let bookmarks: string[] = [];
     transaction(this.db, () => {
       this.deleteSessionRows(id);
+      bookmarks = this.deleteBookmarkRows([id]); // they go with their chat (I-203)
       this.event("session", id, workspaceId ? { payload: { workspaceId } } : {});
     });
+    for (const bid of bookmarks) this.bookmarks.delete(bid);
     this.sessions.delete(id);
     this.blobs.removeChat(id); // its images (I-163)
     this.publish();

@@ -45,6 +45,24 @@ export const PANE_SHORTCUTS = {
 export type PaneCommandId = keyof typeof PANE_SHORTCUTS;
 
 /**
+ * Bookmarks (I-203): ⌘D bookmarks the latest agent reply of the focused chat (again: removes it),
+ * ⌘⇧D opens the chat's bookmark list. Bound by the workspace view while a chat is shown. Nothing
+ * else in Glade or the Mac app's menus uses either (browsers' "Bookmark page" is overridden).
+ */
+export const BOOKMARK_SHORTCUTS = {
+  "bookmark-reply": "mod+d",
+  "show-bookmarks": "mod+shift+d",
+} as const;
+
+export type BookmarkCommandId = keyof typeof BOOKMARK_SHORTCUTS;
+
+export function bookmarkShortcutFor(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): BookmarkCommandId | null {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
+  if (e.code !== "KeyD" && e.key.toLowerCase() !== "d") return null;
+  return e.shiftKey ? "show-bookmarks" : "bookmark-reply";
+}
+
+/**
  * Terminal tabs (I-187): ⌃` opens a new terminal tab (VS Code's key; ⌃⇧` works too). Bound by the
  * workspace view; a focused terminal lets it through instead of sending it to the shell. In the
  * Mac app File → New Terminal owns the key and arrives as a menu action (I-192).

@@ -9,6 +9,9 @@
  *
  * Opening a message hit (or an Ask result found by keyword) jumps to the matched message
  * (I-093, `features/chat/jump-to-message.ts`); title/summary hits open the chat as usual.
+ *
+ * A "Bookmarks" group (I-203) lists the bookmarked messages of every chat (label, chat, project;
+ * the five newest with an empty query); picking one opens its chat and jumps to the message.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AskResponse, MessageAnchor, SearchHit } from "@glade/protocol";
@@ -24,7 +27,7 @@ import { rankItems } from "./match";
 import { ASK_ENTRY_ID, askSections, withSearchSections } from "./search-sections";
 
 /** Rows per group when the query is empty (Actions without a query are the common ones). */
-const EMPTY_LIMIT = { Chats: 8, Projects: 5 };
+const EMPTY_LIMIT = { Chats: 8, Bookmarks: 5, Projects: 5 };
 /** Message search waits for a pause in typing. */
 const SEARCH_DEBOUNCE_MS = 150;
 const SEARCH_MIN_CHARS = 2;
@@ -36,6 +39,7 @@ export function paletteSections(commands: readonly Command[], query: string): Co
       id: item.id,
       title: item.title,
       subtitle: item.subtitle,
+      detail: item.detail,
       icon: item.icon,
       shortcut: item.shortcut,
       highlights: indices,

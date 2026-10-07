@@ -41,6 +41,10 @@
  * slot, and clicking it with ⌘/⌥ held does that mode. No separate Ask Aside button. Right-clicking
  * it (desktop) lists the modes that apply now with their keys (`sendMenuModes`).
  *
+ * References (I-203): a bookmark's "Reference" puts the message in the composer as a chip
+ * (references.ts); it's sent as a short quote before the typed text, and counts as something to
+ * send on its own.
+ *
  * Touch (the iPhone app, I-164; `touch` prop, default `isIphoneApp()`): ↩ inserts a new line and
  * only the Send button sends (steers while running). Holding Send opens its options as a sheet
  * (`OptionSheetContext`): Steer, Send as Follow-up, Ask Aside. Bigger buttons; no separate Ask
@@ -51,6 +55,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import { useNavigate } from "react-router";
 import {
   ArrowUp,
+  BookmarkCheck,
   ClockArrowUp,
   ListPlus,
   MessageCircleQuestionMark,
@@ -130,6 +135,7 @@ import { applyMention, findMention } from "./mentions/parse";
 import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
 import { useFileSearch } from "./mentions/useFileSearch";
 import { composerPrefill, focusComposer, withPrefill } from "./composer-prefill";
+import { composerReferences, quoteLines, removeReference, setReferences, withReferences } from "./references";
 import { askSideQuestion } from "./side-question-actions";
 import { useHeldModifiers } from "./use-held-modifiers";
 import { sendMenuModes, sendModeFor, type SendBehavior, type SendMode, type SendModeCommand } from "./send-mode";
@@ -247,6 +253,8 @@ export function ComposerBox(props: ComposerBoxProps) {
   const [images, setImages] = useState<Attachment[]>([]);
   const { open: openImage, lightbox: imageLightbox } = useImageLightbox(images);
   const [files, setFiles] = useState<PendingFile[]>([]);
+  // Earlier messages referenced from bookmarks (I-203), sent as quotes before the text.
+  const references = composerReferences.value.get(draftKey) ?? [];
   const [dragging, setDragging] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -357,7 +365,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
   };
 
-  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0);
+  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0 || references.length > 0);
   // Ask Aside (I-140): only while the agent works and there's a question typed.
   const canAskAside = !!props.askAside && isRunning && !busy && !shellInput && text.trim().length > 0;
   // Steer vs follow-up (I-153): only while running, for harnesses that steer, and not in shell mode.
@@ -471,7 +479,7 @@ export function ComposerBox(props: ComposerBoxProps) {
     sideQuestions: !!props.askAside,
     shellInput: !!shellInput,
     hasText: shellInput ? shellInput.command.length > 0 : text.trim().length > 0,
-    hasAttachments: images.length > 0 || files.length > 0,
+    hasAttachments: images.length > 0 || files.length > 0 || references.length > 0,
     command: typedCommand,
   };
   const modeFor = (mods: { meta: boolean; alt: boolean }) => {
@@ -517,11 +525,13 @@ export function ComposerBox(props: ComposerBoxProps) {
       return;
     }
     // Optimistically clear; restore if it failed.
+    const sentReferences = references;
     updateText("");
     setImages([]);
     setFiles([]);
+    if (sentReferences.length) setReferences(draftKey, []);
     const ok = await props.onSend(
-      sentText,
+      withReferences(sentText, sentReferences),
       sentImages.map(({ mimeType, data }) => ({ mimeType, data })),
       sentFiles.map((f) => f.file),
       behavior,
@@ -530,6 +540,7 @@ export function ComposerBox(props: ComposerBoxProps) {
       updateText(sentText);
       setImages(sentImages);
       setFiles(sentFiles);
+      if (sentReferences.length) setReferences(draftKey, sentReferences);
     }
   };
 
@@ -642,7 +653,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   // then it grows full width with the text on top and the pickers in a row below. Same DOM in
   // both (CSS order/wrap only), so the textarea never remounts and keeps its focus.
   const expanded =
-    !touch || focused || text.trim() !== "" || images.length > 0 || files.length > 0 || openPicker !== null || sendOptionsOpen || !!props.toolbarExtraOpen || !!shellInput;
+    !touch || focused || text.trim() !== "" || images.length > 0 || files.length > 0 || references.length > 0 || openPicker !== null || sendOptionsOpen || !!props.toolbarExtraOpen || !!shellInput;
   const compact = touch && !expanded;
   useEffect(() => () => {
     if (blurTimer.current) clearTimeout(blurTimer.current);
@@ -722,8 +733,18 @@ export function ComposerBox(props: ComposerBoxProps) {
       >
         {menuOpen && <SlashMenu groups={groups} activeIndex={active} onHover={setActiveIndex} onPick={complete} />}
         {mentionOpen && <MentionMenu entries={fileEntries} activeIndex={mentionActive} onHover={setMentionIndex} onPick={pickMention} />}
-        {(images.length > 0 || files.length > 0) && (
+        {(images.length > 0 || files.length > 0 || references.length > 0) && (
           <div class={cn("flex flex-wrap items-center gap-2 px-3 pt-3", touch && "order-first w-full")} aria-label="Attachments">
+            {references.map((ref) => (
+              <Chip
+                key={ref.id}
+                icon={<BookmarkCheck />}
+                label={ref.label}
+                title={`Sent as a quote:\n${quoteLines(ref.text)}`}
+                removeLabel={`Remove reference to ${ref.label}`}
+                onRemove={() => removeReference(draftKey, ref.id)}
+              />
+            ))}
             {images.map((img, i) => (
               <div key={img.id} class="group/att relative">
                 {/* Opens large like transcript images (I-115); the × below is a sibling, so it doesn't. */}

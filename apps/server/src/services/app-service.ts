@@ -8,6 +8,10 @@ import type {
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   CreateFolderRequest,
+  Bookmark,
+  BookmarkContent,
+  CreateBookmarkRequest,
+  UpdateBookmarkRequest,
   ReorderChatListRequest,
   ReorderChatListResponse,
   DeepPartial,
@@ -59,6 +63,7 @@ import { LeaseSync } from "./app/lease-sync.js";
 import { LivePool } from "./app/live-pool.js";
 import { Projects } from "./app/projects.js";
 import { Folders } from "./app/folders.js";
+import { Bookmarks } from "./app/bookmarks.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
@@ -106,6 +111,7 @@ export class AppService {
   private readonly workspaces: Workspaces;
   private readonly projects: Projects;
   private readonly folders: Folders;
+  private readonly bookmarks: Bookmarks;
   private readonly team: AgentTeam;
   private readonly unwatch: Array<() => void> = [];
   /** Sequenced live sync to protocol-2 clients (I-122). */
@@ -170,6 +176,7 @@ export class AppService {
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
     });
     this.folders = new Folders(ctx, this.records);
+    this.bookmarks = new Bookmarks(ctx, this.records);
     this.workspaces = new Workspaces(ctx, this.records, this.pool, this.leaseSync, this.sessions, this.folders);
     this.projects = new Projects(ctx, this.records, this.workspaces, this.folders);
     this.team = new AgentTeam(ctx, this.records, this.pool, this.actions, this.sessions, this.titles);
@@ -214,7 +221,32 @@ export class AppService {
       settings: this.ctx.store.getSettings(),
       environment: this.environment.info(),
       folders: this.folders.listFolders(),
+      bookmarks: this.bookmarks.listBookmarks(),
     };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Bookmarks (I-203)
+  // -------------------------------------------------------------------------------------------
+
+  listBookmarks(filter: { workspaceId?: string; sessionId?: string } = {}): Bookmark[] {
+    return this.bookmarks.listBookmarks(filter);
+  }
+
+  createBookmark(req: CreateBookmarkRequest): Bookmark {
+    return this.bookmarks.createBookmark(req);
+  }
+
+  updateBookmark(id: string, req: UpdateBookmarkRequest): Bookmark {
+    return this.bookmarks.updateBookmark(id, req);
+  }
+
+  deleteBookmark(id: string): void {
+    this.bookmarks.removeBookmark(id);
+  }
+
+  bookmarkContent(id: string): BookmarkContent {
+    return this.bookmarks.bookmarkContent(id);
   }
 
   // -------------------------------------------------------------------------------------------

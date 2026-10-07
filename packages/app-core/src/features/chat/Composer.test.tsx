@@ -10,6 +10,7 @@ import { parseShellInput, sendKeyModifiers } from "./composer-utils";
 import { sendMenuModes, sendModeFor, type SendModeInput } from "./send-mode";
 import { MODIFIER_SHOW_DELAY_MS } from "./use-held-modifiers";
 import { Composer } from "./Composer";
+import { addReference, referencesOf } from "./references";
 import { harnesses } from "@glade/app-core/state/harnesses";
 
 const ALL_CAPS = { compact: true, exportHtml: true, steering: true, uiRequests: true, usageLimits: true, commands: true, subagents: true, shell: true };
@@ -227,6 +228,29 @@ describe("Composer (existing chat)", () => {
     renderAt(<Composer chatId="c1" />);
     expect(screen.getByText("do this next")).toBeTruthy();
     expect(screen.getByText("Stopped: queued messages are sent after your next message")).toBeTruthy();
+  });
+
+  it("sends a referenced message (I-203) as a short quote before the text; × removes it; restored on failure", async () => {
+    readyChat("c1");
+    addReference("c1", { id: "b1", label: "Q3 numbers", message: { role: "assistant", timestamp: Date.UTC(2026, 9, 5, 12, 0) }, text: "## Q3\n\n| a | 1 |" });
+    addReference("c1", { id: "b2", label: "Other", message: { role: "user", timestamp: 1 }, text: "x" });
+    renderAt(<Composer chatId="c1" />);
+    expect(screen.getByText("Q3 numbers")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove reference to Other" }));
+    expect(screen.queryByText("Other")).toBeNull();
+    // A reference alone can be sent.
+    vi.mocked(api.prompt).mockRejectedValueOnce(new Error("nope"));
+    const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Q3 numbers")).toBeTruthy());
+    fireEvent.input(box, { target: { value: "what was the total?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.prompt).toHaveBeenCalledTimes(2));
+    const sent = vi.mocked(api.prompt).mock.calls[1]![1].text;
+    expect(sent).toMatch(/^Re: your earlier reply \(“Q3 numbers”, .+\):\n> ## Q3\n>\n> \| a \| 1 \|\n\nwhat was the total\?$/);
+    expect(screen.queryByText("Q3 numbers")).toBeNull();
+    expect(referencesOf("chat:c1")).toEqual([]);
   });
 
   it("restores the text when sending fails", async () => {

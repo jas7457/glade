@@ -288,7 +288,7 @@ describe("folders in the store (I-165)", () => {
       expect(schemaVersion(db)).toBe(6);
       db.close();
       const upgraded = openDatabase(join(dir, "x.db"));
-      expect(schemaVersion(upgraded)).toBe(7);
+      expect(schemaVersion(upgraded)).toBeGreaterThanOrEqual(7);
       expect(upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'folders'").get()).toBeTruthy();
       upgraded.close();
 

@@ -1,10 +1,13 @@
 /** The phone chat screen (I-164): sub-agents as cards; tapping one opens it full screen with Back to the parent. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, type HarnessCapabilities, type ModelInfo } from "@glade/protocol";
 import { TooltipProvider } from "@glade/app-core/ui";
-import { models, projects, sessions, settings, workspaces } from "@glade/app-core/state/store";
+import { bookmarks, models, projects, sessions, settings, workspaces } from "@glade/app-core/state/store";
+import { api } from "@glade/app-core/lib/api";
+import { pendingJump } from "@glade/app-core/features/chat/jump-to-message";
+import { act, waitFor, within } from "@testing-library/preact";
 import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
 import { harnesses } from "@glade/app-core/state/harnesses";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
@@ -22,6 +25,8 @@ vi.mock("@glade/app-core/lib/api", () => ({
     listCommands: vi.fn(() => new Promise(() => {})),
     prompt: vi.fn(async () => undefined),
     abort: vi.fn(async () => undefined),
+    createBookmark: vi.fn(),
+    deleteBookmark: vi.fn(async () => undefined),
   },
   request: vi.fn(async () => ({ isRepo: false })),
 }));
@@ -162,5 +167,50 @@ describe("ChatScreen", () => {
     expect(voiceMode.value?.sessionId).toBe("m1");
     closeVoiceMode();
     setVoiceEngine(null);
+  });
+});
+
+describe("ChatScreen bookmarks (I-203)", () => {
+  afterEach(() => {
+    delete (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__;
+  });
+  const reply = { id: "r1", role: "assistant" as const, content: [{ type: "text" as const, text: "## Numbers\n\nQ3 is up." }], timestamp: 2000 };
+  beforeEach(() => {
+    vi.useRealTimers();
+    bookmarks.value = [];
+    pendingJump.value = null;
+    (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__ = true;
+    const store = getChatSession("m1");
+    store.status.value = "ready";
+    store.state.value = defaultSessionState();
+    store.transcript.value = { messages: [{ id: "u1", role: "user", content: [{ type: "text", text: "numbers?" }], timestamp: 1000 }, reply], toolResults: {} };
+  });
+
+  it("long-press a reply → Bookmark; the nav bar then shows the count and lists it; tapping jumps", async () => {
+    vi.mocked(api.createBookmark).mockImplementation(async (body) => ({
+      id: "b1",
+      sessionId: body.sessionId,
+      workspaceId: "w",
+      message: body.message,
+      label: "Numbers",
+      labelSource: "auto",
+      excerpt: "Numbers Q3 is up.",
+      createdAt: 1,
+    }));
+    renderAt("/e/env1/chats/w");
+    expect(screen.queryByRole("button", { name: /bookmark/ })).toBeNull();
+    vi.useFakeTimers();
+    fireEvent.touchStart(screen.getByText("Q3 is up."));
+    act(() => void vi.advanceTimersByTime(600));
+    vi.useRealTimers();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Agent Reply" })).getByRole("option", { name: "Bookmark" }));
+    await waitFor(() => expect(api.createBookmark).toHaveBeenCalledWith({ sessionId: "m1", message: { role: "assistant", timestamp: 2000 }, text: "## Numbers\n\nQ3 is up." }));
+    fireEvent.click(await screen.findByRole("button", { name: "1 bookmark" }));
+    const sheet = screen.getByRole("dialog", { name: "Bookmarks" });
+    fireEvent.click(within(sheet).getByText("Numbers"));
+    // The transcript on screen takes the jump: the reply is flashed.
+    await waitFor(() => expect(screen.getByText("Q3 is up.").closest(".pi-jump-highlight")).toBeTruthy());
+    expect(pendingJump.value).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Bookmarks" })).toBeNull();
   });
 });

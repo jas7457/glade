@@ -14,16 +14,24 @@
  * In a sub-agent's own transcript its task and the parent's messages are cards (DelegatedCard,
  * delegated.ts, I-109). Messages show their time on hover and a divider marks each new day
  * (MessageTime.tsx, I-111); images open in a lightbox (I-110).
+ *
+ * Bookmarks (I-203): user messages and agent replies can be bookmarked (hover button, right-click,
+ * long-press: `MessageMenu` around the column; MessageBookmark.tsx); bookmarked ones get a ribbon and a tick on the scroll edge
+ * (BookmarkTicks.tsx) that scrolls back to them.
  */
 import { Fragment } from "preact";
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useComputed } from "@preact/signals";
 import { ArrowDown, CircleAlert, Info, ListChecks, OctagonX, Scissors, TriangleAlert } from "lucide-preact";
-import { subagentSessionsOf, type AgentColor, type MessageAnchor, type NoticeMessage } from "@glade/protocol";
+import { anchoredText, subagentSessionsOf, type AgentColor, type MessageAnchor, type NoticeMessage } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { loadChatSession, loadEarlierMessages, useChatSession } from "@glade/app-core/state/chat-session";
-import { envIdOfSession, sessions, sessionsById, workspacesById } from "@glade/app-core/state/store";
+import { bookmarks, envIdOfSession, sessions, sessionsById, workspacesById } from "@glade/app-core/state/store";
+import { isIphoneApp } from "@glade/app-core/lib/desktop";
+import { BookmarkRibbon, MessageBookmarkButton, MessageBookmarksContext, MessageMenu, anchorKey, bookmarksByAnchor, type MessageBookmarksValue } from "./MessageBookmark";
+import { anchorText } from "@glade/app-core/state/bookmarks";
+import { BookmarkTicks } from "./BookmarkTicks";
 import { ChatCwdContext, ChatEnvContext } from "./chat-env";
 import { Button, Disclosure, Spinner } from "@glade/app-core/ui";
 import { formatDuration, useNow } from "./duration";
@@ -149,6 +157,20 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
 
   const working = workingStatus(transcript, state);
 
+  // This session's bookmarks (I-203), by message, for the ribbons, buttons and scroll ticks.
+  const allBookmarks = bookmarks.value;
+  const sessionBookmarks = useMemo(() => allBookmarks.filter((b) => b.sessionId === chatId), [allBookmarks, chatId]);
+  const bookmarkValue = useMemo<MessageBookmarksValue>(() => ({ sessionId: chatId, byAnchor: bookmarksByAnchor(sessionBookmarks) }), [chatId, sessionBookmarks]);
+  const textOf = (anchor: MessageAnchor) =>
+    anchoredText(
+      transcript.messages.map((m) => ({ role: m.role, timestamp: m.timestamp, text: anchorText(m) })),
+      anchor,
+    ) ?? "";
+  const jumpTo = (el: HTMLElement) => {
+    scrollToElement(el);
+    flashElement(el);
+  };
+
   let placeholder = null;
   if (items.length === 0 && (status === "loading" || status === "idle")) {
     placeholder = (
@@ -173,9 +195,11 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   return (
     <ChatEnvContext.Provider value={envIdOfSession(chatId)}>
     <ChatCwdContext.Provider value={workspacesById.value.get(sessionsById.value.get(chatId)?.workspaceId ?? "")?.cwd ?? null}>
+    <MessageBookmarksContext.Provider value={bookmarkValue}>
     <div class={cn("relative flex min-h-0 flex-1 flex-col", className)}>
       <div ref={scrollRef} class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="transcript-scroll">
         {placeholder}
+        <MessageMenu textOf={textOf}>
         <div
           ref={contentRef}
           class={cn(column, "flex flex-col pt-6 pb-8", placeholder && "hidden")}
@@ -198,7 +222,11 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
           </SpawnLinksContext.Provider>
           {working.mounted && <WorkingIndicator key="working" visible={working.visible} label={working.label} startedAt={state.runStartedAt ?? null} />}
         </div>
+        </MessageMenu>
       </div>
+      {sessionBookmarks.length > 0 && !placeholder && (
+        <BookmarkTicks bookmarks={sessionBookmarks} messages={transcript.messages} items={items} scrollRef={scrollRef} contentRef={contentRef} bottomInset={bottomInset} onJump={jumpTo} />
+      )}
       {!atBottom && (
         <button
           type="button"
@@ -211,6 +239,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
         </button>
       )}
     </div>
+    </MessageBookmarksContext.Provider>
     </ChatCwdContext.Provider>
     </ChatEnvContext.Provider>
   );
@@ -248,22 +277,39 @@ function ItemView({ item, chatId, delegation }: { item: RenderItem; chatId: stri
     case "side":
       return <SideQuestionCard message={item.message} chatId={chatId} />;
     case "turn":
-      return <TurnView parts={item.parts} timestamp={item.timestamp} />;
+      return <TurnView parts={item.parts} timestamp={item.timestamp} streaming={item.streaming} />;
   }
 }
 
-function TurnView({ parts, timestamp }: { parts: TurnPart[]; timestamp: number }) {
+/** An agent reply's text (every text part, also those inside tool groups), as bookmarks copy it. */
+export function turnText(parts: readonly TurnPart[]): string {
+  return parts
+    .flatMap((p) => (p.type === "text" ? [p.text] : p.type === "toolGroup" ? p.items.flatMap((i) => (i.type === "text" ? [i.text] : [])) : []))
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function TurnView({ parts, timestamp, streaming }: { parts: TurnPart[]; timestamp: number; streaming: boolean }) {
   const images = useMemo(() => parts.flatMap((p) => (p.type === "image" ? [p.image] : [])), [parts]);
   const { open, lightbox } = useImageLightbox(images);
+  // A reply is anchored by its first message (I-203).
+  const anchor = useMemo(() => ({ role: "assistant" as const, timestamp }), [timestamp]);
+  const hasText = useMemo(() => turnText(parts) !== "", [parts]);
+  const getText = () => turnText(parts);
   let imageIndex = 0;
   return (
-    <div class="group/msg relative mt-4 flex flex-col first:mt-0" data-role="assistant">
+    <div class="group/msg relative mt-4 flex flex-col first:mt-0" data-role="assistant" data-anchor={anchorKey(anchor)}>
       {parts.map((part) => {
         const index = part.type === "image" ? imageIndex++ : -1;
         return <PartView key={part.key} part={part} onOpenImage={index === -1 ? undefined : () => open(index)} />;
       })}
-      {/* Last child, so jump-to-message's part indices still match (I-093). */}
-      <MessageTime timestamp={timestamp} class="absolute top-full left-0" />
+      {/* After the parts, so jump-to-message's part indices still match (I-093). */}
+      <BookmarkRibbon anchor={anchor} class={cn("top-[9px]", isIphoneApp() ? "-left-3" : "-left-5")} />
+      <div data-aux="footer" class="absolute top-full left-0 flex items-center gap-1">
+        <MessageTime timestamp={timestamp} />
+        {hasText && !streaming && <MessageBookmarkButton anchor={anchor} getText={getText} class="-my-0.5" />}
+      </div>
       {lightbox}
     </div>
   );

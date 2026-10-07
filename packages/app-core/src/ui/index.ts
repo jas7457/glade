@@ -38,6 +38,7 @@ export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./Statu
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
 export { FormLinkRow, type FormLinkRowProps } from "./FormLinkRow";
 export { Titlebar, TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH } from "./Titlebar";
+export { ListPopover, type ListPopoverProps, type ListPopoverItem, type ListPopoverAction } from "./ListPopover";
 export { SearchPopover, matchesQuery, type SearchPopoverProps, type SearchPopoverItem, type SearchPopoverSection } from "./SearchPopover";
 export { CommandPalette, type CommandPaletteProps, type CommandPaletteItem, type CommandPaletteSection } from "./CommandPalette";
 export { TabStrip, TAB_STRIP_HEIGHT, type TabStripProps, type TabStripTab } from "./TabStrip";

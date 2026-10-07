@@ -13,6 +13,7 @@ import type { ComponentChildren } from "preact";
 import type { Settings, WorkspaceSummary } from "@glade/protocol";
 import { needsAttention } from "@glade/protocol";
 import {
+  Bookmark as BookmarkIcon,
   Folder,
   FolderPlus,
   Mail,
@@ -35,8 +36,11 @@ import {
   X,
 } from "lucide-preact";
 import { StatusIndicator } from "@glade/app-core/ui";
+import { compareBookmarks } from "@glade/protocol";
+import { jumpToBookmark } from "@glade/app-core/features/chat/bookmark-actions";
+import { openSubagent } from "@/features/workspace/layout-actions";
 import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
-import { loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { bookmarks, loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@glade/app-core/state/store";
 import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@glade/app-core/state/actions";
 import { notify } from "@glade/app-core/state/toasts";
 import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
@@ -46,8 +50,8 @@ import type { RouteContext } from "./paths";
 import { SETTINGS_SECTIONS, chatPath, routes } from "@glade/app-core/app/routes";
 import { PANE_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, TERMINAL_SHORTCUTS, type GlobalCommandId, type ShortcutHandlers } from "./shortcuts";
 
-export type CommandGroup = "Chats" | "Projects" | "Actions";
-export const COMMAND_GROUPS: readonly CommandGroup[] = ["Chats", "Projects", "Actions"];
+export type CommandGroup = "Chats" | "Bookmarks" | "Projects" | "Actions";
+export const COMMAND_GROUPS: readonly CommandGroup[] = ["Chats", "Bookmarks", "Projects", "Actions"];
 
 /** Text input requested by a command before it can finish. */
 export interface CommandPrompt {
@@ -63,6 +67,8 @@ export interface Command {
   group: CommandGroup;
   /** Muted text after the title (e.g. a chat's project). */
   subtitle?: string;
+  /** A second line (e.g. a bookmark's first line). */
+  detail?: string;
   /** Extra search words. */
   keywords?: readonly string[];
   /** `formatShortcut` key string, shown on the right. */
@@ -125,6 +131,31 @@ export function buildCommands(ctx: CommandContext): Command[] {
       subtitle: chat.projectId ? projectsById.value.get(chat.projectId)?.name : undefined,
       icon: <StatusIndicator status={chat.status} failed={chat.lastRunFailed} tooltip={false} />,
       run: () => navigate(chatPath(chat)),
+    });
+  }
+
+  // Bookmarks of every chat (I-203): newest first; picking one opens its chat and jumps to it.
+  for (const bookmark of [...bookmarks.value].sort(compareBookmarks)) {
+    const chat = workspacesById.value.get(bookmark.workspaceId);
+    const session = sessionsById.value.get(bookmark.sessionId);
+    if (!chat || !session) continue;
+    const project = chat.projectId ? projectsById.value.get(chat.projectId)?.name : undefined;
+    const chatTitle = chat.title || "Untitled";
+    out.push({
+      id: `bookmark:${bookmark.id}`,
+      title: bookmark.label,
+      group: "Bookmarks",
+      subtitle: project ? `${chatTitle} · ${project}` : chatTitle,
+      detail: bookmark.excerpt && bookmark.excerpt !== bookmark.label ? bookmark.excerpt : undefined,
+      keywords: [chatTitle, ...(project ? [project] : []), bookmark.excerpt, "bookmark"],
+      icon: <BookmarkIcon />,
+      run: () => {
+        jumpToBookmark(bookmark);
+        // A sub-agent's message: its parent's tab, with the agent in the pane.
+        const tab = session.kind === "subagent" ? session.parentSessionId : session.id;
+        navigate(chatPath(chat, tab));
+        if (session.kind === "subagent" && tab) openSubagent(chat.id, tab, session.id);
+      },
     });
   }
 

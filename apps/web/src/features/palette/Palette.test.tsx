@@ -11,13 +11,14 @@ vi.mock("@glade/app-core/state/actions", () => ({
   setChatPinned: vi.fn(async () => true),
   deleteChat: vi.fn(async () => true),
   updateSettings: vi.fn(async () => true),
+  updateWorkspace: vi.fn(async () => true),
 }));
 
 import type { AskResponse, SearchHit } from "@glade/protocol";
 import { api } from "@glade/app-core/lib/api";
 import { askChats, searchChats } from "@glade/app-core/lib/api-search";
 import { renameWorkspace, updateSettings } from "@glade/app-core/state/actions";
-import { projects, sessions, workspaces } from "@glade/app-core/state/store";
+import { bookmarks, projects, sessions, workspaces } from "@glade/app-core/state/store";
 import { toasts } from "@glade/app-core/state/toasts";
 import { paletteOpen, sidebarCollapsed } from "@glade/app-core/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
@@ -171,6 +172,44 @@ describe("Palette: message search and Ask (I-045/I-046)", () => {
       makeWorkspace({ id: "c1", projectId: "p1", title: "Fix login bug", lastActivityAt: 5 }),
       makeWorkspace({ id: "c2", projectId: null, title: "Old notes", lastActivityAt: 1 }),
     ];
+  });
+
+  it("lists bookmarks of every chat in a Bookmarks group and opens the right tab at the message (I-203)", async () => {
+    sessions.value = [
+      makeSession({ id: "s1", workspaceId: "c1", kind: "main" }),
+      makeSession({ id: "s2", workspaceId: "c2", kind: "main" }),
+      makeSession({ id: "sub", workspaceId: "c2", kind: "subagent", parentSessionId: "s2" }),
+    ];
+    const bm = (id: string, sessionId: string, workspaceId: string, label: string, createdAt: number) => ({
+      id,
+      sessionId,
+      workspaceId,
+      message: { role: "assistant" as const, timestamp: createdAt * 10 },
+      label,
+      labelSource: "auto" as const,
+      excerpt: `${label} and more`,
+      createdAt,
+    });
+    bookmarks.value = [bm("b1", "s1", "c1", "Q3 revenue table", 1), bm("b2", "sub", "c2", "Agent findings", 2), bm("gone", "nope", "nope", "Orphan", 3)];
+    const { navigate, input } = renderPalette();
+    const group = () => within(screen.getByRole("group", { name: "Bookmarks" })).getAllByRole("option").map((o) => o.textContent);
+    // Newest first; the chat (and project) as subtitle, the first line as detail; unknown chats skipped.
+    expect(group()).toEqual(["Agent findingsOld notesAgent findings and more", "Q3 revenue tableFix login bug · AlphaQ3 revenue table and more"]);
+    type(input(), "revenue");
+    expect(selected()).toMatch(/^Q3 revenue table/);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/projects/p1/chats/c1?tab=s1"));
+    expect(pendingJump.value).toMatchObject({ sessionId: "s1", message: { role: "assistant", timestamp: 10 } });
+    pendingJump.value = null;
+    // A sub-agent's bookmark opens its parent's tab.
+    paletteOpen.value = true;
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeTruthy());
+    type(input(), "findings");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/chats/c2?tab=s2"));
+    expect(pendingJump.value).toMatchObject({ sessionId: "sub" });
+    pendingJump.value = null;
+    bookmarks.value = [];
   });
 
   it("shows message hits with snippets under Chats and opens the hit's tab", async () => {

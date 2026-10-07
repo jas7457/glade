@@ -1,7 +1,8 @@
 /**
  * Chat header bar (window drag region): the workspace's editable title, project name (for
  * project chats), where it works (I-107: `Local · ⑂ main` / `Worktree · ⑂ glade/x`, live
- * branch), the agent it runs on when that isn't the default one (I-119), the shown session's live status, the changes button (I-097: changed-file count;
+ * branch), the agent it runs on when that isn't the default one (I-119), the shown session's live status, the bookmarks button (I-203: count; the chat's
+ * bookmark list), the changes button (I-097: changed-file count;
  * toggles the changes panel), "Open in VS Code" (the chat's own folder, I-106) and an overflow
  * menu (rename, pin, delete the workspace).
  */
@@ -21,6 +22,7 @@ import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { setChangesPanelOpen } from "@/features/workspace/layout-actions";
 import { ChatAgentBadge } from "./ChatAgentBadge";
 import { ChatLocation } from "./ChatLocation";
+import { BookmarksButton } from "./BookmarksButton";
 import { OpenInButton } from "@glade/app-core/features/chat/OpenInButton";
 
 export function ChatHeader({ workspace: chat, sessionId }: { workspace: WorkspaceSummary | undefined; sessionId: string }) {
@@ -84,6 +86,7 @@ export function ChatHeader({ workspace: chat, sessionId }: { workspace: Workspac
           <span>{liveLabel}</span>
         </div>
       )}
+      {chat && <BookmarksButton workspace={chat} sessionId={sessionId} navigate={navigate} />}
       {chat && <ChangesButton workspace={chat} />}
       {chat && project && <OpenInButton workspace={chat} />}
       <Menu

@@ -65,3 +65,19 @@ describe("terminal tabs (I-187)", () => {
     expect(global["command-palette"]).toHaveBeenCalledOnce();
   });
 });
+
+describe("bookmark shortcuts (I-203)", () => {
+  it("⌘D bookmarks the latest reply, ⌘⇧D shows the list; ⌥ or no modifier is nothing", async () => {
+    const { bookmarkShortcutFor, BOOKMARK_SHORTCUTS, SHORTCUTS, TAB_SHORTCUTS, PANE_SHORTCUTS, TERMINAL_SHORTCUTS } = await import("./shortcuts");
+    const k = (over: Partial<KeyboardEvent>) => ({ key: "d", code: "KeyD", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over });
+    expect(bookmarkShortcutFor(k({ metaKey: true }))).toBe("bookmark-reply");
+    expect(bookmarkShortcutFor(k({ metaKey: true, shiftKey: true, key: "D" }))).toBe("show-bookmarks");
+    expect(bookmarkShortcutFor(k({ ctrlKey: true }))).toBe("bookmark-reply");
+    expect(bookmarkShortcutFor(k({ metaKey: true, altKey: true, key: "∂" }))).toBeNull();
+    expect(bookmarkShortcutFor(k({}))).toBeNull();
+    expect(bookmarkShortcutFor(k({ metaKey: true, key: "k", code: "KeyK" }))).toBeNull();
+    // No other shortcut uses these keys.
+    const others: string[] = [...Object.values(SHORTCUTS), ...Object.values(TAB_SHORTCUTS), ...Object.values(PANE_SHORTCUTS), ...Object.values(TERMINAL_SHORTCUTS)];
+    for (const keys of Object.values(BOOKMARK_SHORTCUTS)) expect(others).not.toContain(keys);
+  });
+});

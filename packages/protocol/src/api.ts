@@ -10,6 +10,7 @@ import type { ClientSyncMessage, MessagePatch, SessionLiveState, SyncTag, Transc
 import type { EnvironmentInfo } from "./environments.js";
 import type { PendingPairing } from "./auth.js";
 import type { Folder } from "./folders.js";
+import type { Bookmark } from "./bookmarks.js";
 import type { TerminalTab } from "./terminal.js";
 
 // ---------------------------------------------------------------------------------------------
@@ -664,6 +665,8 @@ export interface ShellSnapshot {
   environment?: EnvironmentInfo;
   /** Folders in the chat list (I-165; missing on older servers). */
   folders?: Folder[];
+  /** Bookmarked messages of every chat (I-203; missing on older servers). */
+  bookmarks?: Bookmark[];
 }
 
 /**
@@ -695,6 +698,10 @@ export type ServerMessage = (
   | { type: "folder_upsert"; folder: Folder }
   /** A folder was deleted; its members were moved out (their own upserts follow). */
   | { type: "folder_removed"; folderId: string }
+  /** A message was bookmarked, or its bookmark renamed (I-203). */
+  | { type: "bookmark_upsert"; bookmark: Bookmark }
+  /** A bookmark was removed (also when its chat was deleted). */
+  | { type: "bookmark_removed"; bookmarkId: string }
   | { type: "settings"; settings: Settings }
   | { type: "models"; models: ModelInfo[] }
   /**
@@ -730,7 +737,7 @@ export type ServerMessage = (
   | { type: "snapshot"; scope: "shell"; seq: number; shell: ShellSnapshot }
   | ({ type: "snapshot"; scope: "session"; sessionId: string; seq: number; page: TranscriptPage } & SessionLiveState)
   /** Caught up: live pushes follow. `check`: every id the server has (drop the others; missing ones mean resubscribe). */
-  | { type: "live"; scope: "shell"; seq: number; check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[] } }
+  | { type: "live"; scope: "shell"; seq: number; check: { projects: string[]; workspaces: string[]; sessions: string[]; folders?: string[]; bookmarks?: string[] } }
   | ({ type: "live"; scope: "session"; sessionId: string; seq: number } & SessionLiveState)
   /** Changed messages / tool results of a session's transcript (replay, or written by another server). */
   | { type: "transcript_patch"; sessionId: string; messages: MessagePatch[]; toolResults: ToolResult[] }

@@ -98,7 +98,7 @@ describe("Transcript: times and day dividers (I-111)", () => {
     expect(dividers).toHaveLength(3);
     expect(dividers.slice(1)).toEqual(["Yesterday", "Today"]);
     expect(container.querySelectorAll('[data-role="user"] time')).toHaveLength(3);
-    expect(container.querySelectorAll('[data-role="assistant"] > time')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-role="assistant"] > [data-aux="footer"] > time')).toHaveLength(2);
   });
 
   it("opens a reply's image in the lightbox", () => {

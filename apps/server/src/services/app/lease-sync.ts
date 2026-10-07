@@ -102,6 +102,8 @@ export class LeaseSync {
     for (const projectId of change.projects.removed) ctx.broadcast({ type: "project_removed", projectId });
     for (const folder of change.folders?.upserted ?? []) ctx.broadcast({ type: "folder_upsert", folder });
     for (const folderId of change.folders?.removed ?? []) ctx.broadcast({ type: "folder_removed", folderId });
+    for (const bookmark of change.bookmarks?.upserted ?? []) ctx.broadcast({ type: "bookmark_upsert", bookmark });
+    for (const bookmarkId of change.bookmarks?.removed ?? []) ctx.broadcast({ type: "bookmark_removed", bookmarkId });
     const removedWorkspaces = new Set(change.workspaces.removed);
     const touched = new Set<string>(change.workspaces.upserted.map((w) => w.id));
     for (const session of change.sessions.removed) {

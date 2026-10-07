@@ -16,6 +16,8 @@ import {
   type CheckoutBranchRequest,
   type CreateBranchRequest,
   type CreateFolderRequest,
+  type CreateBookmarkRequest,
+  type UpdateBookmarkRequest,
   type CreateProjectRequest,
   type CreateSessionRequest,
   type CreateWorkspaceRequest,
@@ -299,6 +301,31 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     service.deleteFolder(c.req.param("id"));
     return c.body(null, 204);
   });
+
+  // Bookmarks (I-203) --------------------------------------------------------------------------
+  api.get("/bookmarks", (c) => {
+    const workspaceId = c.req.query("workspaceId");
+    const sessionId = c.req.query("sessionId");
+    return c.json(service.listBookmarks({ ...(workspaceId ? { workspaceId } : {}), ...(sessionId ? { sessionId } : {}) }));
+  });
+  api.post("/bookmarks", once, async (c) => {
+    const body = await readBody<CreateBookmarkRequest>(c);
+    requireString(body.sessionId, "sessionId");
+    optional(body.text, "string", "text");
+    optional(body.label, "string", "label");
+    optional(body.selection, "string", "selection");
+    return c.json(service.createBookmark(body));
+  });
+  api.patch("/bookmarks/:id", async (c) => {
+    const body = await readBody<UpdateBookmarkRequest>(c);
+    if (body.label !== undefined && body.label !== null && typeof body.label !== "string") throw new HttpError(400, "label must be a string or null");
+    return c.json(service.updateBookmark(c.req.param("id"), body));
+  });
+  api.delete("/bookmarks/:id", (c) => {
+    service.deleteBookmark(c.req.param("id"));
+    return c.body(null, 204);
+  });
+  api.get("/bookmarks/:id/content", (c) => c.json(service.bookmarkContent(c.req.param("id"))));
 
   // Workspaces (sidebar rows) ----------------------------------------------------------------
   api.get("/workspaces", (c) => c.json(service.listWorkspaces()));
