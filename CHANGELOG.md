@@ -241,6 +241,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- **One Send button that shows what ↩ will do.** While the agent works it shows Steer; hold ⌘ for
+  Follow-up or ⌥ for Ask Aside and the icon changes (clicking with the key held does the same).
+  It also shows Queue message, Run command (`!cmd`) or Run /compact when that's what ↩ does.
+  Right-click Send for a menu of the modes. The separate Ask Aside button is gone.
+
 - **Model settings are per agent now.** Each agent (pi, Claude Code, Codex) has its own page under
   Settings → Agents with its version and Update button, its default model and thinking level for new
   chats, sub-agent and side-question models, and which of its models are shown. New chats, sub-agents
