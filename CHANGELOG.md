@@ -7,6 +7,13 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Agent updates** (Settings → Agents → an agent): see which version of pi, Claude Code and Codex
+  is installed and whether a newer one is out, and update it with one click (Glade runs `pi update
+  self`, `claude update` or `codex update` and shows the output). If chats of that agent are working,
+  the update waits until they finish. Afterwards the agent's model list reloads, so new models (like
+  a new Claude release) show up right away. A dot on Settings → Agents says when an update is
+  available; it works for your other Macs too.
+
 - **Local Models** (Settings → Local Models, and on the iPhone under each Mac): see the models in
   llama.cpp's `llama-server` on a Mac and load or unload them, from that Mac, another Mac or your
   phone. Shows what's loaded, sizes, context, how much of the Mac's memory they use, and which chats
@@ -233,6 +240,20 @@ Every entry corresponds to a ticked item in PLAN.md.
 - Settings → Slash Commands: choose which commands appear in the `/` menu.
 
 ### Changed
+
+- **Model settings are per agent now.** Each agent (pi, Claude Code, Codex) has its own page under
+  Settings → Agents with its version and Update button, its default model and thinking level for new
+  chats, sub-agent and side-question models, and which of its models are shown. New chats, sub-agents
+  and side questions only ever use their own agent's settings, and hiding a model in one agent no
+  longer hides it in another. Your existing settings moved to pi. The Models page is gone (its link
+  opens Agents).
+- **One "Quick tasks model"** (Settings → Agents) writes titles, `/name`, summaries, search and
+  commit messages for every chat, whatever its agent: pick an agent and model, e.g. pi · Claude Haiku
+  4.5. Codex chats get generated titles this way too.
+- **Glade restarts itself into a new version** once it's installed (Update Now, or `pnpm
+  tauri:install` from a terminal or a chat): right away when no chat is working, otherwise as soon as
+  they finish, with Restart Now and Cancel in a small notice. Unsent text in the composer is kept
+  across the restart.
 
 - The usage popover shows only the limits of the chat's own agent (e.g. a pi chat no longer
   lists Claude Code's and Codex's limits too). If they don't apply to the chat's model, it shows just
