@@ -7,6 +7,12 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Bookmarks:** bookmark any message (hover → bookmark, right-click, or ⌘D for the latest reply)
+  and get back to it from the bookmark button in the chat header (⌘⇧D): jump to it, copy it, or
+  **Reference** it, which adds it to your next message as a short quote so the agent knows exactly
+  which one you mean. Bookmarked messages get a ribbon and a mark on the scroll bar. ⌘K finds
+  bookmarks from all chats. On the iPhone, long-press a message.
+
 - **Agent updates** (Settings → Agents → an agent): see which version of pi, Claude Code and Codex
   is installed and whether a newer one is out, and update it with one click (Glade runs `pi update
   self`, `claude update` or `codex update` and shows the output). If chats of that agent are working,
