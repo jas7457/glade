@@ -1,6 +1,6 @@
 /**
  * "Is this Glade behind?" (I-149): the local server's build stamp and its last behind check
- * (`GET /api/version`, checked by the server at startup and every few hours), shown in
+ * (`GET /api/version`, checked by the server at startup and every 5 minutes, I-204), shown in
  * the top of Settings → General (I-160) and as a quiet dot on the sidebar's Settings row. Also compares other
  * devices' builds with ours for Connections.
  *
@@ -73,7 +73,8 @@ export function receiveVersionMessage(message: ServerMessage): void {
 }
 
 /** The server checks every 4 h; the page picks up its result now and then (and every push). */
-const REFRESH_MS = 30 * 60 * 1000;
+/** Fallback re-read (the server also pushes `version` after each check); I-204: as often as the server checks. */
+const REFRESH_MS = 5 * 60 * 1000;
 let started = false;
 
 export function startVersionSync(socket: Socket = localSocket): void {

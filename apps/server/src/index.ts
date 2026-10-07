@@ -245,7 +245,7 @@ const auth = new AuthService({
   // I-143: code-free pairing only for requests from the host's own Tailscale account.
   tailscaleLogin: async () => (remote ? remote.ownLogin() : null),
 });
-// I-149: is this build behind origin's main? (read-only `git ls-remote`, at startup + every 4 h)
+// I-149: is this build behind origin's main? (read-only `git ls-remote`, at startup + every 5 min, I-204)
 // I-197: a newer build installed into this app's bundle (Mac app's release server only); pushed as `version`.
 const installedBuild = new InstalledBuildWatcher({
   running: serverKind === "desktop" ? service.environment.build() : null,

@@ -8,7 +8,7 @@
  * - the commits behind are counted with `git rev-list --count <build>..<remote>` only when the
  *   local repo already has that commit; otherwise it's just "update available".
  *
- * Runs at startup, every few hours and on demand (`POST /api/version/check`). Also compares
+ * Runs at startup, every 5 minutes (I-204) and on demand (`POST /api/version/check`). Also compares
  * another device's build with ours for Connections ({@link UpdateChecker.compare}).
  *
  * I-197: the status also says when a newer build was installed into this app's bundle
@@ -42,7 +42,8 @@ export const runGit: GitRun = (args, cwd, timeoutMs) =>
     child.stdin?.end();
   });
 
-export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+/** I-204: every 5 minutes (a `git ls-remote` is cheap). */
+export const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const LS_REMOTE_TIMEOUT_MS = 20_000;
 const LOCAL_TIMEOUT_MS = 5_000;
 const SHA = /^[0-9a-f]{7,40}$/;
@@ -55,7 +56,7 @@ export interface UpdateCheckerOptions {
   git?: GitRun;
   /** Whether a path exists (tests). */
   exists?: (path: string) => boolean;
-  /** Between automatic checks (default 4 h). */
+  /** Between automatic checks (default 5 min, I-204). */
   intervalMs?: number;
   now?: () => Date;
   log?: (msg: string) => void;

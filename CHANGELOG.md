@@ -241,6 +241,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- Glade checks for a new version of itself every 5 minutes (was every 4 hours).
+
 - **One Send button that shows what ↩ will do.** While the agent works it shows Steer; hold ⌘ for
   Follow-up or ⌥ for Ask Aside and the icon changes (clicking with the key held does the same).
   It also shows Queue message, Run command (`!cmd`) or Run /compact when that's what ↩ does.
