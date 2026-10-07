@@ -15,6 +15,7 @@ import {
   defaultSettings,
   mainSessionsOf,
   type Folder,
+  compareListOrder,
   agentModelSettings,
   quickTasksModel,
   type AgentModelSettings,
@@ -38,7 +39,7 @@ import { handleUsageMessage } from "./usage";
 import { handleLocalModelsMessage } from "./local-models";
 import { harnesses, loadHarnesses } from "./harnesses";
 import { requestOpenChat } from "./open-chat";
-import { buildTopLevel, flattenProjects, foldersOfProject, workspaceFolderId, type TopEntry } from "./folders";
+import { buildChatList, chatsOfView, foldersOfProject, workspaceFolderId, type ChatListView } from "./folders";
 
 export const projects = signal<Project[]>([]);
 /** Sidebar rows (I-035). Each holds one or more sessions. */
@@ -173,8 +174,8 @@ export function compareProjects(a: Project, b: Project): number {
 }
 
 /**
- * Workspaces within one list: pinned first in their manual `pinOrder`, then the rest
- * newest-created first. Activity never moves a row.
+ * Workspaces within one list: pinned first in their manual `pinOrder`, then the rest in their
+ * manual order (`sortOrder`, I-202; folders aside). Activity never moves a row.
  */
 export function compareWorkspaces(a: WorkspaceSummary, b: WorkspaceSummary): number {
   if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -182,7 +183,7 @@ export function compareWorkspaces(a: WorkspaceSummary, b: WorkspaceSummary): num
     const order = (a.pinOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinOrder ?? Number.MAX_SAFE_INTEGER);
     if (order !== 0) return order;
   }
-  return b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+  return compareListOrder(a, b);
 }
 
 export const envIdOfProject = (id: string | null | undefined): string => envIdOf(id ? projectsById.value.get(id) : null);
@@ -210,21 +211,18 @@ function byEnv<T extends { environmentId?: string }>(sorted: readonly T[]): Map<
 /** Client-order list names (`state/env-order.ts`). */
 export const PROJECT_ORDER = "projects";
 export const pinOrderList = (projectId: string | null) => `pins:${projectId ?? "standalone"}`;
+/** A list's mixed order of chats and folders (I-202). */
+export const chatOrderList = (projectId: string | null) => `chats:${projectId ?? "standalone"}`;
 
 /**
- * The top of the project list (I-165): projects outside folders and top-level folders with their
- * projects, in each environment's server order (`sortOrder`), interleaved across environments as
- * this device arranged them (never re-sorted by activity).
+ * Projects in their manual order: each environment's server order (`sortOrder`), interleaved
+ * across environments as this device arranged them (never re-sorted by activity). Projects are
+ * always top level (I-202).
  */
-export const sidebarEntries = computed<TopEntry[]>(() =>
-  buildTopLevel([...projects.value].sort(compareProjects), folders.value, clientOrders.value[PROJECT_ORDER] ?? [], envOrder(), envIdOf),
-);
+export const sortedProjects = computed(() => interleave(clientOrders.value[PROJECT_ORDER] ?? [], byEnv([...projects.value].sort(compareProjects)), envOrder()));
 
-/** Projects in their manual (sidebar) order; a folder's projects sit in its place. */
-export const sortedProjects = computed(() => flattenProjects(sidebarEntries.value));
-
-/** A project's folders in their order (I-165). */
-export function foldersForProject(projectId: string): Folder[] {
+/** A project's folders in their order (I-165); `null`: the Chats section's (I-202). */
+export function foldersForProject(projectId: string | null): Folder[] {
   return foldersOfProject(folders.value, projectId);
 }
 
@@ -233,25 +231,39 @@ export function folderOfWorkspace(workspace: WorkspaceSummary): string | null {
   return workspaceFolderId(workspace, foldersById.value, envIdOf);
 }
 
-/** A list's chats that aren't in a folder (pinned first; `workspacesForProject` order). */
-export function looseWorkspaces(projectId: string | null): WorkspaceSummary[] {
-  return workspacesForProject(projectId).filter((w) => folderOfWorkspace(w) === null);
+/**
+ * A list as shown (I-202): a project's (or, `null`, the Chats section's) pinned chats outside
+ * folders, then its chats and folders in one manual order, each folder with its chats.
+ */
+export function chatListOf(projectId: string | null): ChatListView<WorkspaceSummary> {
+  return buildChatList({
+    chats: workspaces.value.filter((w) => w.projectId === projectId),
+    folders: folders.value.filter((f) => f.projectId === projectId),
+    foldersById: foldersById.value,
+    envOf: envIdOf,
+    pinSlots: clientOrders.value[pinOrderList(projectId)] ?? [],
+    orderSlots: clientOrders.value[chatOrderList(projectId)] ?? [],
+    envOrder: envOrder(),
+  });
 }
 
-/** The chats in a folder (pinned first, then newest). */
+/** A list's chats that aren't in a folder (pinned first, then their manual order). */
+export function looseWorkspaces(projectId: string | null): WorkspaceSummary[] {
+  const view = chatListOf(projectId);
+  return [...view.pinned, ...view.entries.flatMap((e) => (e.kind === "chat" ? [e.chat] : []))];
+}
+
+/** The chats in a folder (pinned first, then their manual order). */
 export function workspacesInFolder(folderId: string): WorkspaceSummary[] {
   const folder = foldersById.value.get(folderId);
   if (!folder) return [];
-  return workspacesForProject(folder.projectId).filter((w) => folderOfWorkspace(w) === folderId);
+  const entry = chatListOf(folder.projectId).entries.find((e) => e.kind === "folder" && e.folder.id === folderId);
+  return entry?.kind === "folder" ? entry.chats : [];
 }
 
+/** Every chat of a list in display order (pinned, then the mixed order with folders' chats in place). */
 export function workspacesForProject(projectId: string | null): WorkspaceSummary[] {
-  const list = workspaces.value.filter((w) => w.projectId === projectId).sort(compareWorkspaces);
-  const pinned = list.filter((w) => w.pinned);
-  const envs = byEnv(pinned);
-  if (envs.size < 2) return list;
-  // Standalone chats of several environments: pinned ones interleaved as arranged here.
-  return [...interleave(clientOrders.value[pinOrderList(projectId)] ?? [], envs, envOrder()), ...list.filter((w) => !w.pinned)];
+  return chatsOfView(chatListOf(projectId));
 }
 
 /** Keys of items for the client order (`envId:id`). */

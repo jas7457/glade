@@ -1,23 +1,42 @@
 /**
- * Folders in the chat list (I-165; types and rules in `@glade/protocol` folders.ts): create,
- * rename, reorder, delete (members move out), and moving projects and chats in and out.
+ * Folders and the manual order of chat lists (I-165, I-202; types and rules in `@glade/protocol`
+ * folders.ts and chat-order.ts): create, rename, delete folders (their chats take their place),
+ * move chats in and out, and rewrite one container's order (`PUT /workspaces/order`).
  *
- * Top-level folders share the project list's manual order (`sortOrder`): the "sidebar order" is
- * the projects and top-level folders sorted by `sortOrder`, each folder followed by its projects
- * (also by `sortOrder`). Changes that move things between lists renumber that whole order 0..n−1
- * (only records whose number changed are written and pushed).
+ * A list is a project's chats or the standalone Chats section (`projectId` null). Its containers
+ * are its top level (chats not in a folder, and the list's folders, in one `sortOrder` space) and
+ * each folder (its chats). A chat's folder only counts when that folder exists in its list; any
+ * other `folderId` is treated as "not in a folder", so a stale id never hides a chat. Changes
+ * that need room renumber the container 0..n−1; only records whose number (or folder) changed
+ * are written and pushed.
  */
-import { compareFolders, MAX_FOLDER_NAME, type CreateFolderRequest, type Folder, type Project, type UpdateFolderRequest, type Workspace } from "@glade/protocol";
+import {
+  compareFolders,
+  compareListOrder,
+  MAX_FOLDER_NAME,
+  topSortOrder,
+  type CreateFolderRequest,
+  type Folder,
+  type ReorderChatListRequest,
+  type ReorderChatListResponse,
+  type UpdateFolderRequest,
+  type Workspace,
+} from "@glade/protocol";
 import { ulid } from "../../store/db/ids.js";
 import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
 import type { Records } from "./records.js";
-import { sameIdSet } from "./workspaces.js";
 
-type Entry = { kind: "project"; item: Project } | { kind: "folder"; item: Folder };
+type Item = { kind: "chat"; item: Workspace } | { kind: "folder"; item: Folder };
 
-const byOrder = (a: Entry, b: Entry) =>
-  (a.item.sortOrder ?? 0) - (b.item.sortOrder ?? 0) || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id);
+/** Pinned chats first (by `pinOrder`), then the container's manual order. */
+const byPlace = (a: Item, b: Item) => {
+  const ap = a.kind === "chat" && a.item.pinned;
+  const bp = b.kind === "chat" && b.item.pinned;
+  if (ap !== bp) return ap ? -1 : 1;
+  if (ap && bp) return ((a.item as Workspace).pinOrder ?? 0) - ((b.item as Workspace).pinOrder ?? 0) || compareListOrder(a.item, b.item);
+  return compareListOrder(a.item, b.item);
+};
 
 export class Folders {
   constructor(
@@ -29,7 +48,7 @@ export class Folders {
     return this.ctx.store;
   }
 
-  /** Every folder: top-level ones first, then by project; each list in its manual order. */
+  /** Every folder: the Chats section's first, then by project; each list in its manual order. */
   listFolders(): Folder[] {
     return this.store.listFolders().sort((a, b) => (a.projectId === null ? 0 : 1) - (b.projectId === null ? 0 : 1) || compareFolders(a, b));
   }
@@ -44,16 +63,12 @@ export class Folders {
     const name = folderName(req.name);
     const projectId = req.projectId ?? null;
     if (projectId !== null) this.records.requireProject(projectId);
-    const orders =
-      projectId === null
-        ? this.topLevel().map((e) => e.item.sortOrder ?? 0)
-        : this.projectFolders(projectId).map((f) => f.sortOrder);
     const folder: Folder = {
       id: ulid(),
       name,
       projectId,
-      // New folders go to the top of their list, like new projects.
-      sortOrder: orders.length ? Math.min(...orders) - 1 : 0,
+      // New folders go to the top of their list (I-202: above its chats too).
+      sortOrder: topSortOrder(this.members(projectId, null).map((e) => e.item)),
       createdAt: Date.now(),
       environmentId: this.store.environmentId,
     };
@@ -70,188 +85,163 @@ export class Folders {
     return next;
   }
 
-  /** Reorder one project's folders. `ids` must be exactly that project's folders. */
-  reorderFolders(projectId: string, ids: string[]): Folder[] {
-    this.records.requireProject(projectId);
-    if (!sameIdSet(ids, this.projectFolders(projectId).map((f) => f.id))) {
-      throw new HttpError(400, "ids must list every folder of that project exactly once");
-    }
-    const changed = ids.flatMap((id, sortOrder) => {
-      const folder = this.store.getFolder(id)!;
-      return folder.sortOrder === sortOrder ? [] : [{ ...folder, sortOrder }];
-    });
-    this.save({ folders: changed });
-    return this.projectFolders(projectId);
-  }
-
-  /**
-   * Delete a folder; what was in it moves out (nothing else is deleted). A top-level folder's
-   * projects take its place in the project list.
-   */
+  /** Delete a folder; its chats take its place in the list (nothing else is deleted). */
   deleteFolder(id: string): void {
     const folder = this.requireFolder(id);
-    const workspaces = this.store
-      .listWorkspaces()
-      .filter((w) => w.folderId === id)
-      .map((w) => ({ ...w, folderId: null }));
-    let projects: Project[] = [];
-    if (folder.projectId === null) {
-      const order = this.sidebarOrder().filter((e) => !(e.kind === "folder" && e.item.id === id));
-      projects = this.renumber(order.map((e) => (e.kind === "project" && e.item.folderId === id ? { ...e, item: { ...e.item, folderId: null } } : e))).projects;
-      for (const p of this.store.listProjects()) {
-        if (p.folderId === id && !projects.some((q) => q.id === p.id)) projects.push({ ...p, folderId: null });
-      }
+    const inside = this.members(folder.projectId, id).map((e): Item => (e.kind === "chat" ? { kind: "chat", item: { ...e.item, folderId: null } } : e));
+    const order = this.members(folder.projectId, null).flatMap((e) => (e.kind === "folder" && e.item.id === id ? inside : [e]));
+    // An empty folder just goes; the others keep their numbers.
+    const { workspaces, folders } = inside.length ? this.renumber(order) : { workspaces: [] as Workspace[], folders: [] as Folder[] };
+    // Chats whose folder id was stale (not counted as inside) still lose it.
+    for (const w of this.store.listWorkspaces()) {
+      if (w.folderId === id && !workspaces.some((x) => x.id === w.id)) workspaces.push({ ...w, folderId: null });
     }
-    this.store.removeFolders([id], { projects, workspaces });
+    this.store.removeFolders([id], { workspaces, folders });
     this.ctx.broadcast({ type: "folder_removed", folderId: id });
-    this.pushMembers(projects, workspaces);
+    this.push({ workspaces, folders });
   }
 
   /** A project's folders go with it (its chats are deleted by the caller). */
   deleteProjectFolders(projectId: string): void {
-    const ids = this.projectFolders(projectId).map((f) => f.id);
+    const ids = this.store
+      .listFolders()
+      .filter((f) => f.projectId === projectId)
+      .map((f) => f.id);
     if (!ids.length) return;
     this.store.removeFolders(ids);
     for (const folderId of ids) this.ctx.broadcast({ type: "folder_removed", folderId });
   }
 
-  /** Move a project into a top-level folder (at its top) or out of one (right after it). */
-  moveProject(projectId: string, folderId: string | null): Project {
-    const project = this.records.requireProject(projectId);
-    const from = project.folderId ?? null;
-    if (folderId !== null) {
-      const folder = this.requireFolder(folderId);
-      if (folder.projectId !== null) throw new HttpError(400, "Projects can only go in top-level folders");
-    }
-    if ((from && this.store.getFolder(from) ? from : null) === folderId) {
-      if (from !== folderId) return this.saveOne({ ...project, folderId });
-      return project;
-    }
-    const order = this.sidebarOrder().filter((e) => e.item.id !== projectId);
-    const moved: Entry = { kind: "project", item: { ...project, folderId } };
-    if (folderId !== null) {
-      order.splice(order.findIndex((e) => e.item.id === folderId) + 1, 0, moved);
-    } else {
-      // Right after the folder it was in (and that folder's other projects).
-      let at = order.findIndex((e) => e.item.id === from);
-      while (at !== -1 && order[at + 1]?.kind === "project" && (order[at + 1]!.item as Project).folderId === from) at++;
-      order.splice(at === -1 ? 0 : at + 1, 0, moved);
-    }
-    const { projects, folders } = this.renumber(order);
-    this.save({ projects, folders });
-    return this.store.getProject(projectId)!;
-  }
-
-  /** Move a chat into a folder (a top-level one for standalone chats, its project's otherwise) or out. */
+  /**
+   * Move a chat into a folder of its list (to the folder's top) or out of one (`null`: right
+   * after the folder). Returns the chat as it should be saved; other chats and folders that had
+   * to be renumbered are saved here.
+   */
   moveWorkspace(workspace: Workspace, folderId: string | null): Workspace {
+    const from = this.folderOf(workspace);
     if (folderId !== null) {
       const folder = this.requireFolder(folderId);
       if (folder.projectId !== workspace.projectId) {
-        throw new HttpError(400, workspace.projectId === null ? "Standalone chats can only go in top-level folders" : "A chat can only go in a folder of its own project");
+        throw new HttpError(400, workspace.projectId === null ? "Standalone chats can only go in Chats folders" : "A chat can only go in a folder of its own project");
       }
+      if (from === folderId) return { ...workspace, folderId };
+      return { ...workspace, folderId, sortOrder: topSortOrder(this.members(workspace.projectId, folderId).map((e) => e.item)) };
     }
-    return { ...workspace, folderId };
+    if (from === null) return { ...workspace, folderId: null };
+    const moved: Workspace = { ...workspace, folderId: null };
+    const order = this.members(workspace.projectId, null);
+    order.splice(order.findIndex((e) => e.item.id === from) + 1, 0, { kind: "chat", item: moved });
+    const changes = this.renumber(order);
+    const others = { workspaces: changes.workspaces.filter((w) => w.id !== workspace.id), folders: changes.folders };
+    this.save(others);
+    return { ...moved, sortOrder: order.findIndex((e) => e.item.id === workspace.id) };
   }
 
-  /**
-   * `PUT /projects/order` (I-165: folder ids allowed): every project exactly once, plus any
-   * top-level folders; all get `sortOrder` = their index.
-   */
-  reorderSidebar(ids: string[]): void {
-    const projects = this.store.listProjects();
-    const projectIds = new Set(projects.map((p) => p.id));
-    const listedProjects = ids.filter((id) => projectIds.has(id));
-    const listedFolders = ids.filter((id) => !projectIds.has(id));
-    if (new Set(ids).size !== ids.length || !sameIdSet(listedProjects, [...projectIds])) {
-      throw new HttpError(400, "ids must list every project exactly once");
+  /** `sortOrder` for a chat arriving at the top of its list's top level (new, or unpinned). */
+  topOfList(projectId: string | null, exceptId?: string): number {
+    return topSortOrder(
+      this.members(projectId, null)
+        .filter((e) => e.item.id !== exceptId && !(e.kind === "chat" && e.item.pinned))
+        .map((e) => e.item),
+    );
+  }
+
+  /** The top of the container a chat is in (its folder, else its list's top level), without it. */
+  topOfContainer(workspace: Workspace): number {
+    const folderId = this.folderOf(workspace);
+    if (folderId === null) return this.topOfList(workspace.projectId, workspace.id);
+    return topSortOrder(
+      this.members(workspace.projectId, folderId)
+        .filter((e) => e.item.id !== workspace.id && !(e.kind === "chat" && e.item.pinned))
+        .map((e) => e.item),
+    );
+  }
+
+  /** `PUT /workspaces/order` (I-202): rewrite one container's order (see `ReorderChatListRequest`). */
+  reorderChatList(req: ReorderChatListRequest): ReorderChatListResponse {
+    const { projectId, folderId, ids } = req;
+    if (projectId !== null) this.records.requireProject(projectId);
+    if (folderId !== null) {
+      const folder = this.requireFolder(folderId);
+      if (folder.projectId !== projectId) throw new HttpError(400, "That folder isn't in this list");
     }
-    for (const id of listedFolders) {
-      if (this.store.getFolder(id)?.projectId !== null) throw new HttpError(400, `Unknown top-level folder: ${id}`);
-    }
-    const changedProjects: Project[] = [];
-    const changedFolders: Folder[] = [];
-    ids.forEach((id, sortOrder) => {
-      const project = this.store.getProject(id);
-      if (project) {
-        if (project.sortOrder !== sortOrder) changedProjects.push({ ...project, sortOrder });
-        return;
+    if (new Set(ids).size !== ids.length) throw new HttpError(400, "ids must not repeat");
+    const order: Item[] = ids.map((id): Item => {
+      const workspace = this.store.getWorkspace(id);
+      if (workspace) {
+        if (workspace.projectId !== projectId) throw new HttpError(400, `Chat ${id} isn't in this list`);
+        return { kind: "chat", item: { ...workspace, folderId } };
       }
-      const folder = this.store.getFolder(id)!;
-      if (folder.sortOrder !== sortOrder) changedFolders.push({ ...folder, sortOrder });
+      const folder = this.store.getFolder(id);
+      if (!folder) throw new HttpError(404, `Unknown chat or folder: ${id}`);
+      if (folder.projectId !== projectId) throw new HttpError(400, `Folder ${id} isn't in this list`);
+      if (folderId !== null) throw new HttpError(400, "Folders can't go in folders");
+      return { kind: "folder", item: folder };
     });
-    this.save({ projects: changedProjects, folders: changedFolders });
+    const listed = new Set(ids);
+    const missing = this.members(projectId, folderId).filter((e) => !listed.has(e.item.id) && !(e.kind === "chat" && e.item.pinned));
+    if (missing.length) throw new HttpError(400, "ids must list every unpinned chat (and, at the top level, every folder) of that container");
+    const changes = this.renumber(order);
+    this.save(changes);
+    const members = this.members(projectId, folderId);
+    return {
+      workspaces: members.flatMap((e) => (e.kind === "chat" ? [this.records.summarizeWorkspace(e.item)] : [])),
+      folders: members.flatMap((e) => (e.kind === "folder" ? [e.item] : [])),
+    };
   }
 
   // ---------------------------------------------------------------------------------------------
 
-  private projectFolders(projectId: string): Folder[] {
-    return this.store
-      .listFolders()
-      .filter((f) => f.projectId === projectId)
-      .sort(compareFolders);
+  /** The folder a chat counts as in: an existing folder of its own list, else null. */
+  folderOf(workspace: Workspace): string | null {
+    if (!workspace.folderId) return null;
+    const folder = this.store.getFolder(workspace.folderId);
+    return folder && folder.projectId === workspace.projectId ? folder.id : null;
   }
 
-  /** Projects not in a (known) folder and top-level folders, in order. */
-  private topLevel(): Entry[] {
-    const folders = new Set(this.store.listFolders().filter((f) => f.projectId === null).map((f) => f.id));
-    return [
-      ...this.store.listProjects().filter((p) => !p.folderId || !folders.has(p.folderId)).map((item): Entry => ({ kind: "project", item })),
-      ...this.store
-        .listFolders()
-        .filter((f) => f.projectId === null)
-        .map((item): Entry => ({ kind: "folder", item })),
-    ].sort(byOrder);
+  /** A container's chats (and, at the top level, the list's folders) in display order. */
+  private members(projectId: string | null, folderId: string | null): Item[] {
+    const chats = this.store
+      .listWorkspaces()
+      .filter((w) => w.projectId === projectId && this.folderOf(w) === folderId)
+      .map((item): Item => ({ kind: "chat", item }));
+    const folders =
+      folderId === null
+        ? this.store
+            .listFolders()
+            .filter((f) => f.projectId === projectId)
+            .map((item): Item => ({ kind: "folder", item }))
+        : [];
+    return [...chats, ...folders].sort(byPlace);
   }
 
-  /** The top level with each folder followed by its projects. */
-  private sidebarOrder(): Entry[] {
-    const out: Entry[] = [];
-    for (const entry of this.topLevel()) {
-      out.push(entry);
-      if (entry.kind !== "folder") continue;
-      const inside = this.store
-        .listProjects()
-        .filter((p) => p.folderId === entry.item.id)
-        .map((item): Entry => ({ kind: "project", item }))
-        .sort(byOrder);
-      out.push(...inside);
-    }
-    return out;
-  }
-
-  /** `sortOrder` = index for every entry; returns the records that changed (with their other edits). */
-  private renumber(order: Entry[]): { projects: Project[]; folders: Folder[] } {
-    const projects: Project[] = [];
+  /** `sortOrder` = index for every item; returns the records that changed (with their other edits). */
+  private renumber(order: readonly Item[]): { workspaces: Workspace[]; folders: Folder[] } {
+    const workspaces: Workspace[] = [];
     const folders: Folder[] = [];
-    order.forEach((entry, sortOrder) => {
-      if (entry.kind === "project") {
-        const stored = this.store.getProject(entry.item.id);
-        if (stored?.sortOrder !== sortOrder || (stored.folderId ?? null) !== (entry.item.folderId ?? null)) projects.push({ ...entry.item, sortOrder });
-      } else if (entry.item.sortOrder !== sortOrder) {
-        folders.push({ ...entry.item, sortOrder });
+    order.forEach((e, sortOrder) => {
+      if (e.kind === "chat") {
+        const stored = this.store.getWorkspace(e.item.id);
+        if (stored?.sortOrder !== sortOrder || (stored.folderId ?? null) !== (e.item.folderId ?? null)) workspaces.push({ ...e.item, sortOrder });
+      } else if (e.item.sortOrder !== sortOrder) {
+        folders.push({ ...e.item, sortOrder });
       }
     });
-    return { projects, folders };
+    return { workspaces, folders };
   }
 
-  private saveOne(project: Project): Project {
-    this.save({ projects: [project] });
-    return project;
-  }
-
-  private save(changes: { projects?: Project[]; folders?: Folder[]; workspaces?: Workspace[] }): void {
-    if (!changes.projects?.length && !changes.folders?.length && !changes.workspaces?.length) return;
+  private save(changes: { folders?: Folder[]; workspaces?: Workspace[] }): void {
+    if (!changes.folders?.length && !changes.workspaces?.length) return;
     this.store.saveSidebar(changes);
-    for (const folder of changes.folders ?? []) this.ctx.broadcast({ type: "folder_upsert", folder });
-    this.pushMembers(changes.projects ?? [], changes.workspaces ?? []);
+    this.push(changes);
   }
 
-  private pushMembers(projects: Project[], workspaces: Workspace[]): void {
-    for (const p of projects) {
-      const project = this.store.getProject(p.id);
-      if (project) this.ctx.broadcast({ type: "project_upsert", project });
+  private push(changes: { folders?: Folder[]; workspaces?: Workspace[] }): void {
+    for (const f of changes.folders ?? []) {
+      const folder = this.store.getFolder(f.id);
+      if (folder) this.ctx.broadcast({ type: "folder_upsert", folder });
     }
-    for (const w of workspaces) {
+    for (const w of changes.workspaces ?? []) {
       const workspace = this.store.getWorkspace(w.id);
       if (workspace) this.ctx.broadcast({ type: "workspace_upsert", workspace: this.records.summarizeWorkspace(workspace) });
     }

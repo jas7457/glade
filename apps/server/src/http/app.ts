@@ -24,7 +24,7 @@ import {
   type OpenProjectRequest,
   type OpenWorkspaceRequest,
   type PromptRequest,
-  type ReorderFoldersRequest,
+  type ReorderChatListRequest,
   type ReorderPinnedWorkspacesRequest,
   type ReorderProjectsRequest,
   type Settings,
@@ -241,7 +241,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.patch("/projects/:id", async (c) => {
     const body = await readBody<UpdateProjectRequest>(c);
     optional(body.name, "string", "name");
-    optionalFolderId(body.folderId);
+    // Projects are always top level since I-202.
+    if ("folderId" in body) throw new HttpError(400, "Projects can't go in folders");
     // A project's environment is set at creation and never changes (I-123).
     if ("environmentId" in body) throw new HttpError(400, "environmentId can't be changed");
     return c.json(service.updateProject(c.req.param("id"), body));
@@ -289,12 +290,6 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     }
     return c.json(service.createFolder(body));
   });
-  api.put("/folders/order", async (c) => {
-    const body = await readBody<ReorderFoldersRequest>(c);
-    requireString(body.projectId, "projectId");
-    requireIds(body.ids);
-    return c.json(service.reorderFolders(body.projectId, body.ids));
-  });
   api.patch("/folders/:id", async (c) => {
     const body = await readBody<UpdateFolderRequest>(c);
     optional(body.name, "string", "name");
@@ -321,6 +316,14 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
       throw new HttpError(400, "baseRef, branch and carryChanges need worktree: true");
     }
     return c.json(await service.createWorkspace(body));
+  });
+  // One container of a chat list in its new order, chats moving in included (I-202).
+  api.put("/workspaces/order", async (c) => {
+    const body = await readBody<ReorderChatListRequest>(c);
+    if (body.projectId !== null && typeof body.projectId !== "string") throw new HttpError(400, "projectId must be a string or null");
+    if (body.folderId !== null && typeof body.folderId !== "string") throw new HttpError(400, "folderId must be a string or null");
+    requireIds(body.ids);
+    return c.json(service.reorderChatList(body));
   });
   api.put("/workspaces/pin-order", async (c) => {
     const body = await readBody<ReorderPinnedWorkspacesRequest>(c);

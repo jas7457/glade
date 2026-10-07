@@ -1,6 +1,7 @@
 /**
- * Workspaces (a chat with its tabs): create with the first session, rename (a single tab is
- * renamed with it), pin and reorder pins, layout, delete with all of its sessions. A workspace
+ * Workspaces (a chat with its tabs): create with the first session (at the top of its list,
+ * I-202), rename (a single tab is renamed with it), pin and reorder pins, layout, delete with all
+ * of its sessions. A workspace
  * may work in its own git worktree (I-096, `../worktrees.ts`): created with it, removed with it.
  */
 import { randomUUID } from "node:crypto";
@@ -70,6 +71,8 @@ export class Workspaces {
       titleSource: "auto",
       cwd: created?.cwd ?? project?.path ?? this.ctx.options.scratchDir,
       pinned: false,
+      // New chats go to the top of their list (I-202).
+      sortOrder: this.folders.topOfList(project?.id ?? null),
       createdAt: now,
       lastActivityAt: now,
       layout: null,
@@ -103,12 +106,17 @@ export class Workspaces {
       const orders = this.pinnedWorkspaces(workspace.projectId).map((w) => w.pinOrder ?? 0);
       next.pinned = true;
       next.pinOrder = orders.length ? Math.min(...orders) - 1 : 0;
+    } else if (req.pinned === false && workspace.pinned) {
+      // Unpinned chats go to the top of their container, right below the pinned ones (I-202).
+      next.pinned = false;
+      delete next.pinOrder;
+      next.sortOrder = this.folders.topOfContainer(next);
     } else if (req.pinned === false) {
       next.pinned = false;
       delete next.pinOrder;
     }
     if (req.layout !== undefined) next.layout = req.layout;
-    // Into / out of a folder (I-165).
+    // Into a folder (at its top) / out of one (right after it) (I-165, I-202).
     if (req.folderId !== undefined) Object.assign(next, this.folders.moveWorkspace(next, req.folderId));
     return this.records.saveWorkspace(next);
   }

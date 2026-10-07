@@ -13,6 +13,8 @@ import type {
   CreateProjectRequest,
   Folder,
   UpdateFolderRequest,
+  ReorderChatListRequest,
+  ReorderChatListResponse,
   CreateSessionRequest,
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
@@ -231,7 +233,7 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     createProject: (body: CreateProjectRequest) => command<Project>("POST", "/projects", body),
     updateProject: (id: string, body: UpdateProjectRequest) => request<Project>("PATCH", `/projects/${id}`, body),
     deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
-    /** Full list of project ids in the new order (top-level folder ids may sit between them, I-165). */
+    /** Full list of project ids in the new order. */
     reorderProjects: (ids: string[]) => request<Project[]>("PUT", "/projects/order", { ids }),
 
     // Folders in the chat list (I-165)
@@ -239,8 +241,6 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     createFolder: (body: CreateFolderRequest) => command<Folder>("POST", "/folders", body),
     updateFolder: (id: string, body: UpdateFolderRequest) => request<Folder>("PATCH", `/folders/${id}`, body),
     deleteFolder: (id: string) => request<void>("DELETE", `/folders/${id}`),
-    /** Every folder of one project in the new order. */
-    reorderFolders: (projectId: string, ids: string[]) => request<Folder[]>("PUT", "/folders/order", { projectId, ids }),
     openProject: (id: string, app: OpenTarget = "vscode") => request<void>("POST", `/projects/${id}/open`, { app }),
     /** Whether the project's folder is a git repository (worktree chats, I-096). */
     getProjectGit: (id: string) => request<ProjectGitInfo>("GET", `/projects/${id}/git`),
@@ -261,6 +261,8 @@ export function createApi(baseUrl: string, sendOrAuth?: RequestFn | ApiAuth) {
     deleteWorkspace: (id: string, worktree?: WorktreeRemoval) =>
       request<void>("DELETE", `/workspaces/${id}${worktree ? `?worktree=${worktree}` : ""}`),
     getWorktreeStatus: (id: string) => request<WorktreeStatus>("GET", `/workspaces/${id}/worktree`),
+    /** One container of a chat list (chats and folders) in its new order; chats may move in (I-202). */
+    reorderChatList: (body: ReorderChatListRequest) => request<ReorderChatListResponse>("PUT", "/workspaces/order", body),
     /** Pinned workspaces of one list (project id, or null for standalone ones) in the new order. */
     reorderPinnedWorkspaces: (projectId: string | null, ids: string[]) =>
       request<WorkspaceSummary[]>("PUT", "/workspaces/pin-order", { projectId, ids }),

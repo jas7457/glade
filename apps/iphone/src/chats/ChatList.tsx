@@ -4,9 +4,9 @@
  * marker when more than one Mac is connected), pinned first, status (working / needs you /
  * unread) or the relative time, search by title, and a row per Mac that is down or connecting.
  * Long-press (or right-click) on a chat opens its actions (Rename, Pin, Move to Folder, Mark as
- * Read, Delete). Folders (I-165): top-level folders are sections holding projects and chats; a
- * project's folders are rows at the top of its list that open in place. Long-press on a folder or
- * project header opens its folder actions.
+ * Read, Delete). Each list (a project's, or the standalone Chats) shows its pinned chats, then its
+ * chats and folders in their one manual order (I-202, set by dragging on the Mac); a folder's row
+ * opens in place. Long-press on a folder opens its actions, on a project header "New Folder".
  *
  * Search (I-167): titles filter instantly; after a pause, hits from inside the chats ("In
  * Conversations") and an "✦ Ask" row follow (`ChatSearchResults`, `chat-search.ts`). Opening one
@@ -28,7 +28,7 @@ import { StatusIndicator } from "@glade/app-core/ui";
 import { DeviceMarker } from "~/ui/phone-extra";
 import { ChatActionsSheet } from "./ChatActionsSheet";
 import { FolderActionsSheet, ProjectActionsSheet } from "./FolderSheets";
-import { allChatsOf, chatGroups, type ChatGroup, type FolderChats, type ProjectGroup as ProjectGroupData } from "./chat-groups";
+import { allChatsOf, chatGroups, type ListEntry, type ProjectGroup as ProjectGroupData } from "./chat-groups";
 import { SEARCH_MIN_CHARS, useAsk, useContentSearch, type SessionTarget } from "./chat-search";
 import { ChatSearchResults } from "./ChatSearchResults";
 
@@ -101,11 +101,21 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenSess
           return (
             <section key={group.key} class="mx-4 mb-5" aria-label="Chats">
               <h2 class="px-4 pb-1.5 text-[13px] text-fg-muted uppercase">Chats</h2>
-              <Rows chats={group.chats} limit={Infinity} expanded selectedChatId={selectedChatId} onOpen={onOpen} onActions={onActions} showDevice={multi} />
+              <Rows
+                pinned={group.pinned}
+                entries={group.entries}
+                limit={Infinity}
+                expanded
+                searching={searching}
+                selectedChatId={selectedChatId}
+                onOpen={onOpen}
+                onActions={onActions}
+                onFolderActions={ctx.onFolderActions}
+                showDevice={multi}
+              />
             </section>
           );
         }
-        if (group.kind === "folder") return <FolderSection key={group.key} group={group} ctx={ctx} />;
         return <ProjectSection key={group.key} group={group} ctx={ctx} />;
       })}
       {deepSearch && <ChatSearchResults query={query} content={content} ask={ask.state} onAsk={ask.run} onOpen={openTarget} multi={multi} />}
@@ -164,56 +174,16 @@ function useLongPress(onLong: () => void) {
   };
 }
 
-/** A top-level folder (I-165): its projects, then its standalone chats. */
-function FolderSection({ group, ctx }: { group: Extract<ChatGroup, { kind: "folder" }>; ctx: SectionContext }) {
-  const { folder } = group;
-  const open = ctx.searching || !closedProjects.value.has(folder.id);
-  const statuses = [...group.projects.flatMap((p) => allChatsOf(p).map((c) => c.status)), ...group.chats.map((c) => c.status)];
-  const aggregate = open ? "idle" : aggregateChatStatus(statuses);
-  const press = useLongPress(() => ctx.onFolderActions(folder));
-  return (
-    <section class="mx-4 mb-5" aria-label={folder.name} data-folder-id={folder.id}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => !press.consumed() && !ctx.searching && setProjectOpen(folder.id, !open)}
-        {...press.handlers}
-        class="flex min-h-9 w-full items-center gap-1.5 px-1 pb-1.5 text-left select-none"
-      >
-        <FoldersIcon size={15} class="shrink-0 text-fg-muted" aria-hidden />
-        <span class="min-w-0 truncate text-[15px] font-semibold text-fg-strong">{folder.name}</span>
-        {ctx.multi && <DeviceMarker name={connectionFor(envIdOf(folder))?.name.value ?? ""} />}
-        <span class="flex-1" />
-        {aggregate !== "idle" && <StatusIndicator status={aggregate} tooltip={false} />}
-        {!ctx.searching && (open ? <ChevronDown size={17} class="shrink-0 text-fg-subtle" aria-hidden /> : <ChevronRight size={17} class="shrink-0 text-fg-subtle" aria-hidden />)}
-      </button>
-      {open && (
-        <div class="border-l-2 border-separator pl-3">
-          {group.projects.map((p) => (
-            <ProjectSection key={p.key} group={p} ctx={{ ...ctx, multi: false }} nested />
-          ))}
-          {group.chats.length > 0 && (
-            <div class="mb-3">
-              <Rows chats={group.chats} limit={Infinity} expanded selectedChatId={ctx.selectedChatId} onOpen={ctx.onOpen} onActions={ctx.onActions} showDevice={false} />
-            </div>
-          )}
-          {group.projects.length === 0 && group.chats.length === 0 && <div class="mb-3 rounded-xl bg-cell px-4 py-2.5 text-[15px] text-fg-subtle">Empty</div>}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** A project: its folders (each expandable in place), then its other chats. */
-function ProjectSection({ group, ctx, nested }: { group: ProjectGroupData; ctx: SectionContext; nested?: boolean }) {
+/** A project: its pinned chats, then its chats and folders (each expandable in place). */
+function ProjectSection({ group, ctx }: { group: ProjectGroupData; ctx: SectionContext }) {
   const { project } = group;
   const open = ctx.searching || !closedProjects.value.has(project.id);
   const aggregate = open ? "idle" : aggregateChatStatus(allChatsOf(group).map((c) => c.status));
   const more = ctx.expanded.has(project.id);
   const press = useLongPress(() => ctx.onProjectActions(project));
-  const empty = group.chats.length === 0 && group.folders.length === 0;
+  const empty = group.pinned.length === 0 && group.entries.length === 0;
   return (
-    <section class={nested ? "mb-3" : "mx-4 mb-5"} aria-label={project.name} data-project-id={project.id}>
+    <section class="mx-4 mb-5" aria-label={project.name} data-project-id={project.id}>
       <button
         type="button"
         aria-expanded={open}
@@ -233,8 +203,8 @@ function ProjectSection({ group, ctx, nested }: { group: ProjectGroupData; ctx: 
           <div class="rounded-xl bg-cell px-4 py-2.5 text-[15px] text-fg-subtle">No chats</div>
         ) : (
           <Rows
-            folders={group.folders}
-            chats={group.chats}
+            pinned={group.pinned}
+            entries={group.entries}
             limit={ctx.searching ? Infinity : PHONE_PROJECT_LIMIT}
             expanded={more}
             onToggleMore={() => ctx.toggleMore(project.id)}
@@ -268,8 +238,8 @@ function EmptyState({ query, noneConnected, onNewChat }: { query: string; noneCo
 }
 
 function Rows({
-  folders = [],
-  chats,
+  pinned,
+  entries,
   limit,
   expanded,
   onToggleMore,
@@ -280,9 +250,10 @@ function Rows({
   onFolderActions,
   showDevice,
 }: {
-  /** A project's folders (I-165), listed first, each opening in place. */
-  folders?: FolderChats[];
-  chats: WorkspaceSummary[];
+  pinned: WorkspaceSummary[];
+  /** The list's chats and folders in their manual order (I-202). */
+  entries: ListEntry[];
+  /** Entries shown before "Show More" (pinned chats always show). */
   limit: number;
   expanded: boolean;
   onToggleMore?: () => void;
@@ -293,26 +264,27 @@ function Rows({
   onFolderActions?: (folder: Folder) => void;
   showDevice: boolean;
 }) {
-  const selectedIdx = selectedChatId ? chats.findIndex((c) => c.id === selectedChatId) : -1;
-  const count = expanded ? chats.length : Math.min(chats.length, Math.max(limit, selectedIdx + 1));
+  const holds = (e: ListEntry, id: string) => (e.kind === "chat" ? e.chat.id === id : e.chats.some((c) => c.id === id));
+  const selectedIdx = selectedChatId ? entries.findIndex((e) => holds(e, selectedChatId)) : -1;
+  const count = expanded ? entries.length : Math.min(entries.length, Math.max(limit, selectedIdx + 1));
   const closed = closedProjects.value;
+  const row = (chat: WorkspaceSummary, inFolder = false) => (
+    <ChatRow key={chat.id} chat={chat} selected={chat.id === selectedChatId} onOpen={onOpen} onActions={onActions} showDevice={showDevice} inFolder={inFolder} />
+  );
   return (
     <div role="list" class="overflow-hidden rounded-xl bg-cell [&>*+*]:border-t [&>*+*]:border-separator">
-      {folders.flatMap(({ folder, chats: inside }) => {
-        const open = searching || !closed.has(folder.id);
+      {pinned.map((chat) => row(chat))}
+      {entries.slice(0, count).flatMap((e) => {
+        if (e.kind === "chat") return [row(e.chat)];
+        const open = searching || !closed.has(e.folder.id);
         return [
-          <FolderRow key={`f:${folder.id}`} folder={folder} chats={inside} open={open} searching={searching} onActions={onFolderActions} />,
-          ...(open
-            ? inside.map((chat) => <ChatRow key={chat.id} chat={chat} selected={chat.id === selectedChatId} onOpen={onOpen} onActions={onActions} showDevice={showDevice} inFolder />)
-            : []),
+          <FolderRow key={`f:${e.folder.id}`} folder={e.folder} chats={e.chats} open={open} searching={searching} onActions={onFolderActions} />,
+          ...(open ? e.chats.map((chat) => row(chat, true)) : []),
         ];
       })}
-      {chats.slice(0, count).map((chat) => (
-        <ChatRow key={chat.id} chat={chat} selected={chat.id === selectedChatId} onOpen={onOpen} onActions={onActions} showDevice={showDevice} />
-      ))}
-      {chats.length > limit && onToggleMore && (
+      {entries.length > limit && onToggleMore && (
         <button type="button" onClick={onToggleMore} class="flex min-h-11 w-full items-center px-4 text-left text-[15px] text-accent active:bg-hover">
-          {expanded ? "Show Less" : `Show ${chats.length - count} More`}
+          {expanded ? "Show Less" : `Show ${entries.length - count} More`}
         </button>
       )}
     </div>

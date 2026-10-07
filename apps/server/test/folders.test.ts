@@ -1,13 +1,13 @@
 /**
- * I-165: folders in the chat list. Store (persisted, migration 7, another server's changes), the
- * REST routes (create / rename / reorder / delete, moving projects and chats in and out, shared
- * project order), and sync (snapshot, replay, check).
+ * I-165 / I-202: folders in the chat list and its manual order. Store (persisted, migration 7,
+ * another server's changes), the REST routes (create / rename / delete, moving chats in and out,
+ * `PUT /workspaces/order`), and sync (snapshot, replay, check).
  */
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Folder, Project, ServerMessage, WorkspaceSummary } from "@glade/protocol";
+import { compareListOrder, type Folder, type Project, type ReorderChatListResponse, type ServerMessage, type WorkspaceSummary } from "@glade/protocol";
 import { createApp } from "../src/http/app.js";
 import { openDatabase, schemaVersion } from "../src/store/db/database.js";
 import { MIGRATIONS } from "../src/store/db/migrations/index.js";
@@ -40,133 +40,149 @@ async function req<T = unknown>(method: string, path: string, body?: unknown): P
   return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
 }
 
-/** The top of the sidebar as the web builds it: projects + top-level folders by `sortOrder`, folders followed by their projects. */
-function sidebar(): string[] {
-  const projects = env.service.listProjects();
-  const folders = env.service.listFolders().filter((f) => f.projectId === null);
-  const top = [...projects.filter((p) => !p.folderId).map((p) => ({ id: p.id, o: p.sortOrder, name: p.name })), ...folders.map((f) => ({ id: f.id, o: f.sortOrder, name: `[${f.name}]` }))].sort((a, b) => a.o - b.o);
-  return top.flatMap((e) => [
-    e.name,
-    ...projects
-      .filter((p) => p.folderId === e.id)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((p) => `  ${p.name}`),
+/**
+ * A chat list as the web shows it (I-202): pinned chats, then chats and folders by `sortOrder`
+ * (missing first), each folder followed by its chats ("  " + title). Folders are "[name]".
+ */
+function list(projectId: string | null): string[] {
+  const chats = env.service.listWorkspaces().filter((w) => w.projectId === projectId);
+  const folders = env.service.listFolders().filter((f) => f.projectId === projectId);
+  const folderOf = (w: WorkspaceSummary) => (w.folderId && folders.some((f) => f.id === w.folderId) ? w.folderId : null);
+  const place = <T extends { id: string; sortOrder?: number; createdAt: number; pinned?: boolean; pinOrder?: number }>(items: T[]) =>
+    [...items].sort((x, y) => Number(!!y.pinned) - Number(!!x.pinned) || (x.pinned && y.pinned ? (x.pinOrder ?? 0) - (y.pinOrder ?? 0) : 0) || compareListOrder(x, y));
+  const top = place<{ id: string; sortOrder?: number; createdAt: number; pinned?: boolean; pinOrder?: number; label: string; folder?: boolean }>([
+    ...chats.filter((w) => folderOf(w) === null).map((w) => ({ ...w, label: w.title })),
+    ...folders.map((f) => ({ ...f, label: `[${f.name}]`, folder: true })),
   ]);
+  return top.flatMap((e) => [e.label, ...(e.folder ? place(chats.filter((w) => folderOf(w) === e.id)).map((w) => `  ${w.title}`) : [])]);
 }
 
-describe("folders API (I-165)", () => {
-  it("creates top-level and project folders at the top of their lists", async () => {
+async function chat(title: string, projectId: string | null = null): Promise<string> {
+  const { wid } = await newChat(env, { projectId });
+  await env.service.updateWorkspace(wid, { title });
+  return wid;
+}
+
+describe("folders API (I-165, I-202)", () => {
+  it("creates Chats-section and project folders at the top of their lists, above the chats", async () => {
     const a = addProject("a");
+    await chat("s1");
     const top = await req<Folder>("POST", "/api/folders", { name: "  Work  " });
     expect(top.status).toBe(200);
     expect(top.body).toMatchObject({ name: "Work", projectId: null, environmentId: env.store.environmentId });
-    expect(sidebar()).toEqual(["[Work]", "a"]);
+    expect(list(null)).toEqual(["[Work]", "s1"]);
 
+    await chat("a1", a.id);
     const inA = await req<Folder>("POST", "/api/folders", { name: "Bugs", projectId: a.id });
     const inA2 = await req<Folder>("POST", "/api/folders", { name: "Ideas", projectId: a.id });
     expect(inA2.body.sortOrder).toBeLessThan(inA.body.sortOrder);
+    expect(list(a.id)).toEqual(["[Ideas]", "[Bugs]", "a1"]);
     const listed = await req<Folder[]>("GET", "/api/folders");
     expect(listed.body.map((f) => f.name)).toEqual(["Work", "Ideas", "Bugs"]);
     expect(env.messages.filter((m) => m.type === "folder_upsert")).toHaveLength(3);
 
     expect((await req("POST", "/api/folders", { name: " " })).status).toBe(400);
     expect((await req("POST", "/api/folders", { name: "x", projectId: "nope" })).status).toBe(404);
-  });
-
-  it("renames and reorders a project's folders", async () => {
-    const a = addProject("a");
-    const f1 = env.service.createFolder({ name: "One", projectId: a.id });
-    const f2 = env.service.createFolder({ name: "Two", projectId: a.id });
-    expect((await req<Folder>("PATCH", `/api/folders/${f1.id}`, { name: "Uno" })).body.name).toBe("Uno");
+    expect((await req<Folder>("PATCH", `/api/folders/${inA.body.id}`, { name: "Uno" })).body.name).toBe("Uno");
     expect((await req("PATCH", "/api/folders/nope", { name: "x" })).status).toBe(404);
-    const ordered = await req<Folder[]>("PUT", "/api/folders/order", { projectId: a.id, ids: [f1.id, f2.id] });
-    expect(ordered.body.map((f) => [f.name, f.sortOrder])).toEqual([
-      ["Uno", 0],
-      ["Two", 1],
-    ]);
-    expect((await req("PUT", "/api/folders/order", { projectId: a.id, ids: [f1.id] })).status).toBe(400);
+    // The old folder-order route is gone (PUT /workspaces/order replaces it).
+    expect((await req("PUT", "/api/folders/order", { projectId: a.id, ids: [inA.body.id] })).status).toBe(404);
   });
 
-  it("moves projects in and out of top-level folders (in: at its top; out: right after it)", async () => {
+  it("new chats go to the top of their list; activity never moves them", async () => {
     const a = addProject("a");
-    const b = addProject("b");
-    const c = addProject("c");
-    const work = env.service.createFolder({ name: "Work" });
-    expect(sidebar()).toEqual(["[Work]", "c", "b", "a"]);
-
-    expect((await req<Project>("PATCH", `/api/projects/${a.id}`, { folderId: work.id })).body.folderId).toBe(work.id);
-    await req("PATCH", `/api/projects/${c.id}`, { folderId: work.id });
-    expect(sidebar()).toEqual(["[Work]", "  c", "  a", "b"]);
-
-    await req("PATCH", `/api/projects/${c.id}`, { folderId: null });
-    expect(sidebar()).toEqual(["[Work]", "  a", "c", "b"]);
-
-    const projectFolder = env.service.createFolder({ name: "Inner", projectId: b.id });
-    expect((await req("PATCH", `/api/projects/${a.id}`, { folderId: projectFolder.id })).status).toBe(400);
-    expect((await req("PATCH", `/api/projects/${a.id}`, { folderId: "nope" })).status).toBe(404);
-    expect((await req("PATCH", `/api/projects/${a.id}`, { folderId: 3 })).status).toBe(400);
+    const folder = env.service.createFolder({ name: "F", projectId: a.id });
+    await chat("one", a.id);
+    await chat("two", a.id);
+    expect(list(a.id)).toEqual(["two", "one", "[F]"]);
+    const s = await chat("standalone");
+    expect(list(null)).toEqual(["standalone"]);
+    expect(env.store.getWorkspace(s)?.sortOrder).toBe(0);
+    void folder;
   });
 
-  it("PUT /api/projects/order takes top-level folder ids in the same order", async () => {
+  it("projects can't go in folders any more", async () => {
+    const a = addProject("a");
+    const work = env.service.createFolder({ name: "Work" });
+    expect((await req("PATCH", `/api/projects/${a.id}`, { folderId: work.id })).status).toBe(400);
+    expect((await req("PATCH", `/api/projects/${a.id}`, { folderId: null })).status).toBe(400);
+    expect((await req("PATCH", `/api/projects/${a.id}`, { name: "A" })).status).toBe(200);
+  });
+
+  it("PUT /api/projects/order ignores folder ids (older clients) but needs every project", async () => {
     const a = addProject("a");
     const b = addProject("b");
     const work = env.service.createFolder({ name: "Work" });
-    const res = await req("PUT", "/api/projects/order", { ids: [a.id, work.id, b.id] });
+    const res = await req<Project[]>("PUT", "/api/projects/order", { ids: [a.id, work.id, b.id] });
     expect(res.status).toBe(200);
-    expect(sidebar()).toEqual(["a", "[Work]", "b"]);
-    // Without the folder (an older client) it still works.
-    expect((await req("PUT", "/api/projects/order", { ids: [b.id, a.id] })).status).toBe(200);
-    // Every project is still required; project folders aren't part of this order.
+    expect(res.body.map((p) => p.id)).toEqual([a.id, b.id]);
     expect((await req("PUT", "/api/projects/order", { ids: [a.id, work.id] })).status).toBe(400);
-    const inner = env.service.createFolder({ name: "Inner", projectId: a.id });
-    expect((await req("PUT", "/api/projects/order", { ids: [a.id, b.id, inner.id] })).status).toBe(400);
+    expect((await req("PUT", "/api/projects/order", { ids: [a.id, b.id, "nope"] })).status).toBe(400);
   });
 
-  it("moves chats in and out: standalone chats into top-level folders, project chats into their project's", async () => {
+  it("moves chats in (to the folder's top) and out (right after the folder) within their list only", async () => {
     const a = addProject("a");
     const b = addProject("b");
     const top = env.service.createFolder({ name: "Top" });
     const inA = env.service.createFolder({ name: "A", projectId: a.id });
     const inB = env.service.createFolder({ name: "B", projectId: b.id });
-    const standalone = await newChat(env);
-    const chatA = await newChat(env, { projectId: a.id });
+    const s1 = await chat("s1");
+    const s2 = await chat("s2");
+    const a1 = await chat("a1", a.id);
+    const a2 = await chat("a2", a.id);
+    const a3 = await chat("a3", a.id);
+    expect(list(a.id)).toEqual(["a3", "a2", "a1", "[A]"]);
 
-    const moved = await req<WorkspaceSummary>("PATCH", `/api/workspaces/${standalone.wid}`, { folderId: top.id });
+    const moved = await req<WorkspaceSummary>("PATCH", `/api/workspaces/${s1}`, { folderId: top.id });
     expect(moved.status).toBe(200);
     expect(moved.body.folderId).toBe(top.id);
-    expect((await req<WorkspaceSummary>("PATCH", `/api/workspaces/${chatA.wid}`, { folderId: inA.id })).body.folderId).toBe(inA.id);
+    await req("PATCH", `/api/workspaces/${s2}`, { folderId: top.id });
+    expect(list(null)).toEqual(["[Top]", "  s2", "  s1"]);
 
-    expect((await req("PATCH", `/api/workspaces/${standalone.wid}`, { folderId: inA.id })).status).toBe(400);
-    expect((await req("PATCH", `/api/workspaces/${chatA.wid}`, { folderId: inB.id })).status).toBe(400);
-    expect((await req("PATCH", `/api/workspaces/${chatA.wid}`, { folderId: top.id })).status).toBe(400);
-    expect((await req("PATCH", `/api/workspaces/${chatA.wid}`, { folderId: "nope" })).status).toBe(404);
+    await req("PATCH", `/api/workspaces/${a1}`, { folderId: inA.id });
+    await req("PATCH", `/api/workspaces/${a3}`, { folderId: inA.id });
+    expect(list(a.id)).toEqual(["a2", "[A]", "  a3", "  a1"]);
+    // Out: right after the folder.
+    expect((await req<WorkspaceSummary>("PATCH", `/api/workspaces/${a3}`, { folderId: null })).body.folderId).toBeNull();
+    expect(list(a.id)).toEqual(["a2", "[A]", "  a1", "a3"]);
 
-    expect((await req<WorkspaceSummary>("PATCH", `/api/workspaces/${chatA.wid}`, { folderId: null })).body.folderId).toBeNull();
+    expect((await req("PATCH", `/api/workspaces/${s1}`, { folderId: inA.id })).status).toBe(400);
+    expect((await req("PATCH", `/api/workspaces/${a1}`, { folderId: inB.id })).status).toBe(400);
+    expect((await req("PATCH", `/api/workspaces/${a1}`, { folderId: top.id })).status).toBe(400);
+    expect((await req("PATCH", `/api/workspaces/${a1}`, { folderId: "nope" })).status).toBe(404);
   });
 
-  it("deleting a folder moves its contents back out; nothing else is deleted", async () => {
+  it("unpinning puts a chat at the top of its container, below the pinned ones", async () => {
     const a = addProject("a");
-    const b = addProject("b");
-    const c = addProject("c");
-    const work = env.service.createFolder({ name: "Work" });
-    await req("PUT", "/api/projects/order", { ids: [c.id, work.id, b.id, a.id] });
-    env.service.updateProject(a.id, { folderId: work.id });
-    env.service.updateProject(b.id, { folderId: work.id });
-    const chat = await newChat(env);
-    await env.service.updateWorkspace(chat.wid, { folderId: work.id });
-    expect(sidebar()).toEqual(["c", "[Work]", "  b", "  a"]);
+    const x = await chat("x", a.id);
+    await chat("y", a.id);
+    const z = await chat("z", a.id);
+    await env.service.updateWorkspace(z, { pinned: true });
+    await env.service.updateWorkspace(x, { pinned: true });
+    expect(list(a.id)).toEqual(["x", "z", "y"]);
+    await env.service.updateWorkspace(x, { pinned: false });
+    expect(list(a.id)).toEqual(["z", "x", "y"]);
+  });
+
+  it("deleting a folder puts its chats in its place; nothing else is deleted", async () => {
+    const a = addProject("a");
+    const a1 = await chat("a1", a.id);
+    const f = env.service.createFolder({ name: "F", projectId: a.id });
+    const a2 = await chat("a2", a.id);
+    const a3 = await chat("a3", a.id);
+    await env.service.updateWorkspace(a1, { folderId: f.id });
+    await env.service.updateWorkspace(a3, { folderId: f.id });
+    expect(list(a.id)).toEqual(["a2", "[F]", "  a3", "  a1"]);
     env.messages.length = 0;
 
-    expect((await req("DELETE", `/api/folders/${work.id}`)).status).toBe(204);
-    // Its projects take its place.
-    expect(sidebar()).toEqual(["c", "b", "a"]);
-    expect(env.service.listProjects()).toHaveLength(3);
-    expect(env.service.listWorkspaces().find((w) => w.id === chat.wid)?.folderId).toBeNull();
+    expect((await req("DELETE", `/api/folders/${f.id}`)).status).toBe(204);
+    expect(list(a.id)).toEqual(["a2", "a3", "a1"]);
+    expect(env.service.listWorkspaces().filter((w) => w.projectId === a.id)).toHaveLength(3);
     const types = env.messages.map((m) => m.type);
     expect(types).toContain("folder_removed");
     expect(types).toContain("workspace_upsert");
-    expect(env.messages.filter((m): m is Extract<ServerMessage, { type: "project_upsert" }> => m.type === "project_upsert").every((m) => !m.project.folderId)).toBe(true);
-    expect((await req("DELETE", `/api/folders/${work.id}`)).status).toBe(404);
+    expect((await req("DELETE", `/api/folders/${f.id}`)).status).toBe(404);
+    void a2;
   });
 
   it("deleting a project deletes its folders", async () => {
@@ -184,6 +200,86 @@ describe("folders API (I-165)", () => {
   });
 });
 
+describe("PUT /api/workspaces/order (I-202)", () => {
+  it("rewrites a project's top level: chats and folders mixed", async () => {
+    const a = addProject("a");
+    const a1 = await chat("a1", a.id);
+    const f = env.service.createFolder({ name: "F", projectId: a.id });
+    const a2 = await chat("a2", a.id);
+    expect(list(a.id)).toEqual(["a2", "[F]", "a1"]);
+    env.messages.length = 0;
+
+    const res = await req<ReorderChatListResponse>("PUT", "/api/workspaces/order", { projectId: a.id, folderId: null, ids: [a1, a2, f.id] });
+    expect(res.status).toBe(200);
+    expect(list(a.id)).toEqual(["a1", "a2", "[F]"]);
+    expect(res.body.workspaces.map((w) => w.id)).toEqual([a1, a2]);
+    expect(res.body.folders.map((x) => [x.id, x.sortOrder])).toEqual([[f.id, 2]]);
+    // Only what changed is pushed (a1 already had 0).
+    const pushed = env.messages.flatMap((m) => (m.type === "workspace_upsert" ? [m.workspace.id] : m.type === "folder_upsert" ? [m.folder.id] : []));
+    expect(new Set(pushed)).toEqual(new Set([a2, f.id]));
+  });
+
+  it("moves chats into a folder at a position, out of it, and reorders inside it", async () => {
+    const a = addProject("a");
+    const a1 = await chat("a1", a.id);
+    const a2 = await chat("a2", a.id);
+    const f = env.service.createFolder({ name: "F", projectId: a.id });
+    const a3 = await chat("a3", a.id);
+    await env.service.updateWorkspace(a1, { folderId: f.id });
+    expect(list(a.id)).toEqual(["a3", "[F]", "  a1", "a2"]);
+
+    // a3 into the folder, below a1.
+    expect((await req("PUT", "/api/workspaces/order", { projectId: a.id, folderId: f.id, ids: [a1, a3] })).status).toBe(200);
+    expect(list(a.id)).toEqual(["[F]", "  a1", "  a3", "a2"]);
+    // Reorder inside it.
+    await req("PUT", "/api/workspaces/order", { projectId: a.id, folderId: f.id, ids: [a3, a1] });
+    expect(list(a.id)).toEqual(["[F]", "  a3", "  a1", "a2"]);
+    // a1 out of it, to the very top.
+    await req("PUT", "/api/workspaces/order", { projectId: a.id, folderId: null, ids: [a1, f.id, a2] });
+    expect(list(a.id)).toEqual(["a1", "[F]", "  a3", "a2"]);
+    expect(env.store.getWorkspace(a1)?.folderId).toBeNull();
+  });
+
+  it("works the same in the Chats section; pinned chats don't need listing", async () => {
+    const s1 = await chat("s1");
+    const s2 = await chat("s2");
+    const s3 = await chat("s3");
+    const f = env.service.createFolder({ name: "F" });
+    await env.service.updateWorkspace(s3, { pinned: true });
+    expect(list(null)).toEqual(["s3", "[F]", "s2", "s1"]);
+    expect((await req("PUT", "/api/workspaces/order", { projectId: null, folderId: null, ids: [s1, f.id, s2] })).status).toBe(200);
+    expect(list(null)).toEqual(["s3", "s1", "[F]", "s2"]);
+    // A pinned chat may be moved into a folder this way too (it stays pinned, on top there).
+    await req("PUT", "/api/workspaces/order", { projectId: null, folderId: f.id, ids: [s2, s3] });
+    expect(list(null)).toEqual(["s1", "[F]", "  s3", "  s2"]);
+  });
+
+  it("refuses moves out of the list, nesting folders, and incomplete or repeated lists", async () => {
+    const a = addProject("a");
+    const b = addProject("b");
+    const a1 = await chat("a1", a.id);
+    const a2 = await chat("a2", a.id);
+    const b1 = await chat("b1", b.id);
+    const s1 = await chat("s1");
+    const fa = env.service.createFolder({ name: "FA", projectId: a.id });
+    const fa2 = env.service.createFolder({ name: "FA2", projectId: a.id });
+    const fb = env.service.createFolder({ name: "FB", projectId: b.id });
+    const put = (body: unknown) => req("PUT", "/api/workspaces/order", body).then((r) => r.status);
+    const top = [a1, a2, fa.id, fa2.id];
+    expect(await put({ projectId: a.id, folderId: null, ids: [...top, b1] })).toBe(400); // another project's chat
+    expect(await put({ projectId: a.id, folderId: null, ids: [...top, s1] })).toBe(400); // a standalone chat
+    expect(await put({ projectId: a.id, folderId: null, ids: [...top, fb.id] })).toBe(400); // another project's folder
+    expect(await put({ projectId: a.id, folderId: fa.id, ids: [fa2.id] })).toBe(400); // folder in a folder
+    expect(await put({ projectId: a.id, folderId: fb.id, ids: [a1] })).toBe(400); // folder of another list
+    expect(await put({ projectId: a.id, folderId: null, ids: [a1, fa.id, fa2.id] })).toBe(400); // a2 missing
+    expect(await put({ projectId: a.id, folderId: null, ids: [...top, a1] })).toBe(400); // repeated
+    expect(await put({ projectId: a.id, folderId: null, ids: [...top, "nope"] })).toBe(404);
+    expect(await put({ projectId: "nope", folderId: null, ids: [] })).toBe(404);
+    expect(await put({ projectId: a.id, folderId: 3, ids: top })).toBe(400);
+    expect(await put({ projectId: a.id, folderId: null, ids: top })).toBe(200);
+  });
+});
+
 describe("folders in the store (I-165)", () => {
   it("migration 7 adds the folders table; folders and memberships survive a reopen", async () => {
     const dir = mkdtempSync(join(tmpdir(), "glade-folders-"));
@@ -196,12 +292,12 @@ describe("folders in the store (I-165)", () => {
       expect(upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'folders'").get()).toBeTruthy();
       upgraded.close();
 
-      const a = addProject("a");
       const folder = env.service.createFolder({ name: "Work" });
-      env.service.updateProject(a.id, { folderId: folder.id });
+      const { wid } = await newChat(env);
+      await env.service.updateWorkspace(wid, { folderId: folder.id });
       const reopened = new Store(env.store.dataDir, 0);
       expect(reopened.listFolders()).toEqual([env.store.getFolder(folder.id)]);
-      expect(reopened.getProject(a.id)?.folderId).toBe(folder.id);
+      expect(reopened.getWorkspace(wid)?.folderId).toBe(folder.id);
       reopened.dispose();
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -296,8 +296,9 @@ describe("workspaces migration (I-035)", () => {
     const store = new Store(dir, 0);
 
     expect(store.listWorkspaces()).toEqual([
-      { id: "c1", projectId: "p1", title: "Fix login", titleSource: "user", cwd: "/proj", pinned: true, pinOrder: 3, createdAt: 10, lastActivityAt: 20, layout: null },
-      { id: "c2", projectId: null, title: "Fix login", titleSource: "auto", cwd: "/proj", pinned: false, createdAt: 10, lastActivityAt: 20, layout: null },
+      { id: "c1", projectId: "p1", title: "Fix login", titleSource: "user", cwd: "/proj", pinned: true, pinOrder: 3, createdAt: 10, lastActivityAt: 20, layout: null, sortOrder: 0 },
+      // sortOrder: the I-202 order migration that runs after the import.
+      { id: "c2", projectId: null, title: "Fix login", titleSource: "auto", cwd: "/proj", pinned: false, createdAt: 10, lastActivityAt: 20, layout: null, sortOrder: 0 },
     ]);
     expect(store.getSession("c1")).toEqual({
       id: "c1",

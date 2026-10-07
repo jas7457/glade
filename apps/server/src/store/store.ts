@@ -45,6 +45,7 @@ import { ulid } from "./db/ids.js";
 import { BlobStore, CHATS_DIR, LEGACY_BLOBS_DIR } from "./blobs.js";
 import { externalizeImages } from "./images.js";
 import { migrateImagesPerChat, moveAttachmentsIntoChats, type ImageMigrationResult } from "./migrate-images.js";
+import { migrateSidebarOrder, SIDEBAR_ORDER_META_KEY } from "./migrate-sidebar-order.js";
 import {
   dropRemovedAgentSettings,
   dropRemovedAppearance,
@@ -203,6 +204,7 @@ export class Store {
     this.environmentId = getMeta(this.db, ENVIRONMENT_ID_KEY) ?? transaction(this.db, () => ensureEnvironmentId(this.db));
     if (options.importJson !== false) this.jsonImport = this.importJsonOnce();
     this.loadAll();
+    this.migrateSidebarOrderOnce();
     if (options.migrateImages !== false) this.imageMigration = this.moveImagesOut();
     this.lastSeq = Number((this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get() as { seq: number }).seq);
     this.pruneEvents();
@@ -572,6 +574,32 @@ export class Store {
     this.loadSettings();
   }
 
+  /**
+   * I-202: today's sidebar order becomes the manual order of chats and folders, projects leave
+   * folders (`migrate-sidebar-order.ts`). Once per data folder (`meta.sidebar_order`); the records
+   * it changes get event rows, so other servers and clients pick them up.
+   */
+  private migrateSidebarOrderOnce(): void {
+    if (getMeta(this.db, SIDEBAR_ORDER_META_KEY) !== null) return;
+    try {
+      transaction(this.db, () => {
+        if (getMeta(this.db, SIDEBAR_ORDER_META_KEY) !== null) return;
+        const changes = migrateSidebarOrder({ projects: this.listProjects(), workspaces: this.listWorkspaces(), folders: this.listFolders() });
+        this.saveSidebar(changes);
+        setMeta(this.db, SIDEBAR_ORDER_META_KEY, String(Date.now()));
+      });
+    } catch (err) {
+      // Nothing is lost: the old order still shows (missing `sortOrder`s sort by date); retried next start.
+      console.warn(`[glade] store: sidebar order migration failed: ${(err as Error).message}`);
+      this.projects.clear();
+      this.workspaces.clear();
+      this.sessions.clear();
+      this.agents.clear();
+      this.folders.clear();
+      this.loadAll();
+    }
+  }
+
   private loadSettings(): void {
     const row = this.db.prepare("SELECT data_json FROM settings WHERE id = 1").get() as { data_json: string } | undefined;
     this.settingsOverrides = row ? (JSON.parse(row.data_json) as DeepPartial<Settings>) : {};
@@ -777,7 +805,7 @@ export class Store {
   }
 
   /** Delete folders and, in the same transaction, save the members moved out of them. */
-  removeFolders(ids: readonly string[], moved: { projects?: Project[]; workspaces?: Workspace[] } = {}): void {
+  removeFolders(ids: readonly string[], moved: { projects?: Project[]; workspaces?: Workspace[]; folders?: Folder[] } = {}): void {
     if (!ids.length) return;
     transaction(this.db, () => {
       for (const id of ids) {

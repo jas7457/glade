@@ -33,8 +33,8 @@ export interface Project {
    * came from".
    */
   environmentId?: string;
-  /** The top-level folder it's in (I-165); absent/`null` = not in a folder. */
-  folderId?: string | null;
+  // `folderId` (I-165) is gone since I-202: projects are always top level, folders never hold
+  // projects. Stores migrate it away; clients ignore it in data from an older server.
 }
 
 /**
@@ -55,6 +55,13 @@ export interface Workspace {
   pinned: boolean;
   /** Position among the pinned workspaces of the same list (ascending). Only meaningful when pinned. */
   pinOrder?: number;
+  /**
+   * Manual position in its container (I-202, ascending; see `chat-order.ts`): the top level of its
+   * list (a project's, or the standalone Chats section), where it shares one number space with
+   * that list's folders, or the folder it's in. Pinned workspaces keep theirs for when they're
+   * unpinned. Absent (records from an older server): above everything that has one, newest first.
+   */
+  sortOrder?: number;
   createdAt: number;
   /** Latest activity in any of its sessions. Not used for ordering. */
   lastActivityAt: number;
@@ -66,8 +73,8 @@ export interface Workspace {
    */
   worktree?: WorkspaceWorktree;
   /**
-   * The folder it's in (I-165): a top-level folder for standalone workspaces, a folder of its own
-   * project otherwise. Absent/`null` = not in a folder.
+   * The folder it's in (I-165): a Chats-section folder (`Folder.projectId` null) for standalone
+   * workspaces, a folder of its own project otherwise. Absent/`null` = not in a folder.
    */
   folderId?: string | null;
 }
@@ -449,16 +456,36 @@ export interface CreateProjectRequest {
 
 export interface UpdateProjectRequest {
   name?: string;
-  /** Move into a top-level folder (I-165); `null` moves it out. */
-  folderId?: string | null;
+  // `folderId` was removed in I-202 (projects are always top level): 400 when sent.
 }
 
 /**
- * `PUT /api/projects/order`: the full list of project ids in their new order. May also list
- * top-level folder ids (I-165): folders and projects share one order (`sortOrder`).
+ * `PUT /api/projects/order`: the full list of project ids in their new order. Folder ids (sent by
+ * clients from before I-202, when top-level folders shared this order) are ignored.
  */
 export interface ReorderProjectsRequest {
   ids: string[];
+}
+
+/**
+ * `PUT /api/workspaces/order` (I-202): the new order of one container of a chat list, i.e. the
+ * top level of a project (`folderId` null) or of the standalone Chats section (`projectId` null),
+ * or one folder. `ids` must list every unpinned chat now in that container and, at the top level,
+ * every folder of the list (400 otherwise), in the new order; it may also list chats of the same
+ * list from another container (pinned or not), which move into this one. Each listed item gets
+ * `sortOrder` = its index; listed chats get `folderId` = `folderId`. Chats never leave their list
+ * (another project's chat, or a project chat in the Chats section, is a 400); folders can't nest.
+ */
+export interface ReorderChatListRequest {
+  projectId: string | null;
+  folderId: string | null;
+  ids: string[];
+}
+
+/** `PUT /api/workspaces/order` → the container's chats and folders after the change (in order). */
+export interface ReorderChatListResponse {
+  workspaces: WorkspaceSummary[];
+  folders: Folder[];
 }
 
 /** `PUT /api/workspaces/pin-order`: the pinned workspaces of one list (a project, or standalone = null) in order. */
@@ -517,7 +544,10 @@ export interface UpdateWorkspaceRequest {
   pinned?: boolean;
   /** Replace the saved layout (`null` clears it). */
   layout?: WorkspaceLayout | null;
-  /** Move into a folder (I-165): a top-level one for standalone chats, one of its project's otherwise; `null` moves it out. */
+  /**
+   * Move into a folder (I-165): a Chats-section one for standalone chats, one of its project's
+   * otherwise (it goes to the folder's top); `null` moves it out (right after the folder).
+   */
   folderId?: string | null;
 }
 

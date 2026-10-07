@@ -33,6 +33,7 @@ export { Toaster } from "./Toaster";
 export { SidebarItem, type SidebarItemProps } from "./SidebarItem";
 export { SidebarGroup, SidebarList, type SidebarGroupProps, type SidebarListProps } from "./Sidebar";
 export { SIDEBAR_METRICS, sidebarClass, type SidebarIndent } from "./sidebar-metrics";
+export { createDragGhost, dragGhostClass, type DragGhost } from "./drag-ghost";
 export { StatusIndicator, statusLabel, type StatusIndicatorProps } from "./StatusIndicator";
 export { FormGroup, FormRow, type FormGroupProps, type FormRowProps } from "./Form";
 export { FormLinkRow, type FormLinkRowProps } from "./FormLinkRow";

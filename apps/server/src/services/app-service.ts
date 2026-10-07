@@ -8,6 +8,8 @@ import type {
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   CreateFolderRequest,
+  ReorderChatListRequest,
+  ReorderChatListResponse,
   DeepPartial,
   Folder,
   EnvironmentInfo,
@@ -231,8 +233,9 @@ export class AppService {
     return this.folders.updateFolder(id, req);
   }
 
-  reorderFolders(projectId: string, ids: string[]): Folder[] {
-    return this.folders.reorderFolders(projectId, ids);
+  /** `PUT /workspaces/order` (I-202): one container of a chat list in its new order. */
+  reorderChatList(req: ReorderChatListRequest): ReorderChatListResponse {
+    return this.folders.reorderChatList(req);
   }
 
   deleteFolder(id: string): void {

@@ -15,7 +15,7 @@ import { HttpError } from "./errors.js";
 import type { Folders } from "./folders.js";
 import { dropProjectPrompts } from "./prompts.js";
 import type { Records } from "./records.js";
-import type { Workspaces } from "./workspaces.js";
+import { sameIdSet, type Workspaces } from "./workspaces.js";
 
 export class Projects {
   constructor(
@@ -61,8 +61,8 @@ export class Projects {
   }
 
   updateProject(id: string, req: UpdateProjectRequest): Project {
-    // Into / out of a top-level folder (I-165).
-    if (req.folderId !== undefined) this.folders.moveProject(id, req.folderId);
+    // Projects are always top level since I-202 (older clients may still send it).
+    if ("folderId" in req) throw new HttpError(400, "Projects can't go in folders");
     const project = this.records.requireProject(id);
     if (req.name === undefined) return project;
     const next: Project = {
@@ -76,11 +76,21 @@ export class Projects {
   }
 
   /**
-   * Set the manual project order. `ids` must be exactly the current projects, plus (I-165) any
-   * top-level folders, which share the order.
+   * Set the manual project order. `ids` must be exactly the current projects; folder ids (sent by
+   * clients from before I-202, when top-level folders shared this order) are ignored.
    */
   reorderProjects(ids: string[]): Project[] {
-    this.folders.reorderSidebar(ids);
+    const projectIds = ids.filter((id) => this.ctx.store.getProject(id) || !this.ctx.store.getFolder(id));
+    if (!sameIdSet(projectIds, this.ctx.store.listProjects().map((p) => p.id))) {
+      throw new HttpError(400, "ids must list every project exactly once");
+    }
+    projectIds.forEach((id, sortOrder) => {
+      const project = this.ctx.store.getProject(id)!;
+      if (project.sortOrder === sortOrder) return;
+      const next = { ...project, sortOrder };
+      this.ctx.store.upsertProject(next);
+      this.ctx.broadcast({ type: "project_upsert", project: next });
+    });
     return this.listProjects();
   }
 

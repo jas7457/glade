@@ -1,19 +1,19 @@
 /**
  * Folder sheets on the iPhone (I-165; iOS has no context menus over web content, so long-press
- * opens a bottom sheet): "Move to Folder" for a chat or a project (the folders it can go in, New
- * Folder…, Remove from Folder), a folder's actions (Rename, Delete) and a project's (New Folder,
- * Move to Folder).
+ * opens a bottom sheet): "Move to Folder" for a chat (the folders it can go in, New Folder…,
+ * Remove from Folder), a folder's actions (Rename, Delete) and a project's (New Folder). Projects
+ * never go in folders (I-202).
  */
 import { useEffect, useState } from "preact/hooks";
 import type { Folder, Project } from "@glade/protocol";
-import { Check, FolderInput, FolderMinus, FolderPlus, Folders, Pencil, Trash2 } from "lucide-preact";
-import { createFolder, deleteFolder, moveProjectToFolder, renameFolder } from "@glade/app-core/state/folder-actions";
-import { envIdOf, folders, foldersForProject, sidebarEntries } from "@glade/app-core/state/store";
+import { Check, FolderMinus, FolderPlus, Folders, Pencil, Trash2 } from "lucide-preact";
+import { createFolder, deleteFolder, renameFolder } from "@glade/app-core/state/folder-actions";
+import { envIdOf, foldersForProject } from "@glade/app-core/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
 
-/** Top-level folders of an environment in their order. */
-function topLevelFolders(envId: string): Folder[] {
-  return folders.value.filter((f) => f.projectId === null && envIdOf(f) === envId).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+/** The Chats-section folders of an environment in their order. */
+function chatsFolders(envId: string): Folder[] {
+  return foldersForProject(null).filter((f) => envIdOf(f) === envId);
 }
 
 /** A one-field form sheet (folder name). */
@@ -47,7 +47,7 @@ function NameSheet({ title, initial, actionLabel, onSave, onClose }: { title: st
 export interface MoveToFolderSheetProps {
   /** What's moved (the sheet's title). */
   name: string;
-  /** A project's chats: its folders. Null: projects and standalone chats (top-level folders). */
+  /** A project's chats: its folders. Null: standalone chats (the Chats section's folders). */
   projectId: string | null;
   envId: string;
   current: string | null;
@@ -57,7 +57,7 @@ export interface MoveToFolderSheetProps {
 
 export function MoveToFolderSheet({ name, projectId, envId, current, onMove, onClose }: MoveToFolderSheetProps) {
   const [creating, setCreating] = useState(false);
-  const options = projectId ? foldersForProject(projectId) : topLevelFolders(envId);
+  const options = projectId ? foldersForProject(projectId) : chatsFolders(envId);
   const move = (folderId: string | null) => {
     onClose();
     onMove(folderId);
@@ -98,7 +98,7 @@ export function MoveToFolderSheet({ name, projectId, envId, current, onMove, onC
 
 type FolderMode = "menu" | "rename" | "delete";
 
-/** A folder's actions: Rename, Delete (its contents move back out). */
+/** A folder's actions: Rename, Delete (its chats take its place). */
 export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null; onClose: () => void }) {
   const [mode, setMode] = useState<FolderMode>("menu");
   useEffect(() => setMode("menu"), [folder?.id]);
@@ -115,7 +115,7 @@ export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null;
       <Sheet open onClose={onClose} title="Delete Folder?">
         <div class="flex flex-col gap-3 px-4 pt-1 pb-2">
           <p class="text-center text-[15px] text-fg-muted">
-            “{folder.name}” will be deleted. {folder.projectId ? "Its chats move" : "Its projects and chats move"} back out; nothing else is deleted.
+            “{folder.name}” will be deleted. Its chats move back out; nothing else is deleted.
           </p>
           <PhoneButton kind="tinted" class="bg-danger/12 text-danger active:bg-danger/20" onClick={() => run(() => deleteFolder(folder.id))}>
             Delete Folder
@@ -138,15 +138,9 @@ export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null;
   );
 }
 
-type ProjectMode = "menu" | "newFolder" | "move";
+type ProjectMode = "menu" | "newFolder";
 
-/** The top-level folder a project is shown in, or null. */
-function folderOfProject(project: Project): string | null {
-  for (const e of sidebarEntries.value) if (e.kind === "folder" && e.projects.some((p) => p.id === project.id)) return e.folder.id;
-  return null;
-}
-
-/** A project's folder actions: New Folder (in it), Move to Folder. */
+/** A project's folder actions: New Folder (in it). */
 export function ProjectActionsSheet({ project, onClose }: { project: Project | null; onClose: () => void }) {
   const [mode, setMode] = useState<ProjectMode>("menu");
   useEffect(() => setMode("menu"), [project?.id]);
@@ -165,24 +159,11 @@ export function ProjectActionsSheet({ project, onClose }: { project: Project | n
       />
     );
   }
-  if (mode === "move") {
-    return (
-      <MoveToFolderSheet
-        name={project.name}
-        projectId={null}
-        envId={envIdOf(project)}
-        current={folderOfProject(project)}
-        onMove={(folderId) => void moveProjectToFolder(project.id, folderId)}
-        onClose={onClose}
-      />
-    );
-  }
   return (
     <Sheet open onClose={onClose} title={project.name}>
       <div class="pt-1">
         <ListGroup>
           <ListRow icon={<FolderPlus size={20} />} title="New Folder…" onClick={() => setMode("newFolder")} />
-          <ListRow icon={<FolderInput size={20} />} title="Move to Folder…" onClick={() => setMode("move")} />
         </ListGroup>
       </div>
     </Sheet>

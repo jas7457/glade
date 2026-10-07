@@ -338,12 +338,25 @@ in the server that runs their parent (their `GLADE_URL` points there).
 ### Ordering
 
 Projects are ordered manually by `Project.sortOrder` (ascending; new projects get min − 1, i.e.
-the top). Project pinning is gone. Chats are never re-sorted by activity: unpinned chats sort by
-`createdAt` (newest first, client-side); pinned chats sit at the top of their own list (a project,
-or standalone) ordered by `Workspace.pinOrder`. (Here "chat" = workspace, the sidebar row.) The server never uses `lastActivityAt` for ordering.
+the top) and are always top level (I-202: folders never hold projects). Project pinning is gone.
+Chats are never re-sorted by activity (here "chat" = workspace, the sidebar row). Each chat list
+(a project's chats, or the standalone Chats section) has containers (I-202, `chat-order.ts`):
+its **top level**, one manual order of its chats and its folders mixed (`Workspace.sortOrder` and
+`Folder.sortOrder` in one number space), and **each folder** (`Workspace.sortOrder` of its chats).
+Pinned chats sit above the rest of their container ordered by `Workspace.pinOrder`. New chats and
+folders get the container's min − 1 (the top); an unpinned chat goes to the top of its container;
+"Move to Folder" puts a chat at the folder's top, "Remove from Folder" right after the folder;
+deleting a folder puts its chats in its place. Items without a `sortOrder` (an older server on
+the same data folder) sort above the numbered ones, newest first. Standalone chats of several
+environments are interleaved per device (`env-order.ts`, lists `pins:<list>` and
+`chats:<list>`). The server never uses `lastActivityAt` for ordering.
 Older data is migrated when the store loads: projects get `sortOrder` from their previous order
 (pinned first, then most recent activity) and lose `pinned`; pinned chats without `pinOrder`
-get one per list (most recent activity first).
+get one per list (most recent activity first). Once per data folder (`meta.sidebar_order`,
+`store/migrate-sidebar-order.ts`, I-202) the visual order of the time becomes the manual order
+(each top level: pinned, then folders, then chats newest first; folders: pinned, then newest
+first), `Project.folderId` is dropped (projects renumbered in their shown order when any folder
+held projects) and project-less folders become Chats-section folders.
 
 ## Server API
 
@@ -355,14 +368,15 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | ------ | ----------------------------- | ---------------------------------------------- |
 | GET    | `/projects`                   | → `Project[]` sorted by `sortOrder`            |
 | POST   | `/projects`                   | `CreateProjectRequest` → `Project` (added at the top: `sortOrder` = min − 1) |
-| PATCH  | `/projects/:id`               | `UpdateProjectRequest` (`{ name? }`) → `Project` |
-| PUT    | `/projects/order`             | `ReorderProjectsRequest` `{ ids }` → `Project[]` sorted; `ids` must be exactly the set of projects (400 otherwise); sets `sortOrder` 0..n−1, `project_upsert` per changed project |
+| PATCH  | `/projects/:id`               | `UpdateProjectRequest` (`{ name? }`) → `Project`; `folderId` is a 400 (I-202) |
+| PUT    | `/projects/order`             | `ReorderProjectsRequest` `{ ids }` → `Project[]` sorted; `ids` must be exactly the set of projects (400 otherwise; folder ids from pre-I-202 clients are ignored); sets `sortOrder` 0..n−1, `project_upsert` per changed project |
 | POST   | `/projects/:id/open`          | `OpenProjectRequest` `{ app: "vscode" }` → 204; opens the project folder (`open -a "Visual Studio Code" <path>`). 404 unknown project, 400 unknown app, 424 app not installed, 501 off macOS |
 | DELETE | `/projects/:id`               | removes project + its workspaces → 204         |
 | GET    | `/workspaces`                 | → `WorkspaceSummary[]` (rolled-up status)      |
 | POST   | `/workspaces`                 | `CreateWorkspaceRequest` `{ projectId, prompt?, images?, model?, thinkingLevel? }` → `CreateWorkspaceResponse` `{ workspace, sessions, session: SessionDetail }` (first main session started, prompt sent) |
 | GET    | `/workspaces/:id`             | → `WorkspaceDetail` `{ workspace, sessions }` (main first, then sub-agents; doesn't start agents) |
-| PATCH  | `/workspaces/:id`             | `UpdateWorkspaceRequest` `{ title?, pinned?, layout? }` → `WorkspaceSummary`. `pinned: true` puts it at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder`; `layout` is stored as given (`null` clears) |
+| PATCH  | `/workspaces/:id`             | `UpdateWorkspaceRequest` `{ title?, pinned?, layout? }` → `WorkspaceSummary`. `pinned: true` puts it at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder` (and puts it at the top of its container, I-202); `folderId` moves it into a folder of its list (to the top) or out (`null`, right after the folder); `layout` is stored as given (`null` clears) |
+| PUT    | `/workspaces/order`           | `ReorderChatListRequest` `{ projectId, folderId, ids }` (I-202) → `ReorderChatListResponse` `{ workspaces, folders }` (the container after, in order): one container of a chat list (a project's or the Chats section's top level, `folderId` null, or one folder) in its new order. `ids` must list every unpinned chat in it and, at the top level, every folder of the list (400); it may add chats of the same list from elsewhere, which move in (`folderId` set). Another list's chat or folder, or a folder inside a folder, is a 400; unknown ids 404. Listed items get `sortOrder` = index; `workspace_upsert` / `folder_upsert` per changed one |
 | PUT    | `/workspaces/pin-order`       | `ReorderPinnedWorkspacesRequest` `{ projectId, ids }` → `WorkspaceSummary[]` (that list's pinned workspaces, in order); `ids` must be exactly the pinned workspaces of that list (400), unknown project 404; sets `pinOrder` 0..n−1, `workspace_upsert` per changed one |
 | DELETE | `/workspaces/:id`             | → 204 (all its session files permanently deleted) |
 | GET    | `/workspaces/:id/sessions`    | → `SessionSummary[]`                           |

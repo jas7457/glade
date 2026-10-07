@@ -23,6 +23,8 @@
  */
 
 export const SIDEBAR_METRICS = {
+  /** How far rows after a drop's insertion point slide down while dragging (I-202). */
+  dropShift: 6,
   /** Height of one row. */
   rowHeight: 30,
   /** Vertical gap between consecutive rows. */
@@ -55,6 +57,14 @@ export const sidebarClass = {
   inset: ["pl-2", "pl-8", "pl-14", "pl-20"],
   /** Left edge of full-width lines (drop line, pinned divider) aligned with the content per indent. */
   lineStart: ["left-2", "left-8", "left-14", "left-20"],
+  /**
+   * Drag and drop (I-202): rows after the insertion point slide down by `dropShift` px to open a
+   * gap (`dropShiftTransition` animates it, not with reduced motion); a folder row taking the
+   * dragged item is tinted and outlined (`dropTarget`).
+   */
+  dropShift: "translate-y-1.5",
+  dropShiftTransition: "transition-[translate] duration-150 ease-out motion-reduce:transition-none",
+  dropTarget: "bg-accent/15 ring-2 ring-accent/60 ring-inset",
   /** Text colours (tokens in styles.css): row labels, selected/unread rows, headers + ages + icons. */
   fg: "text-sidebar-fg",
   fgStrong: "text-sidebar-fg-strong",

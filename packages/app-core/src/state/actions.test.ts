@@ -7,7 +7,7 @@ vi.mock("@glade/app-core/lib/api", () => ({
 
 import { api } from "@glade/app-core/lib/api";
 import { sessions, workspaces, workspacesForProject, projects, settings, sortedProjects } from "./store";
-import { markWorkspaceUnread, mergeSettings, movePinnedWorkspace, moveProject, removeProject, reorderPinnedWorkspaces, reorderProjects, stepOrder, updateSettings } from "./actions";
+import { markWorkspaceUnread, mergeSettings, removeProject, reorderPinnedWorkspaces, reorderProjects, updateSettings } from "./actions";
 import { toasts } from "./toasts";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 
@@ -68,16 +68,6 @@ describe("removeProject", () => {
   });
 });
 
-describe("stepOrder", () => {
-  it("swaps with the neighbour, null at the edges", () => {
-    expect(stepOrder(["a", "b", "c"], "b", -1)).toEqual(["b", "a", "c"]);
-    expect(stepOrder(["a", "b", "c"], "b", 1)).toEqual(["a", "c", "b"]);
-    expect(stepOrder(["a", "b"], "a", -1)).toBeNull();
-    expect(stepOrder(["a", "b"], "b", 1)).toBeNull();
-    expect(stepOrder(["a"], "x", 1)).toBeNull();
-  });
-});
-
 describe("reorderProjects", () => {
   beforeEach(() => {
     toasts.value = [];
@@ -101,14 +91,6 @@ describe("reorderProjects", () => {
     expect(await reorderProjects(["b", "a", "c"])).toBe(false);
     expect(sortedProjects.value.map((p) => p.id)).toEqual(["a", "b", "c"]);
     expect(toasts.value[0]?.message).toContain("offline");
-  });
-
-  it("moveProject steps one place and ignores the edges", async () => {
-    mocked.reorderProjects.mockResolvedValue([]);
-    expect(await moveProject("a", -1)).toBe(false);
-    expect(mocked.reorderProjects).not.toHaveBeenCalled();
-    await moveProject("a", 1);
-    expect(mocked.reorderProjects).toHaveBeenCalledWith(["b", "a", "c"]);
   });
 });
 
@@ -138,14 +120,6 @@ describe("reorderPinnedWorkspaces", () => {
     expect(await reorderPinnedWorkspaces("p", ["y", "x"])).toBe(false);
     expect(workspacesForProject("p").map((c) => c.id)).toEqual(["x", "y", "z"]);
     expect(toasts.value[0]?.message).toContain("boom");
-  });
-
-  it("movePinnedWorkspace only moves pinned workspaces within their pinned group", async () => {
-    mocked.reorderPinnedWorkspaces.mockResolvedValue([]);
-    expect(await movePinnedWorkspace("z", -1)).toBe(false);
-    expect(await movePinnedWorkspace("y", 1)).toBe(false);
-    await movePinnedWorkspace("y", -1);
-    expect(mocked.reorderPinnedWorkspaces).toHaveBeenCalledWith("p", ["y", "x"]);
   });
 });
 

@@ -6,6 +6,7 @@ vi.mock("@glade/app-core/lib/api", () => ({
   api: {
     reorderProjects: vi.fn(async () => []),
     reorderPinnedWorkspaces: vi.fn(async () => []),
+    reorderChatList: vi.fn(async () => ({ workspaces: [], folders: [] })),
     updateSession: vi.fn(async (id: string, patch: object) => ({ ...sessions.value.find((s) => s.id === id), ...patch })),
   },
 }));
@@ -16,7 +17,6 @@ import { projects, sessions, workspaces } from "@glade/app-core/state/store";
 import { closedProjects } from "@glade/app-core/state/ui";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { Sidebar } from "./Sidebar";
-import { visibleChatCount } from "./ChatList";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 
 function renderSidebar(path = "/") {
@@ -67,16 +67,17 @@ describe("Sidebar", () => {
     expect(container.querySelector("[data-project-id=p2] [data-pinned-divider]")).toBeNull();
   });
 
-  it("offers Move Up / Move Down in the project menu, not Pin", () => {
+  it("has no Move Up / Move Down (or Pin) in the project and chat menus: ordering is by dragging (I-202)", () => {
     const { container } = renderSidebar();
-    const beta = container.querySelector("[data-project-id=p2] [data-sort-id]") ?? container.querySelector("[data-project-id=p2]");
-    const row = within(beta as HTMLElement).getByRole("button", { name: "Beta" });
-    fireEvent.contextMenu(row);
+    fireEvent.contextMenu(within(container.querySelector("[data-project-id=p2]") as HTMLElement).getByRole("button", { name: "Beta" }));
     expect(screen.queryByRole("menuitem", { name: "Pin" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Move Up" }).getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Move Down" }));
-    expect(api.reorderProjects).toHaveBeenCalledWith(["p1", "p2"]);
-    expect(projectOrder(container)).toEqual(["p1", "p2"]);
+    expect(screen.queryByRole("menuitem", { name: "Move Up" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Move Down" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Move to Folder" })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.contextMenu(container.querySelector("[data-chat-id=c3]") as HTMLElement);
+    expect(screen.queryByRole("menuitem", { name: "Move Up" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Move Down" })).toBeNull();
   });
 
   it("toggles Mark as Unread / Mark as Read in a chat's menu (I-073)", () => {
@@ -158,7 +159,7 @@ describe("Sidebar", () => {
       expect(projectOrder(container)).toEqual(["p2", "p1"]);
     });
 
-    it("reorders pinned chats within their list; unpinned chats only move into folders", () => {
+    it("reorders pinned chats within their list, and the other chats below them (I-202)", () => {
       workspaces.value = [
         ...workspaces.value,
         makeWorkspace({ id: "c5", projectId: "p1", title: "Pinned two", pinned: true, pinOrder: 1 }),
@@ -166,24 +167,50 @@ describe("Sidebar", () => {
       const { container } = renderSidebar();
       layout();
       const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
+      // The project group is its chats' drag area (the fake layout gives it one row's box).
+      alpha.getBoundingClientRect = () => ({ top: 0, bottom: 500, left: 0, right: 200, height: 500, width: 200, x: 0, y: 0, toJSON() {} });
       expect(rowTitles(alpha)).toEqual(["c3", "c5", "c2", "c1"]);
       expect(alpha.querySelectorAll("[data-sort-group^='pins:']")).toHaveLength(2);
       const row = alpha.querySelector("[data-chat-id=c5] button") as HTMLElement;
       fireEvent.pointerDown(row, { button: 0, clientX: 10, clientY: 40 });
       fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
+      // The ghost copy follows the pointer.
+      expect(document.querySelector("[data-drag-ghost] [data-chat-id]")).toBeNull();
+      expect(document.querySelector("[data-drag-ghost]")?.textContent).toContain("Pinned two");
       fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
       fireEvent.click(row);
+      expect(document.querySelector("[data-drag-ghost]")).toBeNull();
       expect(api.reorderPinnedWorkspaces).toHaveBeenCalledWith("p1", ["c5", "c3"]);
       expect(rowTitles(alpha)).toEqual(["c5", "c3", "c2", "c1"]);
 
-      // Unpinned rows don't reorder (no insertion line); they only go into folders (I-165).
-      const unpinned = alpha.querySelector("[data-chat-id=c2] button") as HTMLElement;
-      fireEvent.pointerDown(unpinned, { button: 0, clientX: 10, clientY: 70 });
+      // Unpinned rows reorder in the list's own order, below the pinned ones.
+      const unpinned = alpha.querySelector("[data-chat-id=c1] button") as HTMLElement;
+      fireEvent.pointerDown(unpinned, { button: 0, clientX: 10, clientY: 40 });
       fireEvent.pointerMove(window, { clientX: 10, clientY: 2 });
-      expect(container.querySelector("[data-drop-line]")).toBeNull();
+      expect(alpha.querySelector("[data-chat-id=c2]")?.closest("[role=listitem]")?.querySelector("[data-drop-line=top]")).toBeTruthy();
+      // Rows after the line slide down to open the gap.
+      expect(alpha.querySelector("[data-chat-id=c2]")?.closest("[role=listitem]")?.className).toContain(sidebarClass.dropShift);
       fireEvent.pointerUp(window, { clientX: 10, clientY: 2 });
       fireEvent.click(unpinned);
-      expect(api.reorderPinnedWorkspaces).toHaveBeenCalledTimes(1);
+      expect(api.reorderChatList).toHaveBeenCalledWith({ projectId: "p1", folderId: null, ids: ["c1", "c2"] });
+      expect(rowTitles(alpha)).toEqual(["c5", "c3", "c1", "c2"]);
+    });
+
+    it("outside its own project a drag shows nothing and doesn't drop (not allowed)", () => {
+      const { container } = renderSidebar();
+      layout();
+      const alpha = container.querySelector("[data-project-id=p1]") as HTMLElement;
+      alpha.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 200, height: 100, width: 200, x: 0, y: 0, toJSON() {} });
+      const unpinned = alpha.querySelector("[data-chat-id=c1] button") as HTMLElement;
+      fireEvent.pointerDown(unpinned, { button: 0, clientX: 10, clientY: 40 });
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 300 });
+      expect(container.querySelector("[data-drop-line]")).toBeNull();
+      expect(document.querySelector("[data-drag-ghost]")?.hasAttribute("data-not-allowed")).toBe(true);
+      expect(document.documentElement.style.cursor).toBe("not-allowed");
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 300 });
+      fireEvent.click(unpinned);
+      expect(document.documentElement.style.cursor).toBe("");
+      expect(api.reorderChatList).not.toHaveBeenCalled();
     });
   });
 
@@ -248,15 +275,6 @@ describe("Sidebar", () => {
     expect(rowTitles(alpha)).toHaveLength(5);
     fireEvent.click(within(alpha).getByText("Show more (3)"));
     expect(rowTitles(alpha)).toHaveLength(8);
-  });
-});
-
-describe("visibleChatCount", () => {
-  const list = Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `c${i}` }));
-  it("shows the limit, all when expanded, and reaches the selection", () => {
-    expect(visibleChatCount(list, 5, false, null)).toBe(5);
-    expect(visibleChatCount(list, 5, true, null)).toBe(8);
-    expect(visibleChatCount(list, 5, false, "c6")).toBe(7);
   });
 });
 

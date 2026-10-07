@@ -21,12 +21,14 @@ export interface SidebarListProps {
   children: ComponentChildren;
   role?: "list";
   class?: string;
+  /** A drag area (I-202, `data-drop-area`): drags of its items stay inside it. */
+  "data-drop-area"?: string;
 }
 
 /** Vertical stack of sidebar rows with the standard row gap. */
-export function SidebarList({ children, role, class: className }: SidebarListProps) {
+export function SidebarList({ children, role, class: className, "data-drop-area": dropArea }: SidebarListProps) {
   return (
-    <div role={role} class={cn(sidebarClass.rows, className)}>
+    <div role={role} data-drop-area={dropArea} class={cn(sidebarClass.rows, className)}>
       {children}
     </div>
   );

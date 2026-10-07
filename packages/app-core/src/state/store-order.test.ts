@@ -19,6 +19,14 @@ describe("workspacesForProject", () => {
     workspaces.value = [...workspaces.value, makeWorkspace({ id: "pin-x", projectId: "p", pinned: true, createdAt: 50 })];
     expect(workspacesForProject("p").map((c) => c.id).slice(0, 3)).toEqual(["pin-a", "pin-b", "pin-x"]);
   });
+  it("follows the manual sortOrder below the pinned ones (I-202)", () => {
+    workspaces.value = [
+      makeWorkspace({ id: "x", projectId: "p", sortOrder: 1, createdAt: 9 }),
+      makeWorkspace({ id: "y", projectId: "p", sortOrder: 0, createdAt: 1 }),
+      makeWorkspace({ id: "pin", projectId: "p", pinned: true, pinOrder: 0, sortOrder: 5 }),
+    ];
+    expect(workspacesForProject("p").map((c) => c.id)).toEqual(["pin", "y", "x"]);
+  });
   it("lists standalone workspaces for null", () => {
     expect(workspacesForProject(null).map((c) => c.id)).toEqual(["other"]);
   });
