@@ -30,6 +30,7 @@ import {
   type FoundImage,
   type FoundMedia,
 } from "./media.ts";
+import { injectStory, parseStory, renderStory, type Story } from "./story.ts";
 
 type Sharp = typeof import("sharp").default;
 
@@ -57,6 +58,9 @@ export function mediaPlugin(root: string): Plugin {
   let found = new Map<string, FoundMedia>();
   let focusRects: Record<string, FocusRect> = {};
   let ogImage: string | undefined;
+  /** The hero's story: the real `hero-story` recording, or the stand-in (`hero` + the sample steps). */
+  let story: { data: Story; media: string } | undefined;
+  const sampleStory = join(root, "dev", "hero-story.sample.json");
 
   const listing = () => (existsSync(mediaDir) ? readdirSync(mediaDir) : []);
 
@@ -118,6 +122,17 @@ export function mediaPlugin(root: string): Plugin {
       next.set(spec.name, media);
     }
     found = next;
+
+    const storyFile = join(mediaDir, "hero-story.json");
+    const real = existsSync(storyFile) ? parseStory(readFileSync(storyFile, "utf8")) : undefined;
+    const realVideo = next.get("hero-story");
+    if (real && (realVideo?.webm || realVideo?.mp4)) {
+      story = { data: real, media: "hero-story" };
+    } else {
+      const sample = existsSync(sampleStory) ? parseStory(readFileSync(sampleStory, "utf8")) : undefined;
+      story = sample ? { data: sample, media: "hero" } : undefined;
+      if (isBuild) console.warn("[media] no hero-story.json + video in media/: the hero uses the stand-in (hero + dev/hero-story.sample.json)");
+    }
   }
 
   function metaTags(): string {
@@ -150,9 +165,9 @@ export function mediaPlugin(root: string): Plugin {
           res.end(readFileSync(file));
         });
       }
-      server.watcher.add(mediaDir);
+      server.watcher.add([mediaDir, sampleStory]);
       const onChange = async (path: string) => {
-        if (!path.startsWith(mediaDir)) return;
+        if (!path.startsWith(mediaDir) && path !== sampleStory) return;
         await scan();
         server.ws.send({ type: "full-reload" });
       };
@@ -168,7 +183,11 @@ export function mediaPlugin(root: string): Plugin {
           const spec = mediaSpec(name);
           return spec ? { spec, found: found.get(name) ?? {} } : undefined;
         };
-        const staged = injectFocus(html, (tag) => {
+        const withStory = injectStory(html, () => {
+          if (!story) return renderMedia(mediaSpec("hero")!, found.get("hero") ?? {}, base);
+          return renderStory(story.data, { spec: mediaSpec(story.media)!, found: found.get(story.media) ?? {} }, base);
+        });
+        const staged = injectFocus(withStory, (tag) => {
           const full = source(tag.name);
           if (!full) throw new Error(`[media] unknown media "${tag.name}" in <glade-focus>`);
           return renderFocus(tag.name, { full, focus: source(`${tag.name}-focus`), rect: focusRects[tag.name] }, focusOptions(tag), base);

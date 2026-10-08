@@ -37,8 +37,12 @@ const PHONE_SIZES = "(min-width: 900px) 300px, 46vw";
 export const BACK_SIZES = "(min-width: 900px) 760px, 88vw";
 
 export const MEDIA: readonly MediaSpec[] = [
+  // The hero's story (build/story.ts): from an empty new chat to the finished answer.
+  { name: "hero-story", kind: "video", frame: "mac", eager: true, sizes: "(min-width: 1360px) 1280px, 94vw",
+    alt: "Glade, from an empty new chat to a finished answer: picking the agent, asking a question, the chat appearing in the sidebar, and the reply streaming in with its thinking and tool calls" },
+  // The older hero recording: the stand-in for hero-story until it exists, and the Open Graph image.
   { name: "hero", kind: "video", frame: "mac", eager: true, sizes: "(min-width: 1360px) 1280px, 94vw",
-    alt: "Glade with a project of several chats, a reply streaming in with its thinking and tool calls, and sub-agent cards above the message box" },
+    alt: "Glade with a project of several chats, a follow-up typed into a chat, and the reply streaming in with its thinking, tool calls and two sub-agents" },
   { name: "agents", kind: "image", frame: "mac", sizes: MAC_SIZES,
     alt: "A new chat in Glade with the agent menu open" },
   { name: "agents-focus", kind: "image", frame: "mac", sizes: MAC_SIZES,

@@ -2,7 +2,7 @@
  * Videos (markup from build/media.ts): sources load only when a video comes near the viewport
  * (`data-src` → `src`), play while at least a third of it is visible and pause otherwise. Every
  * video gets a pause/play button. With reduced motion nothing autoplays: the poster shows with a
- * play button. A video with `data-hold` waits until `releaseVideo()` (the hero, while it assembles).
+ * play button. (The hero's video has its own player: src/story.ts.)
  */
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -32,7 +32,7 @@ function load(video: HTMLVideoElement, state: VideoState): void {
 function sync(video: HTMLVideoElement): void {
   const state = states.get(video);
   if (!state) return;
-  const shouldPlay = state.visible && !state.userPaused && !video.hasAttribute("data-hold");
+  const shouldPlay = state.visible && !state.userPaused;
   if (shouldPlay) {
     load(video, state);
     void video.play().catch(() => {
@@ -54,14 +54,6 @@ function render(video: HTMLVideoElement): void {
   slot.dataset.paused = String(state.userPaused);
   button.innerHTML = state.userPaused ? PLAY : PAUSE;
   button.setAttribute("aria-label", state.userPaused ? "Play video" : "Pause video");
-}
-
-/** Lets a held video play (from the start) once it's visible. */
-export function releaseVideo(video: HTMLVideoElement): void {
-  if (!video.hasAttribute("data-hold")) return;
-  video.removeAttribute("data-hold");
-  video.currentTime = 0;
-  sync(video);
 }
 
 export function initVideos(): void {
@@ -99,7 +91,6 @@ export function initVideos(): void {
     button.className = "video-toggle";
     button.addEventListener("click", () => {
       state.userPaused = !state.userPaused;
-      if (!state.userPaused) video.removeAttribute("data-hold");
       sync(video);
     });
     video.closest(".media")?.append(button);

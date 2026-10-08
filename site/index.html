@@ -17,7 +17,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <script>
-      // Before first paint: with motion on, the hero starts hidden and assembles itself (src/motion/hero.ts).
+      // Before first paint: with motion on, the hero's window rises in (styles.css) and src/motion takes over.
       if (matchMedia("(prefers-reduced-motion: no-preference)").matches) document.documentElement.classList.add("motion");
     </script>
     <script type="module" src="/src/main.ts"></script>
@@ -40,193 +40,154 @@
     </header>
 
     <main id="main">
-      <!-- Hero: the app window assembles itself from its panels, with real UI pieces floating around it. -->
+      <!--
+        Hero: one recording of Glade from an empty new chat to the finished answer, played large,
+        with a spotlight on the step that matters and the steps listed below it (<glade-story>,
+        build/story.ts; the player is src/story.ts).
+      -->
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="hero-copy container">
           <h1 id="hero-title">A native Mac app for your coding agents.</h1>
           <div class="hero-sub">
-            <p class="lede">Run pi, Claude Code and Codex side by side. Hand work to sub-agents, use local models, and keep up from your iPhone.</p>
+            <p class="lede">Run pi, Claude Code and Codex side by side, with sub-agents, local models and your iPhone as a remote.</p>
             <div class="actions">
               <a class="btn btn--primary" href="#build">Build from source</a>
               <a class="btn" href="https://github.com/jas7457/glade">View on GitHub</a>
             </div>
           </div>
         </div>
-
-        <div class="hero-stage" data-hero>
-          <div class="hero-mouse" data-hero-mouse>
-            <div class="hero-tilt" data-hero-tilt>
-              <div class="window window--hero" data-hero-window>
-                <glade-media name="hero"></glade-media>
-              </div>
-
-              <div class="float float--a" data-depth="1.2" aria-hidden="true">
-                <div class="float-mouse"><div class="float-bob">
-                  <div class="card agent-list">
-                    <div class="agent-row" data-agent-color="teal">
-                      <span class="status status--working"></span><b>Omar</b><span class="muted">tests</span>
-                      <span class="doing">Running <code>pnpm test</code></span><span class="time">0:05</span>
-                    </div>
-                    <div class="agent-row" data-agent-color="violet">
-                      <span class="status status--working"></span><b>Conrad</b><span class="muted">docs</span>
-                      <span class="doing">Editing <code>README.md</code></span><span class="time">0:04</span>
-                    </div>
-                  </div>
-                </div></div>
-              </div>
-
-              <div class="float float--b" data-depth="0.7" aria-hidden="true">
-                <div class="float-mouse"><div class="float-bob">
-                  <div class="card tool-row" data-tone="edit">
-                    <span class="tool-icon"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg></span>
-                    <span>Edited <code>src/util/backoff.ts</code></span>
-                    <span class="diffstat"><ins>+14</ins><del>−2</del></span>
-                  </div>
-                </div></div>
-              </div>
-
-              <div class="float float--c" data-depth="1.6" aria-hidden="true">
-                <div class="float-mouse"><div class="float-bob">
-                  <div class="card palette">
-                    <div class="palette-input"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><span>backoff</span></div>
-                    <div class="palette-row is-active"><span class="dot dot--unread"></span>Retry flaky checks with backoff<span class="muted">lantern</span></div>
-                    <div class="palette-row"><span class="dot"></span>Notifier fixes<span class="muted">bookmark</span></div>
-                  </div>
-                </div></div>
-              </div>
-            </div>
-          </div>
+        <div class="hero-stage container">
+          <glade-story></glade-story>
         </div>
       </section>
 
       <!--
-        Features. Each stage shows the focus asset (just the part that matters, large) in front of
-        the whole window, which sits behind it dimmed and tilted back with the region outlined
-        (<glade-focus>, build/media.ts). On scroll the region lifts out of the window and comes
-        forward into the sharp focus asset (src/motion/focus.ts).
+        Features. Every panel is one screen: the text on the left, the stage on the right, sized so
+        both fit below the header. A stage shows the focus asset (just the part that matters) in
+        front of the whole window, which sits behind it dimmed and tilted back (<glade-focus>,
+        build/media.ts). On desktop the panel pins while you scroll and the region lifts out of the
+        window into the focus asset (src/motion/focus.ts).
       -->
 
       <!-- 1. Multiple agents -->
       <section class="chapter" id="agents" aria-labelledby="agents-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="agents-title">Every agent in one window.</h2>
-            <div class="chapter-text">
-              <p>pi, Claude Code and Codex live in the same sidebar, and every chat remembers which one it runs on. Glade drives the command-line tools you already have, with your own logins, so their models, thinking levels, permission modes and slash commands become native controls.</p>
-              <p class="aside">Each agent gets its own page in Settings: its default model and thinking level, which models you see, and its version, with a one-click update.</p>
-            </div>
+            <p>pi, Claude Code and Codex live in the same sidebar, and every chat remembers which one it runs on. Glade drives the command-line tools you already have, with your own logins, so their models, thinking levels, permission modes and slash commands become native controls.</p>
+            <p class="aside">Each agent gets its own page in Settings: its default model and thinking level, which models you see, and its version, with a one-click update.</p>
           </div>
-          <glade-focus name="agents" side="right" class="stage-agents">
-            <div class="focus-extra window extra-agents" data-focus-extra><glade-media name="agents-settings-focus"></glade-media></div>
-          </glade-focus>
+          <div class="panel-stage">
+            <glade-focus name="agents" side="right" class="stage-agents">
+              <div class="focus-extra window extra-agents" data-focus-extra><glade-media name="agents-settings-focus"></glade-media></div>
+            </glade-focus>
+          </div>
         </div>
       </section>
 
       <!-- 2. Sub-agents in parallel, and the composer's three ways to send. -->
       <section class="chapter" id="subagents" aria-labelledby="sub-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="sub-title">Hand off the work. Keep talking.</h2>
-            <div class="chapter-text">
-              <p>When an agent delegates, each sub-agent gets a name, a colour and its own tab. Their cards show what every one of them is doing right now, and their reports land back in the chat that started them.</p>
-              <p class="aside">Give sub-agents a cheaper model if you like. When Claude Code or Codex starts its own sub-agents, they show up the same way.</p>
-            </div>
+            <p>When an agent delegates, each sub-agent gets a name, a colour and its own tab. Their cards show what every one of them is doing right now, and their reports land back in the chat that started them.</p>
+            <p class="aside">Give sub-agents a cheaper model if you like. When Claude Code or Codex starts its own sub-agents, they show up the same way.</p>
           </div>
-          <glade-focus name="subagents" side="left"></glade-focus>
-          <div class="chapter-sub">
+          <div class="panel-stage"><glade-focus name="subagents" side="left"></glade-focus></div>
+        </div>
+        <div class="panel panel--sub container" data-panel>
+          <div class="panel-text">
+            <h3>Steer it, queue a follow-up, or ask aside.</h3>
             <p>While an agent works, ↩ steers it, ⌘↩ sends a follow-up for when it's done, and ⌥↩ asks a side question it never sees. Hold ⌘ or ⌥ and the Send button shows which one you'll get.</p>
-            <glade-focus name="composer" side="right"></glade-focus>
           </div>
+          <div class="panel-stage"><glade-focus name="composer" side="right"></glade-focus></div>
         </div>
       </section>
 
       <!-- 3. iPhone app + remote access: the Mac's connections in front of its window, the phones beside them. -->
-      <section class="chapter chapter--remote" id="iphone" aria-labelledby="iphone-title" data-remote>
-        <div class="container">
-          <div class="chapter-head">
+      <section class="chapter chapter--remote" id="iphone" aria-labelledby="iphone-title">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="iphone-title">Your Mac does the work. Your iPhone keeps up.</h2>
-            <div class="chapter-text">
-              <p>The iPhone app pairs with your Macs and shows every chat from all of them in one list. Read along, steer, answer a permission card, start a new chat: the agents keep running on the Mac whose files they are. Macs can use each other the same way, so a MacBook can work in the projects on a Mac Studio.</p>
-              <p class="aside">Remote access runs over Tailscale on your private tailnet, over HTTPS and never on the public internet. Every new device needs your Allow, and you can revoke one at any time.</p>
-            </div>
+            <p>The iPhone app pairs with your Macs and shows every chat from all of them in one list. Read along, steer, answer a permission card, start a new chat: the agents keep running on the Mac whose files they are. Macs can use each other the same way, so a MacBook can work in the projects on a Mac Studio.</p>
+            <p class="aside">Remote access runs over Tailscale on your private tailnet, over HTTPS and never on the public internet. Every new device needs your Allow, and you can revoke one at any time.</p>
           </div>
-          <glade-focus name="remote" side="left" back="60" front="54" class="stage-remote">
-            <div class="phone phone--list" data-remote-list><glade-media name="iphone-list"></glade-media></div>
-            <div class="phone phone--chat" data-remote-chat><glade-media name="iphone-chat"></glade-media></div>
-          </glade-focus>
+          <div class="panel-stage">
+            <glade-focus name="remote" side="left" back="60" front="54" class="stage-remote">
+              <div class="phone phone--list" data-focus-extra><glade-media name="iphone-list"></glade-media></div>
+              <div class="phone phone--chat" data-focus-extra><glade-media name="iphone-chat"></glade-media></div>
+            </glade-focus>
+          </div>
         </div>
       </section>
 
       <!-- 4. Local models -->
       <section class="chapter" id="local-models" aria-labelledby="local-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="local-title">Local models, on your terms.</h2>
-            <div class="chapter-text">
-              <p>Glade works with llama.cpp's <code>llama-server</code> on your Mac. See what's loaded, how much memory it takes and which chats use it, and load or unload models from the Mac, another Mac or your phone. Loaded models appear in pi's model picker.</p>
-              <p class="aside">Glade never downloads or unloads a model by itself.</p>
-            </div>
+            <p>Glade works with llama.cpp's <code>llama-server</code> on your Mac. See what's loaded, how much memory it takes and which chats use it, and load or unload models from the Mac, another Mac or your phone. Loaded models appear in pi's model picker.</p>
+            <p class="aside">Glade never downloads or unloads a model by itself.</p>
           </div>
-          <glade-focus name="local-models" side="right"></glade-focus>
+          <div class="panel-stage"><glade-focus name="local-models" side="right"></glade-focus></div>
         </div>
       </section>
 
       <!-- 5. Worktrees + the changes panel -->
       <section class="chapter" id="worktrees" aria-labelledby="worktrees-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="worktrees-title">A worktree per chat. A diff before you commit.</h2>
-            <div class="chapter-text">
-              <p>Start a chat in its own git worktree and branch, and bring your uncommitted changes along if you want. The changes panel lists every changed file with its diff: discard what you don't want and commit with a generated message.</p>
-              <p class="aside">Deleting a worktree chat asks whether to keep its branch, merge it or discard it.</p>
-            </div>
+            <p>Start a chat in its own git worktree and branch, and bring your uncommitted changes along if you want. The changes panel lists every changed file with its diff: discard what you don't want and commit with a generated message.</p>
+            <p class="aside">Deleting a worktree chat asks whether to keep its branch, merge it or discard it.</p>
           </div>
-          <glade-focus name="worktrees" side="left"></glade-focus>
+          <div class="panel-stage"><glade-focus name="worktrees" side="left"></glade-focus></div>
         </div>
       </section>
 
       <!-- 6. Search, ⌘K and bookmarks -->
       <section class="chapter" id="search" aria-labelledby="search-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="search-title">Find anything you've talked about.</h2>
-            <div class="chapter-text">
-              <p>⌘K jumps to any chat, project or action, and searches inside every conversation, opening right at the matching message. Can't remember the words? Describe the chat and a fast model picks it out.</p>
-            </div>
+            <p>⌘K jumps to any chat, project or action, and searches inside every conversation, opening right at the matching message. Can't remember the words? Describe the chat and a fast model picks it out.</p>
           </div>
-          <glade-focus name="search" side="right"></glade-focus>
-          <div class="chapter-sub">
-            <p>Bookmark the replies worth keeping (⌘D). They get a ribbon, and you find them again from the chat header or ⌘K, or reference one in your next message.</p>
-            <glade-focus name="bookmarks" side="left" front="80"></glade-focus>
+          <div class="panel-stage"><glade-focus name="search" side="right"></glade-focus></div>
+        </div>
+        <div class="panel panel--sub container" data-panel>
+          <div class="panel-text">
+            <h3>Keep the replies worth keeping.</h3>
+            <p>Bookmark a reply with ⌘D. It gets a ribbon, and you find it again from the chat header or ⌘K, or reference it in your next message.</p>
           </div>
+          <div class="panel-stage"><glade-focus name="bookmarks" side="left" front="80"></glade-focus></div>
         </div>
       </section>
 
       <!-- 7. Terminal -->
       <section class="chapter" id="terminal" aria-labelledby="terminal-title">
-        <div class="container">
-          <div class="chapter-head">
+        <div class="panel container" data-panel>
+          <div class="panel-text">
             <h2 id="terminal-title">A terminal beside the chat.</h2>
-            <div class="chapter-text">
-              <p>Press ⌃` for a shell in the chat's folder, in a tab next to your conversations. It runs on the chat's Mac, keeps its output when you switch tabs, and asks before closing something that's still running.</p>
-              <p class="aside">Or type <code>!command</code> in the message box: it runs in the chat's folder and the agent sees the output.</p>
-            </div>
+            <p>Press ⌃` for a shell in the chat's folder, in a tab next to your conversations. It runs on the chat's Mac, keeps its output when you switch tabs, and asks before closing something that's still running.</p>
+            <p class="aside">Or type <code>!command</code> in the message box: it runs in the chat's folder and the agent sees the output.</p>
           </div>
-          <glade-focus name="terminal" side="right" front="80"></glade-focus>
+          <div class="panel-stage"><glade-focus name="terminal" side="right" front="80"></glade-focus></div>
         </div>
       </section>
 
       <!-- 8. Voice mode on the iPhone: the voice view, and the same moment minimized into the chat. -->
-      <section class="chapter chapter--voice" id="voice" aria-labelledby="voice-title" data-voice>
-        <div class="container voice-layout">
-          <div class="chapter-copy">
+      <section class="chapter chapter--voice" id="voice" aria-labelledby="voice-title">
+        <div class="panel container" data-panel data-voice>
+          <div class="panel-text">
             <h2 id="voice-title">Talk it through.</h2>
             <p>Voice mode on the iPhone listens, sends when you pause, and reads the reply aloud as it's written, highlighting each word. Talk over it to interrupt, and answer the agent's questions by voice.</p>
             <p class="aside">Minimize it and the highlight follows along in the chat while it keeps listening. Speech recognition and voices are Apple's own, on the device. No extra accounts or keys.</p>
           </div>
-          <div class="voice-phones">
-            <div class="phone phone--voice-chat" data-voice-back><glade-media name="iphone-voice-chat"></glade-media></div>
-            <div class="phone phone--voice" data-voice-front><glade-media name="iphone-voice"></glade-media></div>
+          <div class="panel-stage">
+            <div class="voice-phones" data-voice-stage>
+              <div class="phone phone--voice-chat" data-voice-back><glade-media name="iphone-voice-chat"></glade-media></div>
+              <div class="phone phone--voice" data-voice-front><glade-media name="iphone-voice"></glade-media></div>
+            </div>
           </div>
         </div>
       </section>
