@@ -17,6 +17,7 @@ import { projects, sessions, workspaces } from "@glade/app-core/state/store";
 import { closedProjects } from "@glade/app-core/state/ui";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { Sidebar } from "./Sidebar";
+import { agentVersions } from "@glade/app-core/state/agent-versions";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 
 function renderSidebar(path = "/") {
@@ -47,6 +48,17 @@ describe("Sidebar", () => {
       makeWorkspace({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, pinOrder: 0, status: "unread", unread: true }),
       makeWorkspace({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
     ];
+  });
+
+  it("puts a dot on Settings when one of this Mac's agents has an update (I-210)", async () => {
+    agentVersions.value = new Map();
+    renderSidebar();
+    expect(screen.queryByLabelText("Agent update available")).toBeNull();
+    agentVersions.value = new Map([
+      ["", { checking: false, agents: [{ harness: "pi", installed: "1.0.0", latest: "1.1.0", state: "behind", checkedAt: null, updateCommand: "pi update self", update: null }] }],
+    ]);
+    expect(await screen.findByLabelText("Agent update available")).toBeTruthy();
+    agentVersions.value = new Map();
   });
 
   it("lists projects in manual order, and chats pinned-first then newest-created first", () => {

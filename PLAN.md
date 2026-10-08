@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-210.
+Next id: I-211.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1373,7 +1373,7 @@ Next id: I-210.
   - Outcome (2026-09-29): 26 real turns on gpt-6-luna (low effort; account now "plus", 0% used). Passed: limits/gauge, Agents page, models + descriptions, thinking levels, modes + Shift+Tab, agent badge, `/review` + 39 skills, `!`/`!!` (+ Stop), resume after restart (model remembers), delete (threads incl. sub-agent threads), streaming reply + context meter, shared `!` output seen by the model, approval card wording + Esc, new-file content and edit diffs, steering + queued follow-up, Stop, `/review`, `/compact`, a skill, Read only / Full access.
     - Fixed: Stop now terminates the stopped turn's still-running commands (Codex kept them running); commands show without the `/bin/zsh -lc` wrapper; Glade's tools under Codex live in a `glade` namespace with a developer note (GPT-6 forces Codex's own multi-agent v2, whose `spawn_agent` shadowed Glade's; `features.multi_agent=false` still set for older models); Codex's own sub-agents show as a card + "finished: …" notice; `GLADE_CODEX_TRACE=<file>`.
     - Gaps: no plan card with GPT-6 in default mode (needs Codex's experimental collaboration/plan modes); with a plain "spawn a sub-agent" prompt GPT-6 still picks Codex's own tool (native tabs: F-028); mode switches apply from the next turn; no "ultra" level; a rejected call still reads green "Ran"; reasoning display not seen for real (none at low effort); "don't ask again" writes Codex's permanent `~/.codex/rules/default.rules` (as its TUI does).
-- [ ] **I-180** Conversation mode on the iPhone: hands-free voice with Apple voices (promoted from F-012) — `iphone`
+- [x] **I-180** Conversation mode on the iPhone: hands-free voice with Apple voices (promoted from F-012) — `iphone` (2026-10-05)
   - Reported: 2026-09-29 — asked what a conversation (voice) mode would take, without starting it. Then: iPhone first, hands-free, Apple voices only. Answers to the lead's questions: only with the screen on, and keep the screen awake during voice mode; while the agent works, play something every so often so the user knows it's still going; defaults for the rest. Then gave the go.
   - Decisions (user + lead defaults the user accepted):
     - iPhone only for now; Apple on-device speech recognition and Apple voices only (no cloud, no keys, free).
@@ -1386,6 +1386,7 @@ Next id: I-210.
     - While the agent works: a soft cue when it starts, then a gentle periodic cue so the user knows it's still working.
   - Plan: contract `apps/iphone/src/voice/engine.ts` (lead); worker A the native side (a Tauri iOS plugin: speech recognition with partial results and end-of-speech, synthesis with word boundaries, voice list, audio session with voice processing for barge-in, keep-awake, mic/speech permissions); worker B the voice view, the conversation state machine, reading text, voice permission answers, cues, settings, against a fake engine. Real voice testing is the user's, on the phone.
 
+  - Outcome (2026-10-05): the user considers it working on the iPhone; ticked. Device-only aspects listed below were not separately confirmed.
   - Status (2026-09-30): built and merged, **waiting for the user's test on the iPhone** (not ticked).
     - Native (Chiara): Swift Tauri plugin `apps/iphone/src-tauri/plugins/voice`: on-device SFSpeechRecognizer (one task per utterance, silence → final, renewed before the 1-min limit), replies synthesized with `write()` and played through a voice-processing AVAudioEngine so echo cancellation covers them, word events timed from markers against playback, `.playAndRecord`/`.voiceChat`, keep-awake, soft cues generated in code, interruptions/route changes. Simulator: speaking with word timing, stop, voice list (53), cues, both permission prompts. Recognition never ran in the simulator: macOS's microphone prompt for the Simulator was left unanswered, and while it's pending CoreAudio's input init times out and aborts the app (seen by the lead too, 2026-09-30 00:04, `AURemoteIO::Initialize` RPC timeout) — a simulator-only condition.
     - UI (Eunice): fake engine, pure state machine + `Conversation` runner (listening → sending → working with a start cue and a tick every 4.5 s → speaking → listening; barge-in; talking while it works steers/queues), speakable text with a map back to the markdown for the word highlight, permission answers by voice (kind → label → position; "no" asks what to do instead), full-screen voice view, waveform button in the chat composer and New Chat (`sendAccessory` / `startRef` props in app-core), Settings → Voice (Automatic = best installed English voice, grouped voices, preview, rate). Checked in the simulator on the fake engine.
@@ -1542,7 +1543,7 @@ Next id: I-210.
     - **Glade's own flags are reserved:** refuse (clear message under the field) user flags that clash with what Glade passes: pi `--mode`, `--session`/`--no-session`/`--session-dir`, `--model`/`--provider`/`--thinking`, `-p`, `-e` of Glade's extension; Codex's `app-server` arguments; the flags the Claude SDK sets. Harmless ones (`--offline`, extra `--skill` paths, …) pass through.
     - **Wrapper requirements** (help text under the field): it must pass arguments through and leave stdin/stdout untouched (the RPC is JSON lines over stdout; stderr logging is fine), e.g. end with `exec pi "$@"`.
     - **Versions/updates (I-198):** with a custom command in effect, the installed version comes from `<command> --version`; npm/channel "latest" may not apply (a wrapper may pin the pi version).
-  - Open question: with a custom command in effect, hide the Update button, or add an editable "Update command" under Advanced too?
+  - Decided (user, 2026-10-05): with a custom command in effect, **Update runs the agent's updater through that command** (e.g. `devx pi update self` instead of `pi update self`; likewise `<custom> update` for Claude Code and Codex). Version checks also go through it (`<command> --version`). Started.
   - Acceptance: Advanced is off by default with the fields hidden; Advanced on + `mywrapper pi` saved → new pi chats start via `mywrapper pi … --mode rpc` (test with a fake wrapper script that execs a fake pi); Advanced off → `pi` again while `mywrapper pi` stays saved and comes back when switched on; clashing flags are refused; same for Claude Code and Codex; desktop and iPhone (view only) show it correctly.
 
 - [x] **I-202** Sidebar: free drag-to-reorder of chats and folders inside a project (and in the standalone Chats section), into, out of and within folders — `shell` (2026-10-05)
@@ -1658,6 +1659,10 @@ Next id: I-210.
     - `terminal` (image): a terminal tab next to a chat.
     - `composer` (video, optional): the Send button changing with ⌘/⌥.
   - Workstreams: (A) demo mode + capture scripts (realistic scripted chats, a demo sandbox, scripted screenshots/videos incl. the iPhone simulator); (B) the site itself (static, built from `site/`, GSAP motion, placeholders until A's media lands, a Pages workflow); (C, lead) LICENSE, README + CONTRIBUTING once media exists, enabling Pages.
+
+- [x] **I-210** Sidebar Settings dot also lights up for agent updates — `shell` (2026-10-05)
+  - Reported: 2026-10-05 — the user wants the dot on Settings in the sidebar to show when one of this Mac's agents (pi, Claude Code, Codex) has an update, not only when Glade itself does.
+  - Outcome (2026-10-05): `Sidebar.tsx` shows the Settings dot when `updateAvailable` or `agentsBehind(null) > 0` (label "Agent update available" when only an agent is behind); test in `Sidebar.test.tsx`.
 
 ## Future features
 

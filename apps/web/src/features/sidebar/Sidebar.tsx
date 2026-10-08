@@ -18,6 +18,7 @@ import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
 import { reorderProjects } from "@glade/app-core/state/actions";
 import { primaryEnvironmentId } from "@glade/app-core/state/env-registry";
 import { updateAvailable } from "@glade/app-core/state/version";
+import { agentsBehind } from "@glade/app-core/state/agent-versions";
 import { SettingsNav } from "@/features/settings";
 import { DownEnvironmentRows } from "@/features/environments/DownEnvironmentRows";
 import { ChatList, listArea } from "./ChatList";
@@ -126,7 +127,12 @@ export function Sidebar() {
               icon={<SettingsIcon />}
               label="Settings"
               // I-149: a quiet dot when a newer Glade is on main (Settings → General says more).
-              badge={updateAvailable.value ? <StatusDot tone="info" label="Update available" /> : undefined}
+              badge={
+                // Glade itself or one of this Mac's agents (I-210) has an update.
+                updateAvailable.value || agentsBehind(null).value > 0 ? (
+                  <StatusDot tone="info" label={updateAvailable.value ? "Update available" : "Agent update available"} />
+                ) : undefined
+              }
               onSelect={() => navigate(routes.settings())}
               trailing={<Kbd keys="⌘," class="border-0 bg-transparent" />}
             />

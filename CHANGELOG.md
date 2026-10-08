@@ -251,6 +251,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The Settings dot in the sidebar also shows when pi, Claude Code or Codex has an update.
+
 - Glade is now a public repo at github.com/jas7457/glade, with a cleaned-up history. Existing clones
   need to be re-cloned (or reset to the new `main`). The Mac app's id is now
   `io.github.jas7457.glade`: after updating, pair your other Macs and the iPhone again, and macOS
