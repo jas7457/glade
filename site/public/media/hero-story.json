@@ -1,0 +1,72 @@
+{
+  "width": 1440,
+  "height": 900,
+  "duration": 22.55,
+  "steps": [
+    {
+      "id": "agent",
+      "label": "Pick an agent",
+      "caption": "A new chat: pick the agent (pi, Claude Code or Codex), its model and how hard it thinks.",
+      "start": 0,
+      "end": 3.49,
+      "rect": {
+        "x": 478,
+        "y": 310,
+        "w": 745,
+        "h": 201
+      }
+    },
+    {
+      "id": "ask",
+      "label": "Ask",
+      "caption": "Ask in your own words, about your own project.",
+      "start": 3.49,
+      "end": 9.05,
+      "rect": {
+        "x": 478,
+        "y": 417,
+        "w": 745,
+        "h": 94
+      }
+    },
+    {
+      "id": "sidebar",
+      "label": "It shows up in the sidebar",
+      "caption": "The chat appears at the top of its project and names itself.",
+      "start": 9.05,
+      "end": 11.4,
+      "rect": {
+        "x": 6,
+        "y": 130,
+        "w": 247,
+        "h": 34
+      }
+    },
+    {
+      "id": "work",
+      "label": "Watch it work",
+      "caption": "It thinks, reads, checks the query plan and edits the file, each step as it happens.",
+      "start": 11.4,
+      "end": 18.83,
+      "rect": {
+        "x": 478,
+        "y": 66,
+        "w": 745,
+        "h": 745
+      }
+    },
+    {
+      "id": "done",
+      "label": "Done",
+      "caption": "A short summary of what changed; the diff is one click away.",
+      "start": 18.83,
+      "end": 22.55,
+      "rect": {
+        "x": 478,
+        "y": 656,
+        "w": 745,
+        "h": 136
+      }
+    }
+  ]
+}

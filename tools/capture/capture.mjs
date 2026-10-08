@@ -13,7 +13,7 @@
  *   pnpm capture --no-iphone-build     reuse the last simulator build
  *
  * Stills are 2880×1800 PNGs (1440×900 CSS px at 2×, dark); videos 1920×1200 WebM + MP4 + poster
- * PNG. The iPhone shots (lib/iphone.mjs) pair the iOS simulator with the same sandbox; `remote`
+ * PNG; `hero-story` 2880×1800 plus hero-story.json (its steps' times and rects). The iPhone shots (lib/iphone.mjs) pair the iOS simulator with the same sandbox; `remote`
  * runs after them so the Mac lists the iPhone. See site/public/media/README.md.
  */
 import { execFileSync } from "node:child_process";
@@ -21,7 +21,7 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { launchBrowser, openWindow, parkMouse, settle } from "./lib/browser.mjs";
+import { launchBrowser, openWindow, parkMouse, settle, VIEWPORT } from "./lib/browser.mjs";
 import { apiClient, REPO_ROOT, startDemoSandbox } from "./lib/sandbox.mjs";
 import { startRecording } from "./lib/video.mjs";
 import { captureIphone } from "./lib/iphone.mjs";
@@ -39,14 +39,14 @@ const results = [];
 /** Focus rects of this run (CSS px of the 1440×900 window), merged into focus.json. */
 const focusRects = {};
 /** Items that record video (2× page); stills render at 3× for sharp focus crops. */
-const VIDEOS = new Set(["hero", "subagents", "search", "composer"]);
+const VIDEOS = new Set(["hero", "subagents", "search", "composer", "hero-story"]);
 let sandbox;
 let api;
 
 /** Every item, in the order they run (live ones change the sandbox, so they come last). */
 const ITEMS = {
   agents, "agents-settings": agentsSettings, "local-models": localModels, worktrees, bookmarks,
-  search, composer, hero, terminal, subagents, iphone, remote,
+  search, composer, hero, terminal, subagents, iphone, remote, "hero-story": heroStory,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -196,10 +196,11 @@ async function worktrees(page) {
     await page.getByText(file, { exact: true }).first().click();
     await page.waitForTimeout(500);
   }
-  // Focus: the changes panel (files + the expanded index.ts diff), down to the start of discord.ts.
+  // Focus: the top of the changes panel (the files and the start of index.ts's diff), no taller
+  // than 16:10 so it fits next to the site's text.
   await still(page, "worktrees", async () => {
     const panel = await smallestWith(page, ["Changes", "discord.ts", "Commit"]);
-    return region(page, [{ x: panel.x, y: panel.y, width: panel.width, height: Math.min(panel.height, 560) }], 0);
+    return region(page, [{ x: panel.x, y: panel.y, width: panel.width, height: Math.min(panel.height, Math.round(panel.width / 1.6)) }], 0);
   });
 }
 
@@ -233,7 +234,12 @@ async function terminal(page) {
       const screen = document.querySelector(".xterm-screen")?.getBoundingClientRect();
       return last && screen ? { x: screen.x, y: screen.y, width: Math.min(screen.width, 860), height: last.bottom - screen.y } : null;
     });
-    return region(page, [rows, page.getByRole("tab", { name: /Terminal/ }).first()], 14, 2);
+    const r = await region(page, [rows, page.getByRole("tab", { name: /Terminal/ }).first()], 14, 2);
+    // Start right of the sidebar's edge and below the header's separator (no dark strips).
+    const tabs = await page.getByRole("tablist").first().boundingBox();
+    const left = Math.ceil(tabs.x) + 1;
+    const top = Math.ceil(tabs.y);
+    return { x: Math.max(r.x, left), y: Math.max(r.y, top), w: r.w - Math.max(0, left - r.x), h: r.h - Math.max(0, top - r.y) };
   });
 }
 
@@ -268,34 +274,177 @@ async function subagents(page) {
   await page.waitForTimeout(500);
   await page.keyboard.press("Enter");
   // (No side pane: it closes when the agents finish, which would move the chat under the focus crop.)
-  // Focus: the agents' cards and the space below them where the reports' summary lands (the
-  // composer is too far down to include without a mostly empty middle).
+  // Focus: the agents' cards and the space below them where the reports' summary lands, about
+  // 16:10 (the composer is too far down to include without a mostly empty middle).
   await page.getByText(/^Three agents are reviewing/).first().waitFor();
   const cards = await smallestWith(page, ["api-review", "sqlite-perf", "server-tests"]);
-  const focus = await region(page, [{ ...cards, height: 470 }], 16);
+  const focus = await region(page, [{ ...cards, height: 440 }], 16);
   await page.waitForTimeout(10_700);
   results.push(...(await rec.stop({ out, name: "subagents", focus })));
   focusRects.subagents = focus;
 }
 
+/** Human typing: ~40 ms a key, a little longer after spaces and punctuation, the same every run. */
+async function typeLikeAPerson(page, text) {
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (const ch of text) {
+    await page.keyboard.type(ch);
+    const pause = 20 + rand() * 26 + (ch === " " ? 16 : 0) + (/[.,?]/.test(ch) ? 110 : 0);
+    await page.waitForTimeout(pause);
+  }
+}
+
+/**
+ * The window tidied for the hero story: three project chats and the two standalone ones (the
+ * other chats deleted: this runs last, in a sandbox that's thrown away), and the repo's
+ * outstanding changes committed so the header's changes count starts from nothing.
+ */
+async function tidyForStory() {
+  const keep = new Set(["retries", "audit", "chart", "percentiles", "abort"].map((k) => chat(k).workspaceId));
+  const all = await api("GET", "/workspaces");
+  for (const w of all) {
+    if (keep.has(w.id)) continue;
+    await api("DELETE", `/workspaces/${w.id}${w.worktree ? "?worktree=discard" : ""}`);
+  }
+  await api("PUT", "/workspaces/order", { projectId: sandbox.demo.projectId, folderId: null, ids: ["retries", "audit", "chart"].map((k) => chat(k).workspaceId) });
+  const git = (...args) => execFileSync("git", args, { cwd: sandbox.demo.repo, stdio: "ignore" });
+  git("add", "-A");
+  try {
+    git("-c", "user.name=Lantern Maintainers", "-c", "user.email=maintainers@lantern.invalid", "commit", "-q", "-m", "Jitter, scheduler and server tests");
+  } catch {
+    // nothing to commit
+  }
+}
+
+/**
+ * The hero story (2× page, 1440×900): an empty New Chat (agent menu opened briefly), a question
+ * typed at a human pace, the chat appearing in the sidebar (quick title, then the generated one),
+ * the reply working (thinking, a tool group opened as its calls come in, an edit's diff) and the
+ * finished answer. Writes `hero-story.{webm,mp4,png}` at 2880×1800 and `hero-story.json`: each
+ * step's time span (seconds into the video) and the rect it's about (CSS px, measured in the page).
+ */
+async function heroStory(page) {
+  await tidyForStory();
+  await open(page, `${sandbox.web}/projects/${sandbox.demo.projectId}`);
+  await parkMouse(page);
+  const steps = [];
+  const agentButton = page.getByRole("button", { name: "Agent: pi" });
+  const textbox = page.getByRole("textbox").first();
+  const composerParts = () => [textbox, page.getByRole("button", { name: "Attach files" }).first(), page.getByRole("button", { name: "Send" }).first()];
+  const rec = await startRecording(page);
+  const at = () => Math.round(rec.elapsed() * 100) / 100;
+
+  // 1. The empty New Chat: the agent menu (pi, Claude Code, Codex) and the model/thinking pickers.
+  await page.waitForTimeout(1300);
+  await agentButton.click();
+  await page.waitForTimeout(350);
+  const menu = await smallestWith(page, ["Claude Code", "Codex"]);
+  const agentRect = await region(page, [agentButton, menu, ...composerParts()], 12);
+  await page.waitForTimeout(1300);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(450);
+  steps.push({ id: "agent", label: "Pick an agent", caption: "A new chat: pick the agent (pi, Claude Code or Codex), its model and how hard it thinks.", start: 0, end: at(), rect: agentRect });
+
+  // 2. The question, typed.
+  const askStart = at();
+  await textbox.click();
+  await parkMouse(page);
+  const askRect = await region(page, composerParts(), 12);
+  await page.waitForTimeout(250);
+  await typeLikeAPerson(page, DEMO_PROMPTS.prune);
+  await page.waitForTimeout(500);
+  steps.push({ id: "ask", label: "Ask", caption: "Ask in your own words, about your own project.", start: askStart, end: at(), rect: askRect });
+
+  // 3. Sent: the chat shows up at the top of the project, then gets its generated title.
+  const sidebarStart = at();
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/\/chats\//, { timeout: 10_000 });
+  const workspaceId = new URL(page.url()).pathname.split("/").filter(Boolean).at(-1);
+  const row = page.locator(`[data-chat-id="${workspaceId}"]`).first();
+  // The reply's thinking and first tool group, opened as they come in (the scenario waits a
+  // moment before thinking, while the title is generated).
+  const transcript = page.locator('[data-testid="transcript-scroll"]');
+  const thinking = transcript.locator(".thinking button").first();
+  const openThinking = thinking.waitFor({ timeout: 15_000 }).then(() => thinking.click());
+  const group = transcript.locator(".tool-group").first();
+  const openGroup = group.waitFor({ timeout: 15_000 }).then(() => group.locator("button").first().click());
+  await row.waitFor();
+  await row.getByText("Speed up pruning old results").waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(500);
+  steps.push({ id: "sidebar", label: "It shows up in the sidebar", caption: "The chat appears at the top of its project and names itself.", start: sidebarStart, end: at(), rect: await region(page, [row], 2) });
+
+  // 4. Working: thinking, the tool group, the edit (opened to show its diff), the checks.
+  const workStart = at();
+  await openThinking;
+  await openGroup;
+  await parkMouse(page);
+  // The edit is the turn's only call outside a group.
+  const editRow = transcript.locator(".tool-call:not(.tool-group .tool-call)").first();
+  await editRow.waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(250);
+  await editRow.locator("button").first().click();
+  await parkMouse(page);
+  const summary = page.getByText(/^Fixed\. The hourly cleanup/).first();
+  await summary.waitFor({ timeout: 30_000 });
+  const turn = await transcript.boundingBox();
+  const column = await page.locator('[data-testid="transcript-scroll"] [data-role="assistant"]').first().boundingBox();
+  steps.push({ id: "work", label: "Watch it work", caption: "It thinks, reads, checks the query plan and edits the file, each step as it happens.", start: workStart, end: at(), rect: await region(page, [{ x: column.x, y: turn.y, width: column.width, height: turn.height }], 12, 0) });
+
+  // 5. Done: the short summary (and the changes count in the header).
+  const doneStart = at();
+  await waitIdle(workspaceId, 30_000);
+  await page.waitForTimeout(2600);
+  const answer = await smallestWith(page, ["Fixed. The hourly cleanup", "Tests pass."]);
+  steps.push({ id: "done", label: "Done", caption: "A short summary of what changed; the diff is one click away.", start: doneStart, end: at(), rect: await region(page, [answer], 12) });
+
+  const duration = at();
+  results.push(...(await rec.stop({ out, name: "hero-story", width: 2880, height: 1800, mp4Bitrate: 12_000_000 })));
+  const file = join(out, "hero-story.json");
+  writeFileSync(file, JSON.stringify({ width: VIEWPORT.width, height: VIEWPORT.height, duration, steps }, null, 2) + "\n");
+  results.push({ path: file, bytes: statSync(file).size });
+}
+
 /** ⌘K: find a chat and a bookmark, then jump to the bookmarked message. */
 async function search(page) {
   await open(page, chatUrl("region"));
+  // Focus: the palette's largest extent while the focus clip runs (it changes size as results
+  // come in), tracked every frame.
+  await page.evaluate(() => {
+    const track = () => {
+      const r = document.querySelector('[role="dialog"]')?.getBoundingClientRect();
+      if (r && r.width && r.height) {
+        const u = window.__paletteBox;
+        window.__paletteBox = u
+          ? { x: Math.min(u.x, r.x), y: Math.min(u.y, r.y), right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) }
+          : { x: r.x, y: r.y, right: r.right, bottom: r.bottom };
+      }
+      requestAnimationFrame(track);
+    };
+    track();
+  });
   const rec = await startRecording(page);
   await page.waitForTimeout(600);
   await page.keyboard.press("Meta+k");
   await page.waitForTimeout(500);
-  await type(page, "backoff", 120);
+  // The focus clip starts once the query has narrowed the list (the empty palette lists
+  // everything and is twice as tall) and ends before the palette closes.
+  await type(page, "back", 120);
+  await page.waitForTimeout(400);
+  await page.evaluate(() => (window.__paletteBox = null));
+  const focusFrom = rec.elapsed();
+  await type(page, "off", 120);
   await page.waitForTimeout(1600);
-  // Focus: the palette with its results.
-  const focus = await region(page, [page.getByRole("dialog").first()], 24);
   await page.keyboard.press("ArrowDown");
   await page.waitForTimeout(500);
   await page.keyboard.press("ArrowDown");
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(900);
+  const focusTo = rec.elapsed();
+  const box = await page.evaluate(() => window.__paletteBox);
+  const focus = await region(page, [{ x: box.x, y: box.y, width: box.right - box.x, height: box.bottom - box.y }], 24);
   await page.keyboard.press("Enter");
   await page.waitForTimeout(3000);
-  results.push(...(await rec.stop({ out, name: "search", focus })));
+  results.push(...(await rec.stop({ out, name: "search", focus, focusFrom, focusTo })));
   focusRects.search = focus;
 }
 
@@ -307,9 +456,12 @@ async function composer(page) {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(1500);
   await type(page, "Also cover a check that's slower than its interval in the test", 0);
-  // Focus: the right end of the composer, where the Send button changes.
-  // Focus: the composer, where the Send button (bottom right) changes.
-  const focus = await region(page, [page.getByRole("textbox").first(), page.getByRole("button", { name: "Attach files" }).first(), page.getByRole("button", { name: /Send|Steer|Follow-up|Queue|Ask/ }).last()], 14);
+  await page.waitForTimeout(600);
+  // Focus: the composer, where the Send button (bottom right) changes, and the agent working
+  // above it (3:1, not a thin strip).
+  const bar = await region(page, [page.getByRole("textbox").first(), page.getByRole("button", { name: "Attach files" }).first(), page.getByRole("button", { name: /Send|Steer|Follow-up|Queue|Ask/ }).last()], 14);
+  const tall = Math.round(bar.w / 3);
+  const focus = { ...bar, y: bar.y + bar.h - tall, h: tall };
   const rec = await startRecording(page);
   await page.waitForTimeout(1000);
   await page.keyboard.down("Meta");

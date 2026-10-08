@@ -156,7 +156,7 @@ describe("the demo's scripts", () => {
     expect(play(files, ["retries", "audit-fix", "chart", "region"])).toEqual([]);
     // The worktree chat starts from that state; the captures continue on main.
     expect(play({ ...files }, ["discord"])).toEqual([]);
-    expect(play(files, ["overlap", "jitter", "docs", "tests", "server-tests"])).toEqual([]);
+    expect(play(files, ["overlap", "jitter", "docs", "tests", "server-tests", "prune"])).toEqual([]);
   });
 
   it("find scenarios by prompt and agent, and sub-agents by task", () => {

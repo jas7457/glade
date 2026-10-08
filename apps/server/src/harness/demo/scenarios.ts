@@ -21,6 +21,8 @@ export interface DemoScenario {
   agent?: DemoAgent["id"];
   /** Chat title (titles are "generated" from it). */
   title: string;
+  /** How long "generating" the title takes (ms; default instant), so the quick title shows first. */
+  titleMs?: number;
   pace: "history" | "live";
   steps: (t: Tools) => DemoStep[];
   /** Played when every sub-agent this turn spawned has reported. */
@@ -608,6 +610,63 @@ const overlap: DemoScenario = {
   ],
 };
 
+/**
+ * The website's hero (`hero-story`): a question asked in a new chat. Short and calm: thinking, one
+ * group of investigation (read, search, query plan), a one-line edit with its diff, a check, and a
+ * short summary. Touches only `src/store.ts`, which no other live scenario edits.
+ */
+const prune: DemoScenario = {
+  id: "prune",
+  agent: "pi",
+  match: /^Every hour the checks stall/,
+  title: "Speed up pruning old results",
+  titleMs: 1600,
+  pace: "live",
+  steps: (t) => [
+    // Time to first token, while the sidebar shows the quick title, then the generated one.
+    { pause: 1500 },
+    {
+      think:
+        "Hourly matches the `setInterval` that calls `store.prune()`. A single `DELETE … WHERE at < ?` taking half a second smells like a full table scan: the only index I know of is `(check_id, at)`, which can't serve a range on `at` alone. Let me confirm with the schema and the query plan.",
+    },
+    { pause: 500 },
+    {
+      tools: [
+        t.read("src/store.ts", { ms: 420 }),
+        t.grep("prune", "src", "src/cli.ts:21:  setInterval(() => store.prune(), 3_600_000).unref();\nsrc/store.ts:52:  prune(): number {\n", 520),
+        t.sh("sqlite3 lantern.db 'EXPLAIN QUERY PLAN DELETE FROM results WHERE at < 0'", "QUERY PLAN\n`--SCAN results\n", 1300),
+      ],
+    },
+    {
+      say: "Found it: `prune()` filters on `at` alone, but the only index starts with `check_id`, so SQLite scans every row (4.3M for a month of results) while holding the write lock. An index on `at` fixes that:",
+    },
+    {
+      tools: [
+        t.edit(
+          "src/store.ts",
+          [
+            {
+              oldText: "      CREATE INDEX IF NOT EXISTS results_check_at ON results (check_id, at);",
+              newText: "      CREATE INDEX IF NOT EXISTS results_check_at ON results (check_id, at);\n      -- prune() deletes by age alone; without this it scans the whole table.\n      CREATE INDEX IF NOT EXISTS results_at ON results (at);",
+            },
+          ],
+          450,
+        ),
+      ],
+    },
+    { say: "Timing the same delete again, then the tests:" },
+    {
+      tools: [
+        t.sh("sqlite3 lantern.db '.timer on' 'DELETE FROM results WHERE at < strftime(\"%s\",\"now\",\"-30 days\")*1000'", "Run Time: real 0.006 user 0.002 sys 0.003\n", 900),
+        t.sh("pnpm test", VITEST([["test/backoff.test.ts", 2, 3], ["test/http.test.ts", 5, 12], ["test/scheduler.test.ts", 1, 9]], "16:20:07"), 1500),
+      ],
+    },
+    {
+      say: "Fixed. The hourly cleanup was scanning the whole `results` table.\n\n- `src/store.ts`: a new index on `at`, created on startup with `IF NOT EXISTS`, so existing databases get it too.\n- Pruning a month of data: **380 ms → 6 ms**, so the checks no longer stall behind it.\n\nTests pass.",
+    },
+  ],
+};
+
 /** Asked out loud in the iPhone's conversation mode: a short spoken answer, no tools. */
 const voice: DemoScenario = {
   id: "voice",
@@ -623,7 +682,7 @@ const voice: DemoScenario = {
   ],
 };
 
-export const DEMO_SCENARIOS: DemoScenario[] = [voice, retries, audit, auditFix, chartFlicker, region, discord, releaseNotes, percentiles, abortTimeout, jitter, review, overlap];
+export const DEMO_SCENARIOS: DemoScenario[] = [voice, retries, audit, auditFix, chartFlicker, region, discord, releaseNotes, percentiles, abortTimeout, jitter, review, overlap, prune];
 
 // ---------------------------------------------------------------------------------------------
 // Sub-agents

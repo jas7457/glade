@@ -10,7 +10,7 @@
  *   await rec.stop({ out: "site/public/media", name: "hero", width: 1920, height: 1200 });
  */
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,9 +59,10 @@ export async function startRecording(page, { quality = 92 } = {}) {
      * Stops and encodes. `from`/`to` (seconds since start) trim the result; `poster` = the first
      * frame. `focus` (CSS px of the viewport, `{ x, y, w, h }`, or a function returning it) also
      * writes `<name>-focus.*`: that region cropped at the recording's full resolution. Returns the
-     * written paths with their sizes.
+     * written paths with their sizes. `focusFrom`/`focusTo` (seconds since start) trim the focus
+     * clip further, e.g. to the time a popover is open.
      */
-    async stop({ out, name, width = 1920, height = 1200, from = 0, to = null, webmCrf = 31, mp4Bitrate = 7_000_000, focus = null }) {
+    async stop({ out, name, width = 1920, height = 1200, from = 0, to = null, webmCrf = 31, mp4Bitrate = 7_000_000, focus = null, focusFrom = null, focusTo = null }) {
       const end = Date.now() / 1000;
       await cdp.send("Page.stopScreencast").catch(() => {});
       await cdp.detach().catch(() => {});
@@ -70,6 +71,7 @@ export async function startRecording(page, { quality = 92 } = {}) {
       const t1 = to === null ? end : Math.min(end, started + to);
       const dir = mkdtempSync(join(tmpdir(), `glade-capture-${name}-`));
       const count = Math.max(1, Math.round((t1 - t0) * FPS));
+      if (process.env.GLADE_CAPTURE_DEBUG) console.log(`[capture] ${name}: ${frames.length} screencast frames for ${(t1 - t0).toFixed(1)} s`);
       let k = 0;
       const files = [];
       for (let i = 0; i < count; i++) {
@@ -95,10 +97,18 @@ export async function startRecording(page, { quality = 92 } = {}) {
         const crop = { x: even(focus.x * scale), y: even(focus.y * scale), w: even(focus.w * scale), h: even(focus.h * scale) };
         const base = join(out, `${name}-focus`);
         const vf = `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`;
-        await encodeWebm(files, `${base}.webm`, { vf, crf: webmCrf - 3 });
-        await encodeWebm(files.slice(0, 1), `${base}.png`, { vf, png: true });
+        // Its own span of frames (hard links in a folder of their own, for the MP4 encoder).
+        const offset = t0 - started;
+        const first = focusFrom === null ? 0 : Math.max(0, Math.round((focusFrom - offset) * FPS));
+        const last = focusTo === null ? files.length : Math.min(files.length, Math.round((focusTo - offset) * FPS));
+        const focusFiles = files.slice(first, Math.max(first + 1, last));
+        const focusDir = join(dir, "focus");
+        mkdirSync(focusDir);
+        focusFiles.forEach((f, i) => linkSync(f, join(focusDir, `${String(i).padStart(5, "0")}.jpg`)));
+        await encodeWebm(focusFiles, `${base}.webm`, { vf, crf: webmCrf - 3 });
+        await encodeWebm(focusFiles.slice(0, 1), `${base}.png`, { vf, png: true });
         const bitrate = Math.round(((mp4Bitrate * crop.w * crop.h) / (width * height)) * 1.6);
-        encodeMp4(dir, [String(FPS), String(crop.w), String(crop.h), String(bitrate)], `${base}.mp4`, [crop.x, crop.y, crop.w, crop.h].map(String));
+        encodeMp4(focusDir, [String(FPS), String(crop.w), String(crop.h), String(bitrate)], `${base}.mp4`, [crop.x, crop.y, crop.w, crop.h].map(String));
         written.push(`${base}.webm`, `${base}.mp4`, `${base}.png`);
       }
       rmSync(dir, { recursive: true, force: true });

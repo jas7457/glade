@@ -34,6 +34,8 @@ export const DEMO_PROMPTS = {
   /** Said in the iPhone's conversation mode (iphone-voice). */
   voice: "What's left before we tag 1.0?",
   overlap: "Now fix #3 too: a slow check shouldn't overlap its next run.",
+  /** The website's hero-story: a question asked in a new chat. */
+  prune: "Every hour the checks stall for about half a second while old results are pruned. Can you find out why and fix it?",
   review: "We're about to ship 1.0. Have three agents look at it in parallel: one checks the API for missing input validation, one profiles the SQLite queries, one writes the missing tests for server.ts.",
 };
 

@@ -133,6 +133,7 @@ export class DemoHarness implements AgentHarness {
     const sub = subagentForTask(firstMessage);
     if (sub) return sub.title;
     const scenario = findScenario(firstMessage, this.agent.id);
+    if (scenario?.titleMs) await sleep(scenario.titleMs);
     if (scenario) return scenario.title;
     const words = firstMessage.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
     return words.length > 48 ? `${words.slice(0, 47)}…` : words;
