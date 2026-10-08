@@ -39,14 +39,14 @@ const results = [];
 /** Focus rects of this run (CSS px of the 1440×900 window), merged into focus.json. */
 const focusRects = {};
 /** Items that record video (2× page); stills render at 3× for sharp focus crops. */
-const VIDEOS = new Set(["hero", "subagents", "search", "composer", "hero-story"]);
+const VIDEOS = new Set(["hero", "subagents", "subagent-tabs", "search", "composer", "hero-story"]);
 let sandbox;
 let api;
 
 /** Every item, in the order they run (live ones change the sandbox, so they come last). */
 const ITEMS = {
   agents, "agents-settings": agentsSettings, "local-models": localModels, worktrees, bookmarks,
-  search, composer, hero, terminal, subagents, iphone, remote, "hero-story": heroStory,
+  search, composer, hero, terminal, subagents, "subagent-tabs": subagentTabs, iphone, remote, "hero-story": heroStory,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -282,6 +282,95 @@ async function subagents(page) {
   await page.waitForTimeout(10_700);
   results.push(...(await rec.stop({ out, name: "subagents", focus })));
   focusRects.subagents = focus;
+}
+
+/**
+ * A sub-agent's own tab (I-212): a new chat sends three sub-agents off (Docker image, health route,
+ * deployment guide); the Docker one's card opens its tab in the side pane (its task, thinking and
+ * tool calls as they happen); a message typed in its composer steers it, and it answers and
+ * adjusts its work. The chat is deleted afterwards (the iPhone list and the hero story don't show
+ * it). Focus: the top of the side pane, its tabs and the conversation, from when the pane opens.
+ */
+async function subagentTabs(page) {
+  await open(page, `${sandbox.web}/projects/${sandbox.demo.projectId}`);
+  await page.getByRole("textbox").first().click();
+  await type(page, DEMO_PROMPTS.deploy, 4);
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/\/chats\//, { timeout: 10_000 });
+  const workspaceId = new URL(page.url()).pathname.split("/").filter(Boolean).at(-1);
+  // A wide side pane (2/3 of the content area), so the sub-agent's conversation reads large.
+  await api("PATCH", `/workspaces/${workspaceId}`, { layout: { subagentPaneSize: 0.66 } });
+  const openDocker = page.locator("[data-agent-color]").first().getByRole("button", { name: /^Open / });
+  await openDocker.waitFor({ timeout: 10_000 });
+  await parkMouse(page);
+  const rec = await startRecording(page);
+  await page.waitForTimeout(1200);
+  await openDocker.click();
+  await parkMouse(page);
+  const pane = page.locator('[data-testid="transcript-scroll"]').nth(1);
+  await pane.waitFor();
+  const focusFrom = rec.elapsed() + 0.25;
+  // The pane keeps its latest lines in the focus region (its top): content is pinned that far above
+  // the composer, as if the conversation were already long; the full window looks the same.
+  await pane.evaluate((el) => {
+    const content = [...el.querySelectorAll("div")].find((d) => d.classList.contains("pt-6") && d.classList.contains("pb-8"));
+    if (content) content.style.paddingBottom = "340px";
+  });
+  // The writes and the build, opened as they come in.
+  const groups = pane.locator(".tool-group");
+  await groups.nth(1).waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(200);
+  await groups.nth(1).locator("button").first().click();
+  // Meanwhile: ask it to keep the database on a volume, typed in its own composer (it gets the
+  // message once the build is done, like a real agent's steer).
+  await page.waitForTimeout(500);
+  await page.getByRole("textbox").last().click();
+  await parkMouse(page);
+  await typeLikeAPerson(page, DEMO_PROMPTS.deployVolume);
+  await page.waitForTimeout(350);
+  await page.keyboard.press("Enter");
+  // Its answer: the thinking (opened), a short reply, then the adjusted work (opened).
+  const thoughts = await pane.locator(".thinking").count();
+  await pane.getByText(DEMO_PROMPTS.deployVolume).waitFor({ timeout: 15_000 });
+  const thinking = pane.locator(".thinking").nth(thoughts);
+  await thinking.waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(150);
+  await thinking.locator("button").first().click();
+  await parkMouse(page);
+  await groups.nth(2).waitFor({ timeout: 15_000 });
+  // Posters (the site's still of the window, and the focus clip's): the message, the answer, the new work.
+  const posterAt = rec.elapsed() + 0.7;
+  await page.waitForTimeout(200);
+  await groups.nth(2).locator("button").first().click();
+  await parkMouse(page);
+  // Until it has reported (its tab stays open: you typed in it), and a moment on its result.
+  await waitSubagentsDone(workspaceId);
+  await page.waitForTimeout(2000);
+  const focus = await focusOfPane(page, pane);
+  results.push(...(await rec.stop({ out, name: "subagent-tabs", focus, focusFrom, posterAt })));
+  focusRects["subagent-tabs"] = focus;
+  await api("DELETE", `/workspaces/${workspaceId}`);
+}
+
+/** Waits until none of a workspace's sub-agents is working (they may stay open). */
+async function waitSubagentsDone(workspaceId, timeoutMs = 40_000) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const detail = await api("GET", `/workspaces/${workspaceId}`);
+    if (!detail.sessions.some((s) => s.kind === "subagent" && s.status === "working")) return;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error(`workspace ${workspaceId}: sub-agents still working`);
+}
+
+/** The side pane from its tabs down, 16:10 (the tallest a focus region gets). */
+async function focusOfPane(page, pane) {
+  const box = await pane.boundingBox();
+  const tabs = await page.getByRole("tablist").last().boundingBox();
+  const x = Math.round(box.x) + 1;
+  const y = Math.round(tabs.y);
+  const w = VIEWPORT.width - x;
+  return { x, y, w, h: Math.round(w / 1.6) };
 }
 
 /** Human typing: ~40 ms a key, a little longer after spaces and punctuation, the same every run. */

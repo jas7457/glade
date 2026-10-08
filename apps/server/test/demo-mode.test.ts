@@ -7,7 +7,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "@glade/protocol";
+import { AGENT_ENV, type AgentEvent } from "@glade/protocol";
 import { harnessMode } from "../src/config.js";
 import { DEMO_AGENTS } from "../src/harness/demo/agents.js";
 import { DemoHarness } from "../src/harness/demo/demo-harness.js";
@@ -134,7 +134,12 @@ describe("the demo's scripts", () => {
       const scenario = DEMO_SCENARIOS.find((s) => s.id === key) ?? DEMO_SUBAGENTS.find((s) => s.name === key);
       if (!scenario) throw new Error(`no script ${key}`);
       const t = toolsFor(DEMO_AGENTS[("agent" in scenario && scenario.agent) || "pi"]);
-      const steps = [...scenario.steps(t), ...("afterReports" in scenario && scenario.afterReports ? scenario.afterReports(t) : [])];
+      const steps = [
+        ...scenario.steps(t),
+        ...("afterReports" in scenario && scenario.afterReports ? scenario.afterReports(t) : []),
+        // A sub-agent's answer to a message typed in its tab (subagent-tabs) edits its own files.
+        ...("onMessage" in scenario && scenario.onMessage ? scenario.onMessage.steps(t) : []),
+      ];
       for (const step of steps) {
         if (!("tools" in step)) continue;
         for (const tool of step.tools) {
@@ -156,7 +161,7 @@ describe("the demo's scripts", () => {
     expect(play(files, ["retries", "audit-fix", "chart", "region"])).toEqual([]);
     // The worktree chat starts from that state; the captures continue on main.
     expect(play({ ...files }, ["discord"])).toEqual([]);
-    expect(play(files, ["overlap", "jitter", "docs", "tests", "server-tests", "prune"])).toEqual([]);
+    expect(play(files, ["overlap", "jitter", "docs", "tests", "server-tests", "deploy", "docker", "healthz", "deploy-docs", "prune"])).toEqual([]);
   });
 
   it("find scenarios by prompt and agent, and sub-agents by task", () => {
@@ -195,6 +200,39 @@ describe("DemoHarness", () => {
     expect(said).toContain("AbortSignal.timeout");
     expect(said).not.toContain(text);
     expect(await harness.generateTitle({ firstMessage: text, cwd: "/", model: null })).toBe("AbortSignal.timeout vs a manual timer");
+  });
+});
+
+describe("steering a demo sub-agent (subagent-tabs)", () => {
+  it("delivers a message typed while it works after its current tool calls, and plays its answer instead of the rest", async () => {
+    const pace = { ...LIVE_PACE, scale: 0.05 };
+    const harness = new DemoHarness(DEMO_AGENTS.pi, { livePace: pace, historyPace: pace });
+    const session = await harness.openSession({ cwd: "/nonexistent-demo-folder", sessionRef: null, env: { [AGENT_ENV.agentName]: "docker" } });
+    const seen: AgentEvent[] = [];
+    session.onEvent((e) => seen.push(e));
+    const docker = DEMO_SUBAGENTS.find((s) => s.name === "docker")!;
+    const task = "Write a multi-stage Dockerfile.";
+    await session.prompt({ text: task });
+    await new Promise((r) => setTimeout(r, 120));
+    const steer = "Also keep the SQLite database on a volume, so the results survive a redeploy.";
+    expect(docker.onMessage!.match.test(steer)).toBe(true);
+    await session.prompt({ text: steer, behavior: "steer" });
+    for (let i = 0; i < 100 && seen.at(-1)?.type !== "run_end"; i++) await new Promise((r) => setTimeout(r, 50));
+    // One run: the message joined it.
+    expect(seen.filter((e) => e.type === "run_start")).toHaveLength(1);
+    const transcript = await session.loadTranscript();
+    const users = transcript.messages.filter((m) => m.role === "user").map((m) => (m.role === "user" ? m.content.map((b) => (b.type === "text" ? b.text : "")).join("") : ""));
+    expect(users).toEqual([task, steer]);
+    // Delivered between messages, never inside a tool call: every call before it has ended.
+    const steerAt = seen.findIndex((e) => e.type === "message_end" && e.message.role === "user" && e.message.content.some((b) => b.type === "text" && b.text === steer));
+    const before = seen.slice(0, steerAt);
+    expect(before.filter((e) => e.type === "tool_start").length).toBe(before.filter((e) => e.type === "tool_end").length);
+    // Its answer replaced the rest of the plan: the reply, and the first smoke test never ran.
+    const text = transcript.messages.flatMap((m) => (m.role === "assistant" ? m.content : [])).map((b) => (b.type === "text" ? b.text : "")).join("\n");
+    expect(text).toContain("Good call.");
+    const commands = seen.flatMap((e) => (e.type === "tool_start" ? [String((e.args as { command?: string } | undefined)?.command ?? "")] : []));
+    expect(commands.some((c) => c.includes("curl -s localhost:7070/healthz"))).toBe(false);
+    expect(commands.some((c) => c.includes("lantern-data:/data"))).toBe(true);
   });
 });
 

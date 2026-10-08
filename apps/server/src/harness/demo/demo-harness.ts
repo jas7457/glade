@@ -8,7 +8,8 @@
  * (the sandbox's demo repo, so the changes panel and worktrees are real), sub-agents spawned
  * through Glade's agent API (each plays its own script and reports with report_done). When every
  * sub-agent of a turn has reported, the parent plays the scenario's closing summary. Prompts run
- * one after another, like a real agent's queue.
+ * one after another, like a real agent's queue; a message typed while a turn runs (steering) is
+ * delivered after its current tool calls, and a sub-agent with an `onMessage` script answers it.
  */
 import {
   applyAgentEvent,
@@ -171,6 +172,8 @@ export class DemoSession implements HarnessSession {
   private running = false;
   /** Sub-agents this session's last spawning turn waits for. */
   private team: PendingTeam | null = null;
+  /** Messages typed while a turn runs (steering), delivered at its next tool boundary. */
+  private steers: PromptRequest[] = [];
 
   constructor(
     private readonly harness: DemoHarness,
@@ -221,7 +224,16 @@ export class DemoSession implements HarnessSession {
   }
 
   async prompt(request: PromptRequest): Promise<void> {
-    // Like a real agent: one turn at a time; steering and follow-ups wait for the current one.
+    // Like a real agent: one turn at a time. A steer (the user typing while it works) joins the
+    // running turn once its current tool calls are done; follow-ups and agent messages wait.
+    if (this.running && request.behavior !== "followUp" && !parseAgentMessage(request.text)) {
+      this.steers.push(request);
+      return;
+    }
+    this.enqueue(request);
+  }
+
+  private enqueue(request: PromptRequest): void {
     this.queue = this.queue.then(() => this.turn(request)).catch((err: Error) => this.harness.options.log?.(`[demo] turn failed: ${err.stack ?? err.message}`));
   }
 
@@ -273,13 +285,33 @@ export class DemoSession implements HarnessSession {
     this.running = true;
     this.emit({ type: "run_start" });
     this.emit({ type: "state", state: { isRunning: true } });
-    const user = { id: this.nextId(), role: "user" as const, content: [...(request.images ?? []).map((i) => ({ type: "image" as const, mimeType: i.mimeType, data: i.data })), { type: "text" as const, text: request.text }], timestamp: 0 };
-    this.emit(this.stamp({ type: "message_start", message: user }));
-    this.emit(this.stamp({ type: "message_end", message: user }));
+    this.emitUser(request);
     await this.play(actions, Date.now() + minMs);
     this.running = false;
     this.emit({ type: "state", state: { isRunning: false, ...this.statsState() } });
     this.emit({ type: "run_end" });
+    // Steers that came too late for this turn (after its last tool call) start the next one.
+    for (const steer of this.steers.splice(0)) this.enqueue(steer);
+  }
+
+  private emitUser(request: PromptRequest): void {
+    const user = { id: this.nextId(), role: "user" as const, content: [...(request.images ?? []).map((i) => ({ type: "image" as const, mimeType: i.mimeType, data: i.data })), { type: "text" as const, text: request.text }], timestamp: 0 };
+    this.emit(this.stamp({ type: "message_start", message: user }));
+    this.emit(this.stamp({ type: "message_end", message: user }));
+  }
+
+  /** A sub-agent's scripted answer to a steer (its `onMessage`), compiled; null to play on as planned. */
+  private steerReply(request: PromptRequest): DemoAction[] | null {
+    const script = DEMO_SUBAGENTS.find((s) => s.name === this.env[AGENT_ENV.agentName]);
+    if (!script?.onMessage?.match.test(request.text)) return null;
+    const steps = script.onMessage.steps(toolsFor(this.harness.agent));
+    return compileTurn(steps, { nextId: this.nextId, files: { read: (p) => this.readFile(p) }, pace: this.paceOf(script.pace), model: this.stored.model });
+  }
+
+  /** Sleeps `ms`, waking early when a steer arrives. */
+  private async steerableSleep(ms: number): Promise<void> {
+    const until = Date.now() + ms;
+    while (!this.steers.length && !this.aborted && Date.now() < until) await sleep(Math.min(100, until - Date.now()));
   }
 
   private paceOf(kind: "history" | "live"): DemoPace {
@@ -289,14 +321,36 @@ export class DemoSession implements HarnessSession {
   /** `reportAt`: a sub-agent doesn't report before then (its "Done · 41s" reads true even when seeded fast). */
   private async play(actions: DemoAction[], reportAt = 0): Promise<void> {
     let sinceYield = 0;
-    for (const action of actions) {
+    const list = [...actions];
+    // A steer is delivered only between messages with no tool call running (like pi's).
+    let streaming = 0;
+    let toolsRunning = 0;
+    const atBoundary = () => streaming === 0 && toolsRunning === 0;
+    for (let i = 0; i < list.length; i++) {
       if (this.aborted) return;
+      if (this.steers.length && atBoundary()) {
+        const steer = this.steers.shift()!;
+        this.emitUser(steer);
+        const reply = this.steerReply(steer);
+        if (reply) list.splice(i, list.length - i, ...reply);
+        if (i >= list.length) break;
+      }
+      const action = list[i]!;
       switch (action.type) {
         case "wait":
           sinceYield = 0;
-          await sleep(action.ms);
+          if (atBoundary()) await this.steerableSleep(action.ms);
+          else await sleep(action.ms);
           break;
         case "emit": {
+          const e = action.event;
+          if (e.type === "message_start" && e.message.role === "assistant") streaming++;
+          if (e.type === "message_end" && e.message.role === "assistant") {
+            streaming--;
+            // Its tool calls count as running from here (before tool_start) until each ends.
+            toolsRunning += e.message.content.filter((b) => b.type === "toolCall").length;
+          }
+          if (e.type === "tool_end") toolsRunning--;
           const event = this.stamp(action.event);
           this.emit(event);
           // Let the server breathe between bursts of instant events.
@@ -389,6 +443,7 @@ export class DemoSession implements HarnessSession {
     this.aborted = true;
     this.running = false;
     this.team = null;
+    this.steers = [];
     this.emit({ type: "state", state: { isRunning: false } });
     this.emit({ type: "run_end" });
   }

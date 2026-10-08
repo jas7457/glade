@@ -85,7 +85,7 @@
         </div>
       </section>
 
-      <!-- 2. Sub-agents in parallel, and the composer's three ways to send. -->
+      <!-- 2. Sub-agents in parallel, one in its own tab (messaged there), and the composer's three ways to send. -->
       <section class="chapter" id="subagents" aria-labelledby="sub-title">
         <div class="panel panel--flip container" data-panel>
           <div class="panel-text">
@@ -97,23 +97,31 @@
         </div>
         <div class="panel panel--sub container" data-panel>
           <div class="panel-text">
+            <h3>Open any sub-agent. Talk to it.</h3>
+            <p>Click an agent's card and it opens in its own tab beside the chat, with its task, its thinking and every tool call as it happens. Type in its tab to steer it or ask it something, and it answers right there.</p>
+            <p class="aside">Sub-agents close their tab when they report back. One you've written to stays open, so you can keep going.</p>
+          </div>
+          <div class="panel-stage"><glade-focus name="subagent-tabs" side="right"></glade-focus></div>
+        </div>
+        <div class="panel panel--flip panel--sub container" data-panel>
+          <div class="panel-text">
             <h3>Steer it, queue a follow-up, or ask aside.</h3>
             <p>While an agent works, ↩ steers it, ⌘↩ sends a follow-up for when it's done, and ⌥↩ asks a side question it never sees. Hold ⌘ or ⌥ and the Send button shows which one you'll get.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="composer" side="right"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="composer" side="left"></glade-focus></div>
         </div>
       </section>
 
       <!-- 3. iPhone app + remote access: the Mac's connections in front of its window, the phones beside them. -->
       <section class="chapter chapter--remote" id="iphone" aria-labelledby="iphone-title">
-        <div class="panel panel--flip container" data-panel>
+        <div class="panel container" data-panel>
           <div class="panel-text">
             <h2 id="iphone-title">Your Mac does the work. Your iPhone keeps up.</h2>
             <p>The iPhone app pairs with your Macs and shows every chat from all of them in one list. Read along, steer, answer a permission card, start a new chat: the agents keep running on the Mac whose files they are. Macs can use each other the same way, so a MacBook can work in the projects on a Mac Studio.</p>
             <p class="aside">Remote access runs over Tailscale on your private tailnet, over HTTPS and never on the public internet. Every new device needs your Allow, and you can revoke one at any time.</p>
           </div>
           <div class="panel-stage">
-            <glade-focus name="remote" side="left" back="60" front="54" class="stage-remote">
+            <glade-focus name="remote" side="right" back="60" front="54" class="stage-remote">
               <div class="phone phone--list" data-focus-extra><glade-media name="iphone-list"></glade-media></div>
               <div class="phone phone--chat" data-focus-extra><glade-media name="iphone-chat"></glade-media></div>
             </glade-focus>
@@ -123,61 +131,61 @@
 
       <!-- 4. Local models -->
       <section class="chapter" id="local-models" aria-labelledby="local-title">
-        <div class="panel container" data-panel>
+        <div class="panel panel--flip container" data-panel>
           <div class="panel-text">
             <h2 id="local-title">Local models, on your terms.</h2>
             <p>Glade works with llama.cpp's <code>llama-server</code> on your Mac. See what's loaded, how much memory it takes and which chats use it, and load or unload models from the Mac, another Mac or your phone. Loaded models appear in pi's model picker.</p>
             <p class="aside">Glade never downloads or unloads a model by itself.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="local-models" side="right"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="local-models" side="left"></glade-focus></div>
         </div>
       </section>
 
       <!-- 5. Worktrees + the changes panel -->
       <section class="chapter" id="worktrees" aria-labelledby="worktrees-title">
-        <div class="panel panel--flip container" data-panel>
+        <div class="panel container" data-panel>
           <div class="panel-text">
             <h2 id="worktrees-title">A worktree per chat. A diff before you commit.</h2>
             <p>Start a chat in its own git worktree and branch, and bring your uncommitted changes along if you want. The changes panel lists every changed file with its diff: discard what you don't want and commit with a generated message.</p>
             <p class="aside">Deleting a worktree chat asks whether to keep its branch, merge it or discard it.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="worktrees" side="left"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="worktrees" side="right"></glade-focus></div>
         </div>
       </section>
 
       <!-- 6. Search, ⌘K and bookmarks -->
       <section class="chapter" id="search" aria-labelledby="search-title">
-        <div class="panel container" data-panel>
+        <div class="panel panel--flip container" data-panel>
           <div class="panel-text">
             <h2 id="search-title">Find anything you've talked about.</h2>
             <p>⌘K jumps to any chat, project or action, and searches inside every conversation, opening right at the matching message. Can't remember the words? Describe the chat and a fast model picks it out.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="search" side="right"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="search" side="left"></glade-focus></div>
         </div>
-        <div class="panel panel--flip panel--sub container" data-panel>
+        <div class="panel panel--sub container" data-panel>
           <div class="panel-text">
             <h3>Keep the replies worth keeping.</h3>
             <p>Bookmark a reply with ⌘D. It gets a ribbon, and you find it again from the chat header or ⌘K, or reference it in your next message.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="bookmarks" side="left" front="80"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="bookmarks" side="right" front="80"></glade-focus></div>
         </div>
       </section>
 
       <!-- 7. Terminal -->
       <section class="chapter" id="terminal" aria-labelledby="terminal-title">
-        <div class="panel container" data-panel>
+        <div class="panel panel--flip container" data-panel>
           <div class="panel-text">
             <h2 id="terminal-title">A terminal beside the chat.</h2>
             <p>Press ⌃` for a shell in the chat's folder, in a tab next to your conversations. It runs on the chat's Mac, keeps its output when you switch tabs, and asks before closing something that's still running.</p>
             <p class="aside">Or type <code>!command</code> in the message box: it runs in the chat's folder and the agent sees the output.</p>
           </div>
-          <div class="panel-stage"><glade-focus name="terminal" side="right" front="80"></glade-focus></div>
+          <div class="panel-stage"><glade-focus name="terminal" side="left" front="80"></glade-focus></div>
         </div>
       </section>
 
       <!-- 8. Voice mode on the iPhone: the voice view, and the same moment minimized into the chat. -->
       <section class="chapter chapter--voice" id="voice" aria-labelledby="voice-title">
-        <div class="panel panel--flip container" data-panel data-voice>
+        <div class="panel container" data-panel data-voice>
           <div class="panel-text">
             <h2 id="voice-title">Talk it through.</h2>
             <p>Voice mode on the iPhone listens, sends when you pause, and reads the reply aloud as it's written, highlighting each word. Talk over it to interrupt, and answer the agent's questions by voice.</p>

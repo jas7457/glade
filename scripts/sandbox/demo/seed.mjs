@@ -37,6 +37,9 @@ export const DEMO_PROMPTS = {
   /** The website's hero-story: a question asked in a new chat. */
   prune: "Every hour the checks stall for about half a second while old results are pruned. Can you find out why and fix it?",
   review: "We're about to ship 1.0. Have three agents look at it in parallel: one checks the API for missing input validation, one profiles the SQLite queries, one writes the missing tests for server.ts.",
+  /** The website's sub-agent tabs: three sub-agents, then a message typed in one's tab (steering it). */
+  deploy: "Let's make Lantern easy to self-host. Have three agents work on it in parallel: a Dockerfile, a /healthz endpoint for load balancers, and a deployment guide for running it behind a reverse proxy.",
+  deployVolume: "Also keep the SQLite database on a volume, so the results survive a redeploy.",
 };
 
 /** The repo's history before the chats (dates fixed so hashes and ages are stable). */

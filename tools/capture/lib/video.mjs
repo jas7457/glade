@@ -57,12 +57,12 @@ export async function startRecording(page, { quality = 92 } = {}) {
     elapsed: () => Date.now() / 1000 - started,
     /**
      * Stops and encodes. `from`/`to` (seconds since start) trim the result; `poster` = the first
-     * frame. `focus` (CSS px of the viewport, `{ x, y, w, h }`, or a function returning it) also
+     * frame, or the one at `posterAt` (seconds since start; for the focus clip too). `focus` (CSS px of the viewport, `{ x, y, w, h }`, or a function returning it) also
      * writes `<name>-focus.*`: that region cropped at the recording's full resolution. Returns the
      * written paths with their sizes. `focusFrom`/`focusTo` (seconds since start) trim the focus
      * clip further, e.g. to the time a popover is open.
      */
-    async stop({ out, name, width = 1920, height = 1200, from = 0, to = null, webmCrf = 31, mp4Bitrate = 7_000_000, focus = null, focusFrom = null, focusTo = null }) {
+    async stop({ out, name, width = 1920, height = 1200, from = 0, to = null, webmCrf = 31, mp4Bitrate = 7_000_000, focus = null, focusFrom = null, focusTo = null, posterAt = null }) {
       const end = Date.now() / 1000;
       await cdp.send("Page.stopScreencast").catch(() => {});
       await cdp.detach().catch(() => {});
@@ -85,8 +85,10 @@ export async function startRecording(page, { quality = 92 } = {}) {
       const webm = join(out, `${name}.webm`);
       const mp4 = join(out, `${name}.mp4`);
       const poster = join(out, `${name}.png`);
-      // Poster: the first frame, at the video's size.
-      execFileSync("sips", ["-s", "format", "png", "-z", String(height), String(width), files[0], "--out", poster], { stdio: "ignore" });
+      // Poster: the first frame (or the one at `posterAt`), at the video's size.
+      const frameAt = (seconds) => Math.min(files.length - 1, Math.max(0, Math.round((seconds - (t0 - started)) * FPS)));
+      const posterIndex = posterAt === null ? 0 : frameAt(posterAt);
+      execFileSync("sips", ["-s", "format", "png", "-z", String(height), String(width), files[posterIndex], "--out", poster], { stdio: "ignore" });
       await encodeWebm(files, webm, { width, height, crf: webmCrf });
       encodeMp4(dir, [String(FPS), String(width), String(height), String(mp4Bitrate)], mp4);
       const written = [webm, mp4, poster];
@@ -106,7 +108,8 @@ export async function startRecording(page, { quality = 92 } = {}) {
         mkdirSync(focusDir);
         focusFiles.forEach((f, i) => linkSync(f, join(focusDir, `${String(i).padStart(5, "0")}.jpg`)));
         await encodeWebm(focusFiles, `${base}.webm`, { vf, crf: webmCrf - 3 });
-        await encodeWebm(focusFiles.slice(0, 1), `${base}.png`, { vf, png: true });
+        const focusPoster = posterAt === null ? focusFiles[0] : files[Math.max(first, Math.min(posterIndex, first + focusFiles.length - 1))];
+        await encodeWebm([focusPoster], `${base}.png`, { vf, png: true });
         const bitrate = Math.round(((mp4Bitrate * crop.w * crop.h) / (width * height)) * 1.6);
         encodeMp4(focusDir, [String(FPS), String(crop.w), String(crop.h), String(bitrate)], `${base}.mp4`, [crop.x, crop.y, crop.w, crop.h].map(String));
         written.push(`${base}.webm`, `${base}.mp4`, `${base}.png`);

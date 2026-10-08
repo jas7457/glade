@@ -38,6 +38,11 @@ export interface DemoSubagentScript {
   /** Real time before it reports (ms), however fast it's played. */
   minMs?: number;
   steps: (t: Tools) => DemoStep[];
+  /**
+   * A message the user types in its tab while it works (steering): delivered after its current
+   * tool calls, like a real agent's steer, and the rest of its turn becomes these steps.
+   */
+  onMessage?: { match: RegExp; steps: (t: Tools) => DemoStep[] };
 }
 
 /** Tool-call builders in one agent's own vocabulary (pi's `read`, Claude's `Read`, Codex's `shell`). */
@@ -113,6 +118,103 @@ ${files.map(([f, n, ms]) => ` ✓ ${f} (${n} test${n === 1 ? "" : "s"}) ${ms}ms`
    Duration  ${380 + files.length * 41}ms (transform 92ms, setup 0ms, collect 140ms, tests 31ms, environment 0ms, prepare 64ms)
 `;
 };
+
+const DOCKERFILE = `# syntax=docker/dockerfile:1
+
+# Build: the server, the dashboard and better-sqlite3's native module.
+FROM node:22-bookworm AS build
+WORKDIR /app
+RUN corepack enable
+COPY package.json ./
+RUN pnpm install
+COPY . .
+RUN pnpm build && pnpm prune --prod
+
+# Run: only the compiled app and its production dependencies.
+FROM node:22-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/package.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+USER node
+EXPOSE 7070
+HEALTHCHECK --interval=30s --timeout=3s \\
+  CMD node -e "fetch('http://localhost:7070/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+CMD ["node", "/app/dist/cli.js", "serve", "--config", "/app/lantern.config.json"]
+`;
+
+const DOCKER_BUILD = (seconds: string) => `[+] Building ${seconds}s (16/16) FINISHED                          docker:desktop-linux
+ => [internal] load build definition from Dockerfile                        0.0s
+ => [internal] load metadata for docker.io/library/node:22-bookworm-slim    0.9s
+ => [build 2/7] WORKDIR /app                                                0.0s
+ => [build 4/7] RUN pnpm install                                           19.4s
+ => [build 6/7] COPY . .                                                    0.1s
+ => [build 7/7] RUN pnpm build && pnpm prune --prod                        14.2s
+ => [stage-1 3/5] COPY --from=build /app/node_modules ./node_modules        0.6s
+ => [stage-1 4/5] COPY --from=build /app/dist ./dist                        0.1s
+ => exporting to image                                                      1.2s
+ => => naming to docker.io/library/lantern:dev                              0.0s
+`;
+
+const HEALTHZ_TEST_TS = `import { describe, expect, it } from "vitest";
+import { createServer } from "../src/server.js";
+
+const config = { port: 0, dbPath: ":memory:", notify: [], checks: [{ id: "api", name: "API", url: "https://api.test", intervalSec: 30, timeoutMs: 1000 }] };
+
+describe("/healthz", () => {
+  it("is ok while the database answers", async () => {
+    const app = createServer(config, { uptime: () => 1 } as any);
+    const res = await app.request("/healthz");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, checks: 1 });
+  });
+
+  it("answers 503 when the database fails", async () => {
+    const app = createServer(config, { uptime: () => { throw new Error("database is locked"); } } as any);
+    expect((await app.request("/healthz")).status).toBe(503);
+  });
+});
+`;
+
+const DEPLOY_MD = `# Deploying Lantern
+
+## Docker
+
+\`\`\`bash
+docker build -t lantern .
+docker run -d --name lantern -p 7070:7070 \\
+  -v lantern-data:/data \\
+  -v ./lantern.config.json:/data/lantern.config.json:ro \\
+  lantern
+\`\`\`
+
+Results are kept in \`/data/lantern.db\`. Use a named volume (or a folder writable by uid 1000).
+
+## Behind a reverse proxy
+
+Caddy gets a certificate on its own:
+
+\`\`\`
+status.example.com {
+  reverse_proxy localhost:7070
+}
+\`\`\`
+
+nginx: proxy to \`http://127.0.0.1:7070\` and turn off buffering for \`/api/checks/\`, so the
+live chart's event stream isn't held back (\`proxy_buffering off;\`).
+
+Load balancers and uptime probes should use \`GET /healthz\`: 200 while the database answers.
+
+## Backups
+
+\`\`\`bash
+docker run --rm -v lantern-data:/data -v "$PWD":/backup alpine/sqlite \\
+  /data/lantern.db ".backup /backup/lantern.db"
+\`\`\`
+
+\`.backup\` is safe while Lantern is writing; copying the file directly is not.
+`;
 
 // ---------------------------------------------------------------------------------------------
 // History: seeded chats
@@ -682,7 +784,46 @@ const voice: DemoScenario = {
   ],
 };
 
-export const DEMO_SCENARIOS: DemoScenario[] = [voice, retries, audit, auditFix, chartFlicker, region, discord, releaseNotes, percentiles, abortTimeout, jitter, review, overlap, prune];
+/**
+ * The website's sub-agent tabs (`subagent-tabs`): three sub-agents get Lantern ready to self-host.
+ * The capture opens the Docker one's tab and asks it to keep the database on a volume (its
+ * `onMessage`). New files only, plus one route in `src/server.ts`, so it doesn't collide with the
+ * other live scenarios.
+ */
+const deploy: DemoScenario = {
+  id: "deploy",
+  agent: "pi",
+  match: /^Let's make Lantern easy to self-host/,
+  title: "Self-hosting: Docker, health check, guide",
+  pace: "live",
+  steps: () => [
+    {
+      think:
+        "Three pieces with no files in common: the image (Dockerfile + .dockerignore), the health route in src/server.ts with a test, and docs/deploy.md. They can run side by side. The guide and the image both depend on the route's path, so I'll fix it as /healthz in every brief.",
+    },
+    {
+      spawn: [
+        { name: "docker", task: "Write a multi-stage Dockerfile and .dockerignore for Lantern (better-sqlite3 needs build tools, but only in the build stage). Run as non-root on port 7070 with a HEALTHCHECK on GET /healthz. Build and smoke-test it." },
+        { name: "healthz", task: "Add GET /healthz to src/server.ts for load balancers and container health checks: 200 with { ok: true } while the database answers, 503 otherwise. Add a test in test/healthz.test.ts and run the suite." },
+        { name: "deploy-docs", task: "Write docs/deploy.md: running Lantern with Docker, behind Caddy or nginx (TLS, the /healthz route for health checks), and backing up the SQLite database. Link it from the README." },
+      ],
+    },
+    { say: "Three agents are on it: the Docker image, the health check route and the deployment guide. I'll make sure the pieces fit together when they report." },
+  ],
+  afterReports: () => [
+    {
+      say: `Lantern is ready to self-host:
+
+- **Docker image**: a multi-stage \`Dockerfile\` on \`node:22-bookworm-slim\`, running as a non-root user (148 MB). As you asked, results and config live on a \`/data\` volume, so they survive a redeploy.
+- **Health check**: \`GET /healthz\` answers 200 while the database responds and 503 otherwise; the image's \`HEALTHCHECK\` uses it. Two new tests, all passing.
+- **Guide**: \`docs/deploy.md\` covers Docker, Caddy and nginx, health checks and SQLite backups, and the README links to it.
+
+One thing to know: the image runs as \`node\` (uid 1000), so a bind-mounted \`/data\` folder must be writable by that user. A named volume just works.`,
+    },
+  ],
+};
+
+export const DEMO_SCENARIOS: DemoScenario[] = [voice, retries, audit, auditFix, chartFlicker, region, discord, releaseNotes, percentiles, abortTimeout, jitter, review, overlap, prune, deploy];
 
 // ---------------------------------------------------------------------------------------------
 // Sub-agents
@@ -866,6 +1007,112 @@ describe("server", () => {
       },
       { tools: [t.sh("pnpm test", VITEST([["test/backoff.test.ts", 2, 3], ["test/http.test.ts", 5, 12], ["test/scheduler.test.ts", 1, 9], ["test/server.test.ts", 4, 18]], "16:02:11"), 2300)] },
       { report: "Added test/server.test.ts: list, history, limit and unknown-check 404 (plus the empty-store case inline). All 16 tests pass." },
+    ],
+  },
+  {
+    name: "docker",
+    title: "Docker image",
+    pace: "live",
+    steps: (t) => [
+      {
+        think:
+          "better-sqlite3 compiles a native module on install, so the build stage needs the full Node image with python3, make and g++, while the runtime image only needs dist/ and the production node_modules. Let me check the build script and how the CLI starts.",
+      },
+      { tools: [t.read("package.json", { ms: 500 }), t.read("src/cli.ts", { ms: 650 })] },
+      { say: "`pnpm build` compiles the server and the dashboard into `dist/`, and `serve` reads a config file. Two stages: build everything in the full image, run from a slim one as a non-root user." },
+      { tools: [t.write("Dockerfile", DOCKERFILE, 700)] },
+      { tools: [t.write(".dockerignore", "node_modules\ndist\n*.db\n*.db-*\n.git\nlantern.config.json\n", 400)] },
+      { tools: [t.sh("docker build -t lantern:dev .", DOCKER_BUILD("41.8"), 4600)] },
+      { tools: [t.sh("docker run --rm -d -p 7070:7070 lantern:dev && sleep 3 && curl -s localhost:7070/healthz", '3f9c1e07b2d4\n{"ok":true,"checks":1}\n', 1600)] },
+      { report: "Dockerfile (multi-stage: node:22-bookworm builds incl. better-sqlite3, node:22-bookworm-slim runs as `node`, EXPOSE 7070, HEALTHCHECK on /healthz) and .dockerignore. Image 148 MB; a container answers /healthz with 200." },
+    ],
+    onMessage: {
+      match: /volume/i,
+      steps: (t) => [
+        {
+          think:
+            "Right: dbPath defaults to lantern.db in the working directory, which is /app inside the container, so a redeploy starts with an empty history. If the container runs from /data and /data is a volume, the database and its WAL files persist, and the config can live next to them.",
+        },
+        { say: "Good call. `dbPath` defaults to `lantern.db` in the working directory, which is inside the container, so a redeploy would wipe the history. I'll run Lantern from a `/data` volume and check that the database survives a new container." },
+        {
+          tools: [
+            t.edit(
+              "Dockerfile",
+              [
+                {
+                  oldText: "USER node\nEXPOSE 7070",
+                  newText: "# Results and config live on a volume, so they survive a redeploy.\nRUN mkdir /data && chown node:node /data\nVOLUME /data\nWORKDIR /data\nUSER node\nEXPOSE 7070",
+                },
+                { oldText: '"--config", "/app/lantern.config.json"]', newText: '"--config", "/data/lantern.config.json"]' },
+              ],
+              600,
+            ),
+          ],
+        },
+        { tools: [t.sh("docker build -t lantern:dev .", DOCKER_BUILD("3.1"), 1800)] },
+        {
+          tools: [
+            t.sh(
+              "docker run -d --name a -v lantern-data:/data lantern:dev && sleep 3 && docker rm -f a && docker run --rm -v lantern-data:/data lantern:dev ls /data",
+              "9b02d7c4e1f8\na\nlantern.config.json\nlantern.db\nlantern.db-shm\nlantern.db-wal\n",
+              1700,
+            ),
+          ],
+        },
+        { report: "Dockerfile (multi-stage, node:22-bookworm-slim, runs as `node`, HEALTHCHECK on /healthz) and .dockerignore. As the user asked in my tab, the database lives on a /data volume (WORKDIR + VOLUME /data, config read from /data/lantern.config.json): checked that lantern.db survives removing the container. Image 148 MB." },
+      ],
+    },
+  },
+  {
+    name: "healthz",
+    title: "Health check route",
+    pace: "live",
+    steps: (t) => [
+      { think: "A health route should be cheap and say whether the process can do its job: if the database answers a trivial query, it's healthy." },
+      { tools: [t.read("src/server.ts", { ms: 600 })] },
+      { pause: 2600 },
+      {
+        tools: [
+          t.edit(
+            "src/server.ts",
+            [
+              {
+                oldText: "  return app;\n}",
+                newText:
+                  '  // For load balancers and container health checks: 200 while the database answers.\n  app.get("/healthz", (c) => {\n    try {\n      store.uptime(config.checks[0]!.id, 1);\n      return c.json({ ok: true, checks: config.checks.length });\n    } catch (err) {\n      return c.json({ ok: false, error: (err as Error).message }, 503);\n    }\n  });\n\n  return app;\n}',
+              },
+            ],
+            700,
+          ),
+        ],
+      },
+      { tools: [t.write("test/healthz.test.ts", HEALTHZ_TEST_TS, 600)] },
+      { pause: 600 },
+      { tools: [t.sh("pnpm exec tsc --noEmit", "", 2400)] },
+      { pause: 400 },
+      { tools: [t.sh("pnpm test", VITEST([["test/backoff.test.ts", 2, 3], ["test/healthz.test.ts", 2, 6], ["test/http.test.ts", 5, 12], ["test/scheduler.test.ts", 1, 9]], "16:21:48"), 3800)] },
+      { report: "src/server.ts: GET /healthz returns 200 { ok, checks } while the database answers, 503 with the error otherwise. test/healthz.test.ts covers both. All tests pass." },
+    ],
+  },
+  {
+    name: "deploy-docs",
+    title: "Deployment guide",
+    pace: "live",
+    steps: (t) => [
+      { tools: [t.read("README.md", { ms: 500 }), t.read("lantern.config.example.json", { ms: 420 })] },
+      { think: "Self-hosters want three things: how to run the image, how to put it behind TLS, and how not to lose their data. Keep each to a short copy-pasteable block." },
+      { pause: 1400 },
+      { tools: [t.write("docs/deploy.md", DEPLOY_MD, 1400)] },
+      { pause: 600 },
+      {
+        tools: [
+          t.edit("README.md", [{ oldText: "## Development", newText: "## Deploying\n\nDocker, a reverse proxy with TLS and backups: see [docs/deploy.md](docs/deploy.md).\n\n## Development" }], 500),
+        ],
+      },
+      { pause: 800 },
+      { tools: [t.sh("npx markdown-link-check -q docs/deploy.md README.md", "\nFILE: docs/deploy.md\n  0 links checked.\n\nFILE: README.md\n  [✓] docs/deploy.md\n\n  1 links checked.\n", 3400)] },
+      { pause: 3600 },
+      { report: "docs/deploy.md: Docker (named volume for /data), Caddy and nginx examples with TLS and /healthz, and SQLite backups with `sqlite3 .backup`. Linked from the README under 'Deploying'." },
     ],
   },
 ];
