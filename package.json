@@ -1,6 +1,7 @@
 {
   "name": "glade",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
   "engines": {

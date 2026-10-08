@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-209.
+Next id: I-210.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1634,6 +1634,31 @@ Next id: I-209.
   - Step 3: history on a fresh clone in `/tmp` (never this folder): mailmap for the email, `--replace-text` for the same strings as steps 1–2 across all history, PLAN.md and `docs/original-brief.md` dropped from earlier commits and re-added; verify with `git log --all -p` greps and `pnpm check` on the result; show the user before anything is pushed.
   - Step 4 (user + lead): the GitHub settings, delete + recreate the repo, push, make it public; then reset every copy to the new history (this folder, the other laptop, the installed app's repo folder: Update Now refuses until then).
   - Outcome (2026-10-05): history rewritten on a fresh clone (`git filter-repo`: mailmap, `--replace-text`/`--replace-message`, PLAN.md and the original brief dropped and re-added): 472 → 255 commits (plan-only commits fell away), every commit by the noreply address, no personal strings left in any blob or message (verified with greps over `git log --all -p`), no secrets found (key/token patterns), final tree identical to the pre-rewrite HEAD, `pnpm check` passes on it. The user deleted and recreated `jas7457/glade` (public); the clean history was pushed; this folder was reset to it (the old history stays only in the local branch `backup/pre-clean-2026-10-05`, never to be pushed). Left to the user: reset other copies (`git fetch && git reset --hard origin/main`, or re-clone) — the other laptop and any folder the installed app updates from. Not changed: the Apple Developer Team ID in the iPhone config (an identifier, not a secret; making it an env var is optional).
+- [ ] **I-209** Public website (GitHub Pages) with screenshots, videos and motion; a short README pointing to it; MIT license (promoted from F-030) — `docs` / `infra`
+  - Reported: 2026-10-05 — the user wants the website built now to show off the app: pictures, videos and motion graphics. The README becomes sparse (a few pictures, mainly pointing to the site).
+  - Decisions (user, 2026-10-05):
+    - **License: MIT** (`LICENSE`, `"license": "MIT"` in package.json; done by the lead).
+    - **Install: build from source** for now (no signed download; the site's main button leads to the GitHub repo / build steps).
+    - **Pitch:** a native Mac app for your coding agents: pi, Claude Code and Codex side by side, with sub-agents, local models, and your phone as a remote.
+    - **Feature order:** multiple agents in one app; sub-agents working in parallel; iPhone app + remote access; local models; worktrees + changes panel; search, bookmarks and ⌘K; terminal; voice mode.
+    - **Look: matches the app's dark mode** (its colours, type and native feel; the leaf icon), with the motion the user described in F-030: scroll animations, floaty movement, overlapping layers with depth.
+    - **Media: scripted demo chats**, never the user's own chats or data. The demo must read like real agent work: realistic replies, thinking, tool calls with real diffs, sub-agents, not the fake harness's echoes.
+    - **URL** `jas7457.github.io/glade`; code in `site/` in this repo, deployed by a GitHub Action.
+    - **README:** short intro, one hero image plus two or three more, build-from-source steps, link to the site; developer details move to `CONTRIBUTING.md`.
+  - Contract between the workstreams (lead): the site reads its media from `site/public/media/` by these names; captures are dark mode at 2× (desktop window ~1440×900 CSS px; iPhone in the simulator). Videos: short (5–15 s), muted, looping, WebM + MP4, a few MB each; a still poster PNG for each.
+    - `hero` (video + poster): a project with several chats; a reply streaming in with thinking and grouped tool calls; sub-agent cards above the composer.
+    - `agents` (image): the new-chat agent picker / Settings → Agents with pi, Claude Code and Codex; a Claude Code or Codex chat.
+    - `subagents` (video): a chat spawning 2–3 sub-agents that work in parallel, their cards updating, reports landing.
+    - `iphone-chat`, `iphone-list` (images, iPhone simulator): a chat and the chat list; `iphone-voice` (image): voice mode.
+    - `remote` (image): Share This Device / connected devices on the Mac.
+    - `local-models` (image): Settings → Local Models with a loaded model.
+    - `worktrees` (image): a worktree chat with the changes panel and a diff.
+    - `search` (video): ⌘K finding a chat and a bookmark, jumping to the message.
+    - `bookmarks` (image): bookmark ribbon + the header list.
+    - `terminal` (image): a terminal tab next to a chat.
+    - `composer` (video, optional): the Send button changing with ⌘/⌥.
+  - Workstreams: (A) demo mode + capture scripts (realistic scripted chats, a demo sandbox, scripted screenshots/videos incl. the iPhone simulator); (B) the site itself (static, built from `site/`, GSAP motion, placeholders until A's media lands, a Pages workflow); (C, lead) LICENSE, README + CONTRIBUTING once media exists, enabling Pages.
+
 ## Future features
 
 Ideas we want documented but are **not planned**. Nothing here is worked on until the user
@@ -1717,7 +1742,7 @@ Next id: F-031.
   - Background: llama-server reports engine-measured `timings` on each reply (`prompt_n`/`prompt_ms`/`prompt_per_second` = read/prefill, `predicted_n`/`predicted_ms`/`predicted_per_second` = write; `cache_n` = tokens reused, not counted in `prompt_n`); with `timings_per_token: true` every streamed chunk carries the running write speed (live). pi ignores `timings` (checked: not in pi's code). Anthropic/OpenAI report no timings, only exact token counts at the end of a message.
   - Design sketch: (1) local: Glade points pi's `LLAMA_BASE_URL` at a pass-through on its server that adds `timings_per_token`, reads `timings` from the stream and attaches them to the chat's current reply; exact read + write, live; harness-neutral (any agent using the local model). (2) cloud: write speed = provider-reported output tokens ÷ (last − first streamed token), shown after each reply ends, labelled "measured by Glade". No read speed for cloud (time to first token mixes queueing, network and caching), no character-based estimates anywhere. (3) UI: a quiet line under each assistant reply ("Read 1,850 tok/s · Write 32.4 tok/s" / "Write 78 tok/s"), chat averages in the usage popover.
 
-- **F-030** Public website for Glade: what it is, its features, why use it — motion-first — `docs` / `infra`
+- ~~**F-030** Public website for Glade: what it is, its features, why use it — motion-first — `docs` / `infra`~~ — promoted to I-209 (2026-10-05)
   - Reported: 2026-10-05 — Glade will be open-sourced relatively soon, and it needs a site where people can see the features and why they'd use it. Motion should be a big part of it: scroll animations and animation in general, things moving and floating, overlapping, with layering that gives a 3D feel. Hosting: preferably not self-hosted. Timing: probably right after the current agent's work (I-203).
   - Order (user, 2026-10-05): after F-017 (repo cleanup first).
   - Hosting (researched 2026-10-05): **GitHub Pages** (free for public repos; site ≤ 1 GB, soft 100 GB/month traffic, files ≤ 100 MB; deploy from a `site/` folder with a GitHub Action; custom domain + HTTPS). Alternatives: Cloudflare Pages (free, no traffic cap, PR previews), Netlify (300 credits/month, pauses when out), Vercel Hobby (non-commercial only). Recommendation: GitHub Pages, Cloudflare Pages if traffic ever matters. Needs the repo public (or a paid plan), so it lines up with F-017.
