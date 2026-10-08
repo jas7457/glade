@@ -339,7 +339,7 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  max-width: calc(var(--wide) + 2 * var(--gutter));
+  max-width: calc(1760px + 2 * var(--gutter));
   margin-top: clamp(20px, 3.5vh, 40px);
 }
 .story { --bar-h: 50px; --story-gap: 14px; flex: 1 0 auto; display: flex; flex-direction: column; }
@@ -349,9 +349,11 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
  * no taller than its height minus the bar.
  */
 .story-stage {
-  flex: 1 1 0;
-  min-height: max(300px, 56dvh);
-  max-height: calc(100dvh - var(--nav-h) - 32px);
+  /* The main selling point: as large as one screen below the header allows (the copy above it
+     scrolls away first), not just what's left of the first screen. */
+  flex: none;
+  height: calc(100dvh - var(--nav-h) - 24px);
+  min-height: 300px;
   container-type: size;
   display: flex;
   flex-direction: column;
@@ -502,6 +504,9 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
   max-width: calc(var(--wide) + 2 * var(--gutter));
   background: var(--page);
 }
+/* Every other panel puts its text on the right (its stage's window leans to the outer edge). */
+.panel--flip { grid-template-columns: minmax(0, 2.7fr) minmax(260px, 1fr); }
+.panel--flip > .panel-text { order: 2; }
 .panel-text h2 { font-size: clamp(28px, 2.8vw, 42px); max-width: 14ch; }
 .panel-text h3 { font-size: clamp(22px, 2vw, 28px); line-height: 1.15; font-weight: 650; letter-spacing: -0.02em; max-width: 18ch; }
 .panel-text p { margin: 16px 0 0; max-width: 46ch; font-size: 16px; text-wrap: pretty; }
@@ -624,6 +629,9 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 28px;
+  }
+  .panel--flip > .panel-text { order: 0; }
+  .panel {
     min-height: 0;
     padding-block: clamp(56px, 12vw, 88px) 0;
   }
