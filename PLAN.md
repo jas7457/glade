@@ -1658,6 +1658,8 @@ Next id: I-212.
     - `bookmarks` (image): bookmark ribbon + the header list.
     - `terminal` (image): a terminal tab next to a chat.
     - `composer` (video, optional): the Send button changing with ⌘/⌥.
+  - Addition (user, 2026-10-05, after looking at the site with the first captures): every feature asset shows the whole window, so it's small, hard to read, and unclear what to look at. Feature assets should focus on the part that matters: cropped or zoomed in.
+    - Plan (lead): the hero keeps the full window. Each feature gets a **focus asset**: just the relevant region (e.g. the sub-agent cards + composer, the ⌘K palette, the agent picker, the changes panel, the Local Models list, the bookmark list), captured at 3× so it's sharp when shown large; videos recorded/cropped to that region. Files `site/public/media/<name>-focus.(png|webm|mp4)` plus `site/public/media/focus.json` with each focus rectangle in the full capture's coordinates. The site shows the focus asset large in front, with the full window behind it, dimmed and pushed back in depth (fits the layered look), and may animate from the full window into the focus region on scroll so the visitor sees where it sits.
   - Workstreams: (A) demo mode + capture scripts (realistic scripted chats, a demo sandbox, scripted screenshots/videos incl. the iPhone simulator); (B) the site itself (static, built from `site/`, GSAP motion, placeholders until A's media lands, a Pages workflow); (C, lead) LICENSE, README + CONTRIBUTING once media exists, enabling Pages.
 
 - [x] **I-210** Sidebar Settings dot also lights up for agent updates — `shell` (2026-10-05)
