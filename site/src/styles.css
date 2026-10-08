@@ -216,7 +216,7 @@ h2 {
 h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 
 .lede { margin: 0; font-size: clamp(18px, 1.6vw, 21px); line-height: 1.5; color: var(--fg); max-width: 34ch; text-wrap: pretty; }
-.chapter-copy p, .deck-copy p { margin: 18px 0 0; max-width: 46ch; text-wrap: pretty; }
+.chapter-text p, .chapter-copy p { margin: 18px 0 0; max-width: 52ch; text-wrap: pretty; }
 .aside { font-size: 15px; color: var(--fg-muted); }
 
 /* ---------- Window and phone frames ---------- */
@@ -342,7 +342,6 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 .agent-row b { color: var(--agent); font-weight: 600; }
 .agent-row .doing { color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; }
 .agent-row .time { color: var(--fg-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
-.agent-row .bar { display: none; }
 
 .status { position: relative; display: inline-block; width: 13px; height: 13px; }
 .status--working, .status.status--working {
@@ -354,7 +353,6 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
   border-top-color: var(--agent, var(--fg));
   animation: spin 0.9s linear infinite;
 }
-.status--done { position: absolute; inset: -1px; width: 15px; height: 15px; fill: none; stroke: var(--success); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes spin { to { transform: rotate(1turn); } }
 
 .tool-row {
@@ -374,7 +372,7 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
   color: var(--tool-edit);
   background: color-mix(in srgb, var(--tool-edit) 16%, var(--window));
 }
-.tool-icon svg, .palette-input svg, .check, .report-head svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tool-icon svg, .palette-input svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tool-row code { color: var(--fg); }
 .diffstat { display: inline-flex; gap: 6px; font-variant-numeric: tabular-nums; font-size: 12px; }
 .diffstat ins { text-decoration: none; color: var(--tool-shell); }
@@ -397,7 +395,8 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 
 .hero-stage {
   position: relative;
-  max-width: calc(var(--container) + 2 * var(--gutter));
+  /* Wider than the text column: the hero is the one place the whole window is shown. */
+  max-width: calc(1280px + 2 * var(--gutter));
   margin: clamp(40px, 5.5vw, 72px) auto 0;
   padding-inline: var(--gutter);
   perspective: 1800px;
@@ -427,101 +426,93 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 
 /* ---------- Chapters ---------- */
 
-.chapter { position: relative; padding-block: clamp(96px, 14vw, 180px) 0; }
-.chapter-stage { position: relative; }
-.chapter--agents { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
-
-.stage-agents { perspective: 1600px; }
-.agent-picker { position: absolute; left: -8%; bottom: -12%; width: min(300px, 60%); padding: 5px; z-index: 2; background: transparent; border: 0; box-shadow: none; }
-.picker-row {
+.chapter { position: relative; padding-block: clamp(96px, 12vw, 168px) 0; }
+.chapter-head {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  background: var(--popover);
-  border: 0.5px solid var(--popover-border);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--popover-shadow);
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 20px clamp(32px, 5vw, 72px);
+  align-items: end;
+  margin-bottom: clamp(36px, 5vw, 64px);
 }
-.picker-row + .picker-row { margin-top: 6px; }
-.picker-row b { display: block; color: var(--fg-strong); font-weight: 600; }
-.picker-row .muted { display: block; font-size: 12px; }
-.picker-row:first-child { outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent); outline-offset: -1px; }
-.check { color: var(--accent); width: 15px; height: 15px; stroke-width: 2.4; }
-.agent-mark {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  font: 600 12px/1 var(--font-mono);
-  color: var(--page);
-}
-.agent-mark--pi { background: var(--agent-sky); font-size: 15px; font-family: var(--font-display); }
-.agent-mark--claude { background: var(--agent-coral); }
-.agent-mark--codex { background: #e8e8ed; }
+.chapter-head h2 { max-width: 14ch; }
+.chapter-text p:first-child { margin-top: 0; }
+.chapter-sub { margin-top: clamp(72px, 9vw, 120px); }
+.chapter-sub > p { margin: 0 0 clamp(28px, 4vw, 48px); max-width: 52ch; color: var(--fg-muted); text-wrap: pretty; }
+.chapter-sub:not(:has(.focus-stage)) { display: none; }
 
-/* Sub-agents */
-.sub-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
-.stage-sub { padding-bottom: 12%; }
-.agent-list--sub { position: absolute; right: -4%; bottom: 0; width: min(440px, 78%); z-index: 2; }
-.agent-list--sub .agent-row { grid-template-columns: 16px auto auto 1fr; padding-bottom: 9px; }
-.agent-list--sub .doing { position: relative; display: block; height: 18px; }
-.agent-list--sub [data-step] { position: absolute; inset: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0; }
-.agent-list--sub [data-final] { opacity: 1; color: var(--fg); }
-.agent-list--sub .status--working { display: none; }
-.agent-list--sub .bar { display: block; position: absolute; left: 31px; right: 8px; bottom: 3px; height: 2px; border-radius: 2px; background: var(--hover); overflow: hidden; }
-.agent-list--sub .bar i { display: block; height: 100%; background: var(--agent); transform-origin: 0 50%; }
-.report {
+/*
+ * Focus stage (markup from build/media.ts): the whole window behind, the focus asset in front.
+ * Positions come from focusLayout() as custom properties in % of the stage's width: `--d*` on
+ * desktop, `--m*` on phones. `cqw` (the stage is the container) turns them into vertical offsets.
+ */
+.focus-stage {
+  --h: var(--dh); --bx: var(--dbx); --by: var(--dby); --bw: var(--dbw);
+  --fx: var(--dfx); --fy: var(--dfy); --fw: var(--dfw);
+  position: relative;
+  container-type: inline-size;
+  perspective: 2000px;
+  perspective-origin: 50% 30%;
+}
+/* The stage's height (the layers are absolutely placed): % padding is relative to the width. */
+.focus-stage::before { content: ""; display: block; padding-top: calc(var(--h) * 1%); }
+.focus-stage--plain::before { content: none; }
+.focus-back {
   position: absolute;
-  left: -6%;
-  top: 8%;
-  z-index: 3;
-  width: min(330px, 62%);
-  padding: 10px 12px 12px;
-  background: var(--raised);
+  left: calc(var(--bx) * 1%);
+  top: calc(var(--by) * 1cqw);
+  width: calc(var(--bw) * 1%);
+  /* Pushed back and turned toward the focus asset. */
+  transform: rotateY(var(--tilt, -12deg)) translateZ(-90px);
+  transform-origin: 100% 50%;
 }
-.report-head { display: flex; align-items: center; gap: 7px; }
-.report-head svg { color: var(--success); width: 14px; height: 14px; stroke-width: 2.6; }
-.report-head b { color: var(--agent-amber); }
-.report p { margin: 6px 0 0; color: var(--fg); }
-.composer-note { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 4vw, 56px); align-items: center; margin-top: clamp(64px, 8vw, 110px); }
-.composer-note p { margin: 0; max-width: 40ch; color: var(--fg-muted); }
-.composer-note:not(:has(.media)) { display: none; }
-
-/* iPhone + remote */
-.remote-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
-.stage-remote { perspective: 1800px; padding-block: 6% 10%; }
-.stage-remote .window { width: 92%; margin-left: 8%; }
-.stage-remote .phone { position: absolute; width: clamp(150px, 31%, 300px); z-index: 2; }
-.phone--chat { right: -2%; bottom: -2%; }
-.phone--list { right: 23%; bottom: 7%; z-index: 1 !important; }
-
-/* ---------- Deck ---------- */
-
-.deck { padding-top: clamp(96px, 14vw, 180px); }
-.deck-card { position: relative; margin-top: 40px; }
-.deck-card:first-child { margin-top: 0; }
-.deck-inner {
-  display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
-  gap: clamp(28px, 4vw, 56px);
-  align-items: center;
-  padding: clamp(28px, 4vw, 48px);
-  border-radius: 22px;
-  background: #1b1b1c;
-  border: 0.5px solid rgb(255 255 255 / 0.08);
-  box-shadow: 0 -1px 0 rgb(255 255 255 / 0.04) inset, 0 -24px 60px -30px rgb(0 0 0 / 0.8);
-  transform-origin: 50% 0%;
+.focus-stage[data-side="left"] .focus-back { --tilt: 12deg; transform-origin: 0% 50%; }
+.focus-back .window { box-shadow: 0 30px 70px -24px rgb(0 0 0 / 0.7); }
+.focus-dim { position: absolute; inset: 0; background: var(--page); opacity: 0.4; pointer-events: none; }
+/* Where the region sits in the window. */
+.focus-ring {
+  position: absolute;
+  left: calc(var(--rx) * 1%);
+  top: calc(var(--ry) * 1%);
+  width: calc(var(--rw) * 1%);
+  height: calc(var(--rh) * 1%);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
 }
-.deck-shade { position: absolute; inset: 0; border-radius: 22px; background: #000; opacity: 0; pointer-events: none; }
-.deck-media { position: relative; }
-.deck-media--pair { padding: 0 0 18% 0; }
-.deck-media--pair .window--inset { position: absolute; right: -4%; bottom: 0; width: 48%; }
-.deck-media--phone { display: grid; place-items: center; }
-.deck-media--phone .phone { width: min(280px, 70%); }
-.deck-card--voice .deck-inner { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); }
+.focus-front {
+  position: absolute;
+  z-index: 2;
+  left: calc(var(--fx) * 1%);
+  top: calc(var(--fy) * 1cqw);
+  width: calc(var(--fw) * 1%);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.6), 0 40px 90px -24px rgb(0 0 0 / 0.85), 0 16px 34px -14px rgb(0 0 0 / 0.6);
+}
+/* The region flying out of the window on scroll (src/motion/focus.ts). */
+.focus-zoom { position: absolute; z-index: 1; pointer-events: none; transform-origin: 0 0; will-change: transform, clip-path; }
+.focus-zoom picture, .focus-zoom img { display: block; width: 100%; height: 100%; }
+/* Short strips (the composer): the video button goes to the top corner, off the content. */
+.focus-front .media:not([data-paused="true"]) .video-toggle { top: 8px; right: 8px; bottom: auto; width: 26px; height: 26px; }
+.focus-front .media:not([data-paused="true"]) .video-toggle svg { width: 11px; height: 11px; }
+/* Fallback without a focus asset: the whole window on its own. */
+.focus-stage--plain { container-type: normal; }
+
+/* Agents: Settings → Agents as a second card, lower right. */
+.extra-agents { position: absolute; z-index: 3; right: 0; top: 29cqw; width: 54%; }
+.stage-agents { margin-bottom: 8%; }
+
+/* iPhone + remote: the phones stand to the right of the Mac's connections. */
+.stage-remote { margin-bottom: 14%; }
+.stage-remote .phone { position: absolute; width: 23%; }
+.phone--list { right: 15%; top: 4cqw; z-index: 1; }
+.phone--chat { right: 0; top: 9cqw; z-index: 3; }
+
+/* Voice */
+.voice-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 5vw, 72px); align-items: center; }
+/* The minimized chat stands behind the voice view, turned toward it. */
+.voice-phones { position: relative; display: flex; justify-content: center; perspective: 1800px; }
+.voice-phones .phone { flex: 0 1 300px; min-width: 0; }
+.phone--voice-chat { margin-right: -16%; transform: rotateY(14deg) translateZ(-80px) translateY(7%); transform-origin: 0% 50%; opacity: 0.8; }
+.phone--voice { z-index: 2; }
 
 /* ---------- Build ---------- */
 
@@ -558,20 +549,26 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 /* ---------- Narrow screens ---------- */
 
 @media (max-width: 899px) {
-  .hero-copy { grid-template-columns: minmax(0, 1fr); }
-  .composer-note, .chapter--agents, .sub-layout, .remote-layout, .deck-inner, .deck-card--voice .deck-inner, .build-grid { grid-template-columns: minmax(0, 1fr); }
+  .hero-copy, .chapter-head, .voice-layout, .build-grid { grid-template-columns: minmax(0, 1fr); }
+  .chapter-head { align-items: start; }
   .float--a { right: -1%; bottom: -10%; }
   .float--b { left: -1%; top: auto; bottom: 6%; }
   .float--c { display: none; }
   .float .card { transform: scale(0.82); transform-origin: 0 100%; }
   .float--a .card { transform-origin: 100% 100%; }
-  .agent-picker { left: auto; right: -2%; }
-  .agent-list--sub { right: -2%; }
-  .report { left: -2%; }
-  .stage-remote .window { width: 100%; margin-left: 0; }
-  .deck-card { margin-top: 24px; }
-  .deck-inner { padding: 24px 20px; }
-  .deck-media--pair .window--inset { right: 0; }
+  .focus-stage {
+    --h: var(--mh); --bx: var(--mbx); --by: var(--mby); --bw: var(--mbw);
+    --fx: var(--mfx); --fy: var(--mfy); --fw: var(--mfw);
+  }
+  .focus-back { transform: rotateY(calc(var(--tilt, -12deg) * 0.6)) translateZ(-40px); }
+  .focus-front { border-radius: 10px; }
+  /* The second card and the phones go below the stage instead of over it. */
+  .extra-agents { position: relative; top: auto; width: 100%; margin-top: 20px; }
+  .stage-agents, .stage-remote { margin-bottom: 0; }
+  .stage-remote { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 6%; }
+  .stage-remote::before { flex: 0 0 100%; margin-bottom: 28px; }
+  .stage-remote .phone { position: relative; right: auto; top: auto; width: 44%; }
+  .voice-phones { max-width: 520px; }
 }
 
 @media (max-width: 560px) {
@@ -579,11 +576,6 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
   .nav-links a:first-child { display: none; }
   .agent-list { min-width: 0; }
   .float--a .agent-row .time, .float--a .agent-row .muted { display: none; }
-  .agent-list--sub { position: relative; right: auto; width: 100%; margin-top: -10%; }
-  .stage-sub { padding-bottom: 0; }
-  .report { position: relative; left: auto; top: auto; width: 100%; margin-top: 10px; }
-  .agent-picker { position: relative; right: auto; bottom: auto; width: 100%; margin-top: -8%; }
-  .stage-remote .phone { width: 38%; }
   .phone { border-radius: 30px; padding: 6px; }
   .phone .media { border-radius: 25px; }
 }
@@ -595,11 +587,6 @@ h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
 .motion .hero .float-mouse { opacity: 0; animation: failsafe 0s 4s forwards; }
 /* If the script never runs, show the hero anyway (GSAP has set opacity 1 by then). */
 @keyframes failsafe { to { opacity: 1; } }
-
-@media (min-width: 900px) {
-  .deck.is-stacking .deck-card { position: sticky; top: calc(72px + var(--i, 0) * 14px); margin-top: 14vh; }
-  .deck.is-stacking .deck-card:first-child { margin-top: 0; }
-}
 
 /* ---------- Reduced motion: static and readable ---------- */
 

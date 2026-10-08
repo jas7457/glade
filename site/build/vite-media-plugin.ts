@@ -1,6 +1,7 @@
 /**
- * Vite plugin for the site's media (see `media.ts`): looks in `public/media/` for each capture,
- * injects real `<picture>`/`<video>` markup or a placeholder into index.html, and, in builds,
+ * Vite plugin for the site's media (see `media.ts`): looks in `public/media/` for each capture
+ * and `focus.json`, expands `<glade-focus>` stages and `<glade-media>` slots in index.html into real
+ * `<picture>`/`<video>` markup (or placeholders), and, in builds,
  * emits WebP variants of every still plus a 1200×630 Open Graph image cut from the hero poster.
  *
  * The dev server reloads the page when a file appears in or leaves `public/media/`, so the
@@ -14,7 +15,21 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import type { Plugin } from "vite";
-import { MEDIA, findFiles, injectMedia, renderMedia, variantWidths, type FoundImage, type FoundMedia } from "./media.ts";
+import {
+  MEDIA,
+  findFiles,
+  focusOptions,
+  injectFocus,
+  injectMedia,
+  mediaSpec,
+  parseFocusJson,
+  renderFocus,
+  renderMedia,
+  variantWidths,
+  type FocusRect,
+  type FoundImage,
+  type FoundMedia,
+} from "./media.ts";
 
 type Sharp = typeof import("sharp").default;
 
@@ -40,6 +55,7 @@ export function mediaPlugin(root: string): Plugin {
   /** Files emitted into the bundle at build time: name inside media/ → bytes. */
   const emitted = new Map<string, Buffer>();
   let found = new Map<string, FoundMedia>();
+  let focusRects: Record<string, FocusRect> = {};
   let ogImage: string | undefined;
 
   const listing = () => (existsSync(mediaDir) ? readdirSync(mediaDir) : []);
@@ -57,6 +73,8 @@ export function mediaPlugin(root: string): Plugin {
 
   async function scan(): Promise<void> {
     const files = listing();
+    const focusFile = join(mediaDir, "focus.json");
+    focusRects = existsSync(focusFile) ? parseFocusJson(readFileSync(focusFile, "utf8")) : {};
     const next = new Map<string, FoundMedia>();
     emitted.clear();
     ogImage = undefined;
@@ -146,8 +164,17 @@ export function mediaPlugin(root: string): Plugin {
       order: "post",
       async handler(html) {
         if (!isBuild) await scan();
-        const out = injectMedia(html, (name) => {
-          const spec = MEDIA.find((m) => m.name === name);
+        const source = (name: string) => {
+          const spec = mediaSpec(name);
+          return spec ? { spec, found: found.get(name) ?? {} } : undefined;
+        };
+        const staged = injectFocus(html, (tag) => {
+          const full = source(tag.name);
+          if (!full) throw new Error(`[media] unknown media "${tag.name}" in <glade-focus>`);
+          return renderFocus(tag.name, { full, focus: source(`${tag.name}-focus`), rect: focusRects[tag.name] }, focusOptions(tag), base);
+        });
+        const out = injectMedia(staged, (name) => {
+          const spec = mediaSpec(name);
           if (!spec) throw new Error(`[media] unknown media "${name}" in index.html`);
           return renderMedia(spec, found.get(name) ?? {}, base);
         });
