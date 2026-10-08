@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- An agent's Models list (Settings → Agents → the agent) has a filter box and groups models by
+  family (Claude Opus, Claude Sonnet, GPT Sol…), newest first, with "N of M shown" per family, so
+  it's easy to keep just the newest model of each family visible.
+
 - **Bookmarks:** bookmark any message (hover → bookmark, right-click, or ⌘D for the latest reply)
   and get back to it from the bookmark button in the chat header (⌘⇧D): jump to it, copy it, or
   **Reference** it, which adds it to your next message as a short quote so the agent knows exactly
