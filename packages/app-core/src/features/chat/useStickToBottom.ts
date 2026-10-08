@@ -1,11 +1,12 @@
 /**
  * Keeps a scroll container pinned to the bottom while its content grows (streaming), unless
  * the user has scrolled up. Returns whether we're at the bottom and a function to jump there,
- * plus `scrollToElement` (centers an element and stops following the bottom; search hits, I-093).
+ * plus `scrollToElement` (puts an element's start near the top and stops following the bottom;
+ * search hits and bookmarks, I-093 / I-206).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { RefObject } from "preact";
-import { centeredScrollTop } from "./jump-to-message";
+import { jumpScrollTop } from "./jump-to-message";
 
 const THRESHOLD = 48;
 
@@ -29,13 +30,16 @@ export function useStickToBottom(scrollRef: RefObject<HTMLElement>, contentRef: 
     [scrollRef],
   );
 
-  /** Center `target` (inside the scroll container) and unstick from the bottom. */
+  /**
+   * Put `target`'s start (inside the scroll container) near the top, below `topInset` px of
+   * anything overlaying the container's top ({@link jumpScrollTop}), and unstick from the bottom.
+   */
   const scrollToElement = useCallback(
-    (target: HTMLElement, behavior: ScrollBehavior = "auto") => {
+    (target: HTMLElement, { behavior = "auto", topInset = 0 }: { behavior?: ScrollBehavior; topInset?: number } = {}) => {
       const el = scrollRef.current;
       if (!el) return;
       const top = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
-      const next = centeredScrollTop(top, target.offsetHeight, el.clientHeight, el.scrollHeight);
+      const next = jumpScrollTop(top, el.clientHeight, el.scrollHeight, { topInset });
       const bottom = el.scrollHeight - next - el.clientHeight <= THRESHOLD;
       stuck.current = bottom;
       setAtBottom(bottom);

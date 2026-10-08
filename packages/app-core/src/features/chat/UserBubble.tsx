@@ -13,7 +13,7 @@
  * - Long text collapses after ~15 lines with "Show more" (ui/Clamp, I-109); images open in a
  *   lightbox (I-110); the time shows on hover (I-111).
  * - Bookmarks (I-203): the bookmark toggle next to the time on hover, a ribbon beside a
- *   bookmarked bubble; `data-anchor` lets the transcript's message menu find it (MessageBookmark.tsx).
+ *   bookmarked bubble (click removes, I-206); `data-anchor` lets the transcript's message menu find it (MessageBookmark.tsx).
  */
 import { memo } from "preact/compat";
 import { useMemo } from "preact/hooks";
@@ -148,7 +148,7 @@ export const UserBubble = memo(function UserBubble({ message }: { message: UserM
       )}
       {text && (
         <div class="relative max-w-[85%] rounded-[14px] bg-selected px-3.5 py-2 leading-[1.5]">
-          <BookmarkRibbon anchor={anchor} class="top-2.5 -left-5" />
+          <BookmarkRibbon anchor={anchor} class="top-1.5 -left-6" />
           <Clamp lines={LONG_BUBBLE_LINES} contentClass="selectable whitespace-pre-wrap break-words">
             <UserText text={text} />
           </Clamp>

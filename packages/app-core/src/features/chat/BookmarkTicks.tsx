@@ -1,7 +1,8 @@
 /**
  * Tick marks on the transcript's scroll edge for its bookmarked messages (I-203): one small accent
- * mark per bookmark at the message's position in the conversation; clicking it scrolls the message
- * into view and flashes it. Bookmarks whose message isn't loaded (an earlier page) have no tick.
+ * mark per bookmark at the message's position in the conversation (for a reply: where its text
+ * starts, like its ribbon, I-206); clicking it scrolls there and flashes it. Bookmarks whose message
+ * isn't loaded (an earlier page) have no tick.
  *
  * Positions are measured from the rendered elements (jump-to-message's `findJumpTarget` /
  * `jumpElement`) after every render and whenever the content resizes (streaming, images).

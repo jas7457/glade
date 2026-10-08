@@ -17,7 +17,8 @@
  *
  * Bookmarks (I-203): user messages and agent replies can be bookmarked (hover button, right-click,
  * long-press: `MessageMenu` around the column; MessageBookmark.tsx); bookmarked ones get a ribbon and a tick on the scroll edge
- * (BookmarkTicks.tsx) that scrolls back to them.
+ * (BookmarkTicks.tsx) that scrolls back to them. A reply's ribbon sits where its text starts, not
+ * beside its thinking / tool calls; clicking a ribbon removes the bookmark (I-206).
  */
 import { Fragment } from "preact";
 import { memo } from "preact/compat";
@@ -55,7 +56,7 @@ import { ToolCallRow, ToolGroup } from "./tools/ToolViews";
 import { useSmoothText } from "./smooth-text";
 import { useStickToBottom } from "./useStickToBottom";
 import { useLoadEarlier } from "./useLoadEarlier";
-import { findJumpTarget, flashElement, jumpElement, pendingJump, takeJump } from "./jump-to-message";
+import { answerPartIndex, findJumpTarget, flashElement, jumpElement, pendingJump, takeJump } from "./jump-to-message";
 import { notify } from "@glade/app-core/state/toasts";
 import { highlightFor } from "@glade/app-core/state/reading-highlight";
 import { workingStatus, type WorkingLabel } from "./working";
@@ -75,11 +76,16 @@ export interface TranscriptProps {
    * composer): the conversation scrolls under it but its last line can still scroll clear of it.
    */
   bottomInset?: number;
+  /**
+   * Height (px) of anything floating over the top of the transcript (a glass header, a banner):
+   * jumps to a message (search hits, bookmarks) land below it (I-206). None today.
+   */
+  topInset?: number;
 }
 
 export const columnClass = "mx-auto w-full max-w-[760px] px-6";
 
-export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class: className, columnClass: column = columnClass, bottomInset = 0 }: TranscriptProps) {
+export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class: className, columnClass: column = columnClass, bottomInset = 0, topInset = 0 }: TranscriptProps) {
   const store = useChatSession(chatId);
   const transcript = store.transcript.value;
   const state = store.state.value;
@@ -125,7 +131,8 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   }, [transcript.messages]);
   useEffect(() => scrollToBottom(), [lastUserId, chatId, status === "ready"]);
 
-  // Opened from a search hit (I-093): center the matched message and flash it. Runs after the
+  // Opened from a search hit (I-093) or a bookmark (I-203): put the message's start near the top
+  // (jumpScrollTop, I-206) and flash it. Runs after the
   // jump to the bottom above, so it wins for this open. A message before the loaded turns loads
   // earlier ones until it's there (I-169); stays at the bottom if it can't be found.
   const jump = pendingJump.value;
@@ -151,7 +158,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
     setJumpAnchor(null);
     const el = target && contentRef.current ? jumpElement(contentRef.current, target) : null;
     if (!el) return notify("info", "Message not in loaded history");
-    scrollToElement(el);
+    scrollToElement(el, { topInset });
     flashElement(el);
   }, [jumpAnchor, items, start, loadingEarlier]);
 
@@ -167,7 +174,7 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
       anchor,
     ) ?? "";
   const jumpTo = (el: HTMLElement) => {
-    scrollToElement(el);
+    scrollToElement(el, { topInset });
     flashElement(el);
   };
 
@@ -297,15 +304,22 @@ function TurnView({ parts, timestamp, streaming }: { parts: TurnPart[]; timestam
   const anchor = useMemo(() => ({ role: "assistant" as const, timestamp }), [timestamp]);
   const hasText = useMemo(() => turnText(parts) !== "", [parts]);
   const getText = () => turnText(parts);
+  // The ribbon sits where the answer text starts (I-206), not beside a leading thought or tool
+  // calls; jumps to the bookmark land on the same part (jump-to-message's `answerPartIndex`).
+  const ribbonAt = answerPartIndex(parts);
+  const ribbon = <BookmarkRibbon key="ribbon" anchor={anchor} slot class={isIphoneApp() ? "top-[5px] -left-4" : "top-[5px] -left-6"} />;
   let imageIndex = 0;
   return (
     <div class="group/msg relative mt-4 flex flex-col first:mt-0" data-role="assistant" data-anchor={anchorKey(anchor)}>
-      {parts.map((part) => {
+      {parts.map((part, i) => {
         const index = part.type === "image" ? imageIndex++ : -1;
-        return <PartView key={part.key} part={part} onOpenImage={index === -1 ? undefined : () => open(index)} />;
+        return (
+          <Fragment key={part.key}>
+            {i === ribbonAt && ribbon}
+            <PartView part={part} onOpenImage={index === -1 ? undefined : () => open(index)} />
+          </Fragment>
+        );
       })}
-      {/* After the parts, so jump-to-message's part indices still match (I-093). */}
-      <BookmarkRibbon anchor={anchor} class={cn("top-[9px]", isIphoneApp() ? "-left-3" : "-left-5")} />
       <div data-aux="footer" class="absolute top-full left-0 flex items-center gap-1">
         <MessageTime timestamp={timestamp} />
         {hasText && !streaming && <MessageBookmarkButton anchor={anchor} getText={getText} class="-my-0.5" />}

@@ -1,6 +1,6 @@
 /**
  * Bookmarks on transcript messages (I-203): the hover button next to a message's time, the accent
- * ribbon on bookmarked messages, and the message's actions (right-click on the desktop: Bookmark /
+ * ribbon on bookmarked messages (click removes, I-206), and the message's actions (right-click on the desktop: Bookmark /
  * Remove Bookmark, Bookmark Selection, Copy; long-press on touch: a sheet).
  *
  * A message here is a user bubble or a whole agent reply (a turn), anchored by
@@ -10,13 +10,13 @@
  */
 import { cloneElement, createContext, type ComponentChildren, type VNode } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
-import { Bookmark as BookmarkIcon, BookmarkMinus, BookmarkPlus, Copy, TextSelect } from "lucide-preact";
+import { Bookmark as BookmarkIcon, BookmarkMinus, BookmarkPlus, Copy, TextSelect, Trash2 } from "lucide-preact";
 import type { Bookmark, MessageAnchor } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { isIphoneApp } from "@glade/app-core/lib/desktop";
 import { addBookmark, removeBookmark } from "@glade/app-core/state/bookmarks";
 import { notify } from "@glade/app-core/state/toasts";
-import { ContextMenu, MenuItem, MenuSeparator, Tooltip } from "@glade/app-core/ui";
+import { ContextMenu, Menu, MenuItem, MenuSeparator, Tooltip } from "@glade/app-core/ui";
 import { useOptionSheet } from "./option-sheet";
 
 /** Key of a message in {@link MessageBookmarksValue.byAnchor}. */
@@ -93,23 +93,110 @@ export function MessageBookmarkButton({ anchor, getText, class: className }: { a
 
 /**
  * The ribbon on a bookmarked message: a small accent bookmark in the gutter beside it (the parent
- * is `relative`). Marked `data-aux` (jump-to-message skips it). Its tooltip names the bookmarks.
+ * is `relative`; `class` places it). Marked `data-aux` (jump-to-message skips it). With `slot` it
+ * is wrapped in a zero-height in-flow element, so a reply can put it right before the part it
+ * points at (where its text starts, I-206).
+ *
+ * Clicking (tapping) it removes the bookmark (I-206). A message with several (e.g. the whole
+ * message and a passage) offers a small menu (a sheet on touch) of which to remove.
  */
-export function BookmarkRibbon({ anchor, class: className }: { anchor: MessageAnchor; class?: string }) {
+export function BookmarkRibbon({ anchor, slot, class: className }: { anchor: MessageAnchor; slot?: boolean; class?: string }) {
   const { all } = useMessageBookmarks(anchor);
+  const OptionSheet = useOptionSheet();
+  const [sheetOpen, setSheetOpen] = useState(false);
   if (!all.length) return null;
-  const title = all.map((b) => (b.selection ? `Bookmarked passage: ${b.label}` : `Bookmarked: ${b.label}`)).join("\n");
-  return (
-    <span
-      data-aux="ribbon"
-      data-testid="bookmark-ribbon"
-      role="img"
-      aria-label={title}
-      title={title}
-      class={cn("pointer-events-auto absolute flex text-accent select-none", className)}
-    >
-      <BookmarkIcon size={12} strokeWidth={2} fill="currentColor" />
-    </span>
+  const touch = isIphoneApp();
+  const single = all.length === 1 ? all[0]! : null;
+  const label = single ? `Remove Bookmark: ${single.label}` : "Remove a Bookmark…";
+  const choices = all.map((b) => ({ bookmark: b, label: b.selection ? `Remove Passage “${b.label}”` : "Remove Bookmark" }));
+  const removeAll = () => void Promise.all(all.map((b) => removeBookmark(b.id)));
+  const look = cn(
+    "flex size-5 items-center justify-center rounded-[4px] text-accent outline-none select-none",
+    touch ? "active:opacity-60" : "hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent",
+  );
+  const buttonClass = cn("pointer-events-auto absolute", look, className);
+  const icon = <BookmarkIcon size={12} strokeWidth={2} fill="currentColor" aria-hidden />;
+  let ribbon: VNode;
+  if (single || (touch && !OptionSheet)) {
+    // One bookmark (or no sheet to choose from): remove it (them) straight away.
+    const button = (
+      <button type="button" data-aux="ribbon" data-testid="bookmark-ribbon" aria-label={single ? label : "Remove Bookmarks"} class={buttonClass} onClick={() => (single ? void removeBookmark(single.id) : removeAll())}>
+        {icon}
+      </button>
+    );
+    ribbon = touch ? button : <Tooltip content="Remove Bookmark">{button}</Tooltip>;
+  } else if (touch && OptionSheet) {
+    ribbon = (
+      <>
+        <button type="button" data-aux="ribbon" data-testid="bookmark-ribbon" aria-label={label} aria-haspopup="dialog" class={buttonClass} onClick={() => setSheetOpen(true)}>
+          {icon}
+        </button>
+        <OptionSheet
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          title="Bookmarks"
+          sections={[
+            {
+              items: choices.map(({ bookmark, label }) => ({
+                key: bookmark.id,
+                label,
+                icon: bookmark.selection ? <TextSelect size={20} /> : <BookmarkMinus size={20} />,
+                onSelect: () => {
+                  setSheetOpen(false);
+                  void removeBookmark(bookmark.id);
+                },
+              })),
+            },
+            {
+              items: [
+                {
+                  key: "all",
+                  label: "Remove All",
+                  icon: <Trash2 size={20} />,
+                  onSelect: () => {
+                    setSheetOpen(false);
+                    removeAll();
+                  },
+                },
+              ],
+            },
+          ]}
+        />
+      </>
+    );
+  } else {
+    // A Radix trigger needs a DOM child (it positions the menu from its ref), so the tooltip
+    // wraps an outer element instead of the button.
+    ribbon = (
+      <Tooltip content="Remove Bookmark…">
+        <span data-aux="ribbon" class={cn("pointer-events-auto absolute flex", className)}>
+          <Menu
+            trigger={
+              <button type="button" data-testid="bookmark-ribbon" aria-label={label} class={look}>
+                {icon}
+              </button>
+            }
+          >
+            {choices.map(({ bookmark, label }) => (
+              <MenuItem key={bookmark.id} icon={bookmark.selection ? <TextSelect /> : <BookmarkMinus />} onSelect={() => void removeBookmark(bookmark.id)}>
+                {label}
+              </MenuItem>
+            ))}
+            <MenuSeparator />
+            <MenuItem icon={<Trash2 />} onSelect={removeAll}>
+              Remove All
+            </MenuItem>
+          </Menu>
+        </span>
+      </Tooltip>
+    );
+  }
+  return slot ? (
+    <div data-aux="ribbon" class="relative h-0">
+      {ribbon}
+    </div>
+  ) : (
+    ribbon
   );
 }
 
