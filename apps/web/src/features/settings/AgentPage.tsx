@@ -6,7 +6,7 @@
  * model settings.
  *
  * On another device (device switcher) the settings are view only, but Version's Check and Update
- * work (actions, like Local Models' Load/Unload).
+ * work (actions, like Local Models' Load/Unload), and so does the Models filter (I-207).
  */
 import { FormGroup, FormRow } from "@glade/app-core/ui";
 import { cn } from "@glade/app-core/lib/cn";
@@ -37,26 +37,27 @@ export function AgentPage({ entry }: { entry: AgentCatalogEntry }) {
 
       <AgentVersionGroup harness={entry.id} />
 
-      {viewOnly(
-        info ? (
-          info.capabilities.models === false ? (
+      {info && info.capabilities.models !== false ? (
+        // Disables its settings itself: the Models filter works on another device too (I-207).
+        <AgentModelGroups harness={entry.id} readOnly={readOnly} />
+      ) : (
+        viewOnly(
+          info ? (
             <FormGroup title="Models">
               <FormRow label={<span class="text-fg-muted">{info.label} chooses its own model.</span>} />
             </FormGroup>
           ) : (
-            <AgentModelGroups harness={entry.id} />
-          )
-        ) : (
-          <FormGroup title="Models">
-            <FormRow
-              label={
-                <span class="text-fg-muted">
-                  {entry.installed ? `Turn ${entry.label} on to see its models and defaults.` : `${entry.label} isn't installed on this device.`}
-                </span>
-              }
-            />
-          </FormGroup>
-        ),
+            <FormGroup title="Models">
+              <FormRow
+                label={
+                  <span class="text-fg-muted">
+                    {entry.installed ? `Turn ${entry.label} on to see its models and defaults.` : `${entry.label} isn't installed on this device.`}
+                  </span>
+                }
+              />
+            </FormGroup>
+          ),
+        )
       )}
     </>
   );

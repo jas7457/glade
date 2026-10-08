@@ -8,6 +8,7 @@ import { SegmentedControl } from "./SegmentedControl";
 import { formatShortcut } from "./Kbd";
 import { Toaster } from "./Toaster";
 import { TextField } from "./TextField";
+import { SearchField } from "./SearchField";
 import { Menu, MenuItem } from "./Menu";
 import { floatingSurfaceClass } from "./floating";
 import { showToast, toasts } from "@glade/app-core/state/toasts";
@@ -182,6 +183,34 @@ describe("TextField leadingIcon", () => {
     expect(container.querySelector("[data-slot=leading-icon]")).toBeNull();
     expect(container.firstElementChild?.tagName).toBe("INPUT");
     expect(screen.getByRole("textbox").className).toContain("pl-2");
+  });
+});
+
+describe("SearchField (I-207)", () => {
+  function Field({ onOuterKey }: { onOuterKey: () => void }) {
+    const [value, setValue] = useState("");
+    return (
+      <div onKeyDown={onOuterKey}>
+        <SearchField aria-label="Filter" value={value} onValueChange={setValue} />
+      </div>
+    );
+  }
+
+  it("types, clears with the clear button and Esc; Esc on an empty field passes through", () => {
+    const outer = vi.fn();
+    render(<Field onOuterKey={outer} />);
+    const input = screen.getByRole("textbox", { name: "Filter" }) as HTMLInputElement;
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    fireEvent.input(input, { target: { value: "opus" } });
+    expect(input.value).toBe("opus");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(input.value).toBe("");
+    fireEvent.input(input, { target: { value: "opus" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input.value).toBe("");
+    expect(outer).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(outer).toHaveBeenCalledTimes(1);
   });
 });
 

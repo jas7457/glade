@@ -2,12 +2,14 @@
  * Model settings (I-198): per agent on its page under Settings → Agents (`AgentModelGroups`:
  * "Defaults" and "Models", only that agent's models), and the one Glade-wide quick-tasks model
  * (`QuickTasksRow`, on the Agents page), picked as agent + model. The global Models page was
- * folded into Agents. Helpers for grouping models live here too.
+ * folded into Agents. Helpers for grouping models live here too (families: lib/model-families).
  */
 import { useState } from "preact/hooks";
 import { RefreshCw } from "lucide-preact";
 import { THINKING_LEVELS, modelKey, parseModelKey, sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
-import { Button, FormGroup, FormRow, Select, Spinner, Switch, type SelectOption } from "@glade/app-core/ui";
+import { Button, FormGroup, FormRow, SearchField, Select, Spinner, Switch, type SelectOption } from "@glade/app-core/ui";
+import { cn } from "@glade/app-core/lib/cn";
+import { groupByFamily, modelMatches } from "@glade/app-core/lib/model-families";
 import {
   hostAgentDefaults,
   hostAgentModels,
@@ -131,14 +133,20 @@ export function QuickTasksRow() {
   );
 }
 
-/** One agent's "Defaults" and "Models" groups (I-198): only its models, its own settings. */
-export function AgentModelGroups({ harness }: { harness: string }) {
+/**
+ * One agent's "Defaults" and "Models" groups (I-198): only its models, its own settings. The
+ * Models list (I-207) has a filter box (name or id) and groups each provider's models by family
+ * (`groupByFamily`: families A–Z, newest first, "N of M shown"; a model that is its own family has
+ * no header). `readOnly` (another device) disables the settings; the filter still works.
+ */
+export function AgentModelGroups({ harness, readOnly = false }: { harness: string; readOnly?: boolean }) {
   const info = hostHarnesses.value?.find((h) => h.id === harness);
   const s = hostAgentModels(harness);
   const all = hostModelsFor(harness);
   const visible = hostVisibleModelsFor(harness);
   const hidden = new Set(s.hiddenModels);
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState("");
   const label = info?.label ?? harness;
   const caps = info?.capabilities;
   // I-050: name the agent's own default so "Default" isn't a mystery.
@@ -147,6 +155,11 @@ export function AgentModelGroups({ harness }: { harness: string }) {
   const levels = agentThinkingLevels(all, s.defaultThinkingLevel);
   const subLevels = agentThinkingLevels(all, s.subagentThinkingLevel);
   const set = (patch: Parameters<typeof updateHostAgentModels>[1]) => void updateHostAgentModels(harness, patch);
+  const viewOnly = (children: preact.ComponentChildren, className?: string) => (
+    <fieldset disabled={readOnly} class={cn("min-w-0", readOnly && "pointer-events-none", className)}>
+      {children}
+    </fieldset>
+  );
 
   const refresh = async () => {
     setRefreshing(true);
@@ -159,68 +172,90 @@ export function AgentModelGroups({ harness }: { harness: string }) {
     else next.add(key);
     set({ hiddenModels: [...next] });
   };
+  // Families are built from every model (so "N of M shown" counts the whole family), then filtered.
+  const groups = groupModels(all)
+    .map(([group, ms]) => ({
+      group,
+      families: groupByFamily(ms)
+        .map((f) => ({ ...f, shown: f.models.filter((m) => !hidden.has(modelKey(m))).length, matching: f.models.filter((m) => modelMatches(m, query)) }))
+        .filter((f) => f.matching.length > 0),
+    }))
+    .filter((g) => g.families.length > 0);
+  const modelRow = (m: ModelInfo, inFamily: boolean) => {
+    const key = modelKey(m);
+    return (
+      <div key={key} class={cn("flex h-8 items-center justify-between gap-3 border-t border-separator pr-3", inFamily ? "pl-6" : "pl-3")}>
+        <div class="min-w-0 truncate">
+          {m.name} <span class="ml-1 text-[0.85rem] text-fg-subtle">{m.id}</span>
+        </div>
+        <Switch size="sm" aria-label={`Show ${m.name}`} checked={!hidden.has(key)} onCheckedChange={(v) => setVisible(key, v)} />
+      </div>
+    );
+  };
 
   return (
     <>
-      <FormGroup title="Defaults">
-        <FormRow label="Default model" description={`Used for new ${label} chats.`}>
-          <Select
-            aria-label="Default model"
-            class="w-[240px]"
-            value={s.defaultModel ? modelKey(s.defaultModel) : ""}
-            options={modelOptions(visible, ownName ? `Default (${ownName})` : "Agent default", s.defaultModel)}
-            onChange={(key) => set({ defaultModel: parseModelKey(key) })}
-          />
-        </FormRow>
-        <FormRow label="Default thinking level">
-          <Select
-            aria-label="Default thinking level"
-            class="w-[240px]"
-            value={s.defaultThinkingLevel}
-            options={levels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))}
-            onChange={(defaultThinkingLevel) => set({ defaultThinkingLevel })}
-          />
-        </FormRow>
-        {caps?.subagents !== false && (
-          <>
-            <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
-              <Select
-                aria-label="Sub-agent model"
-                class="w-[240px]"
-                value={s.subagentModel ? modelKey(s.subagentModel) : ""}
-                options={modelOptions(visible, "Same as the parent chat", s.subagentModel)}
-                onChange={(key) => set({ subagentModel: parseModelKey(key) })}
-              />
-            </FormRow>
-            <FormRow label="Sub-agent thinking">
-              <Select
-                aria-label="Sub-agent thinking"
-                class="w-[240px]"
-                value={s.subagentThinkingLevel ?? ""}
-                options={[{ value: "", label: "Same as the parent chat" }, ...subLevels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}
-                onChange={(level) => set({ subagentThinkingLevel: (level || null) as ThinkingLevel | null })}
-              />
-            </FormRow>
-          </>
-        )}
-        {caps?.sideQuestions !== false && (
-          <FormRow label="Side questions model" description="Answers side questions (/btw, Ask Aside) while the agent works. A faster model answers sooner.">
+      {viewOnly(
+        <FormGroup title="Defaults">
+          <FormRow label="Default model" description={`Used for new ${label} chats.`}>
             <Select
-              aria-label="Side questions model"
+              aria-label="Default model"
               class="w-[240px]"
-              value={s.sideQuestionModel ? modelKey(s.sideQuestionModel) : ""}
-              options={modelOptions(visible, "Same as the chat", s.sideQuestionModel)}
-              onChange={(key) => set({ sideQuestionModel: parseModelKey(key) })}
+              value={s.defaultModel ? modelKey(s.defaultModel) : ""}
+              options={modelOptions(visible, ownName ? `Default (${ownName})` : "Agent default", s.defaultModel)}
+              onChange={(key) => set({ defaultModel: parseModelKey(key) })}
             />
           </FormRow>
-        )}
-      </FormGroup>
+          <FormRow label="Default thinking level">
+            <Select
+              aria-label="Default thinking level"
+              class="w-[240px]"
+              value={s.defaultThinkingLevel}
+              options={levels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))}
+              onChange={(defaultThinkingLevel) => set({ defaultThinkingLevel })}
+            />
+          </FormRow>
+          {caps?.subagents !== false && (
+            <>
+              <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
+                <Select
+                  aria-label="Sub-agent model"
+                  class="w-[240px]"
+                  value={s.subagentModel ? modelKey(s.subagentModel) : ""}
+                  options={modelOptions(visible, "Same as the parent chat", s.subagentModel)}
+                  onChange={(key) => set({ subagentModel: parseModelKey(key) })}
+                />
+              </FormRow>
+              <FormRow label="Sub-agent thinking">
+                <Select
+                  aria-label="Sub-agent thinking"
+                  class="w-[240px]"
+                  value={s.subagentThinkingLevel ?? ""}
+                  options={[{ value: "", label: "Same as the parent chat" }, ...subLevels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}
+                  onChange={(level) => set({ subagentThinkingLevel: (level || null) as ThinkingLevel | null })}
+                />
+              </FormRow>
+            </>
+          )}
+          {caps?.sideQuestions !== false && (
+            <FormRow label="Side questions model" description="Answers side questions (/btw, Ask Aside) while the agent works. A faster model answers sooner.">
+              <Select
+                aria-label="Side questions model"
+                class="w-[240px]"
+                value={s.sideQuestionModel ? modelKey(s.sideQuestionModel) : ""}
+                options={modelOptions(visible, "Same as the chat", s.sideQuestionModel)}
+                onChange={(key) => set({ sideQuestionModel: parseModelKey(key) })}
+              />
+            </FormRow>
+          )}
+        </FormGroup>,
+      )}
 
       <FormGroup
         title="Models"
-        footer={`The models ${label} can use, by provider. Hidden models don't appear in its model picker.`}
+        footer={`The models ${label} can use, by provider and family, newest first. Hidden models don't appear in its model picker.`}
         actions={
-          <Button size="sm" onClick={() => void refresh()} disabled={refreshing}>
+          <Button size="sm" onClick={() => void refresh()} disabled={refreshing || readOnly}>
             {refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
             Refresh Models
           </Button>
@@ -229,22 +264,39 @@ export function AgentModelGroups({ harness }: { harness: string }) {
         {all.length === 0 ? (
           <FormRow label={<span class="text-fg-muted">{refreshing ? "Loading models…" : `No models found. Check that ${label} is configured with a provider.`}</span>} />
         ) : (
-          groupModels(all).map(([group, ms]) => (
-            <div key={group}>
-              <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{group}</div>
-              {ms.map((m) => {
-                const key = modelKey(m);
-                return (
-                  <div key={key} class="flex h-8 items-center justify-between gap-3 border-t border-separator px-3">
-                    <div class="min-w-0 truncate">
-                      {m.name} <span class="ml-1 text-[0.85rem] text-fg-subtle">{m.id}</span>
-                    </div>
-                    <Switch size="sm" aria-label={`Show ${m.name}`} checked={!hidden.has(key)} onCheckedChange={(v) => setVisible(key, v)} />
-                  </div>
-                );
-              })}
+          <>
+            <div class="px-3 py-2">
+              <SearchField aria-label="Filter models" placeholder="Filter models" value={query} onValueChange={setQuery} />
             </div>
-          ))
+            {groups.length === 0 ? (
+              <FormRow label={<span class="text-fg-muted">No models match “{query.trim()}”.</span>} />
+            ) : (
+              viewOnly(
+                groups.map(({ group, families }) => (
+                  <div key={group}>
+                    <div class="px-3 pt-2 pb-1 text-[0.85rem] font-semibold text-fg-muted">{group}</div>
+                    {families.map((f) =>
+                      // A model that is its own family ("Daybreak Blue") needs no header above it.
+                      f.models.length === 1 && f.family.toLowerCase() === f.models[0]!.name.toLowerCase() ? (
+                        modelRow(f.models[0]!, false)
+                      ) : (
+                        <div key={f.key} role="group" aria-label={f.family}>
+                          <div class="flex h-7 items-center justify-between gap-3 border-t border-separator px-3 text-[0.92rem] select-none">
+                            <span class="min-w-0 truncate font-medium text-fg">{f.family}</span>
+                            <span class="shrink-0 text-fg-subtle">
+                              {f.shown} of {f.models.length} shown
+                            </span>
+                          </div>
+                          {f.matching.map((m) => modelRow(m, true))}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )),
+                "divide-y divide-separator",
+              )
+            )}
+          </>
         )}
       </FormGroup>
     </>
