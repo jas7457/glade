@@ -128,7 +128,7 @@ Every entry corresponds to a ticked item in PLAN.md.
 - ACP agents: add any agent that speaks the Agent Client Protocol (Gemini CLI, Claude Code via an
   adapter, goose, …) in Settings → Agents and pick it for a new chat. Tool calls, plans, permission
   requests and history work like other chats. Nothing is set up by default.
-- Sub-agents and chat tools now come with Glade itself (no ext-kit needed); new setting Settings →
+- Sub-agents and chat tools now come with Glade itself (no extra pi extensions needed); new setting Settings →
   Agent → Use sub-agents.
 - When starting a worktree chat you can bring your uncommitted changes along; your project folder
   keeps its copy.

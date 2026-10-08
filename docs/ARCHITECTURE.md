@@ -190,7 +190,7 @@ New sessions use the request's model/thinking, else the settings defaults (like 
 
 ## Agent API (I-037)
 
-Agents running in Glade can spawn sub-agents (the ext-kit agent-teams extension's Glade backend).
+Agents running in Glade can spawn sub-agents (the the extension kit agent-teams extension's Glade backend).
 Every agent process gets `GLADE_URL`, `GLADE_SESSION_ID`, `GLADE_TOKEN` (random, per process,
 memory only, revoked when the process stops) and, for sub-agents, `GLADE_AGENT_NAME`
 (`AGENT_ENV` in `packages/protocol/src/agents.ts`), plus the same values under the pre-rename
@@ -706,7 +706,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - Agent API `POST /agents/chats/find|read|open` (I-091): find = the ⌘K Ask pipeline plus keyword
   hits, the caller's own chat excluded unless `includeSelf`; read = summary + last N user/assistant
   messages, bounded (`CHAT_TOOLS_LIMITS`), starts no agent; open = pushes `open_chat` and windows
-  navigate to it like a ⌘K pick. ext-kit's agent-teams exposes them as `find_chats`, `read_chat`,
+  navigate to it like a ⌘K pick. the extension kit's agent-teams exposes them as `find_chats`, `read_chat`,
   `open_chat` (Glade backend only).
 - Search hits locate messages by role + timestamp (`MessageAnchor`), not by transcript message id:
   harness ids are positional and change between streaming, reloads and compaction. The web resolves
@@ -739,7 +739,7 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
   in the lightbox, which use `cursor-zoom-in` as macOS does for enlargeable images. Sub-agent chips above the
   composer use `cursor-pointer` (I-118, user request).
 - Agent tools (I-116): Glade loads its own pi extension (`harness/pi/extension/glade-tools.ts`, `-e`,
-  bundled as `app/pi-extension/`) into agent sessions, sets `GLADE_TOOLS=1` (ext-kit's agent-teams then
+  bundled as `app/pi-extension/`) into agent sessions, sets `GLADE_TOOLS=1` (the extension kit's agent-teams then
   steps aside) and `GLADE_SUBAGENTS=off` when `settings.agent.subagents` is false (no
   spawn/message/close/list tools; `/agents/spawn` returns 403).
 - Bringing uncommitted changes (I-117): `CreateWorkspaceRequest.carryChanges` (only from the project

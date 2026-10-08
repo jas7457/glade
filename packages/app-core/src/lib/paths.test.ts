@@ -26,7 +26,7 @@ describe("paths (I-158)", () => {
     expect(displayPath(`${cwd}/`, `${cwd}/`, home)).toBe(".");
     expect(displayPath(".", cwd, home)).toBe(".");
     expect(displayPath("./src/a.ts", cwd, home)).toBe("src/a.ts");
-    expect(displayPath("../ext-kit/a.ts", cwd, home)).toBe("the extension kit/a.ts");
+    expect(displayPath("../ext-kit/a.ts", cwd, home)).toBe("~/src/ext-kit/a.ts");
     expect(displayPath(`${cwd}-worktrees/x/a.ts`, cwd, home)).toBe("~/src/glade-worktrees/x/a.ts");
     expect(displayPath("/tmp/x.log", cwd, home)).toBe("/tmp/x.log");
     expect(displayPath("~/notes.md", cwd, home)).toBe("~/notes.md");

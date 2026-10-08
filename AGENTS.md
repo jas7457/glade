@@ -16,11 +16,7 @@ designed to support other harnesses (e.g. Claude Code) later. Read
    Inbox items and ask.
 
 Related repos and places:
-- GitHub: `jas7457/glade` (private; formerly `jas7457/pi-ui`, which redirects). Push after every commit.
-- `the extension kit` (separate git repo): the user's pi extensions, incl. `extensions/agent-teams`
-  (`spawn_agent`, `message_agent`, …) with a cmux backend and a Glade backend (`glade.ts`, used
-  when `GLADE_URL`/`GLADE_TOKEN` are set; the pre-rename `PI_UI_*` names work too). Changes
-  there are committed and pushed there.
+- GitHub: `jas7457/glade`. Push after every commit.
 - pi itself: installed globally (`which pi`); docs in its package's `docs/` folder (rpc.md,
   session-format.md, extensions.md, skills.md).
 - User data: `~/Library/Application Support/Glade`; pi sessions: `~/.pi/agent/sessions`.

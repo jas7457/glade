@@ -190,7 +190,7 @@ describe("ToolCallRow: paths relative to the chat's folder (I-158)", () => {
   it("resolves relative paths for the tooltip and ~-shortens paths outside", () => {
     expect(pathRow("write", { path: "./docs/x.md", content: "" }).title).toBe(`${cwd}/docs/x.md`);
     expect(pathRow("write", { path: "./docs/x.md", content: "" }).text).toContain("Wrote docs/x.md");
-    expect(pathRow("read", { path: "/Users/me/src/ext-kit/a.ts" }).text).toContain("Read the extension kit/a.ts");
+    expect(pathRow("read", { path: "/Users/me/src/ext-kit/a.ts" }).text).toContain("Read ~/src/ext-kit/a.ts");
     expect(pathRow("read", { path: "/tmp/x.log" }).text).toContain("Read /tmp/x.log");
   });
   it("is relative to a worktree chat's own folder", () => {

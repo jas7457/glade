@@ -16,7 +16,7 @@ describe("splitLeadingCd (I-152)", () => {
     expect(splitLeadingCd(`pushd ./apps && ls`, cwd, home)).toEqual({ dir: "apps", rest: "ls" });
   });
   it("shortens other folders with ~", () => {
-    expect(splitLeadingCd(`cd the extension kit && git status`, cwd, home)).toEqual({ dir: "the extension kit", rest: "git status" });
+    expect(splitLeadingCd(`cd ~/src/ext-kit && git status`, cwd, home)).toEqual({ dir: "~/src/ext-kit", rest: "git status" });
     expect(splitLeadingCd(`cd /tmp/x && ls`, cwd, home)).toEqual({ dir: "/tmp/x", rest: "ls" });
   });
   it("leaves commands without a leading cd (or only a cd) alone", () => {
