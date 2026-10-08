@@ -570,6 +570,9 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Sidebar tint (I-211, 2026-10-05, user decision)**: one token, `--pi-sidebar-tint`, tints the
+  sidebar: over the native vibrancy in the Mac app (it stays see-through) and over a solid stand-in
+  colour (`--pi-sidebar-backdrop`) in the browser.
 - **Sidebar order is manual and mixed (I-202, 2026-10-05, user decision)**: inside a project and in
   the Chats section, chats and folders share one manual order (`Workspace.sortOrder` +
   `Folder.sortOrder`); folders only hold chats, projects are always top level; pinned chats stay on

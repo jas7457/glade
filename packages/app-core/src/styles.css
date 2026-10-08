@@ -101,6 +101,16 @@
   --pi-popover-border: rgb(0 0 0 / 0.12);
   --pi-popover-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 12px 32px -6px rgb(0 0 0 / 0.28);
   --pi-tabbar: color-mix(in srgb, var(--pi-sidebar) 70%, var(--pi-window));
+  /*
+   * Sidebar tint (I-211): two soft radial glows, a cool blue from the top left and a lavender
+   * from the bottom left, laid over the desktop's native vibrancy (and over `--pi-sidebar-backdrop`
+   * in the browser, which has none). Sized in vw/vh so they match the website captures' backdrop
+   * whatever the sidebar width. See the `[data-sidebar]` rules at the end of the file.
+   */
+  --pi-sidebar-tint:
+    radial-gradient(120vw 90vh at 0% 0%, rgb(96 132 196 / 0.2), transparent 60%),
+    radial-gradient(90vw 80vh at 0% 100%, rgb(140 120 200 / 0.18), transparent 65%);
+  --pi-sidebar-backdrop: #e9ebf0;
   /* Modals: the popover surface, a deeper shadow, a dimmed backdrop, a softer destructive red. */
   --pi-dialog-shadow: 0 4px 12px rgb(0 0 0 / 0.08), 0 24px 64px -12px rgb(0 0 0 / 0.35);
   --pi-backdrop: rgb(0 0 0 / 0.28);
@@ -187,6 +197,11 @@
   --pi-popover-border: rgb(255 255 255 / 0.16);
   --pi-popover-shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 14px 36px -6px rgb(0 0 0 / 0.6);
   --pi-tabbar: color-mix(in srgb, #000 22%, var(--pi-window));
+  /* The website captures' slate/violet backdrop (tools/capture MAC_WINDOW). */
+  --pi-sidebar-tint:
+    radial-gradient(120vw 90vh at 0% 0%, rgb(78 92 110 / 0.55), transparent 60%),
+    radial-gradient(90vw 80vh at 0% 100%, rgb(64 58 84 / 0.5), transparent 65%);
+  --pi-sidebar-backdrop: #232327;
   --pi-dialog-shadow: 0 4px 16px rgb(0 0 0 / 0.35), 0 28px 72px -12px rgb(0 0 0 / 0.7);
   --pi-backdrop: rgb(0 0 0 / 0.5);
   --pi-danger-fill: #d9363e;
@@ -292,14 +307,26 @@
  * Desktop app (<html data-desktop>, set in index.html): the window is transparent with native
  * sidebar vibrancy behind it, so the page and sidebar let it show through; the main pane keeps
  * its opaque bg-window. Unlayered so it beats the utilities.
+ *
+ * The sidebar (I-211): a 25% veil of the sidebar colour over the cool tint, over the vibrancy
+ * (desktop) or over a solid stand-in for it (browser), so both read like the website captures.
  */
 html[data-desktop],
 html[data-desktop] body {
   background: transparent;
 }
-html[data-desktop] [data-sidebar] {
-  background: color-mix(in srgb, var(--pi-sidebar) 25%, transparent);
+[data-sidebar] {
+  --pi-sidebar-veil: color-mix(in srgb, var(--pi-sidebar) 25%, transparent);
+  background:
+    linear-gradient(var(--pi-sidebar-veil), var(--pi-sidebar-veil)),
+    var(--pi-sidebar-tint),
+    var(--pi-sidebar-backdrop);
   backdrop-filter: none;
+}
+html[data-desktop] [data-sidebar] {
+  background:
+    linear-gradient(var(--pi-sidebar-veil), var(--pi-sidebar-veil)),
+    var(--pi-sidebar-tint);
 }
 
 /* Motion used by ui/ primitives (kept subtle, like AppKit). */

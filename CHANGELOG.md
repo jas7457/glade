@@ -251,6 +251,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- The sidebar has a cool bluish tint while staying see-through to your desktop (a soft lavender-blue
+  in light mode); the browser version gets the same look.
+
 - The Settings dot in the sidebar also shows when pi, Claude Code or Codex has an update.
 
 - Glade is now a public repo at github.com/jas7457/glade, with a cleaned-up history. Existing clones
