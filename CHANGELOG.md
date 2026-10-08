@@ -476,6 +476,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- Bookmarks: the ribbon now sits beside the reply's text (not beside its "Thought" or tool row), and
+  clicking it removes the bookmark. Opening a bookmark or a search result puts the message near the
+  top of the screen instead of the middle.
+
 - Tool calls you rejected, that were stopped, or that failed no longer read like a success; they
   say "Rejected", "Stopped" or "Failed", and tool groups count them.
 - iPhone voice mode: the highlighted word follows the voice in order on long replies instead of
