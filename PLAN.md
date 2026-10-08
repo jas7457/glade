@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-212.
+Next id: I-213.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1682,6 +1682,11 @@ Next id: I-212.
   - Decided (user, 2026-10-05): **(b)**: keep the partly see-through sidebar (native vibrancy) and tint it toward the bluish gradient of the screenshot. Lead default (not asked): the browser version (`pnpm dev`, no vibrancy) gets a matching gradient backdrop so it looks the same.
   - Acceptance: the app's sidebar in dark mode matches the website's hero capture side by side; a light-mode counterpart looks right; text contrast in the sidebar stays readable.
   - Outcome (2026-10-05): new tokens in `packages/app-core/src/styles.css`: `--pi-sidebar-tint` (dark: the capture backdrop's two radial gradients, slate blue from the top left and muted violet from the bottom left, sized in vw/vh; light: a subtle cool blue/lavender) and `--pi-sidebar-backdrop` (`#232327` / `#e9ebf0`). The app's sidebar = 25% veil of `--pi-sidebar` + the tint over the native vibrancy (still see-through; material unchanged); the browser = veil + tint + backdrop colour. Checked by the user in a test build next to the installed app; browser checked dark/light. The capture script stops painting its own gradient so captures aren't tinted twice.
+
+- [ ] **I-212** Website: show that sub-agents open in their own tabs and can be talked to — `docs`
+  - Reported: 2026-10-05 — the site's sub-agent section only shows the small sub-agent cards. The user wants it expanded to show that each sub-agent can be viewed in its own tab (with its live work) and that you can chat with it.
+  - Plan (lead): a new scripted capture in the demo sandbox: a parent chat with 2–3 sub-agents working; clicking a sub-agent's card opens its tab in the side pane (tabs per sub-agent, its task, thinking and tool calls streaming); then a message typed to that sub-agent in its own composer, and the sub-agent answering/adjusting (realistic). Video + poster + a focus version (the side pane with tabs and the conversation), names `subagent-tabs.*` / `subagent-tabs-focus.*`, added to `focus.json` and the media README. On the site: a new panel right after the sub-agents panel (alternating side like the others) with a short headline and copy about opening each sub-agent in a tab and messaging it, using the focus video in front of the dimmed window, same motion as other panels. Copy must match what the app does (check CHANGELOG/ARCHITECTURE: sub-agent tabs, side pane, `message_agent`, steering a sub-agent).
+  - Acceptance: the site shows a sub-agent's own tab and a message exchange with it, readable, with text beside it; regenerable with `pnpm capture --only subagent-tabs`.
 
 ## Future features
 
