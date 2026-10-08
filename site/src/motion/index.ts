@@ -4,7 +4,7 @@
  * condition with gsap.matchMedia, so it reverts cleanly when the window crosses the breakpoint or
  * reduced motion is switched on:
  *
- * - desktop (≥ 900px wide): each panel pins and its motion is scrubbed while it's pinned;
+ * - desktop (≥ 900px wide): each panel scrolls normally and its motion plays once it is mostly on screen;
  * - mobile: each stage fades and rises once it's fully on screen;
  * - reduce: nothing moves; the static layout is the HTML and CSS themselves.
  */

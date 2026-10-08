@@ -2,13 +2,13 @@
  * Feature panels (index.html `[data-panel]`): each is one screen, the text beside its stage, both
  * sized to fit below the header (styles.css), so whatever moves is always seen whole, with its text.
  *
- * Desktop: the panel pins under the header while you scroll through it, and the motion is
- * scrubbed within that pinned stretch, so it starts and ends with everything on screen.
+ * Desktop: panels scroll normally (no pinning); a panel's motion plays once most of it is on
+ * screen and takes {@link PLAY_SECONDS}, so it starts and ends with everything in view.
  * - Focus stages (markup from build/media.ts): the window starts flat and bright with its region
  *   outlined; the region lifts out of it (a copy of the window's still, clipped to the region) and
  *   flies forward until it covers the focus asset's place, the window steps back and dims, and the
  *   sharp focus asset cross-fades in over the softer copy. Extra layers (the Settings card, the
- *   phones) land last. The final pose holds for the last part of the pin.
+ *   phones) land last.
  * - Voice: the voice view rises and the minimized chat turns in behind it.
  * Phones: no pinning; each stage fades and rises once it's entirely on screen.
  *
@@ -24,8 +24,8 @@ const TILT = 12;
 const DEPTH = -90;
 const DIM = 0.5;
 const RADIUS = 12;
-/** Scroll distance a panel stays pinned, as a share of the viewport's height. */
-const PIN_LENGTH = 0.75;
+/** How long a panel's motion takes once it plays (seconds). */
+const PLAY_SECONDS = 1.6;
 
 interface Box {
   l: number;
@@ -48,22 +48,26 @@ export function panelMotion(ctx: MotionContext): () => void {
     }
     if (!stage && !voice) continue;
 
-    const tl = gsap.timeline({
-      defaults: { ease: "none" },
-      scrollTrigger: {
-        trigger: panel,
-        pin: true,
-        start: () => `top top+=${navHeight()}`,
-        end: () => `+=${Math.round(window.innerHeight * PIN_LENGTH)}`,
-        scrub: 0.6,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
-      },
-    });
+    // No pinning (pins made the page jerk where each one let go): the panel scrolls normally, and
+    // its motion plays once most of it is on screen, quickly enough to finish while it's still in
+    // view. Scrolling back above it resets it, so it plays again next time.
+    const tl = gsap.timeline({ paused: true, defaults: { ease: "none" } });
     if (stage) removers.push(focusTimeline(stage, tl));
     else if (voice) voiceTimeline(voice, tl);
-    // Hold the finished pose for the rest of the pin.
-    tl.to({}, { duration: 0.3 });
+    let play: gsap.core.Tween | null = null;
+    const trigger = ScrollTrigger.create({
+      trigger: panel,
+      start: () => `top ${navHeight() + Math.round(window.innerHeight * 0.3)}px`,
+      onEnter: () => {
+        play?.kill();
+        play = gsap.to(tl, { progress: 1, duration: PLAY_SECONDS * (1 - tl.progress()), ease: "none" });
+      },
+      onLeaveBack: () => {
+        play?.kill();
+        tl.progress(0);
+      },
+    });
+    removers.push(() => trigger.kill());
   }
   return () => removers.forEach((remove) => remove());
 }
