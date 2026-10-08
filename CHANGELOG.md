@@ -7,6 +7,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Website:** https://jas7457.github.io/glade/ shows what Glade does, with screenshots and videos
+  from a demo project. The README is now short and points there; build instructions are in it.
+
 - **Custom agent command** (Settings → Agents → an agent → Advanced): run pi, Claude Code or Codex
   through your own wrapper (e.g. `mywrapper pi --offline`), with a Test button. Chats, model lists,
   version checks and Update all go through it; turn Advanced off to go back to the built-in command
