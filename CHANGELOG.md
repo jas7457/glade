@@ -7,6 +7,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Custom agent command** (Settings → Agents → an agent → Advanced): run pi, Claude Code or Codex
+  through your own wrapper (e.g. `mywrapper pi --offline`), with a Test button. Chats, model lists,
+  version checks and Update all go through it; turn Advanced off to go back to the built-in command
+  (your command is kept for next time). Set per Mac.
+
 - An agent's Models list (Settings → Agents → the agent) has a filter box and groups models by
   family (Claude Opus, Claude Sonnet, GPT Sol…), newest first, with "N of M shown" per family, so
   it's easy to keep just the newest model of each family visible.
