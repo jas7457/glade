@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ListenEvent, SpeakEvent } from "~/voice/engine";
-import { createNativeVoiceEngine, type NativeBridge } from "~/voice/native-engine";
+import { createNativeVoiceEngine, voiceEngineKind, type NativeBridge } from "~/voice/native-engine";
 
 /** A fake Tauri bridge: records invokes and lets the test push events into the channels. */
 function fakeBridge(responses: Record<string, unknown> = {}) {
@@ -150,5 +150,15 @@ describe("native voice engine", () => {
     expect(a).toEqual([{ type: "word", start: 0, end: 3 }, { type: "done" }]);
     expect(b).toEqual([{ type: "word", start: 0, end: 3 }, { type: "cancelled" }]);
     expect(c).toEqual([]);
+  });
+});
+
+describe("voiceEngineKind (I-209: the simulator's fake voice)", () => {
+  it("is native in the app shell, fake outside it", () => {
+    expect(voiceEngineKind({ inShell: true, fakeRequested: false })).toBe("native");
+    expect(voiceEngineKind({ inShell: false, fakeRequested: false })).toBe("fake");
+  });
+  it("is fake in the shell only when a debug launch asked for it", () => {
+    expect(voiceEngineKind({ inShell: true, fakeRequested: true })).toBe("fake");
   });
 });

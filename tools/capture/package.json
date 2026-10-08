@@ -1,0 +1,13 @@
+{
+  "name": "@glade/capture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scripted screenshots and videos of the demo sandbox for the website (I-209). See README.md.",
+  "scripts": {
+    "capture": "node capture.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.0"
+  }
+}

@@ -44,8 +44,8 @@ export interface ServerConfig {
   scratchDir: string;
   host: string;
   port: number;
-  /** Which harness to use for new chats. */
-  harness: "pi" | "fake";
+  /** Which harness to use for new chats (`demo`: the website demo's pi/Claude Code/Codex stand-ins, I-209). */
+  harness: HarnessMode;
   /** Built web app to serve (`GLADE_STATIC_DIR`); defaults to `apps/web/dist` in the repo. */
   staticDir?: string;
   /** Exit when stdin closes (`GLADE_EXIT_ON_STDIN_CLOSE=1`): the desktop app's lifeline. */
@@ -62,11 +62,29 @@ export function loadConfig(): ServerConfig {
     // Loopback only by default. Remote access will need auth before this is opened up.
     host: env("HOST") ?? "127.0.0.1",
     port: Number(env("PORT") ?? 4317),
-    harness: env("HARNESS") === "fake" ? "fake" : "pi",
+    harness: harnessMode(),
     staticDir: env("STATIC_DIR"),
     exitOnStdinClose: env("EXIT_ON_STDIN_CLOSE") === "1",
     defaultDataDir: !env("DATA_DIR"),
   };
+}
+
+export type HarnessMode = "pi" | "fake" | "demo";
+
+/**
+ * `GLADE_HARNESS`: `fake` for UI work, `demo` for the website demo (I-209), else the real agents.
+ * Demo mode replaces pi, Claude Code and Codex with scripted stand-ins, so it only turns on in a
+ * `pnpm dev:agent` sandbox (`GLADE_SANDBOX` set) with its own data folder in a temporary
+ * location; anywhere else the real agents run and a warning is printed.
+ */
+export function harnessMode(source: NodeJS.ProcessEnv = process.env, warn: (msg: string) => void = console.warn): HarnessMode {
+  const value = env("HARNESS", source);
+  if (value === "fake") return "fake";
+  if (value !== "demo") return "pi";
+  const dataDir = env("DATA_DIR", source);
+  if (env("SANDBOX", source) && dataDir && isTemporaryDir(dataDir)) return "demo";
+  warn("[glade] GLADE_HARNESS=demo only works in a demo sandbox (pnpm dev:agent --demo); running the real agents");
+  return "pi";
 }
 
 /** Resolves symlinks where possible (macOS: /tmp → /private/tmp), else just normalises. */

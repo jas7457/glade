@@ -372,12 +372,14 @@ export interface Settings {
   /**
    * Agents this device offers (I-155), keyed by harness id: `enabled: false` turns one off (it's
    * then not offered to new chats, sub-agents or other devices). Absent = on when installed.
+   * I-201: `advanced` + `command` run the agent through a custom command (`agent-command.ts`).
    */
   agents: import("./agent-catalog.js").AgentSwitches;
   /**
    * Per-harness settings (I-066), keyed by harness id. pi's (`piPath`, `extraArgs`,
-   * `autoCompaction`, `autoRetry`) were removed in I-159: pi is always `pi` on the PATH, started
-   * with auto-compaction and auto-retry on.
+   * `autoCompaction`, `autoRetry`) were removed in I-159; pi starts with auto-compaction and
+   * auto-retry on. Its command is `pi` on the PATH unless `agents.pi.advanced` + `command` say
+   * otherwise (I-201).
    */
   harnesses: {
     /**

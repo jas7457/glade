@@ -149,7 +149,8 @@ export function VoiceView({ conversation, engine, title, onClose, onMinimize }: 
         </div>
       </div>
 
-      {isFakeVoiceEngine(engine) && <DebugSay onSay={(text) => void engine.hear(text)} />}
+      {/* Hidden while a reply is read, so simulator captures of a reply show no debug field (I-209). */}
+      {isFakeVoiceEngine(engine) && !speakingNow && <DebugSay onSay={(text) => void engine.hear(text)} />}
 
       <footer class="flex shrink-0 items-center justify-center gap-8 px-6 pt-3 pb-[max(calc(env(safe-area-inset-bottom)_+_8px),20px)]">
         <RoundButton label={state.muted ? "Unmute microphone" : "Mute microphone"} pressed={state.muted} onClick={() => conversation.dispatch({ type: "mute", muted: !state.muted })}>

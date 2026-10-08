@@ -14,12 +14,22 @@
  *
  * The installed version is read from the agent's executable as the harnesses find it (the
  * server's PATH, which the Mac app sets from the user's login shell), with stdin closed, Glade's own
- * config stripped from the environment (`updateEnv`) and a timeout.
+ * config stripped from the environment (`updateEnv`) and a timeout. With a custom command in effect
+ * (I-201) it's `<command> --version` (e.g. `mywrapper pi --version`); {@link testAgentCommand} runs
+ * the same for the agent page's Test button.
  */
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  agentCommandError,
+  builtinAgentCommand,
+  formatCommandLine,
+  splitCommandLine,
+  type AgentCommandLine,
+  type AgentCommandTestResult,
+} from "@glade/protocol";
 import { findExecutable } from "../../harness/which.js";
 import { runInLoginShell, updateEnv } from "../update-job.js";
 
@@ -154,10 +164,11 @@ export function runVersionCommand(path: string, args: string[] = ["--version"], 
 
 /**
  * The default {@link ReadInstalled}: finds the agent's executable on the PATH and runs
- * `--version`. `overrides[harness]` (testing only, e.g. `GLADE_AGENT_VERSION_COMMAND_CLAUDE`) is a
+ * `--version`; with a custom command in effect (`custom(harness)`, I-201) its program with its
+ * arguments. `overrides[harness]` (testing only, e.g. `GLADE_AGENT_VERSION_COMMAND_CLAUDE`) is a
  * shell command run through the login shell instead, whose output holds the version.
  */
-export function defaultReadInstalled(overrides: Readonly<Record<string, string>> = {}): ReadInstalled {
+export function defaultReadInstalled(overrides: Readonly<Record<string, string>> = {}, custom?: (harness: string) => AgentCommandLine | null): ReadInstalled {
   return async (harness) => {
     const override = overrides[harness];
     if (override) {
@@ -167,12 +178,42 @@ export function defaultReadInstalled(overrides: Readonly<Record<string, string>>
       return { installed: true, version: parseVersion(output), output };
     }
     const source = AGENT_VERSION_SOURCES[harness];
-    const path = source ? findExecutable(source.command) : null;
+    if (!source) return { installed: false };
+    const command = custom?.(harness) ?? { program: source.command, args: [] };
+    const path = findExecutable(command.program);
     if (!path) return { installed: false };
-    const { stdout, stderr } = await runVersionCommand(path);
+    const { stdout, stderr } = await runVersionCommand(path, [...command.args, "--version"]);
     // pi may print warnings first: the version is the last x.y.z on stdout (else stderr).
     return { installed: true, version: parseVersion(stdout) ?? parseVersion(stderr), output: (stdout + stderr).trim() };
   };
+}
+
+/**
+ * The agent page's Test (I-201): `<command> --version` for `harness` with `text` (empty = the
+ * built-in command), whether it's saved or not. Refuses commands the settings would refuse.
+ */
+export async function testAgentCommand(harness: string, text: string, run = runVersionCommand): Promise<AgentCommandTestResult> {
+  const builtin = builtinAgentCommand(harness);
+  const trimmed = text.trim();
+  const shown = trimmed || builtin || harness;
+  const fail = (error: string, command = `${shown} --version`, output = ""): AgentCommandTestResult => ({ ok: false, command, version: null, output, error });
+  if (!builtin) return fail("Only pi, Claude Code and Codex can run a custom command.");
+  const invalid = agentCommandError(harness, trimmed);
+  if (invalid) return fail(invalid);
+  const [program, ...args] = trimmed ? splitCommandLine(trimmed) : [builtin];
+  const line = formatCommandLine([program!, ...args, "--version"]);
+  const path = findExecutable(program!);
+  if (!path) return fail(`\`${program}\` wasn't found on this device's PATH.`, line);
+  try {
+    const { code, stdout, stderr } = await run(path, [...args, "--version"]);
+    const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n").slice(-4000);
+    const version = parseVersion(stdout) ?? parseVersion(stderr);
+    if (code !== 0) return fail(`It exited with code ${code ?? "?"}.`, line, output);
+    if (!version) return fail("It ran, but didn't print a version.", line, output);
+    return { ok: true, command: line, version, output };
+  } catch (err) {
+    return fail(`Couldn't run it (${errorText(err)}).`, line);
+  }
 }
 
 export function errorText(err: unknown): string {

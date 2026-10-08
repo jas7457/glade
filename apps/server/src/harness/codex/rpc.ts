@@ -26,13 +26,15 @@ export interface SpawnCodexOptions {
   executable: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** Arguments before `app-server` (a custom command's, I-201: `mywrapper codex app-server`). */
+  leadingArgs?: string[];
   /** Extra arguments after `app-server` (tests). */
   args?: string[];
 }
 
 /** `codex app-server` over stdio. */
-export function spawnCodexTransport({ executable, cwd, env, args = [] }: SpawnCodexOptions): CodexTransport {
-  const child = spawn(executable, ["app-server", ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+export function spawnCodexTransport({ executable, cwd, env, leadingArgs = [], args = [] }: SpawnCodexOptions): CodexTransport {
+  const child = spawn(executable, [...leadingArgs, "app-server", ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   const listeners: Array<(m: RpcMessage) => void> = [];
   const closers: Array<(e: Error | null) => void> = [];
   let stderr = "";

@@ -70,7 +70,7 @@ import { UPDATE_UNAVAILABLE_DEV, UpdateJob } from "../services/update-job.js";
 import { TerminalService } from "../services/terminals.js";
 import { createTerminalWsHandler, terminalRoutes } from "./terminals.js";
 import { localModelsRoutes } from "./local-models.js";
-import { agentVersionsRoutes } from "./agent-versions.js";
+import { agentCommandRoutes, agentVersionsRoutes } from "./agent-versions.js";
 import type { AgentVersionsService } from "../services/agent-versions/service.js";
 
 export interface CreateAppOptions {
@@ -174,6 +174,9 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   app.route("/api", localModelsRoutes(service.localModels));
   // Agent versions and updates (I-198): paired devices may check and update too.
   if (agentVersions) app.route("/api", agentVersionsRoutes(agentVersions));
+  // An agent's custom command, Test (I-201): runs what's typed in the field, so the host only.
+  app.use("/api/agent-command/*", localOnly);
+  app.route("/api", agentCommandRoutes());
   app.route("/api", apiRoutes(service, pickFolder));
   app.get("/ws", nodeWs.upgradeWebSocket(createWsHandler(service, auth)));
   app.get("/ws/terminal/:terminalId", nodeWs.upgradeWebSocket(createTerminalWsHandler(terminals, auth)));

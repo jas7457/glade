@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "site"
+  - "tools/*"
 allowBuilds:
   esbuild: true
   node-pty: false # N-API prebuilds ship in the package (darwin arm64/x64); no node-gyp
+minimumReleaseAgeExclude:
+  - playwright-core@1.64.0

@@ -18,6 +18,8 @@
 import { CLAUDE_COMMAND, CLAUDE_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type ModelRef, type SlashCommand, type UsageLimits } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
+import { resolveAgentCommand, type CustomCommandFn } from "../agent-command.js";
+import { claudeShim } from "./shim.js";
 import type {
   AgentHarness,
   CompletionRequest,
@@ -69,6 +71,13 @@ export interface ClaudeHarnessOptions {
   which?: WhichFn;
   /** Full path of a command (default: a PATH lookup). */
   findExecutable?: (command: string) => string | null;
+  /**
+   * The custom command in effect (I-201: Advanced on the agent's page), read at each start. With
+   * leading arguments it runs through a generated script (`shim.ts`, in {@link shimDir}).
+   */
+  customCommand?: CustomCommandFn;
+  /** Folder for the custom command's scripts (default: a temp folder). */
+  shimDir?: string;
   /** Limits for every chat process (dev/testing: `GLADE_CLAUDE_MAX_BUDGET_USD`, `…_MAX_TURNS`). */
   limits?: ClaudeSessionOptions["limits"];
   /** Session hooks: tests (`cancelGraceMs`, `home`), debugging (`traceFile`). */
@@ -95,11 +104,33 @@ export class ClaudeHarness implements AgentHarness {
   }
 
   isInstalled(): boolean {
-    return (this.options.which ?? defaultWhich)(CLAUDE_COMMAND);
+    return (this.options.which ?? defaultWhich)(this.command().program);
   }
 
+  /** `claude`, or the custom command (I-201). */
+  private command(): { program: string; args: string[] } {
+    return resolveAgentCommand(this.options.customCommand, CLAUDE_COMMAND);
+  }
+
+  /**
+   * The path handed to the SDK: `claude` (or the custom program) found on the PATH; a custom
+   * command with leading arguments becomes a generated script (`shim.ts`).
+   */
   private executable(): string | null {
-    return (this.options.findExecutable ?? ((c) => findExecutable(c)))(CLAUDE_COMMAND);
+    const { program, args } = this.command();
+    const path = (this.options.findExecutable ?? ((c) => findExecutable(c)))(program);
+    if (!path || !args.length) return path;
+    try {
+      return claudeShim(path, args, this.options.shimDir);
+    } catch (err) {
+      this.options.log?.(`claude: couldn't write the custom command's script: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  private notFound(): string {
+    const { program } = this.command();
+    return `Claude Code isn't installed: \`${program}\` wasn't found on this device's PATH.`;
   }
 
   /** The Claude Code process environment: the server's minus Glade's own and nested-session variables. */
@@ -124,7 +155,7 @@ export class ClaudeHarness implements AgentHarness {
 
   private async runProbe(cwd: string): Promise<ClaudeInitResult> {
     const executable = this.executable();
-    if (!executable) throw new Error("Claude Code isn't installed: `claude` wasn't found on this device's PATH.");
+    if (!executable) throw new Error(this.notFound());
     const input = new PushQueue<ClaudeUserInput>();
     const query = await this.sdk.query({
       prompt: input,

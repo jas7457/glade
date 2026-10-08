@@ -3,7 +3,7 @@
  * Enable switch, its version with Update (`AgentVersionGroup`), then its own "Defaults" (model and
  * thinking for new chats, sub-agents, side questions) and "Models" (show/hide), listing only that
  * agent's models. Agents that choose their own model (`capabilities.models === false`) have no
- * model settings.
+ * model settings. Last, Advanced (I-201): a custom command for the agent (`AgentAdvancedGroup`).
  *
  * On another device (device switcher) the settings are view only, but Version's Check and Update
  * work (actions, like Local Models' Load/Unload), and so does the Models filter (I-207).
@@ -14,6 +14,7 @@ import { hostHarnesses, hostReadOnly } from "@glade/app-core/state/host-settings
 import type { AgentCatalogEntry } from "@glade/protocol";
 import { AgentEnableSwitch, AgentStatus, agentDescription, setAgentEnabled } from "./AgentSettings";
 import { AgentVersionGroup } from "./AgentVersion";
+import { AgentAdvancedGroup } from "./AgentAdvanced";
 import { AgentModelGroups } from "./ModelSettings";
 
 export function AgentPage({ entry }: { entry: AgentCatalogEntry }) {
@@ -59,6 +60,8 @@ export function AgentPage({ entry }: { entry: AgentCatalogEntry }) {
           ),
         )
       )}
+
+      <AgentAdvancedGroup entry={entry} />
     </>
   );
 }

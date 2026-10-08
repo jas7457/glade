@@ -17,9 +17,11 @@
  * - After a successful run: the installed version is read again (`from` → `to`) and `onUpdated`
  *   reloads the agent's models (the server pushes `models`), then the job is `done`.
  * - Every change calls `onChange` (the server throttles it into `agent_versions` pushes).
+ * - A custom command in effect (I-201, `customCommand`) is used for both: `<command> --version`
+ *   (via `readInstalled`) and the agent's updater through it (`mywrapper pi update self`).
  */
 import { homedir } from "node:os";
-import { AGENT_UPDATE_COMMANDS, type AgentUpdateJob, type AgentVersionInfo, type AgentVersionsStatus, type SessionSummary } from "@glade/protocol";
+import { AGENT_UPDATE_COMMANDS, agentUpdateCommand, formatCommandLine, type AgentCommandLine, type AgentUpdateJob, type AgentVersionInfo, type AgentVersionsStatus, type SessionSummary } from "@glade/protocol";
 import { runInLoginShell, type ShellRun } from "../update-job.js";
 import {
   AGENT_VERSION_SOURCES,
@@ -64,6 +66,12 @@ export interface AgentVersionsServiceOptions {
   shell?: ShellRun;
   /** The update command per agent (testing overrides); default `AGENT_UPDATE_COMMANDS`. */
   updateCommands?: Readonly<Record<string, string>>;
+  /**
+   * The custom command in effect per agent (I-201), read at each use; null = the built-in one.
+   * Update runs the agent's updater through it (`agentUpdateCommand`); testing overrides in
+   * `updateCommands` still win.
+   */
+  customCommand?: (harness: string) => AgentCommandLine | null;
   /** Folder the updaters run in. Default: the home folder. */
   cwd?: string;
   startupDelayMs?: number;
@@ -111,7 +119,7 @@ export class AgentVersionsService {
   private disposed = false;
 
   constructor(private readonly options: AgentVersionsServiceOptions) {
-    this.readInstalled = options.readInstalled ?? defaultReadInstalled();
+    this.readInstalled = options.readInstalled ?? defaultReadInstalled({}, options.customCommand);
     this.fetchText = options.fetchText ?? defaultFetchText;
     this.shell = options.shell ?? runInLoginShell;
     this.now = options.now ?? (() => new Date());
@@ -149,7 +157,7 @@ export class AgentVersionsService {
 
   status(): AgentVersionsStatus {
     return {
-      agents: [...this.entries.values()].map((e) => ({ ...e.info, update: e.job ? this.jobView(e) : null })),
+      agents: [...this.entries.entries()].map(([h, e]) => ({ ...e.info, updateCommand: this.commandOf(h), update: e.job ? this.jobView(e) : null })),
       checking: this.inflight !== null,
     };
   }
@@ -182,7 +190,7 @@ export class AgentVersionsService {
     const entry = this.entries.get(harness);
     if (!entry) throw new AgentVersionsError(404, `Glade doesn't know an agent called ${harness}.`);
     const name = this.label(harness);
-    const command = entry.info.updateCommand;
+    const command = this.commandOf(harness);
     if (!command) throw new AgentVersionsError(409, `Glade can't update ${name}.`);
     if (entry.info.state === "not-installed") throw new AgentVersionsError(409, `${name} isn't installed on this Mac.`);
     if (entry.job?.state === "running") throw new AgentVersionsError(409, `${name} is already updating.`);
@@ -272,7 +280,8 @@ export class AgentVersionsService {
   }
 
   private async readInstalledSafe(harness: string): Promise<{ kind: "missing" } | { kind: "error"; reason: string } | { kind: "ok"; version: string }> {
-    const command = AGENT_VERSION_SOURCES[harness]?.command ?? harness;
+    const custom = this.options.customCommand?.(harness);
+    const command = custom ? formatCommandLine([custom.program, ...custom.args]) : (AGENT_VERSION_SOURCES[harness]?.command ?? harness);
     try {
       const found = await this.readInstalled(harness);
       if (!found.installed) return { kind: "missing" };
@@ -382,8 +391,13 @@ export class AgentVersionsService {
     this.waitTimer = null;
   }
 
+  /** Testing override, else the updater through the custom command in effect (I-201), else the built-in one. */
   private commandOf(harness: string): string | null {
-    return this.options.updateCommands?.[harness] ?? AGENT_UPDATE_COMMANDS[harness] ?? null;
+    const override = this.options.updateCommands?.[harness];
+    if (override && override !== AGENT_UPDATE_COMMANDS[harness]) return override;
+    const custom = this.options.customCommand?.(harness) ?? null;
+    if (custom) return agentUpdateCommand(harness, custom);
+    return override ?? AGENT_UPDATE_COMMANDS[harness] ?? null;
   }
 
   private label(harness: string): string {

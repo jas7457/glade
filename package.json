@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "start": "pnpm --filter @glade/server start",
     "dev:agent": "node scripts/dev-agent.mjs",
+    "capture": "node tools/capture/capture.mjs",
     "test": "pnpm test:scripts && vitest run",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "test:watch": "vitest",

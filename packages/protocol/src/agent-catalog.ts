@@ -50,8 +50,24 @@ export function isCustomAcpHarness(harnessId: string): boolean {
   return isAcpHarnessId(harnessId) && !knownAcpAgentFor(harnessId);
 }
 
+/** `Settings.agents.<harnessId>`: one agent's switches on this device. */
+export interface AgentSwitch {
+  /** Offered when installed (on unless `false`, I-155). */
+  enabled?: boolean;
+  /**
+   * The agent page's Advanced switch (I-201, off by default): only while on does a saved
+   * {@link command} replace Glade's own; turning it off keeps the command for later.
+   */
+  advanced?: boolean;
+  /**
+   * Custom command (I-201), e.g. `mywrapper pi --offline`; `null`/absent = the built-in one. Split
+   * shell-style without a shell; see `agent-command.ts`.
+   */
+  command?: string | null;
+}
+
 /** `Settings.agents`: per-agent switches, keyed by harness id. */
-export type AgentSwitches = Record<string, { enabled?: boolean }>;
+export type AgentSwitches = Record<string, AgentSwitch>;
 
 /**
  * Whether the device offers agent `harnessId` when it's installed (on unless turned off). The
@@ -68,8 +84,10 @@ export interface AgentCatalogEntry {
   label: string;
   /** builtin: pi, Claude Code, Codex (or the dev fake); known: a well-known ACP agent. */
   kind: "builtin" | "known";
-  /** The command line it runs (display), `null` when not applicable. */
+  /** The command line it runs (display; the custom one when in effect, I-201), `null` when not applicable. */
   command: string | null;
+  /** A custom command is in effect (Advanced on and one saved, I-201). Absent on older servers. */
+  custom?: boolean;
   /** The commands looked for on the PATH (for "Not found: looked for …"); empty when not applicable. */
   lookedFor: string[];
   /** Found on this device (the command is on the PATH). */

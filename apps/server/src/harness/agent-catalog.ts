@@ -8,12 +8,15 @@
  *   are hidden and never offered since I-159 (`isAgentEnabled` is false for them); they stay
  *   harnesses only so their old chats remain readable. A user's agent can't take a known agent's id.
  * - {@link buildAgentCatalog}: `GET /api/agent-catalog` for Settings → Agents: pi, Claude Code and
- *   the known agents with installed / enabled / offered and the commands looked for on the PATH.
+ *   the known agents with installed / enabled / offered and the commands looked for on the PATH
+ *   (a custom command in effect, I-201: its line, and its program looked for).
  */
 import {
   KNOWN_ACP_AGENTS,
   acpHarnessId,
   builtinAgentCommand,
+  customAgentCommand,
+  formatCommandLine,
   isAgentEnabled,
   isCustomAcpHarness,
   knownAcpAgentFor,
@@ -55,12 +58,15 @@ export function buildAgentCatalog({ harnesses, settings }: AgentCatalogOptions):
     const config = (h as { config?: AcpAgentConfig }).config;
     const known = knownAcpAgentFor(h.id);
     const builtin = builtinAgentCommand(h.id);
+    // I-201: a custom command in effect is what runs and what's looked for on the PATH.
+    const custom = builtin ? customAgentCommand(settings, h.id) : null;
     return {
       id: h.id,
       label: h.info.label,
       kind: known ? "known" : "builtin",
-      command: config ? commandLine(config.command, config.args) : builtin,
-      lookedFor: known ? [...known.commands] : builtin ? [builtin] : [],
+      command: config ? commandLine(config.command, config.args) : custom ? formatCommandLine([custom.program, ...custom.args]) : builtin,
+      ...(custom ? { custom: true } : {}),
+      lookedFor: known ? [...known.commands] : custom ? [custom.program] : builtin ? [builtin] : [],
       installed,
       enabled,
       offered: installed && enabled,

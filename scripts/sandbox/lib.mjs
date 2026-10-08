@@ -46,10 +46,10 @@ export const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /**
  * Parses `dev:agent` arguments.
  * @param {string[]} argv
- * @returns {{ name: string, real: boolean, keep: boolean, stop: boolean, sweep: boolean, help: boolean }}
+ * @returns {{ name: string, real: boolean, demo: boolean, keep: boolean, stop: boolean, sweep: boolean, help: boolean }}
  */
 export function parseArgs(argv) {
-  const out = { name: "agent", real: false, keep: false, stop: false, sweep: false, help: false };
+  const out = { name: "agent", real: false, demo: false, keep: false, stop: false, sweep: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--") continue;
@@ -59,16 +59,27 @@ export function parseArgs(argv) {
       out.name = value;
     } else if (arg.startsWith("--name=")) out.name = arg.slice("--name=".length);
     else if (arg === "--real") out.real = true;
+    else if (arg === "--demo") out.demo = true;
     else if (arg === "--keep") out.keep = true;
     else if (arg === "--stop") out.stop = true;
     else if (arg === "--sweep") out.sweep = true;
     else if (arg === "--help" || arg === "-h") out.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
+  if (out.real && out.demo) throw new Error("--real and --demo can't be combined");
   if (!NAME_RE.test(out.name)) {
     throw new Error(`Invalid sandbox name "${out.name}" (letters, digits, . _ -; max 64 chars)`);
   }
   return out;
+}
+
+/**
+ * The harness a sandbox runs (`GLADE_HARNESS`): the real pi, the website demo's scripted agents
+ * (I-209), or the fake one.
+ * @param {{ real: boolean, demo: boolean }} args @returns {"pi" | "demo" | "fake"}
+ */
+export function sandboxHarness(args) {
+  return args.real ? "pi" : args.demo ? "demo" : "fake";
 }
 
 /**
@@ -349,7 +360,7 @@ export function sessionsFromDatabase(path) {
 export function destroySandbox(dir, { keep = false } = {}) {
   const state = readState(dir);
   if (state) {
-    const pids = [state.serverPid, state.webPid, state.supervisorPid].filter(
+    const pids = [state.serverPid, state.webPid, state.llamaPid, state.supervisorPid].filter(
       (pid) => pid && pid !== process.pid && isPidAlive(pid),
     );
     for (const pid of pids) killGroup(pid, "SIGTERM");

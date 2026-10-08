@@ -77,6 +77,8 @@ the model with the next prompt.
 
 - Spawns `pi --mode rpc [--session <file>] [--model p/id] [--thinking lvl]` with `cwd` = the
   workspace's folder (its project's, or the scratch folder for standalone workspaces).
+  `pi` is the effective agent command: a custom one from the agent page's Advanced setting
+  (I-201) is used with its own arguments first.
 - Child environment (I-038, `harness/pi/child-env.ts`): the server's env minus `CMUX_*` and
   `PI_AGENT_TEAMS_*`, so a server started from a cmux terminal doesn't make pi extensions
   (agent-teams) drive that terminal, and minus the agent identity / server listening config
@@ -570,6 +572,15 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 
 ## Decisions
 
+- **Custom agent commands (I-201, 2026-10-05, user decisions)**: each agent's page has an Advanced
+  switch with a Command (e.g. a wrapper like `mywrapper pi --offline`), set per device in
+  `Settings.agents.<id>` (`advanced`, `command`). Advanced off means Glade's own command (`pi`,
+  `claude`, `codex`) always, even with one saved; the saved one comes back when switched on. The
+  command is split like a shell but never run through one (no expansion; `|`, `$`… refused), and
+  Glade's own flags are reserved. Glade appends its arguments after the user's (`… --mode rpc`,
+  `… app-server`); Claude Code gets a small generated exec script, since the SDK takes one path.
+  Version checks (`<command> --version`) and Update (`<command> update self` / `update`) go through
+  it too; one server helper (`harness/agent-command.ts`) resolves the effective command.
 - **Sidebar tint (I-211, 2026-10-05, user decision)**: one token, `--pi-sidebar-tint`, tints the
   sidebar: over the native vibrancy in the Mac app (it stays see-through) and over a solid stand-in
   colour (`--pi-sidebar-backdrop`) in the browser.

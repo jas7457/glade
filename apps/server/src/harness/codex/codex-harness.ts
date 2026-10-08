@@ -19,6 +19,7 @@
 import { CODEX_COMMAND, CODEX_HARNESS_ID, type FolderPermissionModes, type HarnessCapabilities, type HarnessDefaults, type ModelInfo, type SlashCommand, type UsageLimits } from "@glade/protocol";
 import { piChildEnv } from "../pi/child-env.js";
 import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
+import { resolveAgentCommand, type CustomCommandFn } from "../agent-command.js";
 import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 import { CodexAppServer } from "./app-server.js";
 import { CodexSession, type CodexSessionOptions } from "./codex-session.js";
@@ -49,7 +50,12 @@ export interface CodexHarnessOptions {
   /** Folder the app-server process runs in. */
   utilityCwd: string;
   /** Start the app-server's transport (tests inject a fake); default: `codex app-server` on the PATH. */
-  connect?: (spawn: { executable: string; cwd: string; env: NodeJS.ProcessEnv }) => CodexTransport;
+  connect?: (spawn: { executable: string; leadingArgs: string[]; cwd: string; env: NodeJS.ProcessEnv }) => CodexTransport;
+  /**
+   * The custom command in effect (I-201: Advanced on the agent's page), read when the app-server
+   * starts: `mywrapper codex` runs `mywrapper codex app-server`. Null = `codex` on the PATH.
+   */
+  customCommand?: CustomCommandFn;
   /** The "Use sub-agents" setting, read when a thread starts. Default on. */
   subagents?: () => boolean;
   /** Is a command installed? (default: a cached PATH lookup.) */
@@ -80,9 +86,10 @@ export class CodexHarness implements AgentHarness {
   constructor(private readonly options: CodexHarnessOptions) {
     this.server = new CodexAppServer({
       connect: () => {
+        const command = this.command();
         const executable = this.executable();
-        if (!executable) throw new Error(NOT_INSTALLED);
-        const spawn = { executable, cwd: options.utilityCwd, env: this.childEnv() };
+        if (!executable) throw new Error(command.program === CODEX_COMMAND ? NOT_INSTALLED : `Codex's command \`${command.program}\` wasn't found on this device's PATH.`);
+        const spawn = { executable, leadingArgs: command.args, cwd: options.utilityCwd, env: this.childEnv() };
         const transport = options.connect ? options.connect(spawn) : spawnCodexTransport(spawn);
         return options.traceFile ? traceCodexTransport(transport, options.traceFile) : transport;
       },
@@ -92,11 +99,16 @@ export class CodexHarness implements AgentHarness {
   }
 
   isInstalled(): boolean {
-    return (this.options.which ?? defaultWhich)(CODEX_COMMAND);
+    return (this.options.which ?? defaultWhich)(this.command().program);
+  }
+
+  /** `codex`, or the custom command (I-201). */
+  private command(): { program: string; args: string[] } {
+    return resolveAgentCommand(this.options.customCommand, CODEX_COMMAND);
   }
 
   private executable(): string | null {
-    return (this.options.findExecutable ?? ((c) => findExecutable(c)))(CODEX_COMMAND);
+    return (this.options.findExecutable ?? ((c) => findExecutable(c)))(this.command().program);
   }
 
   /** The app-server's environment: the server's minus Glade's own and a parent Codex session's variables. */
@@ -168,7 +180,7 @@ export class CodexHarness implements AgentHarness {
     return limits ? codexUsageLimits(limits) : null;
   }
 
-  /** After `codex update` (I-198): use the new binary from the next start on. */
+  /** After `codex update` (I-198) or a new custom command (I-201): use it from the next start on. */
   reload(): void {
     this.server.reload();
   }

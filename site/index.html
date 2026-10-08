@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Glade: a native Mac app for your coding agents</title>
+    <meta name="description" content="Run pi, Claude Code and Codex side by side in one native Mac app, with sub-agents working in parallel, local models, git worktrees, and your iPhone as a remote. Free and open source.">
+    <meta name="theme-color" content="#161617">
+    <meta name="color-scheme" content="dark">
+    <link rel="canonical" href="https://jas7457.github.io/glade/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Glade">
+    <meta property="og:url" content="https://jas7457.github.io/glade/">
+    <meta property="og:title" content="Glade: a native Mac app for your coding agents">
+    <meta property="og:description" content="pi, Claude Code and Codex side by side, with sub-agents, local models, and your iPhone as a remote. Free and open source.">
+    <!-- glade:og -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <script>
+      // Before first paint: with motion on, the hero starts hidden and assembles itself (src/motion/hero.ts).
+      if (matchMedia("(prefers-reduced-motion: no-preference)").matches) document.documentElement.classList.add("motion");
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="#top" aria-label="Glade, back to top">
+          <img src="/favicon.svg" width="26" height="26" alt="">
+          <span>Glade</span>
+        </a>
+        <nav class="nav-links" aria-label="Sections">
+          <a href="#agents">Features</a>
+          <a href="#build">Build</a>
+          <a href="https://github.com/jas7457/glade">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- Hero: the app window assembles itself from its panels, with real UI pieces floating around it. -->
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy container">
+          <h1 id="hero-title">A native Mac app for your coding agents.</h1>
+          <div class="hero-sub">
+            <p class="lede">Run pi, Claude Code and Codex side by side. Hand work to sub-agents, use local models, and keep up from your iPhone.</p>
+            <div class="actions">
+              <a class="btn btn--primary" href="#build">Build from source</a>
+              <a class="btn" href="https://github.com/jas7457/glade">View on GitHub</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-stage" data-hero>
+          <div class="hero-mouse" data-hero-mouse>
+            <div class="hero-tilt" data-hero-tilt>
+              <div class="window window--hero" data-hero-window>
+                <glade-media name="hero"></glade-media>
+              </div>
+
+              <div class="float float--a" data-depth="1.2" aria-hidden="true">
+                <div class="float-mouse"><div class="float-bob">
+                  <div class="card agent-list">
+                    <div class="agent-row" data-agent-color="teal">
+                      <span class="status status--working"></span><b>Leo</b><span class="muted">tests</span>
+                      <span class="doing">Running <code>pnpm test</code></span><span class="time">0:42</span>
+                    </div>
+                    <div class="agent-row" data-agent-color="violet">
+                      <span class="status status--working"></span><b>Maya</b><span class="muted">reviewer</span>
+                      <span class="doing">Reading the diff</span><span class="time">0:18</span>
+                    </div>
+                  </div>
+                </div></div>
+              </div>
+
+              <div class="float float--b" data-depth="0.7" aria-hidden="true">
+                <div class="float-mouse"><div class="float-bob">
+                  <div class="card tool-row" data-tone="edit">
+                    <span class="tool-icon"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg></span>
+                    <span>Edited <code>src/auth/session.ts</code></span>
+                    <span class="diffstat"><ins>+12</ins><del>−3</del></span>
+                  </div>
+                </div></div>
+              </div>
+
+              <div class="float float--c" data-depth="1.6" aria-hidden="true">
+                <div class="float-mouse"><div class="float-bob">
+                  <div class="card palette">
+                    <div class="palette-input"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><span>login redirect</span></div>
+                    <div class="palette-row is-active"><span class="dot dot--unread"></span>Fix the login redirect loop<span class="muted">web-app</span></div>
+                    <div class="palette-row"><span class="dot"></span>Session cookie options<span class="muted">bookmark</span></div>
+                  </div>
+                </div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 1. Multiple agents -->
+      <section class="chapter chapter--agents container" id="agents" aria-labelledby="agents-title">
+        <div class="chapter-copy">
+          <h2 id="agents-title">Every agent in one window.</h2>
+          <p>pi, Claude Code and Codex live in the same sidebar, and every chat remembers which one it runs on. Glade drives the command-line tools you already have, with your own logins, so their models, thinking levels, permission modes and slash commands become native controls.</p>
+          <p class="aside">Each agent gets its own page in Settings: its default model and thinking level, which models you see, and its version, with a one-click update.</p>
+        </div>
+        <div class="chapter-stage stage-agents" data-agents>
+          <div class="window" data-agents-window><glade-media name="agents"></glade-media></div>
+          <div class="card agent-picker" aria-hidden="true">
+            <div class="picker-row" data-depth="0.6"><span class="agent-mark agent-mark--pi">π</span><span><b>pi</b><span class="muted">Your pi providers and models</span></span><svg class="check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div>
+            <div class="picker-row" data-depth="1"><span class="agent-mark agent-mark--claude">CC</span><span><b>Claude Code</b><span class="muted">Your Claude Code login</span></span></div>
+            <div class="picker-row" data-depth="1.4"><span class="agent-mark agent-mark--codex">&gt;_</span><span><b>Codex</b><span class="muted">Your Codex login</span></span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Sub-agents in parallel: pinned; the rows below work in parallel as you scroll. -->
+      <section class="chapter chapter--sub" id="subagents" aria-labelledby="sub-title" data-sub>
+        <div class="container sub-layout">
+          <div class="chapter-copy">
+            <h2 id="sub-title">Hand off the work. Keep talking.</h2>
+            <p>When an agent delegates, each sub-agent gets a name, a colour and its own tab. A compact list above the message box shows what every one of them is doing right now, and their reports land back in the chat that started them.</p>
+            <p class="aside">Give sub-agents a cheaper model if you like. When Claude Code or Codex starts its own sub-agents, they show up the same way.</p>
+          </div>
+          <div class="chapter-stage stage-sub">
+            <div class="window" data-sub-window><glade-media name="subagents"></glade-media></div>
+            <div class="card agent-list agent-list--sub" data-sub-list>
+              <div class="agent-list-head"><span>3 agents</span><span class="muted">Stop all</span></div>
+              <div class="agent-row" data-agent-color="teal" data-sub-row>
+                <span class="status"><span class="status--working"></span><svg class="status--done" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+                <b>Leo</b><span class="muted">explorer</span>
+                <span class="doing">
+                  <span data-step>Starting…</span>
+                  <span data-step>Reading <code>packages/protocol/src/api.ts</code></span>
+                  <span data-step>Searched for <code>worktree</code></span>
+                  <span data-step data-final>Found the three call sites</span>
+                </span>
+                <span class="bar"><i data-bar></i></span>
+              </div>
+              <div class="agent-row" data-agent-color="violet" data-sub-row>
+                <span class="status"><span class="status--working"></span><svg class="status--done" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+                <b>Maya</b><span class="muted">tests</span>
+                <span class="doing">
+                  <span data-step>Starting…</span>
+                  <span data-step>Edited <code>server/git.test.ts</code></span>
+                  <span data-step>Running <code>pnpm test</code></span>
+                  <span data-step data-final>42 tests pass</span>
+                </span>
+                <span class="bar"><i data-bar></i></span>
+              </div>
+              <div class="agent-row" data-agent-color="amber" data-sub-row>
+                <span class="status"><span class="status--working"></span><svg class="status--done" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+                <b>Remy</b><span class="muted">reviewer</span>
+                <span class="doing">
+                  <span data-step>Starting…</span>
+                  <span data-step>Read 6 files</span>
+                  <span data-step>Checking error handling</span>
+                  <span data-step data-final>Two small notes</span>
+                </span>
+                <span class="bar"><i data-bar></i></span>
+              </div>
+            </div>
+            <div class="card report" data-sub-report>
+              <div class="report-head"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg><b>Remy</b><span class="muted">reported back</span></div>
+              <p>The change looks right. Two notes: the retry loop has no upper bound, and one error path drops the original message.</p>
+            </div>
+          </div>
+        </div>
+        <!-- Optional capture: the note only shows when composer.webm/mp4 exists. -->
+        <div class="container composer-note">
+          <div class="window"><glade-media name="composer"></glade-media></div>
+          <p>While an agent works, ↩ steers it, ⌘↩ sends a follow-up for when it's done, and ⌥↩ asks a side question it never sees. Hold ⌘ or ⌥ and the Send button shows which one you'll get.</p>
+        </div>
+      </section>
+
+      <!-- 3. iPhone app + remote access: the Mac recedes, the phones come forward. -->
+      <section class="chapter chapter--remote" id="iphone" aria-labelledby="iphone-title" data-remote>
+        <div class="container remote-layout">
+          <div class="chapter-copy">
+            <h2 id="iphone-title">Your Mac does the work. Your iPhone keeps up.</h2>
+            <p>The iPhone app pairs with your Macs and shows every chat from all of them in one list. Read along, steer, answer a permission card, start a new chat: the agents keep running on the Mac whose files they are.</p>
+            <p>Macs can use each other the same way, so a MacBook can work in the projects on a Mac Studio.</p>
+            <p class="aside">Remote access runs over Tailscale on your private tailnet, over HTTPS and never on the public internet. Every new device needs your Allow, and you can revoke one at any time.</p>
+          </div>
+          <div class="chapter-stage stage-remote">
+            <div class="window" data-remote-mac><glade-media name="remote"></glade-media></div>
+            <div class="phone phone--list" data-remote-list><glade-media name="iphone-list"></glade-media></div>
+            <div class="phone phone--chat" data-remote-chat><glade-media name="iphone-chat"></glade-media></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4–8. The rest of the features as a deck: each card slides up and stacks on the last. -->
+      <section class="deck container" aria-label="More features" data-deck>
+        <article class="deck-card" id="local-models" aria-labelledby="local-title">
+          <div class="deck-inner">
+            <div class="deck-copy">
+              <h2 id="local-title">Local models, on your terms.</h2>
+              <p>Glade works with llama.cpp's <code>llama-server</code> on your Mac. See what's loaded, how much memory it takes and which chats use it, and load or unload models from the Mac, another Mac or your phone. Loaded models appear in pi's model picker.</p>
+              <p class="aside">Glade never downloads or unloads a model by itself.</p>
+            </div>
+            <div class="deck-media"><div class="window"><glade-media name="local-models"></glade-media></div></div>
+          </div>
+          <div class="deck-shade" aria-hidden="true"></div>
+        </article>
+
+        <article class="deck-card" id="worktrees" aria-labelledby="worktrees-title">
+          <div class="deck-inner">
+            <div class="deck-copy">
+              <h2 id="worktrees-title">A worktree per chat. A diff before you commit.</h2>
+              <p>Start a chat in its own git worktree and branch, and bring your uncommitted changes along if you want. The changes panel lists every changed file with its diff: discard what you don't want and commit with a generated message.</p>
+              <p class="aside">Deleting a worktree chat asks whether to keep its branch, merge it or discard it.</p>
+            </div>
+            <div class="deck-media"><div class="window"><glade-media name="worktrees"></glade-media></div></div>
+          </div>
+          <div class="deck-shade" aria-hidden="true"></div>
+        </article>
+
+        <article class="deck-card" id="search" aria-labelledby="search-title">
+          <div class="deck-inner">
+            <div class="deck-copy">
+              <h2 id="search-title">Find anything you've talked about.</h2>
+              <p>⌘K jumps to any chat, project or action, and searches inside every conversation, opening right at the matching message. Can't remember the words? Describe the chat and a fast model picks it out.</p>
+              <p class="aside">Bookmark the replies worth keeping (⌘D), find them again from the chat header or ⌘K, and reference one in your next message.</p>
+            </div>
+            <div class="deck-media deck-media--pair">
+              <div class="window"><glade-media name="search"></glade-media></div>
+              <div class="window window--inset" data-deck-inset><glade-media name="bookmarks"></glade-media></div>
+            </div>
+          </div>
+          <div class="deck-shade" aria-hidden="true"></div>
+        </article>
+
+        <article class="deck-card" id="terminal" aria-labelledby="terminal-title">
+          <div class="deck-inner">
+            <div class="deck-copy">
+              <h2 id="terminal-title">A terminal beside the chat.</h2>
+              <p>Press ⌃` for a shell in the chat's folder, in a tab next to your conversations. It runs on the chat's Mac, keeps its output when you switch tabs, and asks before closing something that's still running.</p>
+              <p class="aside">Or type <code>!command</code> in the message box: it runs in the chat's folder and the agent sees the output.</p>
+            </div>
+            <div class="deck-media"><div class="window"><glade-media name="terminal"></glade-media></div></div>
+          </div>
+          <div class="deck-shade" aria-hidden="true"></div>
+        </article>
+
+        <article class="deck-card deck-card--voice" id="voice" aria-labelledby="voice-title">
+          <div class="deck-inner">
+            <div class="deck-copy">
+              <h2 id="voice-title">Talk it through.</h2>
+              <p>Voice mode on the iPhone listens, sends when you pause, and reads the reply aloud as it's written, highlighting each word. Talk over it to interrupt, and answer the agent's questions by voice.</p>
+              <p class="aside">Speech recognition and voices are Apple's own, on the device. No extra accounts or keys.</p>
+            </div>
+            <div class="deck-media deck-media--phone"><div class="phone"><glade-media name="iphone-voice"></glade-media></div></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Build from source: the main call to action. -->
+      <section class="build container" id="build" aria-labelledby="build-title">
+        <div class="build-head">
+          <h2 id="build-title">Build it yourself.</h2>
+          <p>Glade isn't a signed download yet. Clone the repository and build the Mac app; it takes a few minutes the first time.</p>
+        </div>
+        <div class="build-grid">
+          <div class="build-reqs">
+            <h3>You'll need</h3>
+            <ul>
+              <li>A Mac with macOS</li>
+              <li><a href="https://nodejs.org/">Node.js</a> 22.13 or newer</li>
+              <li><a href="https://pnpm.io/installation">pnpm</a> (<code>corepack enable</code> sets it up)</li>
+              <li><a href="https://rustup.rs/">Rust</a> and the Xcode Command Line Tools, for the Mac app</li>
+              <li>At least one agent, installed and signed in: <a href="https://github.com/earendil-works/pi">pi</a>, <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> or <a href="https://github.com/openai/codex">Codex</a></li>
+            </ul>
+            <h3>Optional</h3>
+            <ul>
+              <li><a href="https://tailscale.com/">Tailscale</a>, to use Glade from your other Macs and your iPhone</li>
+              <li><a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>'s <code>llama-server</code>, for local models</li>
+              <li>Xcode and an Apple ID, to put the iPhone app on your phone</li>
+            </ul>
+          </div>
+          <div class="build-steps">
+            <div class="term card">
+              <div class="term-bar">
+                <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="term-title">Terminal</span>
+                <button class="btn btn--small" type="button" data-copy="build-cmds">Copy</button>
+              </div>
+<pre id="build-cmds"><code><span class="cmd">git clone https://github.com/jas7457/glade.git</span>
+<span class="cmd">cd glade</span>
+<span class="cmd">pnpm install</span>
+<span class="cmd">pnpm tauri:install</span></code></pre>
+            </div>
+            <p class="build-note"><code>pnpm tauri:install</code> builds Glade and puts it in your Applications folder. To update later, use Update Now in Settings → General, or pull and run the last two commands again.</p>
+            <div class="actions">
+              <a class="btn btn--primary" href="https://github.com/jas7457/glade">Open the repository</a>
+              <a class="btn" href="https://github.com/jas7457/glade/blob/main/CHANGELOG.md">Read the changelog</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer container">
+      <span class="brand brand--small"><img src="/favicon.svg" width="20" height="20" alt=""> Glade</span>
+      <span class="muted">Open source under the MIT license.</span>
+      <a href="https://github.com/jas7457/glade">GitHub</a>
+    </footer>
+  </body>
+</html>

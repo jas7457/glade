@@ -11,7 +11,9 @@
  * JS strings index UTF-16 code units too, so `word.start/end` index the spoken text directly.
  *
  * `getVoiceEngine()` picks the native engine inside the iPhone app and the fake one elsewhere
- * (Vite in Chrome, tests).
+ * (Vite in Chrome, tests), or when a debug build was launched with `--glade-fake-voice` (the
+ * simulator, whose speech recognition doesn't start; src-tauri/src/lib.rs sets
+ * `window.__GLADE_FAKE_VOICE__`, I-209).
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { inShell } from "~/lib/secrets";
@@ -127,8 +129,14 @@ export function createNativeVoiceEngine(bridge: NativeBridge = tauriBridge): Nat
 
 let engine: VoiceEngine | null = null;
 
+/** Which engine to use: native inside the app shell unless the fake one was asked for (debug launch flag). */
+export function voiceEngineKind(env: { inShell: boolean; fakeRequested: boolean }): "native" | "fake" {
+  return env.inShell && !env.fakeRequested ? "native" : "fake";
+}
+
 /** The app's voice engine: native inside the iPhone app, the fake one anywhere else. */
 export function getVoiceEngine(): VoiceEngine {
-  engine ??= inShell() ? createNativeVoiceEngine() : createFakeVoiceEngine();
+  const fakeRequested = typeof window !== "undefined" && (window as { __GLADE_FAKE_VOICE__?: boolean }).__GLADE_FAKE_VOICE__ === true;
+  engine ??= voiceEngineKind({ inShell: inShell(), fakeRequested }) === "native" ? createNativeVoiceEngine() : createFakeVoiceEngine();
   return engine;
 }

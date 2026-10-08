@@ -1,0 +1,21 @@
+{
+  "name": "@glade/site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The public website (GitHub Pages, jas7457.github.io/glade). See README.md.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "gsap": "^3.15.0"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5",
+    "vite": "^8.3.1"
+  }
+}

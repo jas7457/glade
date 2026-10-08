@@ -16,6 +16,8 @@ const execFileAsync = promisify(execFile);
 export interface PiOneShotOptions extends CompletionRequest {
   /** pi executable. */
   piPath: string;
+  /** Arguments before Glade's own (a custom command's, I-201). */
+  piArgs?: string[];
   /** Working directory for the pi process (e.g. the scratch folder). */
   cwd: string;
   /** Extra environment for the pi process (e.g. `LLAMA_BASE_URL`, I-196). */
@@ -24,8 +26,8 @@ export interface PiOneShotOptions extends CompletionRequest {
 }
 
 /** The trimmed reply of `pi -p`, or `null` when it failed or was empty. Never throws. */
-export async function piOneShot({ piPath, cwd, prompt, model, timeoutMs = 45_000, env, log }: PiOneShotOptions): Promise<string | null> {
-  const args = ["-p", "--no-session", "--no-tools", "--no-skills", "--no-context-files"];
+export async function piOneShot({ piPath, piArgs = [], cwd, prompt, model, timeoutMs = 45_000, env, log }: PiOneShotOptions): Promise<string | null> {
+  const args = [...piArgs, "-p", "--no-session", "--no-tools", "--no-skills", "--no-context-files"];
   if (model) args.push("--model", modelKey(model), "--thinking", "off");
   args.push("--", prompt);
   try {

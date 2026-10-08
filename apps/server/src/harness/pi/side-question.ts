@@ -22,6 +22,8 @@ export type SpawnFn = (command: string, args: string[], options: { cwd: string; 
 
 export interface PiSideQuestionOptions extends SideQuestionCall {
   piPath: string;
+  /** Arguments before Glade's own (a custom command's, I-201). */
+  piArgs?: string[];
   /** Injectable for tests (default: `child_process.spawn`). */
   spawn?: SpawnFn;
   /** Overall limit (default 3 minutes). */
@@ -80,7 +82,7 @@ export function piSideQuestion(options: PiSideQuestionOptions): Promise<SideQues
     }, options.timeoutMs ?? 180_000);
     timer.unref();
     try {
-      child = spawn(piPath, sideQuestionArgs(systemPrompt, model), { cwd, env: piChildEnv(process.env, options.env) });
+      child = spawn(piPath, [...(options.piArgs ?? []), ...sideQuestionArgs(systemPrompt, model)], { cwd, env: piChildEnv(process.env, options.env) });
     } catch (err) {
       finish({ answer: "", error: `Could not start pi: ${(err as Error).message}` });
       return;

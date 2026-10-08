@@ -4,6 +4,10 @@
 //! a Mac's pairing QR code (tauri-plugin-barcode-scanner, mobile only; used by src/lib/scan.ts),
 //! and no form accessory bar over the keyboard (keyboard_bar.rs). Conversation mode (I-180) uses
 //! the `voice` plugin (plugins/voice: a Swift Tauri plugin; src/voice/native-engine.ts).
+//!
+//! Debug builds only: launched with `--glade-fake-voice` (e.g. `xcrun simctl launch booted <id>
+//! --glade-fake-voice`), the page gets `window.__GLADE_FAKE_VOICE__` and uses the fake voice engine,
+//! because on-device speech recognition doesn't start in the iOS simulator (website captures, I-209).
 
 mod secrets;
 #[cfg(target_os = "ios")]
@@ -16,6 +20,16 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_voice::init());
+    #[cfg(debug_assertions)]
+    let builder = if std::env::args().any(|a| a == "--glade-fake-voice") {
+        builder.plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("glade-fake-voice")
+                .js_init_script("window.__GLADE_FAKE_VOICE__ = true;".to_string())
+                .build(),
+        )
+    } else {
+        builder
+    };
     builder
         .setup(|_app| {
             #[cfg(target_os = "ios")]

@@ -19,9 +19,11 @@ import { ClaudeHarness } from "./harness/claude/claude-harness.js";
 import { CodexHarness } from "./harness/codex/codex-harness.js";
 import type { AcpResumeState } from "./harness/acp/resume-store.js";
 import { FakeHarness, fakeUsageLimits } from "./harness/fake/fake-harness.js";
+import { createDemoHarnesses, demoAgentVersions } from "./harness/demo/index.js";
 import { PiHarness } from "./harness/pi/pi-harness.js";
 import { HarnessRegistry } from "./harness/registry.js";
 import { acpAgentConfigs } from "./harness/agent-catalog.js";
+import { agentCommandWatcher, customCommandFn } from "./harness/agent-command.js";
 import { cachedWhich } from "./harness/which.js";
 import { isAgentEnabled } from "@glade/protocol";
 import { createApp } from "./http/app.js";
@@ -35,6 +37,7 @@ import { createPowerTracker, isRelevantMessage } from "./services/power.js";
 import { AgentVersionsService, busyChatsOf, throttle as throttleAgentVersions } from "./services/agent-versions/service.js";
 import { defaultReadInstalled, testingOverrides } from "./services/agent-versions/versions.js";
 import { AGENT_UPDATE_COMMANDS } from "@glade/protocol";
+import { customAgentCommand } from "@glade/protocol";
 import { llamaBaseUrlEnv } from "./services/local-models/settings.js";
 import { createSearchService } from "./services/search/create.js";
 import { ServerRegistry } from "./services/server-registry.js";
@@ -141,12 +144,18 @@ const harnesses = new HarnessRegistry([], {
   dynamic: () => acp.list(),
   enabled: (id) => isAgentEnabled(store.getSettings(), id),
 });
-harnesses.register(
+// I-209: the website demo (demo sandboxes only) registers scripted pi, Claude Code and Codex instead.
+const demo = config.harness === "demo";
+if (demo) for (const harness of createDemoHarnesses({ log })) harnesses.register(harness);
+if (!demo)
+  harnesses.register(
   config.harness === "fake"
     ? new FakeHarness(undefined, 30, { usageLimits: () => fakeUsageLimits() })
     : new PiHarness({
         utilityCwd: config.scratchDir,
         subagents: () => store.getSettings().agent.subagents,
+        // I-201: a custom command (Advanced on the agent's page), read at each start.
+        customCommand: customCommandFn(() => store.getSettings(), "pi"),
         // I-196: pi's llama.cpp provider talks to the same llama-server as Settings → Local Models.
         env: () => llamaBaseUrlEnv(store.getSettings().localModels.url),
         log: env("DEBUG") ? log : undefined,
@@ -157,10 +166,12 @@ harnesses.register(
 const positive = (value: string | undefined) => (value && Number(value) > 0 ? Number(value) : undefined);
 const claudeBudget = positive(env("CLAUDE_MAX_BUDGET_USD"));
 const claudeTurns = positive(env("CLAUDE_MAX_TURNS"));
-harnesses.register(
+if (!demo)
+  harnesses.register(
   new ClaudeHarness({
     utilityCwd: config.scratchDir,
     subagents: () => store.getSettings().agent.subagents,
+    customCommand: customCommandFn(() => store.getSettings(), "claude"),
     ...(claudeBudget || claudeTurns ? { limits: { ...(claudeBudget ? { maxBudgetUsd: claudeBudget } : {}), ...(claudeTurns ? { maxTurns: claudeTurns } : {}) } } : {}),
     ...(env("CLAUDE_TRACE") ? { session: { traceFile: env("CLAUDE_TRACE")! } } : {}),
     log: env("DEBUG") ? log : undefined,
@@ -169,10 +180,12 @@ harnesses.register(
 
 // I-177: Codex, native (`codex app-server` JSON-RPC with the user's `codex`); offered when `codex`
 // is on the PATH. Registered in fake mode too, so sandboxes can test it.
-harnesses.register(
+if (!demo)
+  harnesses.register(
   new CodexHarness({
     utilityCwd: config.scratchDir,
     subagents: () => store.getSettings().agent.subagents,
+    customCommand: customCommandFn(() => store.getSettings(), "codex"),
     ...(env("CODEX_TRACE") ? { traceFile: env("CODEX_TRACE")! } : {}),
     log: env("DEBUG") ? log : undefined,
   }),
@@ -273,11 +286,27 @@ const agentVersions = new AgentVersionsService({
     await service.listModels(true);
   },
   onChange: throttleAgentVersions((status) => auth.pushLocal({ type: "agent_versions", status })),
-  readInstalled: defaultReadInstalled(testingOverrides("VERSION", agentIds)),
+  readInstalled: defaultReadInstalled(testingOverrides("VERSION", agentIds), (id) => customAgentCommand(store.getSettings(), id)),
+  customCommand: (id) => customAgentCommand(store.getSettings(), id),
+  ...(demo ? demoAgentVersions() : {}),
   updateCommands: { ...AGENT_UPDATE_COMMANDS, ...testingOverrides("UPDATE", agentIds) },
   log,
 });
 service.subscribe((message) => isRelevantMessage(message) && agentVersions.sessionsChanged(), { internal: true });
+// I-201: an agent's command changed (Advanced, custom command): restart long-lived processes
+// (Codex's app-server), reload the models and read the versions through the new command.
+const agentCommandsChanged = agentCommandWatcher(() => store.getSettings(), agentIds);
+service.subscribe(
+  (message) => {
+    if (message.type !== "settings" || demo) return;
+    const changed = agentCommandsChanged();
+    if (!changed.length) return;
+    for (const id of changed) harnesses.get(id)?.reload?.();
+    void service.listModels(true).catch((err: Error) => log(`reloading models failed: ${err.message}`));
+    void agentVersions.check({ force: true }).catch((err: Error) => log(`agent version check failed: ${err.message}`));
+  },
+  { internal: true },
+);
 const { app, injectWebSocket, terminals } = createApp({
   agentVersions,
   service,

@@ -18,6 +18,7 @@ import {
   piSessionFolderName,
   pruneDeadOwners,
   removeOwner,
+  sandboxHarness,
   startDecision,
   sweep,
   writeState,
@@ -36,7 +37,7 @@ describe("env (I-059)", () => {
 
 describe("parseArgs", () => {
   it("defaults", () => {
-    assert.deepEqual(parseArgs([]), { name: "agent", real: false, keep: false, stop: false, sweep: false, help: false });
+    assert.deepEqual(parseArgs([]), { name: "agent", real: false, demo: false, keep: false, stop: false, sweep: false, help: false });
   });
   it("reads flags and --name in both forms", () => {
     assert.equal(parseArgs(["--name", "tabs"]).name, "tabs");
@@ -44,6 +45,14 @@ describe("parseArgs", () => {
     const a = parseArgs(["--", "--name", "x", "--real", "--keep"]);
     assert.equal(a.real, true);
     assert.equal(a.keep, true);
+  });
+  it("reads --demo (I-209) and picks the sandbox's harness", () => {
+    const demo = parseArgs(["--name", "demo", "--demo"]);
+    assert.equal(demo.demo, true);
+    assert.equal(sandboxHarness(demo), "demo");
+    assert.equal(sandboxHarness(parseArgs(["--real"])), "pi");
+    assert.equal(sandboxHarness(parseArgs([])), "fake");
+    assert.throws(() => parseArgs(["--real", "--demo"]));
   });
   it("rejects unsafe names and unknown flags", () => {
     assert.throws(() => parseArgs(["--name", "../etc"]));

@@ -65,6 +65,7 @@ import { Projects } from "./app/projects.js";
 import { Folders } from "./app/folders.js";
 import { Bookmarks } from "./app/bookmarks.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
+import { sanitizeAgentsPatch } from "./app/agent-settings.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
 import { SideQuestions } from "./app/side-questions.js";
@@ -393,7 +394,7 @@ export class AppService {
   updateSettings(patch: DeepPartial<Settings>): Settings {
     validateLocalModelsPatch(patch);
     validateModelsPatch(patch);
-    const settings = this.ctx.store.updateSettings(sanitizeSettingsPatch(patch));
+    const settings = this.ctx.store.updateSettings(sanitizeAgentsPatch(sanitizeSettingsPatch(patch)));
     this.ctx.broadcast({ type: "settings", settings });
     return settings;
   }

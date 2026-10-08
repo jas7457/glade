@@ -3,7 +3,7 @@
  * `pnpm dev:agent` (I-052): a throwaway Glade (server + web) for agents, isolated from the
  * user's data folder and their servers on :4317/:5317, and deleted when the agent is done.
  *
- *   pnpm dev:agent [--name <name>] [--real] [--keep]   start or join sandbox <name> (default "agent")
+ *   pnpm dev:agent [--name <name>] [--real | --demo] [--keep]   start or join sandbox <name> (default "agent")
  *   pnpm dev:agent --name <name> --stop                stop sandbox <name> for every owner
  *   pnpm dev:agent --sweep                             remove every sandbox nobody uses any more
  *
@@ -27,6 +27,7 @@ import {
   readState,
   removeOwner,
   sandboxDir,
+  sandboxHarness,
   sandboxPorts,
   startDecision,
   sweep,
@@ -35,13 +36,16 @@ import {
   writeState,
 } from "./sandbox/lib.mjs";
 
-const HELP = `pnpm dev:agent [--name <name>] [--real] [--keep]
+const HELP = `pnpm dev:agent [--name <name>] [--real | --demo] [--keep]
   Start (or join) the sandbox <name>: its own data folder under ${DEFAULT_ROOT}/<name>, its own
   free ports, sample data, fake harness. Stays in the foreground; Ctrl-C (or SIGTERM) leaves it.
   The sandbox and the pi session files its chats created are deleted when its last user leaves.
 
   --name <name>  sandbox to start or join (default "agent"); same name = shared sandbox
   --real         use the real pi harness instead of the fake one (costs tokens: keep prompts tiny)
+  --demo         the website demo (I-209): scripted pi, Claude Code and Codex, the Lantern demo
+                 repo with realistic chats, a fake llama-server and fake Tailscale (no LLM, no
+                 network); see tools/capture/README.md
   --keep         don't delete the sandbox when the last user leaves; the next start with the same
                  name resumes it (else the sweep removes it after 24h)
   --stop         stop sandbox <name> now, for everyone using it
@@ -85,7 +89,7 @@ if (args.stop) {
 }
 
 // Join or create --------------------------------------------------------------------------------
-const harness = args.real ? "pi" : "fake";
+const harness = sandboxHarness(args);
 const [serverPort, webPort] = await pickPorts(2, probeFreePort, sandboxPorts());
 let joined;
 try {
@@ -182,7 +186,7 @@ console.log(`
 │  API:      http://127.0.0.1:${s.serverPort}/api
 │  Harness:  ${s.harness}
 │  Data:     ${join(dir, "data")}
-│  Repo:     ${join(dir, "repo")}  (project "sample-repo")
+│  Repo:     ${s.harness === "demo" ? `${join(dir, "code", "lantern")}  (project "lantern")` : `${join(dir, "repo")}  (project "sample-repo")`}
 │  Logs:     ${join(dir, "logs")}
 │  Owner:    pid ${process.pid} (${readState(dir)?.owners.length ?? 1} user(s))
 └─ Stop: Ctrl-C, kill ${process.pid}, or pnpm dev:agent --name ${args.name} --stop

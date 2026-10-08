@@ -30,3 +30,4 @@ export * from "./chat-order.js";
 export * from "./terminal.js";
 export * from "./local-models.js";
 export * from "./agent-versions.js";
+export * from "./agent-command.js";

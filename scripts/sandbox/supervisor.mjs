@@ -8,17 +8,20 @@
  */
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   deleteSandboxSessions,
   isPidAlive,
   killGroup,
+  probeFreePort,
   pruneDeadOwners,
   readState,
   withLock,
   writeState,
 } from "./lib.mjs";
+import { seedDemo, writeShellProfile } from "./demo/seed.mjs";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const dir = process.argv[2];
@@ -56,7 +59,7 @@ const childEnv = {
   GLADE_HOST: "127.0.0.1",
   GLADE_PORT: String(serverPort),
   GLADE_WEB_PORT: String(webPort),
-  GLADE_HARNESS: harness === "fake" ? "fake" : "pi",
+  GLADE_HARNESS: harness === "fake" || harness === "demo" ? harness : "pi",
   GLADE_SERVER_KIND: "sandbox",
   GLADE_SANDBOX: name,
 };
@@ -64,6 +67,36 @@ const childEnv = {
 for (const prefix of ["GLADE_", "PI_UI_"]) {
   delete childEnv[`${prefix}NO_LOCK`];
   delete childEnv[`${prefix}STATIC_DIR`];
+}
+// The website captures (tools/capture, I-209) want a frozen app: a prebuilt web app served by the
+// server itself, and no restarts while other people edit the code.
+if (process.env.GLADE_SANDBOX_STATIC_DIR) childEnv.GLADE_STATIC_DIR = process.env.GLADE_SANDBOX_STATIC_DIR;
+const watchServer = process.env.GLADE_SANDBOX_WATCH !== "0";
+
+// The website demo (I-209): a terminal shell without the user's dotfiles, fake Tailscale and a
+// fake llama-server (see demo/seed.mjs, demo/fake-tailscale.mjs).
+const demo = harness === "demo";
+const llamaPort = demo ? ((await isFree(8080)) ? 8080 : await probeFreePort()) : null;
+if (demo) {
+  const zdotdir = join(dir, "zdotdir");
+  writeShellProfile(zdotdir);
+  Object.assign(childEnv, {
+    SHELL: "/bin/zsh",
+    ZDOTDIR: zdotdir,
+    GLADE_TAILSCALE_CLI: join(repoRoot, "scripts/sandbox/demo/fake-tailscale.mjs"),
+    GLADE_FAKE_TAILSCALE_STATE: join(dir, "tailscale.json"),
+    GLADE_TAILSCALE_OWNER: "1",
+  });
+  for (const prefix of ["GLADE_", "PI_UI_"]) delete childEnv[`${prefix}TAILSCALE`];
+}
+
+/** llama-server's usual port when nothing listens there (the demo's Local Models page reads naturally). */
+function isFree(port) {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen(port, "127.0.0.1", () => srv.close(() => resolve(true)));
+  });
 }
 
 function start(label, cwd, bin, args) {
@@ -81,12 +114,13 @@ let stopping = false;
 /** @type {NodeJS.Timeout | undefined} */
 let watch;
 const server = start("server", join(repoRoot, "apps/server"), join(repoRoot, "apps/server/node_modules/.bin/tsx"), [
-  "watch",
-  "--clear-screen=false",
+  ...(watchServer ? ["watch", "--clear-screen=false"] : []),
   "src/index.ts",
 ]);
 const web = start("web", join(repoRoot, "apps/web"), join(repoRoot, "apps/web/node_modules/.bin/vite"), []);
-update((s) => ({ ...s, supervisorPid: process.pid, serverPid: server.pid, webPid: web.pid }));
+const llama = demo ? start("llama", repoRoot, process.execPath, [join(repoRoot, "scripts/fake-llama-server.mjs"), "--port", String(llamaPort), "--load-ms", "1500", "--demo"]) : null;
+const children = [server, web, ...(llama ? [llama] : [])];
+update((s) => ({ ...s, supervisorPid: process.pid, serverPid: server.pid, webPid: web.pid, ...(llama ? { llamaPid: llama.pid, llamaPort } : {}) }));
 log(`started server (pid ${server.pid}, :${serverPort}) and web (pid ${web.pid}, :${webPort})`);
 
 const api = `http://127.0.0.1:${serverPort}/api`;
@@ -122,6 +156,17 @@ function createSampleRepo() {
 }
 
 async function seed() {
+  if (demo) {
+    const result = await seedDemo({
+      api,
+      origin: `http://127.0.0.1:${webPort}`,
+      codeDir: join(dir, "code"),
+      localModelUrl: `http://127.0.0.1:${llamaPort}`,
+      log,
+    });
+    update((s) => ({ ...s, demo: result }));
+    return;
+  }
   createSampleRepo();
   const project = await post("/projects", { path: repoDir, name: "sample-repo" });
   if (harness === "fake") {
@@ -140,12 +185,12 @@ async function stop(reason, { keepForOwners = false } = {}) {
   stopping = true;
   clearInterval(watch);
   log(`stopping: ${reason}`);
-  for (const child of [server, web]) killGroup(child.pid, "SIGTERM");
+  for (const child of children) killGroup(child.pid, "SIGTERM");
   const deadline = Date.now() + 6000;
-  while (Date.now() < deadline && [server, web].some((c) => c.exitCode === null && c.signalCode === null)) {
+  while (Date.now() < deadline && children.some((c) => c.exitCode === null && c.signalCode === null)) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  for (const child of [server, web]) killGroup(child.pid, "SIGKILL");
+  for (const child of children) killGroup(child.pid, "SIGKILL");
   // Wait briefly for the owners to read an error before deleting everything.
   if (keepForOwners) await new Promise((r) => setTimeout(r, 3000));
   withLock(dir, () => {

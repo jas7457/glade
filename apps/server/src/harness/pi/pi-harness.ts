@@ -32,6 +32,7 @@ import { PiRpcProcess } from "./rpc-process.js";
 import { piSessionReader } from "./session-reader.js";
 import { readPiTranscript } from "./transcript-file.js";
 import { cachedWhich, type WhichFn } from "../which.js";
+import { resolveAgentCommand, type CustomCommandFn } from "../agent-command.js";
 import {
   PiEventTranslator,
   translateCommands,
@@ -46,10 +47,15 @@ import {
 
 export interface PiHarnessOptions {
   /**
-   * The pi executable. Default `pi` found on the PATH (I-159: not a setting); tests point it at a
-   * stub. pi always runs with auto-compaction and auto-retry on (`PiSession.init`).
+   * The pi executable. Default `pi` found on the PATH; tests point it at a stub. pi always runs
+   * with auto-compaction and auto-retry on (`PiSession.init`).
    */
   command?: string;
+  /**
+   * The custom command in effect (I-201: Advanced on the agent's page), read at each start:
+   * `mywrapper pi --offline` runs `mywrapper pi --offline --mode rpc …`. Null = {@link command}.
+   */
+  customCommand?: CustomCommandFn;
   /** Folder used for the model-listing utility process. */
   utilityCwd: string;
   log?: (msg: string) => void;
@@ -89,13 +95,14 @@ export class PiHarness implements AgentHarness {
 
   constructor(private readonly options: PiHarnessOptions) {}
 
-  /** The pi executable is on the PATH (I-155). */
+  /** The pi executable (or the custom command's program, I-201) is on the PATH (I-155). */
   isInstalled(): boolean {
-    return (this.options.which ?? defaultWhich)(this.command);
+    return (this.options.which ?? defaultWhich)(this.command.program);
   }
 
-  private get command(): string {
-    return this.options.command ?? PI_COMMAND;
+  /** What starts pi now: the program and the arguments before Glade's own (I-201). */
+  private get command(): { program: string; args: string[] } {
+    return resolveAgentCommand(this.options.customCommand, this.options.command ?? PI_COMMAND);
   }
 
   async listModels(force = false): Promise<ModelInfo[]> {
@@ -201,18 +208,21 @@ export class PiHarness implements AgentHarness {
 
   /** `pi -p` in the utility folder (or `cwd`); titles build on this (`harness/title.ts`). */
   complete({ prompt, model, cwd, timeoutMs }: CompletionRequest): Promise<string | null> {
-    return piOneShot({ piPath: this.command, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, env: this.options.env?.(), log: this.options.log });
+    const { program, args } = this.command;
+    return piOneShot({ piPath: program, piArgs: args, cwd: cwd ?? this.options.utilityCwd, prompt, model, timeoutMs, env: this.options.env?.(), log: this.options.log });
   }
 
   /** A throwaway `pi -p --mode json` without tools or session (I-140, `side-question.ts`). */
   answerSideQuestion(call: SideQuestionCall): Promise<SideQuestionResult> {
-    return piSideQuestion({ ...call, piPath: this.command, env: this.options.env?.(), log: this.options.log });
+    const { program, args } = this.command;
+    return piSideQuestion({ ...call, piPath: program, piArgs: args, env: this.options.env?.(), log: this.options.log });
   }
 
   async dispose(): Promise<void> {}
 
   private spawn(cwd: string, args: string[], env?: Record<string, string>): PiRpcProcess {
-    const proc = new PiRpcProcess({ command: this.command, args: ["--mode", "rpc", ...args], cwd, env: piChildEnv(process.env, { ...this.options.env?.(), ...env }) });
+    const command = this.command;
+    const proc = new PiRpcProcess({ command: command.program, args: [...command.args, "--mode", "rpc", ...args], cwd, env: piChildEnv(process.env, { ...this.options.env?.(), ...env }) });
     proc.on("stderr", (text) => this.options.log?.(`[pi ${cwd}] ${text.trimEnd()}`));
     proc.start();
     return proc;

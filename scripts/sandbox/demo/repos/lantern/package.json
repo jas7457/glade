@@ -1,0 +1,28 @@
+{
+  "name": "lantern",
+  "version": "0.9.0",
+  "description": "A tiny self-hosted uptime monitor: HTTP checks, a status dashboard and alerts to Slack or any webhook.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "lantern": "./dist/cli.js" },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts serve",
+    "build": "tsc -p . && vite build web",
+    "test": "vitest run",
+    "lint": "eslint src web/src test"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "better-sqlite3": "^11.9.1",
+    "hono": "^4.7.7",
+    "preact": "^10.26.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.4",
+    "vitest": "^3.1.2"
+  }
+}

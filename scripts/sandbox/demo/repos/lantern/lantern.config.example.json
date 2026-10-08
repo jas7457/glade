@@ -1,0 +1,12 @@
+{
+  "port": 7070,
+  "checks": [
+    { "id": "api", "name": "Public API", "url": "https://api.example.com/health", "intervalSec": 30, "timeoutMs": 5000 },
+    { "id": "web", "name": "Marketing site", "url": "https://example.com", "intervalSec": 60 },
+    { "id": "docs", "name": "Docs", "url": "https://docs.example.com", "intervalSec": 300 }
+  ],
+  "notify": [
+    { "type": "slack", "webhookUrl": "https://hooks.slack.com/services/T000/B000/XXXX" },
+    { "type": "webhook", "url": "https://ops.example.com/hooks/lantern" }
+  ]
+}

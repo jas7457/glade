@@ -16,7 +16,10 @@
  * fails (status back to `unloaded` with `failed: true, exit_code: 1`). At most `--models-max`
  * (default 4) run at once ("model limit reached, try again later").
  *
- *   node scripts/fake-llama-server.mjs [--port 8080] [--models-max 4] [--load-ms 3000]
+ *   node scripts/fake-llama-server.mjs [--port 8080] [--models-max 4] [--load-ms 3000] [--demo]
+ *
+ * `--demo` (the website demo sandbox, I-209) serves a catalog of models that fit a 16 GB Mac, without
+ * `broken-model`.
  *
  * Prints `fake llama-server listening on http://127.0.0.1:<port>` once ready (port 0 = any free port).
  */
@@ -39,6 +42,15 @@ const CATALOG = {
   "gemma-3-4b-it-Q4_K_M": { size: Math.round(2.5 * GB), nCtx: 8192 },
   "broken-model": { size: Math.round(1 * GB), nCtx: 4096 },
 };
+if (process.argv.includes("--demo")) {
+  for (const id of Object.keys(CATALOG)) delete CATALOG[id];
+  Object.assign(CATALOG, {
+    "Qwen3.8-14B-Q5_K_M": { size: Math.round(10.2 * GB), nCtx: 32768 },
+    "gpt-oss-20b-MXFP4": { size: Math.round(12.1 * GB), nCtx: 32768 },
+    "gemma-3-4b-it-Q4_K_M": { size: Math.round(2.5 * GB), nCtx: 8192 },
+    "Qwen3.6-35B-A3B-Q4_K_M": { size: Math.round(19.8 * GB), nCtx: 65536 },
+  });
+}
 /** name → { status, failed, exitCode, timer } */
 const state = new Map(Object.keys(CATALOG).map((id) => [id, { status: "unloaded", failed: false, exitCode: null, timer: null }]));
 const created = Math.floor(Date.now() / 1000);
