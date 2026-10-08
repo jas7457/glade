@@ -7,6 +7,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- The website shows opening a sub-agent in its own tab and talking to it.
+
 - **Website:** https://jas7457.github.io/glade/ shows what Glade does, with screenshots and videos
   from a demo project. The README is now short and points there; build instructions are in it.
 
