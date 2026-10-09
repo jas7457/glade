@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-222.
+Next id: I-223.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1794,6 +1794,12 @@ Next id: I-222.
     - The server enforces both at spawn (not just the tool text), and `spawn_agent`'s agent list follows them.
   - Open questions: defaults (on, as today, or off for new installs)? Global only, or also per project?
   - Acceptance: with each switch off, spawns stay on the chat's harness / model regardless of definitions and settings; Settings explains what's ignored; tests.
+
+- [ ] **I-222** iPhone composer: one toolbar row, no wrapping — `iphone` / `app-core`
+  - Reported: 2026-10-08 (screenshot of a running chat with the keyboard up) — the iPhone's expanded composer is too crowded: the toolbar wraps, so Stop and Send drop to a second row below `+`, the model/thinking chip ("Claude Opus 5.5 · High"), the context meter and the voice button. The user suggests the composer doesn't need the full model name and thinking level, and the context meter could go too if space is still short.
+  - Notes: the chat header already shows "pi · Claude Opus 5.5 · High" with a chevron, so the composer's model chip repeats it. Touch layout lives in `packages/app-core/src/features/chat/Composer.tsx` (`touch`/`compact` classes, `toolbarExtra` = `ContextMeter`) and the iPhone chat screen.
+  - Proposal (lead): on the phone, drop the model/thinking chip from the composer (the header's picker is the place to change them; make sure tapping it opens the model/thinking picker); keep a small context ring only if everything fits on one row, otherwise move it next to the header's model line; one row: `+` · (context) · spacer · voice · Stop · Send, never wrapping at the narrowest supported width (iPhone SE / mini). Check both idle and running, with and without the keyboard, light and dark, and the compact (collapsed) composer.
+  - Acceptance: expanded composer toolbar is a single row on every iPhone width; model and thinking still changeable from the header; screenshots; tests for the touch layout.
 
 ## Future features
 
