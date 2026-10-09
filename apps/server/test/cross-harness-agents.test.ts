@@ -402,12 +402,17 @@ describe("report_done reminder", () => {
     await flush(20);
     expect(reminders(other, engaged.agent.sessionId)).toHaveLength(1);
 
-    const team = (service as unknown as { team: { agentTurnEnded(id: string, clean: boolean): void } }).team;
+    const team = (service as unknown as {
+      team: { agentTurnEnded(id: string, clean: boolean): void; ctx: { agents: { update(id: string, patch: { reminded: boolean }): void } } };
+    }).team;
     const stopped = await service.spawnAgent(sid, { name: "s", task: "t", harness: "other" });
     await settle();
     await until(() => reminders(other, stopped.agent.sessionId).length === 1);
-    service.messageAgent(sid, { to: "s", text: "again" });
+    // Let its reminded turn end for real, then re-arm it directly: a natural turn end racing the
+    // simulated stop below would add a legitimate reminder (flaky under load).
     await settle();
+    await flush(20);
+    team.ctx.agents.update(stopped.agent.sessionId, { reminded: false });
     const before = fakeOf(other, stopped.agent.sessionId).prompts.length;
     team.agentTurnEnded(stopped.agent.sessionId, false);
     await settle();
