@@ -52,7 +52,7 @@ export function AddProjectDialog({ open, onOpenChange, onAdded, folders: folders
 
   const validation = validateProjectPath(path);
   const showBrowser = browsing || !path;
-  const recent = projects.value.filter((p) => envIdOf(p) === (envId ?? primaryEnvironmentId())).map((p) => p.path);
+  const recent = projects.value.filter((p) => envIdOf(p) === (envId ?? primaryEnvironmentId())).flatMap((p) => (p.path === null ? [] : [p.path]));
   const nativePicker = folders.nativePicker && !nativeUnavailable;
 
   const reset = () => {
@@ -176,7 +176,8 @@ export function AddProjectDialog({ open, onOpenChange, onAdded, folders: folders
               key={envId ?? ""}
               browse={folders.browse}
               mkdir={folders.mkdir}
-              initialPath={path || "~"}
+              initialPath={path || undefined}
+              memoryKey={envId ?? primaryEnvironmentId()}
               recent={recent}
               onChoose={chosen}
               onCancel={path ? () => setBrowsing(false) : undefined}

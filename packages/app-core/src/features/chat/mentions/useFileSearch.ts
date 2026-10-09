@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { FileEntry } from "@glade/protocol";
-import { searchFiles } from "@glade/app-core/lib/api-folder";
+import { searchFiles, type FolderTarget } from "@glade/app-core/lib/api-folder";
 import { requestFor } from "@glade/app-core/state/env-api";
 import { envIdOfProject } from "@glade/app-core/state/store";
 
@@ -12,9 +12,11 @@ const DEBOUNCE_MS = 60;
 
 /**
  * `query === null` = no mention being typed (clears the results). `envId`: whose scratch folder
- * when `projectId` is null (I-123; a project's own environment otherwise).
+ * when `projectId` is null (I-123; a project's own environment otherwise). `target` (I-213): search
+ * a chat's own folder (`workspaceId`: worktree and group chats) or an explicit folder (`folder`:
+ * a group's new-chat screen) instead of the project's.
  */
-export function useFileSearch(projectId: string | null, query: string | null, envId?: string | null): FileEntry[] {
+export function useFileSearch(projectId: string | null, query: string | null, envId?: string | null, target: FolderTarget = {}): FileEntry[] {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const seq = useRef(0);
 
@@ -26,7 +28,7 @@ export function useFileSearch(projectId: string | null, query: string | null, en
     }
     const timer = setTimeout(() => {
       Promise.resolve()
-        .then(() => searchFiles(projectId, query, undefined, requestFor(projectId ? envIdOfProject(projectId) : envId)))
+        .then(() => searchFiles(projectId, query, undefined, requestFor(projectId ? envIdOfProject(projectId) : envId), target))
         .then((res) => {
           if (seq.current === id) setEntries(res.entries);
         })
@@ -35,7 +37,7 @@ export function useFileSearch(projectId: string | null, query: string | null, en
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [projectId, query, envId]);
+  }, [projectId, query, envId, target.workspaceId, target.folder]);
 
   return query === null ? [] : entries;
 }

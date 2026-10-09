@@ -19,7 +19,7 @@ export interface TestEnv {
   cleanup: () => Promise<void>;
 }
 
-export function createTestEnv(options: Pick<AppServiceOptions, "revealPath" | "openIn" | "maxIdleProcesses" | "localModels"> = {}): TestEnv {
+export function createTestEnv(options: Pick<AppServiceOptions, "revealPath" | "openIn" | "maxIdleProcesses" | "localModels" | "fsBrowse"> = {}): TestEnv {
   const dir = mkdtempSync(join(tmpdir(), "glade-test-"));
   const store = new Store(join(dir, "data"), 0);
   const harness = new FakeHarness();

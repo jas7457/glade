@@ -14,8 +14,8 @@ import type { Settings, WorkspaceSummary } from "@glade/protocol";
 import { needsAttention } from "@glade/protocol";
 import {
   Bookmark as BookmarkIcon,
-  Folder,
   FolderPlus,
+  Layers,
   Mail,
   MailOpen,
   Monitor,
@@ -35,7 +35,7 @@ import {
   Trash2,
   X,
 } from "lucide-preact";
-import { StatusIndicator } from "@glade/app-core/ui";
+import { ProjectIcon, StatusIndicator } from "@glade/app-core/ui";
 import { compareBookmarks } from "@glade/protocol";
 import { jumpToBookmark } from "@glade/app-core/features/chat/bookmark-actions";
 import { openSubagent } from "@/features/workspace/layout-actions";
@@ -43,7 +43,7 @@ import { confirmDeleteChat } from "@/features/sidebar/delete-chat";
 import { bookmarks, loadModels, sortedProjects as orderedProjects, projectsById, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "@glade/app-core/state/store";
 import { markSessionUnread, markWorkspaceRead, renameWorkspace, setWorkspacePinned, updateSettings } from "@glade/app-core/state/actions";
 import { notify } from "@glade/app-core/state/toasts";
-import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
+import { openAddProject, openNewGroup, toggleSidebar } from "@glade/app-core/state/ui";
 import { SECTION_INFO } from "@/features/settings/sections";
 import { activeTerminalId, closeTab, closeTerminalTab, openNewTab, openTerminalTab, renameWithAi, toggleSubagentPane } from "@/features/workspace";
 import type { RouteContext } from "./paths";
@@ -164,8 +164,9 @@ export function buildCommands(ctx: CommandContext): Command[] {
       id: `project:${project.id}`,
       title: project.name,
       group: "Projects",
-      subtitle: project.path,
-      icon: <Folder />,
+      // A group project (I-213) has no folder of its own.
+      subtitle: project.path ?? "Group",
+      icon: <ProjectIcon project={project} />,
       run: () => navigate(routes.project(project.id)),
     });
   }
@@ -181,6 +182,8 @@ export function buildCommands(ctx: CommandContext): Command[] {
       run: () => navigate(routes.project(project.id)),
     })),
     { id: "add-project", title: "Add Project…", group: "Actions", keywords: ["folder", "open"], icon: <FolderPlus />, run: openAddProject },
+    // I-213: a project without a folder of its own; each of its chats picks one.
+    { id: "new-group", title: "New Group…", group: "Actions", keywords: ["project", "folders"], icon: <Layers />, run: openNewGroup },
     {
       id: "toggle-sidebar",
       title: "Toggle Sidebar",

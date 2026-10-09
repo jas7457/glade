@@ -87,6 +87,12 @@ export function openAddProject(): void {
   addProjectOpen.value = true;
 }
 
+/** Whether the "New Group" dialog (I-213: a project without a folder of its own) is showing. */
+export const newGroupOpen = signal(false);
+export function openNewGroup(): void {
+  newGroupOpen.value = true;
+}
+
 /** Whether the command palette (⌘K) is showing. */
 export const paletteOpen = signal(false);
 export function togglePalette(): void {

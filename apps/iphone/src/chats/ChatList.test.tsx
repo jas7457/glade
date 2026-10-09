@@ -52,6 +52,15 @@ describe("iPhone chat list", () => {
     expect(screen.getByRole("img", { name: "Needs your input" })).toBeTruthy();
   });
 
+  it("marks a group project (no folder of its own, I-213) with the group icon", () => {
+    projects.value = [...projects.value, makeProject({ id: "g1", name: "Monorepo", path: null, sortOrder: 2, environmentId: "m1" })];
+    workspaces.value = [...workspaces.value, makeWorkspace({ id: "c5", projectId: "g1", title: "admin-web", cwd: "/repo/admin-web", environmentId: "m1" })];
+    const { container } = renderList();
+    expect(container.querySelector("[data-project-id=g1] [data-icon]")?.getAttribute("data-icon")).toBe("group");
+    expect(container.querySelector("[data-project-id=p1] [data-icon]")?.getAttribute("data-icon")).toBe("folder");
+    expect(ids(container.querySelector("[data-project-id=g1]")!)).toEqual(["c5"]);
+  });
+
   it("filters by title and hides groups without matches", async () => {
     const { container, rerender, onOpen } = renderList({ query: "build" });
     expect(ids(container)).toEqual(["c1"]);

@@ -11,6 +11,7 @@ import type { Store } from "../../store/store.js";
 import { AgentRegistry, AgentTokens } from "../agents.js";
 import { AttachmentStore } from "../attachments.js";
 import { CHATS_DIR } from "../../store/blobs.js";
+import { FsBrowseService } from "../fs-browse.js";
 import type { LeaseManager } from "../leases.js";
 import type { OpenIn } from "../open-in.js";
 import type { RevealPath } from "../reveal.js";
@@ -52,6 +53,11 @@ export interface AppServiceOptions {
   maxIdleProcesses?: number;
   /** Local models (I-196): backend and timing overrides (tests). Polling starts with `localModels.start()`. */
   localModels?: Partial<Pick<LocalModelsServiceOptions, "backend" | "fastMs" | "slowMs" | "pendingTimeoutMs" | "memoryBytes" | "now">>;
+  /**
+   * The folder browser's allowed area (I-124), also checking group chats' folders (I-213).
+   * Default: the host user's home folder and `/Volumes`; tests give their own home.
+   */
+  fsBrowse?: FsBrowseService;
 }
 
 /** The live pool keeps at most this many idle agent processes (I-159); working ones are never stopped. */
@@ -136,6 +142,8 @@ export interface AppContext {
   readonly exported: Set<string>;
   /** Files attached by reference (I-090), per session; removed with the session. */
   readonly attachments: AttachmentStore;
+  /** The folder browser (I-124); group chats' folders must be inside its area (I-213). */
+  readonly fsBrowse: FsBrowseService;
   /** Agent API (I-037): sub-agent records, per-process tokens, timers, delivery queues. */
   readonly agents: AgentRegistry;
   readonly tokens: AgentTokens;
@@ -168,6 +176,7 @@ export function createAppContext(options: AppServiceOptions): AppContext {
     viewers: new Map(),
     exported: new Set(),
     attachments,
+    fsBrowse: options.fsBrowse ?? new FsBrowseService(),
     agents,
     tokens: new AgentTokens(),
     agentTimers: new AgentTimers(),

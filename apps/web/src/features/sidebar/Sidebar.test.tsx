@@ -7,6 +7,7 @@ vi.mock("@glade/app-core/lib/api", () => ({
     reorderProjects: vi.fn(async () => []),
     reorderPinnedWorkspaces: vi.fn(async () => []),
     reorderChatList: vi.fn(async () => ({ workspaces: [], folders: [] })),
+    getProjectGit: vi.fn(async () => ({ isRepo: false, branch: null, branches: [], uncommittedFiles: 0, uncommittedPaths: [] })),
     updateSession: vi.fn(async (id: string, patch: object) => ({ ...sessions.value.find((s) => s.id === id), ...patch })),
   },
 }));
@@ -14,7 +15,7 @@ vi.mock("@glade/app-core/lib/api", () => ({
 import { api } from "@glade/app-core/lib/api";
 import { TooltipProvider, sidebarClass } from "@glade/app-core/ui";
 import { projects, sessions, workspaces } from "@glade/app-core/state/store";
-import { closedProjects } from "@glade/app-core/state/ui";
+import { closedProjects, newGroupOpen } from "@glade/app-core/state/ui";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { Sidebar } from "./Sidebar";
 import { agentVersions } from "@glade/app-core/state/agent-versions";
@@ -90,6 +91,36 @@ describe("Sidebar", () => {
     fireEvent.contextMenu(container.querySelector("[data-chat-id=c3]") as HTMLElement);
     expect(screen.queryByRole("menuitem", { name: "Move Up" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Move Down" })).toBeNull();
+  });
+
+  it("shows a group project (I-213) like a project, with a layers icon and no path items", () => {
+    projects.value = [...projects.value, makeProject({ id: "g", name: "World", path: null, sortOrder: 2 })];
+    workspaces.value = [...workspaces.value, makeWorkspace({ id: "gc", projectId: "g", title: "admin", cwd: "/Users/me/world/areas/admin" })];
+    const { container } = renderSidebar();
+    const group = container.querySelector("[data-project-id=g]") as HTMLElement;
+    const row = within(group).getByRole("button", { name: "World" });
+    expect(row.querySelector("[data-icon=group]")).not.toBeNull();
+    expect(container.querySelector("[data-project-id=p1] [data-icon=group]")).toBeNull();
+    expect(rowTitles(group)).toEqual(["gc"]);
+    // The chat's tooltip names its folder.
+    expect(group.querySelector("[data-chat-id=gc] button[title]")?.getAttribute("title")).toBe("admin\n~/world/areas/admin");
+    expect(api.getProjectGit).not.toHaveBeenCalled();
+
+    fireEvent.contextMenu(row);
+    expect(screen.getByRole("menuitem", { name: "New Chat" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Remove Group…" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Copy Path" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "New Chat in Worktree" })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  });
+
+  it("the Projects header offers Add Project… and New Group… (I-213)", () => {
+    renderSidebar();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add Project or Group" }), { button: 0, ctrlKey: false });
+    expect(screen.getByRole("menuitem", { name: "Add Project…" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Group…" }));
+    expect(newGroupOpen.value).toBe(true);
+    newGroupOpen.value = false;
   });
 
   it("toggles Mark as Unread / Mark as Read in a chat's menu (I-073)", () => {

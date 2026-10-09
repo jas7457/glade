@@ -59,6 +59,17 @@ describe("AddProjectDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     projects.value = [];
+    localStorage.clear(); // the browser remembers its last folder (I-213)
+  });
+
+  it("reopens the browser where it was last left (I-213)", async () => {
+    setup();
+    fireEvent.dblClick(await option("code"));
+    await option("app");
+    cleanup();
+    setup();
+    await option("app");
+    expect(folders.browse).toHaveBeenLastCalledWith(`${HOME}/code`, { hidden: false });
   });
 
   const setup = (source: ProjectFolderSource = folders) => {

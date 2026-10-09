@@ -2,19 +2,22 @@
  * App sidebar content: titlebar drag region, New chat, Projects, Chats, Settings. In the
  * settings screen it shows the settings section list instead.
  *
+ * I-213: the Projects header's "+" offers Add Project… and New Group… (a project without a
+ * folder of its own; group rows look like projects with a layers icon).
+ *
  * I-202: the Projects group lists only projects (always top level), dragged to reorder. The Chats
  * group is the standalone chat list: pinned chats, then standalone chats and their folders in
  * one manual order (`ChatList`); its header's "New Folder" makes a folder there.
  */
 import type { WorkspaceSummary, Project } from "@glade/protocol";
 import { useLocation, useNavigate } from "react-router";
-import { FolderPlus, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from "lucide-preact";
+import { FolderPlus, Layers, PanelLeft, Plus, Settings as SettingsIcon, SquarePen } from "lucide-preact";
 import { routes } from "@glade/app-core/app/routes";
 import { routeContext } from "@/app/paths";
 import { cn } from "@glade/app-core/lib/cn";
-import { IconButton, Kbd, SidebarGroup, SidebarItem, SidebarList, StatusDot, Titlebar, sidebarClass } from "@glade/app-core/ui";
+import { IconButton, Kbd, Menu, MenuItem, SidebarGroup, SidebarItem, SidebarList, StatusDot, Titlebar, sidebarClass } from "@glade/app-core/ui";
 import { envIdOf, sortedProjects, workspacesById } from "@glade/app-core/state/store";
-import { openAddProject, toggleSidebar } from "@glade/app-core/state/ui";
+import { openAddProject, openNewGroup, toggleSidebar } from "@glade/app-core/state/ui";
 import { reorderProjects } from "@glade/app-core/state/actions";
 import { primaryEnvironmentId } from "@glade/app-core/state/env-registry";
 import { updateAvailable } from "@glade/app-core/state/version";
@@ -77,14 +80,28 @@ export function Sidebar() {
               title="Projects"
               collapsible
               actions={
-                <IconButton size="sm" label="Add Project…" onClick={openAddProject}>
-                  <Plus />
-                </IconButton>
+                // I-213: a project (a folder) or a group (a name; its chats pick their folders).
+                <Menu
+                  align="end"
+                  trigger={
+                    <IconButton size="sm" label="Add Project or Group" tooltip={false}>
+                      <Plus />
+                    </IconButton>
+                  }
+                >
+                  <MenuItem icon={<FolderPlus />} onSelect={openAddProject}>
+                    Add Project…
+                  </MenuItem>
+                  <MenuItem icon={<Layers />} onSelect={openNewGroup}>
+                    New Group…
+                  </MenuItem>
+                </Menu>
               }
             >
               {list.length === 0 ? (
                 <>
                   <SidebarItem icon={<FolderPlus />} label="Add a project…" onSelect={openAddProject} class="text-fg-muted" />
+                  <SidebarItem icon={<Layers />} label="New group…" onSelect={openNewGroup} class="text-fg-muted" />
                   <DownEnvironmentRows />
                 </>
               ) : (

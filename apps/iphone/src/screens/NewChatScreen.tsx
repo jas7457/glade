@@ -6,11 +6,15 @@
  * when more than one is connected) and the project (or none: a standalone chat in the Mac's
  * scratch folder). The first send creates the chat and replaces this screen with it.
  *
+ * A group project (I-213, no folder of its own) adds a Folder chip: the new chat's folder, picked
+ * from the group's chats' folders or the folder browser (newchat/group-folder.tsx). Nothing is sent
+ * until one is chosen.
+ *
  *   /new                      the first connected Mac, no project
  *   /new?env=<id>&project=<id> preselected (e.g. a project's "+")
  */
 import { useSignal } from "@preact/signals";
-import { ChevronLeft, Folder, Laptop, MessageSquare } from "lucide-preact";
+import { ChevronLeft, FolderOpen, Laptop, MessageSquare } from "lucide-preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate, useSearchParams } from "react-router";
 import { Composer } from "@glade/app-core/features/chat/Composer";
@@ -19,9 +23,13 @@ import { OptionSheetContext } from "@glade/app-core/features/chat/option-sheet";
 import { cn } from "@glade/app-core/lib/cn";
 import { connections, type EnvHandle } from "@glade/app-core/state/env-registry";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
-import { envIdOf, sortedProjects } from "@glade/app-core/state/store";
+import { isGroupProject, needsNewChatFolder, newChatFolderFor, resetNewChatFolder } from "@glade/app-core/state/new-chat-folder";
+import { envIdOf, sortedProjects, workspaces } from "@glade/app-core/state/store";
+import { baseName } from "@glade/app-core/ui/FolderBrowser";
+import { ProjectIcon } from "@glade/app-core/ui/ProjectIcon";
 import { useKeyboardViewport } from "~/chat/keyboard";
 import { macStatusShort, macStatusTitle } from "~/lib/mac-status";
+import { GroupFolderSheet, groupChatFolders } from "~/newchat/group-folder";
 import { ContextChip, GladeLeaf } from "~/newchat/parts";
 import { MacStatusNotice } from "~/ui/MacStatus";
 import { SheetList } from "~/ui/SheetList";
@@ -30,7 +38,7 @@ import { CheckRow } from "~/ui/phone-extra";
 import { VoiceButton } from "~/voice/VoiceButton";
 import { openVoiceMode } from "~/voice/voice-mode";
 
-type Picker = "device" | "project" | null;
+type Picker = "device" | "project" | "folder" | null;
 
 /** The Mac a new chat goes to: the requested one if connected, else the first connected one. */
 export function defaultNewChatEnv(requested: string | null, list: readonly EnvHandle[] = connections.value): string | null {
@@ -55,6 +63,13 @@ export function NewChatScreen() {
   const connected = !!envId && remoteStateOf(envId) === "connected";
   const projects = sortedProjects.value.filter((p) => envIdOf(p) === envId);
   const project = projects.find((p) => p.id === projectChoice.value) ?? null;
+  // Group project (I-213): the new chat's folder, and the folders its chats already use.
+  const group = isGroupProject(project);
+  const folder = project ? newChatFolderFor(project.id) : null;
+  const needsFolder = needsNewChatFolder(project);
+  const groupFolders = group && project ? groupChatFolders(project.id, workspaces.value) : [];
+  // The choice belongs to this screen and project: forget it when either goes away.
+  useEffect(() => resetNewChatFolder, [project?.id]);
 
   // The empty state stays centred in the space above the floating composer.
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -94,7 +109,13 @@ export function NewChatScreen() {
               <MacStatusNotice envId={env.id} class="mt-4 w-full max-w-sm" />
             ) : (
               <p class="mt-1.5 max-w-full text-[15px] text-fg-muted">
-                {project ? shortenPath(project.path) : `Standalone chats run in a scratch folder${env && envs.length > 1 ? ` on ${env.name.value}` : ""}.`}
+                {project && group
+                  ? folder
+                    ? shortenPath(folder)
+                    : "This group's chats each run in their own folder. Choose one to start."
+                  : project?.path
+                    ? shortenPath(project.path)
+                    : `Standalone chats run in a scratch folder${env && envs.length > 1 ? ` on ${env.name.value}` : ""}.`}
               </p>
             )}
           </div>
@@ -110,11 +131,19 @@ export function NewChatScreen() {
                 <ContextChip icon={<Laptop size={15} />} label={env ? env.name.value : "No Mac"} ariaLabel={`Mac: ${env?.name.value ?? "none"}`} onClick={() => (picker.value = "device")} />
               )}
               <ContextChip
-                icon={project ? <Folder size={15} /> : <MessageSquare size={15} />}
+                icon={project ? <ProjectIcon project={project} size={15} /> : <MessageSquare size={15} />}
                 label={project?.name ?? "No Project"}
                 ariaLabel={`Project: ${project?.name ?? "none"}`}
                 onClick={() => (picker.value = "project")}
               />
+              {group && (
+                <ContextChip
+                  icon={<FolderOpen size={15} />}
+                  label={folder ? baseName(folder) : <span class="text-accent">Choose Folder</span>}
+                  ariaLabel={`Folder: ${folder ? baseName(folder) : "none"}`}
+                  onClick={() => (picker.value = "folder")}
+                />
+              )}
             </div>
             <Composer key={`${envId}:${project?.id ?? ""}`} projectId={project?.id ?? null} envId={project ? null : envId} autoFocus={false}
               replace
@@ -122,8 +151,14 @@ export function NewChatScreen() {
               startRef={startRef}
               sendAccessory={
                 <VoiceButton
-                  disabled={!!offline}
-                  onClick={() => openVoiceMode({ kind: "new", start: (text) => startRef.current?.(text) ?? Promise.resolve(null) })}
+                  disabled={!!offline || needsFolder}
+                  onClick={() =>
+                    openVoiceMode({
+                      kind: "new",
+                      // A group chat can't start before its folder is chosen (I-213).
+                      start: (text) => (needsNewChatFolder(project) ? Promise.resolve(null) : (startRef.current?.(text) ?? Promise.resolve(null))),
+                    })
+                  }
                 />
               }
             />
@@ -168,9 +203,9 @@ export function NewChatScreen() {
             {projects.map((p) => (
               <CheckRow
                 key={p.id}
-                icon={<Folder size={20} />}
+                icon={<ProjectIcon project={p} size={20} />}
                 title={p.name}
-                subtitle={shortenPath(p.path)}
+                subtitle={p.path === null ? "Group · each chat picks its folder" : shortenPath(p.path)}
                 checked={p.id === project?.id}
                 onClick={() => {
                   projectChoice.value = p.id;
@@ -181,6 +216,10 @@ export function NewChatScreen() {
           </ListGroup>
         )}
       </Sheet>
+
+      {group && project && (
+        <GroupFolderSheet open={picker.value === "folder"} onClose={close} projectId={project.id} envId={envId} folders={groupFolders} current={folder} />
+      )}
     </OptionSheetContext.Provider>
   );
 }

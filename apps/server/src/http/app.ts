@@ -142,7 +142,7 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   app.use("/api/agents/*", localOnly);
   app.route("/api/agents", createAgentsRoutes(service, search));
   // Folder browser (I-124): directories in the home folder and /Volumes, New Folder.
-  app.route("/api", fsBrowseRoutes());
+  app.route("/api", fsBrowseRoutes(service.fsBrowse));
   if (power) {
     app.use("/api/power", localOnly);
     app.use("/api/desktop/*", localOnly);
@@ -239,7 +239,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.get("/projects", (c) => c.json(service.listProjects()));
   api.post("/projects", once, async (c) => {
     const body = await readBody<CreateProjectRequest>(c);
-    requireString(body.path, "path");
+    // No path = a group project (I-213; the service then requires a name).
+    if (body.path !== undefined && body.path !== null) requireString(body.path, "path");
     optional(body.name, "string", "name");
     return c.json(service.createProject(body));
   });
@@ -345,6 +346,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
     if ((body.baseRef !== undefined || body.branch !== undefined || body.carryChanges) && !body.worktree) {
       throw new HttpError(400, "baseRef, branch and carryChanges need worktree: true");
     }
+    optional(body.folder, "string", "folder");
     return c.json(await service.createWorkspace(body));
   });
   // One container of a chat list in its new order, chats moving in included (I-202).
@@ -366,6 +368,8 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
   api.get("/workspaces/:id", (c) => c.json(service.getWorkspaceDetail(c.req.param("id"))));
   api.patch("/workspaces/:id", async (c) => {
     const body = await readBody<UpdateWorkspaceRequest>(c);
+    // A chat's folder is set at creation and never changes (I-213).
+    if ("folder" in body || "cwd" in body) throw new HttpError(400, "A chat's folder can't be changed");
     optional(body.title, "string", "title");
     optional(body.pinned, "boolean", "pinned");
     optionalFolderId(body.folderId);

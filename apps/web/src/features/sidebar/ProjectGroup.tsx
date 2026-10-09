@@ -3,13 +3,14 @@
  * its chat list (`ChatList`, I-202: pinned chats, then its chats and folders in one manual order).
  * The row is the drag handle for reordering projects (the whole group moves); projects are always
  * top level. The group is its chats' drag area: nothing dragged from it can leave it.
+ * A group project (I-213, `path: null`) has a layers icon and no path, Copy Path or worktree items.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useNavigate } from "react-router";
-import { Copy, Folder, FolderOpen, FolderPlus, GitBranch, MoreHorizontal, Pencil, Plus, SquarePen, Trash2 } from "lucide-preact";
+import { Copy, FolderPlus, GitBranch, MoreHorizontal, Pencil, Plus, SquarePen, Trash2 } from "lucide-preact";
 import { aggregateChatStatus, type WorkspaceSummary, type Project } from "@glade/protocol";
 import { routes } from "@glade/app-core/app/routes";
-import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@glade/app-core/ui";
+import { ContextMenu, IconButton, Menu, MenuItem, MenuLabel, MenuSeparator, ProjectIcon, SidebarItem, StatusIndicator, confirm, sidebarClass } from "@glade/app-core/ui";
 import { cn } from "@glade/app-core/lib/cn";
 import { envIdOf, workspacesForProject } from "@glade/app-core/state/store";
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
@@ -68,20 +69,22 @@ export function ProjectGroup({
   const remove = async () => {
     const count = list.length;
     const ok = await confirm({
-      title: "Remove project?",
+      title: path === null ? "Remove group?" : "Remove project?",
       subject: project.name,
       message:
         count > 0
-          ? `and its ${count} chat${count === 1 ? "" : "s"} will be deleted. The folder on disk isn't touched.`
-          : "will be removed from Glade. The folder on disk isn't touched.",
+          ? `and its ${count} chat${count === 1 ? "" : "s"} will be deleted. ${path === null ? "Their folders on disk aren't" : "The folder on disk isn't"} touched.`
+          : `will be removed from Glade. ${path === null ? "No folders on disk are" : "The folder on disk isn't"} touched.`,
       confirmLabel: "Remove",
       destructive: true,
     });
     if (ok && (await removeProject(project.id))) onProjectRemoved?.(project);
   };
+  const path = project.path;
   const copyPath = async () => {
+    if (path === null) return;
     try {
-      await navigator.clipboard.writeText(project.path);
+      await navigator.clipboard.writeText(path);
       notify("success", "Path copied");
     } catch {
       notify("error", "Could not copy the path");
@@ -90,11 +93,13 @@ export function ProjectGroup({
 
   const items = (
     <>
-      <MenuLabel>
-        <span class="block max-w-[260px] truncate font-normal" title={project.path}>
-          {project.path}
-        </span>
-      </MenuLabel>
+      {path !== null && (
+        <MenuLabel>
+          <span class="block max-w-[260px] truncate font-normal" title={path}>
+            {path}
+          </span>
+        </MenuLabel>
+      )}
       <MenuItem icon={<SquarePen />} onSelect={newChat}>New Chat</MenuItem>
       {isRepo && <MenuItem icon={<GitBranch />} onSelect={newWorktreeChat}>New Chat in Worktree</MenuItem>}
       <MenuSeparator />
@@ -107,11 +112,11 @@ export function ProjectGroup({
       >
         Rename
       </MenuItem>
-      <MenuItem icon={<Copy />} onSelect={() => void copyPath()}>Copy Path</MenuItem>
+      {path !== null && <MenuItem icon={<Copy />} onSelect={() => void copyPath()}>Copy Path</MenuItem>}
       <MenuItem icon={<FolderPlus />} onSelect={() => void createFolderAndRename({ projectId: project.id })}>New Folder</MenuItem>
       <MenuSeparator />
       <MenuItem destructive icon={<Trash2 />} onSelect={() => void remove()}>
-        Remove Project…
+        {path === null ? "Remove Group…" : "Remove Project…"}
       </MenuItem>
     </>
   );
@@ -131,8 +136,8 @@ export function ProjectGroup({
         <SidebarItem
           {...(editing ? {} : sort?.handle)}
           label={project.name}
-          title={project.path}
-          icon={open ? <FolderOpen /> : <Folder />}
+          title={path ?? `Group: each chat works in its own folder`}
+          icon={<ProjectIcon project={project} open={open} />}
           badge={<RemoteMarker envId={envIdOf(project)} />}
           selected={selected}
           aria-expanded={open}

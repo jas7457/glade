@@ -4,10 +4,12 @@
  * side is replaced by a "…" menu button; the same menu opens on right-click: Rename, Pin,
  * Move to Folder (I-165), Mark as Read / Mark as Unread (I-073: flags the last open tab), Delete.
  * Ordering is by dragging only (I-202: no Move Up / Move Down).
- * Chats working in their own git worktree (I-096) show a small branch glyph.
+ * Chats working in their own git worktree (I-096) show a small branch glyph. A group project's
+ * chat (I-213) names its folder in the tooltip.
  */
 import { RemoteMarker } from "@/features/environments/RemoteMarker";
-import { envIdOf, folderOfWorkspace } from "@glade/app-core/state/store";
+import { envIdOf, folderOfWorkspace, projectsById } from "@glade/app-core/state/store";
+import { shortenPath } from "@glade/app-core/lib/paths";
 import { moveWorkspaceToFolder } from "@glade/app-core/state/folder-actions";
 import { MoveToFolderMenu } from "./folder-menu";
 import { useRef, useState } from "preact/hooks";
@@ -27,6 +29,12 @@ export interface ChatRowProps {
   indent?: SidebarIndent;
   /** Called after the chat was deleted while selected (navigate elsewhere). */
   onRemoved?: (chat: WorkspaceSummary) => void;
+}
+
+/** The row's tooltip: its title, plus the folder a group project's chat works in (I-213). */
+export function rowTitle(chat: WorkspaceSummary): string {
+  const group = chat.projectId ? projectsById.value.get(chat.projectId)?.path === null : false;
+  return group ? `${chat.title}\n${shortenPath(chat.cwd)}` : chat.title;
 }
 
 export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps) {
@@ -95,7 +103,7 @@ export function ChatRow({ chat, selected, indent = 0, onRemoved }: ChatRowProps)
       <SidebarItem
         data-chat-id={chat.id}
         label={chat.title || "Untitled"}
-        title={chat.title}
+        title={rowTitle(chat)}
         selected={selected}
         strong={chat.status === "unread" && !selected}
         indent={indent}

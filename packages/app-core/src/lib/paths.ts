@@ -51,3 +51,8 @@ export function displayPath(path: string, cwd?: string | null, home?: string | n
   if (homeDir && homeDir !== "/" && (abs === homeDir || abs.startsWith(`${homeDir}/`))) return `~${abs.slice(homeDir.length)}`;
   return abs;
 }
+
+/** `/Users/me/src/x` → `~/src/x` (best effort, for labels; the server doesn't tell us $HOME). */
+export function shortenPath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}

@@ -81,6 +81,8 @@ import { LocalModelsService } from "./local-models/service.js";
 import { validateLocalModelsPatch } from "./local-models/settings.js";
 import { SyncHub, type SyncOptions } from "./sync/hub.js";
 import { Environment, type EnvironmentOptions } from "./environment.js";
+import { FsBrowseError } from "./fs-browse.js";
+import { HttpError } from "./app/errors.js";
 
 export { ActiveElsewhereError, HttpError } from "./app/errors.js";
 export { decodedBase64Size } from "./app/session-actions.js";
@@ -288,6 +290,21 @@ export class AppService {
     const environment = this.environment.rename(name);
     this.ctx.broadcast({ type: "environment", environment });
     return environment;
+  }
+
+  /** The folder browser (I-124), shared with group chats' folder checks (I-213). */
+  get fsBrowse() {
+    return this.ctx.fsBrowse;
+  }
+
+  /** The real path of a folder inside the folder browser's area; 400 otherwise (I-213). */
+  async resolveFolder(folder: string): Promise<string> {
+    try {
+      return await this.ctx.fsBrowse.requireFolder(folder);
+    } catch (err) {
+      if (err instanceof FsBrowseError) throw new HttpError(400, err.message);
+      throw err;
+    }
   }
 
   /** The store (command receipts, I-122). */

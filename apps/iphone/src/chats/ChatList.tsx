@@ -15,9 +15,10 @@
 import { MacStatusRow } from "~/ui/MacStatus";
 import { useSignal } from "@preact/signals";
 import { useRef } from "preact/hooks";
-import { ChevronDown, ChevronRight, Folder as FolderIcon, Folders as FoldersIcon, Pin } from "lucide-preact";
+import { ChevronDown, ChevronRight, Folders as FoldersIcon, Pin } from "lucide-preact";
 import { aggregateChatStatus, type Folder, type Project, type WorkspaceSummary } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
+import { ProjectIcon } from "@glade/app-core/ui/ProjectIcon";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 import { connectionFor, connections, multipleEnvironments } from "@glade/app-core/state/env-registry";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
@@ -191,7 +192,8 @@ function ProjectSection({ group, ctx }: { group: ProjectGroupData; ctx: SectionC
         {...press.handlers}
         class="flex min-h-9 w-full items-center gap-1.5 px-1 pb-1.5 text-left select-none"
       >
-        <FolderIcon size={15} class="shrink-0 text-fg-muted" aria-hidden />
+        {/* Folder, or stacked layers for a group project (I-213). */}
+        <ProjectIcon project={project} size={15} class="shrink-0 text-fg-muted" />
         <span class="min-w-0 truncate text-[15px] font-semibold text-fg-strong">{project.name}</span>
         {ctx.multi && <DeviceMarker name={connectionFor(envIdOf(project))?.name.value ?? ""} />}
         <span class="flex-1" />

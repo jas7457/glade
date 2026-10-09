@@ -23,8 +23,9 @@ import { listSlashCommands, type FolderCommands } from "./slash-command-list";
 
 type Load = { status: "loading" } | { status: "done"; folders: FolderCommands[]; failed: number };
 
+/** The scratch folder and each project folder (group projects, I-213, have none of their own). */
 async function loadFolders(refresh: boolean): Promise<Load> {
-  const targets: Array<{ id: string | null; name: string | null }> = [{ id: null, name: null }, ...projects.value.map((p) => ({ id: p.id, name: p.name }))];
+  const targets: Array<{ id: string | null; name: string | null }> = [{ id: null, name: null }, ...projects.value.filter((p) => p.path !== null).map((p) => ({ id: p.id, name: p.name }))];
   const results = await Promise.allSettled(targets.map((t) => listFolderCommands(t.id, refresh, requestFor(hostEnvId()))));
   const folders: FolderCommands[] = [];
   results.forEach((r, i) => {

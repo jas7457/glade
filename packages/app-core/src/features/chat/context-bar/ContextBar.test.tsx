@@ -26,7 +26,8 @@ vi.mock("@glade/app-core/features/changes/api", () => ({
 }));
 
 import type { ProjectGitInfo } from "@glade/protocol";
-import { ApiRequestError, api } from "@glade/app-core/lib/api";
+import { ApiRequestError, api, request } from "@glade/app-core/lib/api";
+import { newChatFolder, newChatFolderFor } from "@glade/app-core/state/new-chat-folder";
 import { projectChangesApi } from "@glade/app-core/features/changes/api";
 import { createWorkspace } from "@glade/app-core/state/actions";
 import { projects, workspaces } from "@glade/app-core/state/store";
@@ -281,5 +282,32 @@ describe("context bar", () => {
     });
     expect(mocked.createProjectBranch).toHaveBeenCalledWith("p", "fix/it", true);
     expect(await screen.findByRole("button", { name: /Branch: fix\/it/ })).toBeTruthy();
+  });
+
+  it("group project (I-213): a required Folder chip instead of Work in / Branch; picks a folder; leaving resets", async () => {
+    projects.value = [makeProject({ id: "g", name: "Monorepo", path: null, sortOrder: 0 })];
+    const listing = (path: string) => ({ path, parent: path === "/Users/me" ? null : "/Users/me", entries: [{ name: "admin", path: "/Users/me/admin", hidden: false, isGitRepo: true }], isGitRepo: false });
+    vi.mocked(request).mockImplementation((async (_method: string, url: string) => {
+      const path = new URLSearchParams(url.split("?")[1]).get("path") ?? "~";
+      return listing(path === "~" ? "/Users/me" : path);
+    }) as typeof request);
+    newChatFolder.value = null;
+    const { unmount } = renderBar("g");
+    expect(button(/Project: Monorepo/)).toBeTruthy();
+    const chip = button(/Folder: none/);
+    expect(chip.textContent).toContain("Choose folder…");
+    expect(screen.queryByRole("button", { name: /Work in/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Branch/ })).toBeNull();
+    expect(mocked.getProjectGit).not.toHaveBeenCalled(); // a group has no folder to ask git about
+
+    fireEvent.click(chip);
+    const row = await screen.findByRole("option", { name: /admin/ });
+    fireEvent.mouseDown(row);
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    expect(newChatFolderFor("g")).toBe("/Users/me/admin");
+    expect(await screen.findByRole("button", { name: /Folder: admin/ })).toBeTruthy();
+
+    unmount();
+    expect(newChatFolder.value).toBeNull();
   });
 });

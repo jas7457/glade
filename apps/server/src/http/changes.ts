@@ -11,7 +11,7 @@
  *   POST /projects/:id/changes/commit-message   → CommitMessageResponse ({ paths? })           (I-105)
  *
  * The project routes commit in the project's own folder (the new-chat screen's "Commit your
- * changes to switch branch" dialog, which has no workspace yet).
+ * changes to switch branch" dialog, which has no workspace yet); 400 for group projects (I-213).
  *
  * Behaviour lives in `services/git-changes.ts`.
  */
@@ -38,6 +38,8 @@ export function changesRoutes(service: AppService, git: GitChangesService): Hono
   const projectPath = (c: Context) => {
     const project = service.listProjects().find((p) => p.id === c.req.param("id"));
     if (!project) throw new HttpError(404, "Project not found");
+    // A group project (I-213) has no folder of its own; its chats use the workspace routes.
+    if (project.path === null) throw new HttpError(400, "Group projects have no folder");
     return project.path;
   };
   for (const [scope, folder] of [["workspaces", cwd], ["projects", projectPath]] as const) {

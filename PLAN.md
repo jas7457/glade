@@ -1689,7 +1689,7 @@ Next id: I-214.
   - Acceptance: the site shows a sub-agent's own tab and a message exchange with it, readable, with text beside it; regenerable with `pnpm capture --only subagent-tabs`.
   - Outcome (2026-10-05): new capture `subagent-tabs` (a "self-hosting" chat with three sub-agents; the Docker one opened in its tab in the side pane, its work streaming; a message typed in its composer asking to keep the SQLite database on a volume; it answers, edits the Dockerfile and rebuilds), full + focus videos with posters at ~13 s; demo harness: steering joins the running turn, sub-agent scripts can answer messages (`onMessage`). Site: panel "Open any sub-agent. Talk to it." right after the sub-agents panel; later panels re-alternated; the focus videos' pause button moved to the bottom-right corner. Live after the Pages deploy.
 
-- [ ] **I-213** Group projects: a project with no folder of its own whose chats each pick their own folder; the folder browser reopens where it was last left — `server` / `shell` / `protocol` / `iphone`
+- [x] **I-213** Group projects: a project with no folder of its own whose chats each pick their own folder; the folder browser reopens where it was last left — `server` / `shell` / `protocol` / `iphone` (2026-10-08)
   - Reported: 2026-10-08 — in a monorepo the user organises work per checkout (e.g. a git worktree named after itself) and, inside it, by segment of the repo (admin web, Polaris, Polaris internal, …). Today's projects map one-to-one to a folder, so that layout can't be expressed. The user wants the same sidebar layout as projects (project heading, chats under it, tabs inside a chat) but for arbitrary groupings: the heading is just a name the user picks, and each chat under it points to its own folder on disk. Those folders will usually be inside the same checkout, but nothing may enforce that: any folder, in any checkout, is allowed. Inside such a chat, new tabs run in that chat's folder like any project chat.
   - Discussed and rejected (2026-10-08): a group rail / space switcher on the far left and a group → project → chat nesting; the user wants the existing project layout, not a new level.
   - Decided (user, 2026-10-08):
@@ -1703,6 +1703,21 @@ Next id: I-214.
     - **Desktop:** "New Group…" next to Add Project (name only); group rows in the sidebar look like projects with a distinct icon and no path/Copy Path/Open In items. New chat in a group (row "+", ⌘N, palette) shows a required **Folder** chip in the context bar that opens the folder browser (Work in / Branch pickers hidden for groups); Send stays disabled until a folder is chosen. Chat rows keep showing their title; the tooltip / header names the folder.
     - **Folder browser memory:** per device and per environment (localStorage), the last folder the browser was in; on open, walk up to the nearest existing parent when it's gone, else home. Applies to Add Project and the group folder chip, desktop and iPhone.
     - **iPhone:** groups appear in the project picker; picking one adds a Folder row to the new-chat screen offering the folders of the group's existing chats (derived, not stored) plus Browse… (the shared `FolderBrowser` in a sheet); Send needs a folder.
+  - Outcome (2026-10-08):
+    - **Server:** `POST /projects` without `path` creates a group (name required). `POST /workspaces {folder}` is required in a group, refused elsewhere and with `worktree`, and checked against the folder browser's area (`FsBrowseService.requireFolder`, symlinks resolved). The folder becomes `cwd` and the title is the folder's name. `PATCH` refuses `folder`/`cwd`. Folder routes take `workspaceId` > `folder` > `projectId`, and a group's folder endpoints answer 400. Tests: `test/group-projects.test.ts`.
+    - **Desktop / app-core:**
+      - The Projects `+` is a menu with Add Project… and New Group… (`NewGroupDialog`), also in the palette and the project picker. Groups use a `Layers` icon (`ui/ProjectIcon`) and have no path, Copy Path or Open In.
+      - New chat in a group has a required Folder chip (`context-bar/FolderPicker`, with the group's chat folders as Recent). Work in and Branch are hidden, and Send is blocked with a reason until a folder is chosen.
+      - `@` search, slash commands and permission modes use the chat's `workspaceId`, or the picked `folder` on the new-chat screen.
+      - A group chat's header and sidebar tooltip name its folder.
+      - `FolderBrowser` has `memoryKey` (it reopens where it was left, falls back to the nearest existing parent, else home) and `openOnTap`.
+    - **iPhone:** groups appear in the project sheet. A Folder chip opens a sheet with the group's chat folders and Browse… (`FolderBrowser` with memory). Send and voice are blocked until a folder is chosen. Chat list headers use `ProjectIcon`.
+    - Screenshots: `/tmp/glade-groups-desktop-*.png`, `/tmp/glade-groups-iphone-*.png`.
+    - Left open:
+      - A group chat inside a larger repo shows the whole repo's changes count and changes panel (git runs at the repo root); scoping it to the chat's folder could be a follow-up.
+      - The desktop folder dialog has no native "Choose in Finder…".
+      - Group chats can't use worktrees.
+      - Folders under `/tmp` aren't allowed (outside the browser's area).
 
 ## Future features
 

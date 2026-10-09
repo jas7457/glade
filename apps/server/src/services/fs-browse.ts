@@ -112,6 +112,25 @@ export class FsBrowseService {
     return { name, path, isGitRepo: false, hidden: name.startsWith(".") };
   }
 
+  /**
+   * The real path of `input` when it's an existing folder inside the allowed area (I-213: a group
+   * chat's folder). Symlinks are resolved, so one leading outside the area is refused. Errors:
+   * 400 (relative, missing, not a folder), 403 (outside the area).
+   */
+  async requireFolder(input: string): Promise<string> {
+    if (!input.trim()) throw new FsBrowseError(400, "Choose a folder");
+    const path = this.expand(input);
+    let real: string;
+    try {
+      real = await realpath(path);
+    } catch {
+      throw new FsBrowseError(400, `This folder doesn't exist: ${path}`);
+    }
+    if (!(await this.isAllowedReal(real))) throw new FsBrowseError(403, "Folders must be inside your home folder or /Volumes");
+    if (!(await stat(real)).isDirectory()) throw new FsBrowseError(400, `Not a folder: ${path}`);
+    return real;
+  }
+
   // -------------------------------------------------------------------------------------------
 
   private async entry(dir: string, d: import("node:fs").Dirent): Promise<FsBrowseEntry | null> {

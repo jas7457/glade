@@ -31,8 +31,9 @@ import { createWorkspace } from "@glade/app-core/state/actions";
 import { connections } from "@glade/app-core/state/env-registry";
 import { newChatHarness } from "@glade/app-core/state/harnesses";
 import { savedEnvironments } from "@glade/app-core/state/saved-environments";
-import { projects } from "@glade/app-core/state/store";
-import { makeProject } from "@glade/app-core/test/fixtures";
+import { newChatFolder } from "@glade/app-core/state/new-chat-folder";
+import { projects, workspaces } from "@glade/app-core/state/store";
+import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { chatPath } from "@glade/app-core/app/routes";
 import { TooltipProvider } from "@glade/app-core/ui";
 import { paths } from "~/app/routes";
@@ -81,6 +82,8 @@ describe("NewChatScreen", () => {
   });
   afterEach(() => {
     delete (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__;
+    workspaces.value = [];
+    newChatFolder.value = null;
   });
 
   it("shows the empty state, picks Mac and project from the chips, sends, then replaces itself with the chat", async () => {
@@ -161,6 +164,86 @@ describe("NewChatScreen", () => {
     });
     await waitFor(() => expect(router.state.location.pathname).not.toBe("/new"));
     expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", harness: "claude", permissionMode: "plan" }), "m1");
+  });
+
+  describe("group projects (I-213)", () => {
+    beforeEach(() => {
+      projects.value = [...projects.value, makeProject({ id: "g1", name: "Monorepo", path: null, environmentId: "m1" })];
+      workspaces.value = [
+        makeWorkspace({ id: "w1", projectId: "g1", cwd: "/Users/me/repo/admin-web", createdAt: 1, environmentId: "m1" }),
+        makeWorkspace({ id: "w2", projectId: "g1", cwd: "/Users/me/repo/polaris", createdAt: 2, environmentId: "m1" }),
+        makeWorkspace({ id: "w3", projectId: "g1", cwd: "/Users/me/repo/admin-web", createdAt: 3, environmentId: "m1" }),
+      ];
+    });
+
+    it("lists groups in the project sheet and shows a Folder chip only for them", () => {
+      renderNew(`${paths.newChat()}?env=m1`);
+      expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Project: none" }));
+      expect(screen.getByText("Group · each chat picks its folder")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /Monorepo/ }));
+      expect(screen.getByRole("button", { name: "Folder: none" })).toBeTruthy();
+      expect(screen.getByText("This group's chats each run in their own folder. Choose one to start.")).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Voice mode" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("offers the group's chat folders, newest first; choosing one sets the new chat's folder", () => {
+      renderNew(`${paths.newChat()}?env=m1&project=g1`);
+      fireEvent.click(screen.getByRole("button", { name: "Folder: none" }));
+      const rows = screen.getAllByRole("button", { name: /~\/repo\// });
+      expect(rows.map((r) => r.textContent)).toEqual(["admin-web~/repo/admin-web", "polaris~/repo/polaris"]);
+      expect(screen.getByRole("button", { name: /Browse…/ })).toBeTruthy();
+      fireEvent.click(rows[1]!);
+      expect(newChatFolder.value).toEqual({ projectId: "g1", path: "/Users/me/repo/polaris" });
+      expect(screen.getByRole("button", { name: "Folder: polaris" })).toBeTruthy();
+      expect(screen.getByText("~/repo/polaris")).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Voice mode" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("forgets the folder when the project changes or the screen goes away", () => {
+      const router = renderNew(`${paths.newChat()}?env=m1&project=g1`);
+      fireEvent.click(screen.getByRole("button", { name: "Folder: none" }));
+      fireEvent.click(screen.getByRole("button", { name: /polaris/ }));
+      expect(newChatFolder.value).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Project: Monorepo" }));
+      fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+      expect(newChatFolder.value).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Folder:/ })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Project: Alpha" }));
+      fireEvent.click(screen.getByRole("button", { name: /Monorepo/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Folder: none" }));
+      fireEvent.click(screen.getByRole("button", { name: /admin-web/ }));
+      expect(newChatFolder.value).not.toBeNull();
+      act(() => void router.navigate("/elsewhere"));
+      expect(newChatFolder.value).toBeNull();
+    });
+
+    it("won't send until a folder is chosen", () => {
+      renderNew(`${paths.newChat()}?env=m1&project=g1`);
+      fireEvent.input(screen.getByLabelText("Message"), { target: { value: "Fix it" } });
+      expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Folder: none" }));
+      fireEvent.click(screen.getByRole("button", { name: /polaris/ }));
+      expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("still holds the chosen folder when the chat is created (createWorkspace sends it)", async () => {
+      let folderAtCreate: unknown = "unset";
+      vi.mocked(createWorkspace).mockImplementationOnce(async (req) => {
+        folderAtCreate = newChatFolder.value;
+        return { workspace: { id: "new-ws", projectId: req.projectId, environmentId: "m1" }, session: { session: { id: "s1" } } } as never;
+      });
+      renderNew(`${paths.newChat()}?env=m1&project=g1`);
+      fireEvent.click(screen.getByRole("button", { name: "Folder: none" }));
+      fireEvent.click(screen.getByRole("button", { name: /polaris/ }));
+      fireEvent.input(screen.getByLabelText("Message"), { target: { value: "Fix it" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      });
+      await waitFor(() => expect(createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "g1" }), "m1"));
+      expect(folderAtCreate).toEqual({ projectId: "g1", path: "/Users/me/repo/polaris" });
+    });
   });
 
   it("hides the Mac chip with one Mac and defaults to a connected one", () => {

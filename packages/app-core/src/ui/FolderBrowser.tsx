@@ -10,12 +10,17 @@
  * Volumes, recent folders), the folder list (git repos marked), "Show hidden", "New Folder".
  * Keys: ↑/↓ select, Enter or ⌘↓ opens, ⌘↑ goes to the parent, ⌘Enter chooses. "Choose" picks the
  * selected folder, or the open folder when nothing is selected.
+ *
+ * `memoryKey` (I-213; callers pass the environment id): the browser reopens in the last folder it
+ * was in for that key on this device (`folder-memory.ts`), falling back quietly to the nearest
+ * parent that still loads, else home. An explicit `initialPath` wins.
  */
 import type { ComponentChildren } from "preact";
 import type { FsBrowseEntry, FsBrowseResult } from "@glade/protocol";
 import { ArrowUp, ChevronRight, Clock, Folder, FolderGit2, FolderPlus, HardDrive, House } from "lucide-preact";
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import { cn } from "@glade/app-core/lib/cn";
+import { openNearest, rememberedFolder, rememberFolder, type OpenAttempt } from "./folder-memory";
 import { Button } from "./Button";
 import { Checkbox } from "./Checkbox";
 import { floatingSurfaceClass } from "./floating";
@@ -29,8 +34,18 @@ export interface FolderBrowserProps {
   browse: (path: string, options: { hidden: boolean }) => Promise<FsBrowseResult>;
   /** Create a folder (absolute path); omit to hide "New Folder". */
   mkdir?: (path: string) => Promise<FsBrowseEntry>;
-  /** Folder to open first (default `~`). */
+  /** Folder to open first (default: the remembered one for `memoryKey`, else `~`). */
   initialPath?: string;
+  /**
+   * Remember the last folder per device under this key (the environment id) and reopen there
+   * (I-213). Ignored for the first folder when `initialPath` is given; still updated as you browse.
+   */
+  memoryKey?: string;
+  /**
+   * Touch (the iPhone, like Files): a tap opens a folder instead of selecting it, and Choose picks
+   * the open folder. Default false (click selects, double-click opens).
+   */
+  openOnTap?: boolean;
   /** Recently used folders (e.g. other projects' folders), shown as shortcuts. */
   recent?: string[];
   /** Extra shortcut locations after Home (default: `/Volumes`). */
@@ -110,7 +125,9 @@ const rowClass = "flex h-[24px] items-center gap-2 rounded-[5px] px-2 select-non
 export function FolderBrowser({
   browse,
   mkdir,
-  initialPath = "~",
+  initialPath: initialPathProp,
+  memoryKey,
+  openOnTap = false,
   recent = [],
   locations = ["/Volumes"],
   onChoose,
@@ -143,30 +160,42 @@ export function FolderBrowser({
     if (result.parent === null) setRoots((r) => (r.includes(result.path) ? r : [...r, result.path]));
   };
 
-  /** Open a folder; `select` = path of the entry to select afterwards. */
-  const open = async (path: string, options: { select?: string; hidden?: boolean; focusList?: boolean } = {}) => {
+  /**
+   * Open a folder; `select` = path of the entry to select afterwards. `quiet`: a folder that can't
+   * be listed isn't shown or reported (the remembered-folder fallback tries its parent instead).
+   */
+  const open = async (
+    path: string,
+    options: { select?: string; hidden?: boolean; focusList?: boolean; quiet?: boolean } = {},
+  ): Promise<OpenAttempt> => {
     const id = ++request.current;
     setLoading(true);
-    setNavError(null);
+    if (!options.quiet) setNavError(null);
     try {
       const result = await browse(path, { hidden: options.hidden ?? hidden });
-      if (id !== request.current) return;
+      if (id !== request.current) return "stale";
+      if (options.quiet && result.error) return "failed";
       learn(result);
+      if (memoryKey) rememberFolder(memoryKey, result.path);
       if (path === "~" || path === "") setHome(result.path);
       setCurrent(result);
       setDraft(result.path);
       setSelected(options.select ? result.entries.findIndex((e) => e.path === options.select) : -1);
       setNewName(null);
       if (options.focusList) listRef.current?.focus();
+      return "ok";
     } catch (err) {
-      if (id !== request.current) return;
-      setNavError((err as Error).message);
+      if (id !== request.current) return "stale";
+      if (!options.quiet) setNavError((err as Error).message);
+      return "failed";
     } finally {
       if (id === request.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    const remembered = initialPathProp === undefined && memoryKey ? rememberedFolder(memoryKey) : null;
+    const initialPath = initialPathProp ?? remembered ?? "~";
     // Learn the home folder even when starting elsewhere (for the Home shortcut and crumbs).
     if (initialPath !== "~" && initialPath !== "") {
       browse("~", { hidden: false })
@@ -176,7 +205,8 @@ export function FolderBrowser({
         })
         .catch(() => {});
     }
-    void open(initialPath);
+    if (remembered) void openNearest(remembered, (path) => open(path, { quiet: path !== "~" }));
+    else void open(initialPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- first open only
   }, []);
 
@@ -239,7 +269,9 @@ export function FolderBrowser({
   const target = () => (selected >= 0 && entries[selected] ? entries[selected].path : current?.path ?? null);
   const choose = () => {
     const path = target();
-    if (path && !loading) onChoose(path);
+    if (!path || loading) return;
+    if (memoryKey) rememberFolder(memoryKey, path);
+    onChoose(path);
   };
   const goUp = () => {
     if (current?.parent) void open(current.parent, { select: current.path, focusList: true });
@@ -530,8 +562,8 @@ export function FolderBrowser({
                   entry.hidden && "opacity-60",
                   loading && "opacity-50",
                 )}
-                onMouseDown={() => setSelected(i)}
-                onClick={() => listRef.current?.focus()}
+                onMouseDown={() => !openOnTap && setSelected(i)}
+                onClick={() => (openOnTap ? void open(entry.path) : listRef.current?.focus())}
                 onDblClick={() => void open(entry.path, { focusList: true })}
               >
                 <FolderIcon entry={entry} active={i === selected} />

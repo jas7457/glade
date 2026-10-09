@@ -6,11 +6,14 @@
  *
  * I-185: the commands are the agent's picked in the new-chat composer (`harness`; omitted = the
  * host's default agent), cached per agent and folder.
+ *
+ * I-213: a `target` folder (a group project's new-chat screen: the picked `folder`) replaces the
+ * project's in the request and the cache key.
  */
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { SlashCommand } from "@glade/protocol";
-import { listFolderCommands } from "@glade/app-core/lib/api-folder";
+import { listFolderCommands, type FolderTarget } from "@glade/app-core/lib/api-folder";
 import { requestFor } from "@glade/app-core/state/env-api";
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { envIdOfProject } from "@glade/app-core/state/store";
@@ -19,8 +22,9 @@ import { envIdOfProject } from "@glade/app-core/state/store";
  * Cache key: the project id, or "" for the scratch folder (`@<envId>` for another environment's
  * scratch folder, I-123); `<harness>:` in front for an agent other than the default one (I-185).
  */
-function keyOf(projectId: string | null, envId?: string | null, harness?: string | null): string {
-  const folder = projectId ?? (envId && !isLocalEnvironment(envId) ? `@${envId}` : "");
+function keyOf(projectId: string | null, envId?: string | null, harness?: string | null, target: FolderTarget = {}): string {
+  const base = projectId ?? (envId && !isLocalEnvironment(envId) ? `@${envId}` : "");
+  const folder = target.workspaceId ? `${base}#ws:${target.workspaceId}` : target.folder ? `${base}#dir:${target.folder}` : base;
   return harness ? `${harness}:${folder}` : folder;
 }
 
@@ -35,14 +39,20 @@ interface Entry {
 export const folderCommands = signal<ReadonlyMap<string, Entry>>(new Map());
 const inflight = new Map<string, Promise<void>>();
 
-export function loadFolderCommands(projectId: string | null, force = false, envId?: string | null, harness?: string | null): Promise<void> {
-  const key = keyOf(projectId, envId, harness);
+export function loadFolderCommands(
+  projectId: string | null,
+  force = false,
+  envId?: string | null,
+  harness?: string | null,
+  target: FolderTarget = {},
+): Promise<void> {
+  const key = keyOf(projectId, envId, harness, target);
   const hit = folderCommands.value.get(key);
   if (!force && hit && Date.now() - hit.at < STALE_MS) return Promise.resolve();
   let pending = inflight.get(key);
   if (!pending) {
     pending = Promise.resolve()
-      .then(() => listFolderCommands(projectId, false, requestFor(projectId ? envIdOfProject(projectId) : envId), harness))
+      .then(() => listFolderCommands(projectId, false, requestFor(projectId ? envIdOfProject(projectId) : envId), harness, target))
       .then((commands) => {
         folderCommands.value = new Map(folderCommands.value).set(key, { at: Date.now(), commands });
       })
@@ -57,16 +67,26 @@ export function loadFolderCommands(projectId: string | null, force = false, envI
 
 /**
  * The folder's harness commands (`null` until first loaded) of `harness` (omitted: the default
- * agent); loads/refreshes as described above.
+ * agent); loads/refreshes as described above. `target: null` = no folder yet (a group project
+ * before one is picked, I-213): nothing is asked, `null` is returned.
  */
-export function useFolderCommands(projectId: string | null, envId?: string | null, harness?: string | null): SlashCommand[] | null {
+export function useFolderCommands(
+  projectId: string | null,
+  envId?: string | null,
+  harness?: string | null,
+  target: FolderTarget | null = {},
+): SlashCommand[] | null {
+  const workspaceId = target?.workspaceId;
+  const folder = target?.folder;
   useEffect(() => {
-    void loadFolderCommands(projectId, false, envId, harness);
-    const onFocus = () => void loadFolderCommands(projectId, false, envId, harness);
+    if (target === null) return;
+    const t: FolderTarget = { ...(workspaceId ? { workspaceId } : {}), ...(folder ? { folder } : {}) };
+    void loadFolderCommands(projectId, false, envId, harness, t);
+    const onFocus = () => void loadFolderCommands(projectId, false, envId, harness, t);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [projectId, envId, harness]);
-  return folderCommands.value.get(keyOf(projectId, envId, harness))?.commands ?? null;
+  }, [projectId, envId, harness, target === null, workspaceId, folder]);
+  return target === null ? null : (folderCommands.value.get(keyOf(projectId, envId, harness, target))?.commands ?? null);
 }
 
 /** Test helper. */

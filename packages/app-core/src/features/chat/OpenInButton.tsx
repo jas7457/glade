@@ -34,7 +34,10 @@ export type OpenInButtonProps = { target?: OpenTarget } & (
 function folderName(props: OpenInButtonProps): string | undefined {
   if (props.workspace?.worktree) return `worktree ${props.workspace.worktree.branch}`;
   const projectId = props.workspace ? props.workspace.projectId : props.projectId;
-  return projectId ? projectsById.value.get(projectId)?.name : undefined;
+  const project = projectId ? projectsById.value.get(projectId) : undefined;
+  // A group chat (I-213) works in its own folder, not the group's.
+  if (props.workspace && project?.path === null) return props.workspace.cwd.replace(/\/+$/, "").split("/").pop() || undefined;
+  return project?.name;
 }
 
 export function OpenInButton(props: OpenInButtonProps) {

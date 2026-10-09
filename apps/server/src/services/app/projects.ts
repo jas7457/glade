@@ -1,6 +1,7 @@
 /**
  * Projects (folders chats run in): add, rename, manual order, "Open in <app>", delete with all
- * of their workspaces.
+ * of their workspaces. A **group project** (I-213, `path: null`) is just a name: each of its chats
+ * has its own folder (`Workspace.cwd`), so the folder actions here answer 400 for it.
  */
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
@@ -31,7 +32,8 @@ export class Projects {
   }
 
   createProject(req: CreateProjectRequest): Project {
-    if (!req.path?.trim()) throw new HttpError(400, "A folder path is required");
+    if (req.path === undefined || req.path === null) return this.createGroup(req.name);
+    if (!req.path.trim()) throw new HttpError(400, "A folder path is required");
     const path = resolve(req.path.trim().replace(/^~(?=$|\/)/, homedir()));
     let isDir = false;
     try {
@@ -42,11 +44,21 @@ export class Projects {
     if (!isDir) throw new HttpError(400, `Not a folder: ${path}`);
     const existing = this.ctx.store.listProjects().find((p) => p.path === path);
     if (existing) return existing;
+    return this.insertProject(req.name?.trim() || basename(path) || path, path);
+  }
+
+  /** A group project (I-213): a name, no folder; groups never clash (same names are fine). */
+  private createGroup(name: string | undefined): Project {
+    if (!name?.trim()) throw new HttpError(400, "A group needs a name");
+    return this.insertProject(name.trim(), null);
+  }
+
+  private insertProject(name: string, path: string | null): Project {
     const now = Date.now();
     const orders = this.ctx.store.listProjects().map((p) => p.sortOrder);
     const project: Project = {
       id: randomUUID(),
-      name: req.name?.trim() || basename(path) || path,
+      name,
       path,
       // New projects go to the top of the manual order.
       sortOrder: orders.length ? Math.min(...orders) - 1 : 0,
@@ -94,12 +106,19 @@ export class Projects {
     return this.listProjects();
   }
 
+  /** The project's folder; 400 for a group project (I-213), which has none. */
+  private folderOf(id: string): { project: Project; path: string } {
+    const project = this.records.requireProject(id);
+    if (project.path === null) throw new HttpError(400, "Group projects have no folder");
+    return { project, path: project.path };
+  }
+
   /** Open a project's folder in another app (e.g. VS Code). */
   async openProject(id: string, app: unknown): Promise<void> {
-    const project = this.records.requireProject(id);
+    const { path } = this.folderOf(id);
     if (!isOpenTarget(app)) throw new HttpError(400, `Unknown app: ${String(app)}`);
     try {
-      await (this.ctx.options.openIn ?? createOpenIn())(app satisfies OpenTarget, project.path);
+      await (this.ctx.options.openIn ?? createOpenIn())(app satisfies OpenTarget, path);
     } catch (err) {
       if (err instanceof OpenInError) throw new HttpError(err.status, err.message);
       throw err;
@@ -107,22 +126,22 @@ export class Projects {
   }
 
   /** Whether the project's folder is a git repository (worktree chats, I-096). */
-  getProjectGit(id: string): Promise<ProjectGitInfo> {
-    return projectGitInfo(this.records.requireProject(id).path);
+  async getProjectGit(id: string): Promise<ProjectGitInfo> {
+    return projectGitInfo(this.folderOf(id).path);
   }
 
   /** Check out a branch in the project folder (I-105; refused while dirty or a local chat is working). */
   async checkoutProjectBranch(id: string, branch: string): Promise<ProjectGitInfo> {
-    const project = this.records.requireProject(id);
+    const { project, path } = this.folderOf(id);
     this.assertNoLocalRun(project.id, `switch to ${branch}`);
-    return checkoutBranch(project.path, branch);
+    return checkoutBranch(path, branch);
   }
 
   /** Create a branch from the project folder's HEAD, optionally checking it out (I-105). */
   async createProjectBranch(id: string, name: string, checkout: boolean): Promise<ProjectGitInfo> {
-    const project = this.records.requireProject(id);
+    const { project, path } = this.folderOf(id);
     if (checkout) this.assertNoLocalRun(project.id, `switch to ${name}`);
-    return createBranch(project.path, name, checkout);
+    return createBranch(path, name, checkout);
   }
 
   /** 409 while a chat of the project works in the project folder itself (not in a worktree). */

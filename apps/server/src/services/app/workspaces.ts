@@ -3,14 +3,16 @@
  * I-202), rename (a single tab is renamed with it), pin and reorder pins, layout, delete with all
  * of its sessions. A workspace
  * may work in its own git worktree (I-096, `../worktrees.ts`): created with it, removed with it.
+ * A chat in a group project (I-213) works in the folder picked when it was created (`cwd`).
  */
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   quickTitle,
   type CreateWorkspaceRequest,
   type CreateWorkspaceResponse,
   type OpenTarget,
+  type Project,
   type UpdateWorkspaceRequest,
   type Workspace,
   type WorkspaceDetail,
@@ -18,6 +20,7 @@ import {
   type WorktreeRemoval,
   type WorktreeStatus,
 } from "@glade/protocol";
+import { FsBrowseError } from "../fs-browse.js";
 import { createOpenIn, isOpenTarget, OpenInError } from "../open-in.js";
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from "../worktrees.js";
 import type { AppContext } from "./context.js";
@@ -57,10 +60,12 @@ export class Workspaces {
   async createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
     const project = req.projectId ? this.records.requireProject(req.projectId) : null;
     const id = randomUUID();
-    const title = req.prompt ? quickTitle(req.prompt) : "New chat";
+    // A group project's chat (I-213) runs in the folder picked for it, named after it.
+    const folder = await this.groupFolder(project, req);
+    const title = folder ? basename(folder) || folder : req.prompt ? quickTitle(req.prompt) : "New chat";
     if (req.worktree && !project) throw new HttpError(400, "Only chats in a project can work in a worktree");
     const created =
-      req.worktree && project
+      req.worktree && project?.path
         ? await createWorktree({ folder: project.path, worktreesDir: this.worktreesDir(), name: req.prompt ? title : "", fallback: id.slice(0, 8), baseRef: req.baseRef, branch: req.branch, carryChanges: req.carryChanges })
         : null;
     const now = Date.now();
@@ -68,8 +73,9 @@ export class Workspaces {
       id,
       projectId: project?.id ?? null,
       title,
-      titleSource: "auto",
-      cwd: created?.cwd ?? project?.path ?? this.ctx.options.scratchDir,
+      // The folder's name is a user title: the first prompt doesn't rename the chat (I-213).
+      titleSource: folder ? "user" : "auto",
+      cwd: folder ?? created?.cwd ?? project?.path ?? this.ctx.options.scratchDir,
       pinned: false,
       // New chats go to the top of their list (I-202).
       sortOrder: this.folders.topOfList(project?.id ?? null),
@@ -85,6 +91,27 @@ export class Workspaces {
     } catch (err) {
       // Don't leave a broken, empty workspace behind.
       await this.deleteWorkspace(workspace.id, "discard").catch(() => {});
+      throw err;
+    }
+  }
+
+  /**
+   * The folder of a new chat in a group project (I-213; `null` for other chats): `req.folder`,
+   * required there and refused anywhere else, never with a worktree, and an existing folder inside
+   * the folder browser's area (symlinks resolved). Fixed for good: no API changes `cwd` later.
+   */
+  private async groupFolder(project: Project | null, req: CreateWorkspaceRequest): Promise<string | null> {
+    const isGroup = !!project && project.path === null;
+    if (!isGroup) {
+      if (req.folder !== undefined) throw new HttpError(400, "Only chats in a group project choose their folder");
+      return null;
+    }
+    if (req.worktree) throw new HttpError(400, "Chats in a group project can't work in a worktree");
+    if (typeof req.folder !== "string" || !req.folder.trim()) throw new HttpError(400, "Choose a folder for a chat in a group project");
+    try {
+      return await this.ctx.fsBrowse.requireFolder(req.folder);
+    } catch (err) {
+      if (err instanceof FsBrowseError) throw new HttpError(400, err.message);
       throw err;
     }
   }

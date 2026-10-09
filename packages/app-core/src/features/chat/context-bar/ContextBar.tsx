@@ -5,16 +5,19 @@
  * The Work-in choice is cleared when the screen goes away (`resetNewChatWorktree`). With several
  * agents installed (ACP agents, I-119) an agent picker comes first. I-123: a chat without a
  * project picks its environment before everything else (when several are connected); the agent
- * list is the chat's environment's.
+ * list is the chat's environment's. I-213: a group project (no folder of its own) shows a required
+ * Folder chip instead of Work in / Branch; the folder is cleared with the screen too.
  */
 import { useEffect } from "preact/hooks";
 import { loadProjectGit, projectGit, resetNewChatWorktree } from "@glade/app-core/state/worktrees";
 import { harnessesOf } from "@glade/app-core/state/harnesses";
-import { envIdOfProject } from "@glade/app-core/state/store";
+import { envIdOfProject, projectsById } from "@glade/app-core/state/store";
+import { isGroupProject, resetNewChatFolder } from "@glade/app-core/state/new-chat-folder";
 import { EnvironmentPicker } from "@glade/app-core/features/environments/EnvironmentPicker";
 import { connections } from "@glade/app-core/state/env-registry";
 import { AgentPicker } from "./AgentPicker";
 import { BranchPicker } from "./BranchPicker";
+import { FolderPicker } from "./FolderPicker";
 import { ProjectPicker } from "./ProjectPicker";
 import { WorkInPicker } from "./WorkInPicker";
 
@@ -27,7 +30,14 @@ export function ContextBar({ projectId, envId = null }: { projectId: string | nu
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [projectId]);
-  useEffect(() => () => resetNewChatWorktree(), []);
+  useEffect(
+    () => () => {
+      resetNewChatWorktree();
+      resetNewChatFolder();
+    },
+    [],
+  );
+  const group = isGroupProject(projectId ? projectsById.value.get(projectId) : null);
   const git = projectId ? projectGit.value.get(projectId) : undefined;
   const env = projectId ? envIdOfProject(projectId) : envId;
 
@@ -50,7 +60,13 @@ export function ContextBar({ projectId, envId = null }: { projectId: string | nu
         </>
       )}
       <ProjectPicker projectId={projectId} />
-      {projectId && git?.isRepo && (
+      {projectId && group && (
+        <>
+          <Divider />
+          <FolderPicker projectId={projectId} />
+        </>
+      )}
+      {projectId && !group && git?.isRepo && (
         <>
           <Divider />
           <WorkInPicker projectId={projectId} />

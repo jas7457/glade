@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { defaultSessionState, defaultSettings, emptyTranscript, type CreateWorkspaceResponse, type ModelInfo } from "@glade/protocol";
 import { TooltipProvider } from "@glade/app-core/ui";
-import { harnessDefaults, models, resetAgentDefaults, sessions, settings, workspacesById } from "@glade/app-core/state/store";
-import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { harnessDefaults, models, projects, resetAgentDefaults, sessions, settings, workspaces, workspacesById } from "@glade/app-core/state/store";
+import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
+import { newChatFolder, setNewChatFolder } from "@glade/app-core/state/new-chat-folder";
 import { getChatSession, resetChatSessions } from "@glade/app-core/state/chat-session";
 import { parseShellInput, sendKeyModifiers } from "./composer-utils";
 import { sendMenuModes, sendModeFor, type SendModeInput } from "./send-mode";
@@ -1004,7 +1005,7 @@ describe("Composer (new chat: the picked agent's modes and commands, I-184/I-185
     fireEvent.input(box2, { target: { value: "/" } });
     await waitFor(() => expect(screen.getByRole("option", { name: /security-review/ })).toBeTruthy());
     expect(screen.queryByRole("option", { name: /pi-prompt/ })).toBeNull();
-    expect(vi.mocked(folderApi.listFolderCommands).mock.lastCall).toEqual(["p1", false, undefined, "claude"]);
+    expect(vi.mocked(folderApi.listFolderCommands).mock.lastCall).toEqual(["p1", false, undefined, "claude", {}]);
   });
 });
 
@@ -1021,7 +1022,7 @@ describe("Composer @ file mentions", () => {
     renderAt(<Composer projectId="p1" />);
     typeAt("look at @comp");
     await waitFor(() => expect(files()).toEqual(["apps/web/Composer.tsx", "src/", "my docs/read me.md"]));
-    expect(folderApi.searchFiles).toHaveBeenLastCalledWith("p1", "comp", undefined, undefined);
+    expect(folderApi.searchFiles).toHaveBeenLastCalledWith("p1", "comp", undefined, undefined, {});
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(box().value).toBe("look at @apps/web/Composer.tsx ");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
@@ -1051,6 +1052,57 @@ describe("Composer @ file mentions", () => {
     typeAt("mail me@example.com");
     await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+});
+
+describe("Composer in a group project (I-213)", () => {
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const sendButton = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  afterEach(() => {
+    projects.value = [];
+    workspaces.value = [];
+    newChatFolder.value = null;
+  });
+
+  it("won't send (or ask about a folder) until a folder is chosen, then sends it", async () => {
+    projects.value = [makeProject({ id: "g", name: "Monorepo", path: null })];
+    vi.mocked(api.createWorkspace).mockReturnValueOnce(new Promise(() => {}));
+    renderAt(<Composer projectId="g" />);
+    fireEvent.input(box(), { target: { value: "Hi @comp" } });
+    expect(sendButton().disabled).toBe(true);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(api.createWorkspace).not.toHaveBeenCalled();
+    expect(folderApi.listFolderCommands).not.toHaveBeenCalled();
+    expect(folderApi.searchFiles).not.toHaveBeenCalled();
+
+    act(() => setNewChatFolder("g", "/Users/me/world/areas/admin"));
+    expect(sendButton().disabled).toBe(false);
+    await waitFor(() => expect(vi.mocked(folderApi.listFolderCommands).mock.lastCall?.[4]).toEqual({ folder: "/Users/me/world/areas/admin" }));
+    fireEvent.input(box(), { target: { value: "Hi" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ projectId: "g", folder: "/Users/me/world/areas/admin" })));
+  });
+
+  it("another group's folder doesn't count", () => {
+    projects.value = [makeProject({ id: "g", path: null }), makeProject({ id: "h", path: null })];
+    setNewChatFolder("h", "/Users/me/x");
+    renderAt(<Composer projectId="g" />);
+    fireEvent.input(box(), { target: { value: "Hi" } });
+    expect(sendButton().disabled).toBe(true);
+  });
+
+  it("an existing chat searches its own folder (workspaceId)", async () => {
+    readyChat("c1");
+    sessions.value = [makeSession({ id: "c1", workspaceId: "w1" })];
+    const value = "@comp";
+    renderAt(<Composer chatId="c1" />);
+    box().value = value;
+    box().setSelectionRange(value.length, value.length);
+    fireEvent.input(box(), { target: { value } });
+    await waitFor(() => expect(folderApi.searchFiles).toHaveBeenCalled());
+    expect(vi.mocked(folderApi.searchFiles).mock.lastCall?.[4]).toEqual({ workspaceId: "w1" });
+    sessions.value = [];
   });
 });
 

@@ -10,7 +10,7 @@
 import { signal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import type { FolderPermissionModes, ModelRef } from "@glade/protocol";
-import { getFolderPermissionModes } from "@glade/app-core/lib/api-folder";
+import { getFolderPermissionModes, type FolderTarget } from "@glade/app-core/lib/api-folder";
 import { requestFor } from "@glade/app-core/state/env-api";
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { envIdOfProject } from "@glade/app-core/state/store";
@@ -30,11 +30,14 @@ export interface NewChatModesQuery {
   harness?: string | null;
   /** The model picked for it (`null`: the agent's default model). */
   model?: ModelRef | null;
+  /** Another folder than the project's (I-213: the folder picked for a group project's new chat). */
+  target?: FolderTarget;
 }
 
-function keyOf({ projectId, envId, harness, model }: NewChatModesQuery): string {
+function keyOf({ projectId, envId, harness, model, target }: NewChatModesQuery): string {
   const folder = projectId ?? (envId && !isLocalEnvironment(envId) ? `@${envId}` : "");
-  return [harness ?? "", folder, model ? `${model.provider}/${model.id}` : ""].join("\0");
+  const where = target?.workspaceId ? `ws:${target.workspaceId}` : target?.folder ? `dir:${target.folder}` : "";
+  return [harness ?? "", folder, where, model ? `${model.provider}/${model.id}` : ""].join("\0");
 }
 
 export const newChatModes = signal<ReadonlyMap<string, Entry>>(new Map());
@@ -47,7 +50,7 @@ export function loadNewChatModes(q: NewChatModesQuery, force = false): Promise<v
   let pending = inflight.get(key);
   if (!pending) {
     pending = Promise.resolve()
-      .then(() => getFolderPermissionModes(q.projectId, q.harness ?? null, q.model ?? null, requestFor(q.projectId ? envIdOfProject(q.projectId) : q.envId)))
+      .then(() => getFolderPermissionModes(q.projectId, q.harness ?? null, q.model ?? null, requestFor(q.projectId ? envIdOfProject(q.projectId) : q.envId), q.target))
       .then((value) => {
         newChatModes.value = new Map(newChatModes.value).set(key, { at: Date.now(), value });
       })

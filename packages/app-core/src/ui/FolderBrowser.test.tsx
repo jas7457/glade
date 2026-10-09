@@ -1,9 +1,10 @@
-/** FolderBrowser (I-124): navigation, keyboard, autocomplete, New Folder, errors. */
+/** FolderBrowser (I-124): navigation, keyboard, autocomplete, New Folder, errors; its memory (I-213). */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import type { FsBrowseEntry, FsBrowseResult } from "@glade/protocol";
 import { baseName, crumbsFor, FolderBrowser, matchPrefix, splitTyped } from "./FolderBrowser";
 import { TooltipProvider } from "./Tooltip";
+import { openNearest, rememberedFolder, rememberFolder, selfAndParents, type OpenAttempt } from "./folder-memory";
 
 const HOME = "/Users/me";
 
@@ -172,5 +173,92 @@ describe("FolderBrowser", () => {
     await waitFor(() => expect(rowNames()).toEqual(["alphagit", "beta", "delta", "gammagit"]));
     expect(mkdir).toHaveBeenLastCalledWith(`${HOME}/Code/delta`);
     expect(rows().find((r) => r.getAttribute("aria-selected") === "true")?.textContent).toBe("delta");
+  });
+});
+
+describe("FolderBrowser memory (I-213)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("reopens the last folder for the key, per key; an explicit initialPath wins", async () => {
+    setup({ memoryKey: "env-a" });
+    await opened("Home");
+    fireEvent.dblClick(rows().find((r) => r.textContent === "Code")!);
+    await opened("Code");
+    fireEvent.dblClick(rows().find((r) => r.textContent?.startsWith("alpha"))!);
+    await opened("alpha");
+    expect(rememberedFolder("env-a")).toBe(`${HOME}/Code/alpha`);
+    cleanup();
+
+    setup({ memoryKey: "env-a" });
+    await opened("alpha");
+    cleanup();
+
+    setup({ memoryKey: "env-b" }); // another environment: its own memory
+    await opened("Home");
+    cleanup();
+
+    setup({ memoryKey: "env-a", initialPath: `${HOME}/Documents` });
+    await opened("Documents");
+  });
+
+  it("remembers the chosen folder", async () => {
+    const { onChoose } = setup({ memoryKey: "env-a" });
+    await opened("Home");
+    fireEvent.mouseDown(rows().find((r) => r.textContent === "Documents")!);
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    expect(onChoose).toHaveBeenCalledWith(`${HOME}/Documents`);
+    expect(rememberedFolder("env-a")).toBe(`${HOME}/Documents`);
+  });
+
+  it("a remembered folder that's gone opens its nearest existing parent, without an error", async () => {
+    rememberFolder("env-a", `${HOME}/Code/deleted/deeper`);
+    setup({ memoryKey: "env-a" });
+    await opened("Code");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(rememberedFolder("env-a")).toBe(`${HOME}/Code`);
+  });
+
+  it("falls back to home when no parent loads (e.g. an unmounted volume)", async () => {
+    rememberFolder("env-a", "/Volumes/Gone/x");
+    setup({ memoryKey: "env-a" });
+    await opened("Home");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("openOnTap: a tap opens the folder (touch)", async () => {
+    setup({ openOnTap: true });
+    await opened("Home");
+    fireEvent.click(rows().find((r) => r.textContent === "Code")!);
+    await opened("Code");
+  });
+});
+
+describe("folder-memory helpers", () => {
+  it("selfAndParents walks up to /", () => {
+    expect(selfAndParents("/a/b/c/")).toEqual(["/a/b/c", "/a/b", "/a", "/"]);
+    expect(selfAndParents("/")).toEqual(["/"]);
+  });
+
+  it("openNearest tries the folder, its parents, then home; stops when superseded", async () => {
+    const ok = new Set(["/a"]);
+    const tried: string[] = [];
+    const attempt = async (p: string): Promise<OpenAttempt> => (tried.push(p), ok.has(p) ? "ok" : "failed");
+    expect(await openNearest("/a/b/c", attempt)).toBe("/a");
+    expect(tried).toEqual(["/a/b/c", "/a/b", "/a"]);
+
+    tried.length = 0;
+    expect(await openNearest("/x/y", async (p) => (tried.push(p), p === "~" ? "ok" : "failed"))).toBe("~");
+    expect(tried).toEqual(["/x/y", "/x", "/", "~"]);
+
+    expect(await openNearest("/x/y", async () => "stale")).toBeNull();
+  });
+
+  it("only absolute folders are stored", () => {
+    localStorage.clear();
+    rememberFolder("k", "relative/path");
+    expect(rememberedFolder("k")).toBeNull();
+    rememberFolder("k", "/Users/me");
+    expect(rememberedFolder("k")).toBe("/Users/me");
+    expect(localStorage.getItem("glade.folderBrowser.lastFolder.k")).toBe("/Users/me");
   });
 });

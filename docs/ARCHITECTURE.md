@@ -137,8 +137,7 @@ Typing `@` at the start or after whitespace opens a file menu above the composer
 server (`services/file-index.ts`: basename exact/prefix/substring, then path, then fuzzy; shorter
 basenames and shallower paths win ties; path queries like `src/ap` match from the root). Enter/Tab
 inserts `@relative/path ` (quoted when it has spaces); folders insert `@dir/` and keep the menu
-open. The agent reads the files itself; nothing is inlined. Only project/scratch folders are
-listed (callers pass a project id, never a path).
+open. The agent reads the files itself; nothing is inlined. Only folders Glade knows are listed: a project's or a chat's (`workspaceId`), the scratch folder, or (I-213) an explicit `folder` inside the folder browser's area, for a group chat's new-chat screen.
 
 ## Default model (I-050)
 
@@ -165,12 +164,14 @@ models); the global Models page was folded into it.
 A **workspace** is one sidebar row (what the UI still calls a "chat"): title, project (or
 standalone), pin/pinOrder, created date, rolled-up status and a saved layout. Workspaces are
 independent of each other, even in the same folder. A workspace contains **sessions**, each one
-agent conversation (one pi session file) running in the workspace's folder:
+agent conversation (one pi session file) running in the workspace's folder (`Workspace.cwd`: the project's folder, its worktree, the scratch folder, or, in a **group project**, I-213, the folder picked when the chat was created):
 
 - `main` sessions are the tabs of the main area. The first one is created with the workspace; the
   user opens more (`POST /api/workspaces/:id/sessions`). A workspace always keeps at least one.
 - `subagent` sessions (`parentSessionId`, `agentName`) are spawned by another session of the same
   workspace (agent API, I-037). Closing a session also closes the sub-agents it spawned.
+
+A **project** is a folder (`Project.path`) its chats run in, or a **group project** (`path: null`, I-213): just a name; each of its chats picks its own folder at creation (`CreateWorkspaceRequest.folder`, an existing folder inside the folder browser's area), stored as `Workspace.cwd` and never changed, and is titled after it (a `user` title). Tabs, sub-agents and terminals already follow `cwd`. Group chats can't use a worktree, and the project's folder endpoints (open, git, branch, project commit) answer 400 for groups.
 
 Sessions never get sidebar rows. Everything per conversation lives on the session: transcript,
 live process, model/thinking, title, unread, `runInProgress`/`interrupted`, `lastRunFailed`,
@@ -369,15 +370,16 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | Method | Path                          | Body / notes                                   |
 | ------ | ----------------------------- | ---------------------------------------------- |
 | GET    | `/projects`                   | → `Project[]` sorted by `sortOrder`            |
-| POST   | `/projects`                   | `CreateProjectRequest` → `Project` (added at the top: `sortOrder` = min − 1) |
+| POST   | `/projects`                   | `CreateProjectRequest` `{ path?, name? }` → `Project` (added at the top: `sortOrder` = min − 1). With `path`: a folder (400 when missing/not a folder; an existing project with that path is returned). Without `path` (or `null`): a group project (I-213, `path: null`), `name` required (400) |
 | PATCH  | `/projects/:id`               | `UpdateProjectRequest` (`{ name? }`) → `Project`; `folderId` is a 400 (I-202) |
 | PUT    | `/projects/order`             | `ReorderProjectsRequest` `{ ids }` → `Project[]` sorted; `ids` must be exactly the set of projects (400 otherwise; folder ids from pre-I-202 clients are ignored); sets `sortOrder` 0..n−1, `project_upsert` per changed project |
-| POST   | `/projects/:id/open`          | `OpenProjectRequest` `{ app: "vscode" }` → 204; opens the project folder (`open -a "Visual Studio Code" <path>`). 404 unknown project, 400 unknown app, 424 app not installed, 501 off macOS |
+| POST   | `/projects/:id/open`          | `OpenProjectRequest` `{ app: "vscode" }` → 204; opens the project folder (`open -a "Visual Studio Code" <path>`). 404 unknown project, 400 unknown app or a group project (I-213), 424 app not installed, 501 off macOS |
+| GET / POST | `/projects/:id/git`, `/projects/:id/git/checkout`, `/projects/:id/git/branch`, `/projects/:id/changes/commit[-message]` | the project folder's git state, branch checkout/creation (I-105), commit (I-105); 400 "Group projects have no folder" for groups (I-213) |
 | DELETE | `/projects/:id`               | removes project + its workspaces → 204         |
 | GET    | `/workspaces`                 | → `WorkspaceSummary[]` (rolled-up status)      |
-| POST   | `/workspaces`                 | `CreateWorkspaceRequest` `{ projectId, prompt?, images?, model?, thinkingLevel? }` → `CreateWorkspaceResponse` `{ workspace, sessions, session: SessionDetail }` (first main session started, prompt sent) |
+| POST   | `/workspaces`                 | `CreateWorkspaceRequest` `{ projectId, prompt?, images?, model?, thinkingLevel?, worktree?, folder?, … }` → `CreateWorkspaceResponse` `{ workspace, sessions, session: SessionDetail }` (first main session started, prompt sent). `folder` (I-213): required for a group project, 400 for any other project, a standalone chat or with `worktree`; must be an existing folder inside the folder browser's area (symlinks resolved, else 400); becomes `cwd`, title = its name (`titleSource: "user"`) |
 | GET    | `/workspaces/:id`             | → `WorkspaceDetail` `{ workspace, sessions }` (main first, then sub-agents; doesn't start agents) |
-| PATCH  | `/workspaces/:id`             | `UpdateWorkspaceRequest` `{ title?, pinned?, layout? }` → `WorkspaceSummary`. `pinned: true` puts it at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder` (and puts it at the top of its container, I-202); `folderId` moves it into a folder of its list (to the top) or out (`null`, right after the folder); `layout` is stored as given (`null` clears) |
+| PATCH  | `/workspaces/:id`             | `UpdateWorkspaceRequest` `{ title?, pinned?, layout? }` → `WorkspaceSummary`; `folder`/`cwd` is a 400 (a chat's folder never changes, I-213). `pinned: true` puts it at the top of its list's pinned group (`pinOrder` = min − 1); `pinned: false` clears `pinOrder` (and puts it at the top of its container, I-202); `folderId` moves it into a folder of its list (to the top) or out (`null`, right after the folder); `layout` is stored as given (`null` clears) |
 | PUT    | `/workspaces/order`           | `ReorderChatListRequest` `{ projectId, folderId, ids }` (I-202) → `ReorderChatListResponse` `{ workspaces, folders }` (the container after, in order): one container of a chat list (a project's or the Chats section's top level, `folderId` null, or one folder) in its new order. `ids` must list every unpinned chat in it and, at the top level, every folder of the list (400); it may add chats of the same list from elsewhere, which move in (`folderId` set). Another list's chat or folder, or a folder inside a folder, is a 400; unknown ids 404. Listed items get `sortOrder` = index; `workspace_upsert` / `folder_upsert` per changed one |
 | PUT    | `/workspaces/pin-order`       | `ReorderPinnedWorkspacesRequest` `{ projectId, ids }` → `WorkspaceSummary[]` (that list's pinned workspaces, in order); `ids` must be exactly the pinned workspaces of that list (400), unknown project 404; sets `pinOrder` 0..n−1, `workspace_upsert` per changed one |
 | DELETE | `/workspaces/:id`             | → 204 (all its session files permanently deleted) |
@@ -400,13 +402,14 @@ another server on the data folder runs it (`SessionSummary.activeElsewhere`, I-0
 | POST   | `/fs/reveal`                  | `{ path }` → 204; reveals a file this server exported in Finder (404 for other paths, 501 off macOS) |
 | GET    | `/models[?refresh=1]`         | → `ModelInfo[]`                                |
 | GET    | `/models/default[?refresh=1][&harness=<id>]` | → `HarnessDefaults` `{ model, thinkingLevel }`: what the harness uses when no model is given (I-050); `harness` = that agent's (404 when not offered), else the default agent's (I-198) |
-| GET    | `/commands?projectId=[&refresh=1]` | → `SlashCommand[]`: harness commands for a project's folder (no `projectId` = scratch); 404 unknown project |
+| GET    | `/commands?<folder>[&harness=][&refresh=1]` | → `SlashCommand[]`: harness commands for a folder. `<folder>` (I-213), first match wins: `workspaceId=` (that chat's `cwd`; 404 unknown), `folder=` (an absolute folder in the folder browser's area; 400 otherwise), `projectId=` (404 unknown; none = scratch; a group alone = `[]`) |
+| GET    | `/permission-modes?<folder>[&harness=][&provider=&model=]` | → `FolderPermissionModes` (I-184) for a new chat in `<folder>` (as for `/commands`; a group alone = the scratch folder's, i.e. the agent's defaults) |
 | GET    | `/bookmarks[?workspaceId=\|?sessionId=]` | → `Bookmark[]` (I-203), newest first: every chat's on this environment, or one chat's / tab's. Clients also get them in the shell snapshot and pushes |
 | POST   | `/bookmarks`                  | `CreateBookmarkRequest` `{ sessionId, message: MessageAnchor, text, label?, selection? }` → `Bookmark`; label (first heading / line) and excerpt come from `text` (or `selection`); the same message again (no selection) returns the existing bookmark. 404 unknown session, 400 bad anchor |
 | PATCH  | `/bookmarks/:id`              | `UpdateBookmarkRequest` `{ label }` → `Bookmark`; `null`/blank = back to the automatic label |
 | DELETE | `/bookmarks/:id`              | → 204 (404 unknown) |
 | GET    | `/bookmarks/:id/content`      | → `BookmarkContent` `{ text }`: the selection, else the message's text now (live transcript, else the store: a user message, or the agent reply from the anchor to the end of its turn); `null` when the message is gone |
-| GET    | `/files?projectId=&q=[&limit=]` | → `FileSearchResponse` `{ entries: FileEntry[], truncated }`, ranked, default 50 (max 200); 404 unknown project |
+| GET    | `/files?<folder>&q=[&limit=]` | → `FileSearchResponse` `{ entries: FileEntry[], truncated }`, ranked, default 50 (max 200); `<folder>` as for `/commands` (a group alone = no entries); 404 unknown project/chat, 400 bad folder |
 | GET    | `/settings`                   | → `Settings`                                   |
 | PATCH  | `/settings`                   | `DeepPartial<Settings>` → `Settings`           |
 | POST   | `/fs/pick-folder`             | `{ prompt?, defaultPath? }` → `PickFolderResponse`; native macOS dialog (osascript), 501 elsewhere |
@@ -838,3 +841,5 @@ neighbour. Shortcuts (`TAB_SHORTCUTS` in `app/shortcuts.ts`, bound by the view):
 - **Reading highlight in the chat** (I-193): the word being read reaches app-core only as the harness-neutral `readingHighlight` signal (message id, block index, markdown range); `Markdown` marks it with a rehype step in that block only, passing the range as plugin options (Streamdown caches processors by plugin name + options). Minimizing voice mode keeps the conversation alive; closing ends it.
 - **Usage limits per agent and per Mac** (I-191): one entry per offered agent in the `usage_limits` push; a harness may set its own polling interval (`usageLimitsPolling`) when reading is expensive. Claude Code's come from the SDK's experimental `/usage` via a short-lived process (`null` if the SDK changes). The context ring stays context-only; the popover lists the chat's own agent first.
 - **Tool outcomes are flags, not text** (I-190): unsuccessful calls use the harness-neutral `rejected`, `stopped` (new) and `status: "error"`; a call the run cut off counts as stopped whatever ended the run; the UI never reads output text (except a legacy "Stopped" fallback). Claude's plan approval (I-189) copies the CLI's "Ready to code?" rows, without its clear-context / Ultraplan / bypass rows.
+- **Group projects use `Workspace.cwd`** (I-213): `Project.path: null` marks a group; each chat's folder is the existing `Workspace.cwd`, picked at creation (`CreateWorkspaceRequest.folder`, checked against the folder browser's area with symlinks resolved, `FsBrowseService.requireFolder`) and never changed, so tabs, sub-agents and terminals needed no change and there's no new field or DB migration (projects are `data_json`). Folder-level routes take `workspaceId` > `folder` > `projectId`; folder endpoints of a group project answer 400 (git included, rather than a not-a-repo answer, so a client bug shows). No worktrees for group chats in v1.
+- **Folder browser memory and new-chat folder** (I-213, client): `FolderBrowser` with `memoryKey` (the environment id) keeps the last folder it was in per device (`localStorage` `glade.folderBrowser.lastFolder.<key>`), updated on every navigation and on Choose; a folder that no longer loads falls back silently to its nearest loadable parent, else home (`ui/folder-memory.ts`); an explicit `initialPath` wins. A group's new-chat folder is transient state like the worktree choice (`state/new-chat-folder.ts`: cleared when the new-chat screen goes away and after creation); the composer won't send without it (`sendBlockedReason`). Folder-level client caches key on the target (`workspaceId` / `folder`), and existing chats query by `workspaceId`, so group and worktree chats search their own folder.

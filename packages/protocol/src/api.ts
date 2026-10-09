@@ -20,8 +20,12 @@ import type { TerminalTab } from "./terminal.js";
 export interface Project {
   id: string;
   name: string;
-  /** Absolute folder path on disk. Chats in this project run with this as cwd. */
-  path: string;
+  /**
+   * Absolute folder path on disk. Chats in this project run with this as cwd. `null` = a **group
+   * project** (I-213): just a name, no folder of its own; each of its chats picks its own folder at
+   * creation (`CreateWorkspaceRequest.folder`, stored as `Workspace.cwd`, never changed after).
+   */
+  path: string | null;
   /** Manual position in the sidebar (ascending). New projects get the lowest value (top). */
   sortOrder: number;
   createdAt: number;
@@ -453,7 +457,8 @@ export function defaultSettings(): Settings {
 // ---------------------------------------------------------------------------------------------
 
 export interface CreateProjectRequest {
-  path: string;
+  /** The project's folder. Absent/null = a group project (I-213); `name` is then required (400). */
+  path?: string | null;
   name?: string;
 }
 
@@ -540,6 +545,13 @@ export interface CreateWorkspaceRequest {
    * Ignored by harnesses without modes; a mode the harness doesn't know falls back to its default.
    */
   permissionMode?: string | null;
+  /**
+   * The chat's folder (I-213): an absolute path to an existing directory inside the folder
+   * browser's roots (home, `/Volumes`). Required when `projectId` is a group project (`path: null`),
+   * 400 for any other project or a standalone chat, and 400 together with `worktree`. Becomes
+   * `Workspace.cwd` for good; the chat's title defaults to the folder's name (`titleSource: "user"`).
+   */
+  folder?: string;
 }
 
 export interface UpdateWorkspaceRequest {

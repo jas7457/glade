@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Group projects** (Projects + → New Group…): a project that's just a name, for grouping chats that each work in their own folder, e.g. one group per checkout with a chat each for different parts of a monorepo. A new chat in a group asks for its folder (any folder, in any checkout); it's named after it, its tabs run there, and the folder stays fixed. Works on the iPhone too.
+
+- The folder browser (Add Project, a group chat's folder) reopens where you last left it, or at the nearest folder that still exists.
+
 - The website shows opening a sub-agent in its own tab and talking to it.
 
 - **Website:** https://jas7457.github.io/glade/ shows what Glade does, with screenshots and videos
@@ -499,6 +503,8 @@ Every entry corresponds to a ticked item in PLAN.md.
   compact buttons on the right. Create project and every confirmation share the same design.
 
 ### Fixed
+
+- `@` file mentions in a worktree chat list the worktree's files, not the main checkout's.
 
 - Bookmarks: the ribbon now sits beside the reply's text (not beside its "Thought" or tool row), and
   clicking it removes the bookmark. Opening a bookmark or a search result puts the message near the

@@ -10,6 +10,7 @@
 import { signal } from "@preact/signals";
 import type { CreateWorkspaceRequest, ProjectGitInfo } from "@glade/protocol";
 import { apiForProject } from "./env-api";
+import { projectsById } from "./store";
 
 /** Project id "New worktree" is on for; null = Local. */
 export const newChatWorktree = signal<string | null>(null);
@@ -37,8 +38,15 @@ function setGit(projectId: string, info: ProjectGitInfo): void {
   projectGit.value = new Map(projectGit.value).set(projectId, info);
 }
 
-/** Fetch (again) a project's git info. Failures count as "not a repo". */
+/**
+ * Fetch (again) a project's git info. Failures count as "not a repo". A group project (I-213) has
+ * no folder of its own, so it is never a repo and the server isn't asked.
+ */
 export function loadProjectGit(projectId: string): Promise<void> {
+  if (projectsById.value.get(projectId)?.path === null) {
+    if (projectGit.value.get(projectId) !== NOT_A_REPO) setGit(projectId, NOT_A_REPO);
+    return Promise.resolve();
+  }
   const pending = loading.get(projectId);
   if (pending) return pending;
   const load = Promise.resolve()

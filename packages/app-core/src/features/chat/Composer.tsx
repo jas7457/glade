@@ -103,6 +103,7 @@ import {
   shellOf,
   visibleModelsOf,
   workspacesById,
+  projectsById,
 } from "@glade/app-core/state/store";
 import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { isSlashCommandHidden } from "@glade/app-core/state/slash-visibility";
@@ -134,6 +135,8 @@ import { findSavedPrompt, savedPromptCommands, withSavedPrompts } from "./slash/
 import { applyMention, findMention } from "./mentions/parse";
 import { MENTION_MENU_ID, MentionMenu, mentionOptionId } from "./mentions/MentionMenu";
 import { useFileSearch } from "./mentions/useFileSearch";
+import { isGroupProject, needsNewChatFolder, newChatFolderFor } from "@glade/app-core/state/new-chat-folder";
+import type { FolderTarget } from "@glade/app-core/lib/api-folder";
 import { composerPrefill, focusComposer, withPrefill } from "./composer-prefill";
 import { composerReferences, quoteLines, removeReference, setReferences, withReferences } from "./references";
 import { askSideQuestion } from "./side-question-actions";
@@ -206,8 +209,16 @@ export interface ComposerBoxProps {
   /** A popover of `toolbarExtra` is open: touch keeps the box expanded, so its anchor stays visible. */
   toolbarExtraOpen?: boolean;
   slash?: ComposerSlashOptions;
-  /** Enables `@` file mentions for the folder of this project (`null` = scratch folder of `envId`). */
-  mentions?: { projectId: string | null; envId?: string | null };
+  /**
+   * Enables `@` file mentions for the folder of this project (`null` = scratch folder of `envId`).
+   * `target` (I-213): the chat's own folder (`workspaceId`) or a picked one (`folder`) instead.
+   */
+  mentions?: { projectId: string | null; envId?: string | null; target?: FolderTarget };
+  /**
+   * Send stays disabled with this as its tooltip (typing still works), e.g. a group project's new
+   * chat before its folder is chosen (I-213).
+   */
+  sendBlockedReason?: string;
   /** The environment the chat runs on (I-123): its saved prompts and hidden commands apply. */
   envId?: string | null;
   /** Enables shell mode (`!cmd` / `!!cmd`, I-076). `run` resolves true when the command started. */
@@ -291,7 +302,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   const [mentionIndex, setMentionIndex] = useState(0);
   const mention = props.mentions && !menuOpen && !busy && !shellInput ? findMention(text, Math.min(caret, text.length)) : null;
   const mentionWanted = mention !== null && mention.start !== mentionDismissedAt;
-  const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null, props.mentions?.envId);
+  const fileEntries = useFileSearch(props.mentions?.projectId ?? null, mentionWanted ? mention.query : null, props.mentions?.envId, props.mentions?.target);
   const mentionOpen = mentionWanted && fileEntries.length > 0;
   const mentionActive = Math.min(mentionIndex, Math.max(0, fileEntries.length - 1));
   useEffect(() => setMentionIndex(0), [mention?.start, mention?.query]);
@@ -365,7 +376,8 @@ export function ComposerBox(props: ComposerBoxProps) {
     }
   };
 
-  const canSend = !busy && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0 || references.length > 0);
+  const blocked = props.sendBlockedReason;
+  const canSend = !busy && !blocked && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0 || references.length > 0);
   // Ask Aside (I-140): only while the agent works and there's a question typed.
   const canAskAside = !!props.askAside && isRunning && !busy && !shellInput && text.trim().length > 0;
   // Steer vs follow-up (I-153): only while running, for harnesses that steer, and not in shell mode.
@@ -484,6 +496,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   };
   const modeFor = (mods: { meta: boolean; alt: boolean }) => {
     const info = sendModeFor({ ...modeInput, ...mods });
+    if (blocked) return { ...info, enabled: false, tooltip: blocked };
     return { ...info, enabled: info.enabled && !busy };
   };
   const sendMode = modeFor(held);
@@ -1205,7 +1218,8 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       }
       toolbarExtraOpen={meterOpen}
       slash={{ commands: slashCommands, chatId, projectId, navigate }}
-      mentions={{ projectId, envId }}
+      // The chat's own folder (I-213): a worktree's or a group chat's, not the project's.
+      mentions={{ projectId, envId, target: summary ? { workspaceId: summary.workspaceId } : undefined }}
       shell={capabilities.shell ? { run: runShell } : undefined}
       askAside={capabilities.sideQuestions === true && !lockedReason ? (question) => askSideQuestion(chatId, question) : undefined}
       steering={capabilities.steering !== false}
@@ -1267,7 +1281,13 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
 
   // No agent yet: built-ins that work without a chat + the folder's harness commands (I-043) of
   // the picked agent (I-185).
-  const folderCommands = useFolderCommands(projectId, envId, otherHarness);
+  // I-213: a group project's new chat works in the folder picked in the context bar; until one is
+  // chosen there's no folder to ask about (no commands, modes or `@` files) and Send waits.
+  const project = projectId ? projectsById.value.get(projectId) : undefined;
+  const group = isGroupProject(project);
+  const pickedFolder = group ? newChatFolderFor(projectId) : null;
+  const folderTarget: FolderTarget | null = group ? (pickedFolder ? { folder: pickedFolder } : null) : {};
+  const folderCommands = useFolderCommands(projectId, envId, otherHarness, folderTarget);
   const slashCommands = useMemo(() => mergeCommands(NEW_CHAT_COMMANDS, (folderCommands ?? []).filter((c) => !BUILTIN_NAMES.has(c.name))), [folderCommands]);
 
   // I-198: the picked agent's own settings: Glade's default model for that agent, else
@@ -1295,8 +1315,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
   // I-184: the mode the chat starts in; the agent's own default unless one is picked here (a pick
   // is for that agent only, and one its list no longer has falls back to the default).
   const startModes = useNewChatModes(
-    { projectId, envId, harness: otherHarness ?? null, model: followsHarness || !usesModels ? null : model },
-    target?.capabilities.permissionModes === true,
+    { projectId, envId, harness: otherHarness ?? null, model: followsHarness || !usesModels ? null : model, target: folderTarget ?? undefined },
+    target?.capabilities.permissionModes === true && folderTarget !== null,
   );
   const [pickedMode, setPickedMode] = useState<{ harness: string | undefined; mode: string } | null>(null);
   const modeList = startModes?.modes ?? [];
@@ -1366,7 +1386,8 @@ function NewChatComposer({ projectId, envId: chosenEnv, placeholder, autoFocus, 
       onSend={onSend}
       sendAccessory={sendAccessory}
       slash={{ commands: slashCommands, chatId: null, projectId, navigate }}
-      mentions={{ projectId, envId }}
+      mentions={folderTarget ? { projectId, envId, target: folderTarget } : undefined}
+      sendBlockedReason={needsNewChatFolder(project) ? "Choose a folder for this chat first" : undefined}
       class={className}
     />
   );

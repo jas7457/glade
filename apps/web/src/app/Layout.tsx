@@ -13,7 +13,7 @@ import { initError, initialized, loadAll, workspaces, workspacesById } from "@gl
 import { resolveSidebarDrag, sidebarCollapsed, sidebarWidth, toggleSidebar, togglePalette } from "@glade/app-core/state/ui";
 import { currentWorkspaceId } from "@glade/app-core/state/attention";
 import { Sidebar } from "@/features/sidebar";
-import { AddProjectHost } from "@/features/projects";
+import { AddProjectHost, NewGroupHost } from "@/features/projects";
 import { rememberAppPath } from "@/features/settings";
 import { Palette } from "@/features/palette";
 import { globalCommands } from "./commands";
@@ -154,6 +154,7 @@ export function Layout() {
         </div>
       </main>
       <AddProjectHost />
+      <NewGroupHost />
       <Palette context={commandContext} />
     </div>
   );

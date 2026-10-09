@@ -52,6 +52,7 @@ export { ToolbarToggle, type ToolbarToggleProps } from "./ToolbarToggle";
 export { Clamp, type ClampProps } from "./Clamp";
 export { Lightbox, canCopyImages, copyImageToClipboard, type LightboxProps, type LightboxImage } from "./Lightbox";
 export { FolderBrowser, type FolderBrowserProps } from "./FolderBrowser";
+export { ProjectIcon, type ProjectIconProps } from "./ProjectIcon";
 export { RemoteBadge, remoteStatusTone, type RemoteBadgeProps, type RemoteStatus } from "./RemoteBadge";
 export { StatusDot, type StatusDotProps, type StatusTone } from "./StatusDot";
 export { QrCode, qrPath, type QrCodeProps } from "./QrCode";

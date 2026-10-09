@@ -215,6 +215,9 @@ const folderInfo = new FolderInfoService({
   },
   scratchDir: config.scratchDir,
   projectPath: (id) => store.getProject(id)?.path,
+  // I-213: a chat's own folder, and folders picked for a group chat (checked like the browser's).
+  workspaceCwd: (id) => store.getWorkspace(id)?.cwd,
+  resolveFolder: (folder) => service.resolveFolder(folder),
 });
 // I-125: where clients reach us and which loopback origins are our own: this server's port and
 // its web dev server's (Vite: GLADE_WEB_PORT, 5317 for `pnpm dev`).

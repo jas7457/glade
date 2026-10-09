@@ -38,6 +38,7 @@ import {
 } from "./store";
 import { notify } from "./toasts";
 import { resetNewChatWorktree, worktreeRequestFor } from "./worktrees";
+import { folderRequestFor, resetNewChatFolder } from "./new-chat-folder";
 
 function fail(prefix: string, err: unknown): void {
   notify("error", `${prefix}: ${(err as Error).message}`);
@@ -71,8 +72,11 @@ export async function createWorkspace(req: CreateWorkspaceRequest, envId?: strin
   const env = req.projectId ? envIdOfProject(req.projectId) : envId;
   // The new-chat context bar's "Work in: New worktree" (I-096, I-105) is on for this project.
   const fromBar = req.worktree === undefined ? worktreeRequestFor(req.projectId) : {};
-  const created = await apiFor(env).createWorkspace({ ...req, ...fromBar });
+  // A group project's chat runs in the folder picked on the new-chat screen (I-213).
+  const fromFolder = req.folder === undefined ? folderRequestFor(req.projectId) : {};
+  const created = await apiFor(env).createWorkspace({ ...req, ...fromBar, ...fromFolder });
   if (fromBar.worktree) resetNewChatWorktree();
+  if (fromFolder.folder) resetNewChatFolder();
   const workspace = tagged(created.workspace, env);
   const newSessions = created.sessions.map((x) => tagged(x, env));
   workspaces.value = upsert(workspaces.value, workspace);
@@ -229,6 +233,13 @@ export async function deleteSession(id: string): Promise<boolean> {
  */
 export async function addProject(path: string, name?: string, envId?: string): Promise<Project> {
   const project = tagged(await apiFor(envId).createProject({ path, ...(name ? { name } : {}) }), envId);
+  projects.value = upsert(projects.value, project);
+  return project;
+}
+
+/** Create a group project (I-213): just a name, no folder; each of its chats picks its own. Throws. */
+export async function addGroup(name: string, envId?: string): Promise<Project> {
+  const project = tagged(await apiFor(envId).createProject({ name }), envId);
   projects.value = upsert(projects.value, project);
   return project;
 }
