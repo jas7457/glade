@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-221.
+Next id: I-222.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1785,6 +1785,15 @@ Next id: I-221.
   - Status: started 2026-10-08 (user said go).
   - Acceptance: customizing a pi agent leaves a single row under pi with a Customized badge; a second Customize opens the same customization; Reset to Original works; duplicate names can't be created; tests (server + Settings).
   - Outcome (2026-10-08): `AgentDef.shadowedBy` removed; `customizes` / `customizedBy` link a customization (a Glade file `extends: <tool>:<name>` named `<name>`) and its source. The list shows one row under the source with a Customized badge; Customize on a customized agent opens it; the customization editor has a fixed name, no scope choice and Reset to Original (deletes the Glade file). Chats get the customization, never the source. Same name anywhere else = a clash: every agent with that name gets a problem and isn't offered until one is renamed (no silent winner); PUT refuses (409) a second customization of a source, creating/renaming onto a taken name ("pi already has an agent named scout — customize it instead") and overwriting a customization with a standalone agent; a customization must be named like its source (400). Customized in both personal and project scope: a problem asking to reset one, nothing deleted. The user's existing pi customizations (scout, worker, reviewer, researcher) already follow the rule. Tests: service, HTTP, spawn list, Settings UI.
+
+- [ ] **I-221** Settings to allow or forbid sub-agents on other harnesses and other models — `settings` / `server`
+  - Reported: 2026-10-08 — after I-217/I-218, the user wants a setting that turns cross-harness sub-agents on or off, and one for sub-agents using a different model than the chat at all: some people won't want the orchestrator swapping harness or model automatically.
+  - Proposal (lead): two switches in Settings → Sub-agents (top of the page), saved per device in `Settings.agent`:
+    - **Use other agents for sub-agents** (cross-harness). Off: a sub-agent always runs on its chat's harness; agents pinned to another harness aren't offered to that chat (listed with "Runs on Codex; other agents are turned off for sub-agents"), and `spawn_agent` drops its `harness` parameter.
+    - **Use other models for sub-agents** (cross-model). Off: every sub-agent uses its chat's model and thinking; agent definitions' model/thinking and the per-agent "Sub-agent model" settings are ignored (rows show a note; the Sub-agent model pickers in Settings → Agents are greyed with the reason). Prompts, tools, permissions, nicknames still apply.
+    - The server enforces both at spawn (not just the tool text), and `spawn_agent`'s agent list follows them.
+  - Open questions: defaults (on, as today, or off for new installs)? Global only, or also per project?
+  - Acceptance: with each switch off, spawns stay on the chat's harness / model regardless of definitions and settings; Settings explains what's ignored; tests.
 
 ## Future features
 
