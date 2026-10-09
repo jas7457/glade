@@ -517,6 +517,9 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Fixed
 
+- A message you send while a chat is compacting is no longer lost: Send turns into Follow-up during
+  compaction (whatever keys you hold), and the message goes out once compacting is done.
+
 - `@` file mentions in a worktree chat list the worktree's files, not the main checkout's.
 
 - Bookmarks: the ribbon now sits beside the reply's text (not beside its "Thought" or tool row), and
