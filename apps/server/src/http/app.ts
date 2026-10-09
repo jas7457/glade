@@ -342,6 +342,7 @@ function apiRoutes(service: AppService, pickFolder: FolderPicker): Hono {
       throw new HttpError(400, "projectId must be a string or null");
     }
     requireNewSession(body);
+    optionalFolderId(body.folderId);
     optional(body.worktree, "boolean", "worktree");
     optional(body.baseRef, "string", "baseRef");
     optional(body.branch, "string", "branch");
@@ -633,7 +634,7 @@ function optional(value: unknown, type: "string" | "boolean", name: string): voi
   if (value !== undefined && typeof value !== type) throw new HttpError(400, `${name} must be a ${type}`);
 }
 
-/** `folderId` in a PATCH body: absent, a string, or null (I-165). */
+/** `folderId` in a PATCH / POST body: absent, a string, or null (I-165). */
 function optionalFolderId(value: unknown): void {
   if (value !== undefined && value !== null && typeof value !== "string") throw new HttpError(400, "folderId must be a string or null");
 }

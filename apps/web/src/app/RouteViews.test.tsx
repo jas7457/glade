@@ -3,14 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/preact";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
-vi.mock("@/features/chat", () => ({ NewChatView: () => <div>new chat</div> }));
+vi.mock("@/features/chat", () => ({
+  NewChatView: ({ projectId, folderId }: { projectId: string | null; folderId?: string | null }) => <div>{`new chat ${projectId ?? "-"} ${folderId ?? "-"}`}</div>,
+}));
 vi.mock("@/features/workspace", () => ({
   WorkspaceView: ({ workspaceId, sessionId }: { workspaceId: string; sessionId: string }) => <div>{`view ${workspaceId}/${sessionId}`}</div>,
 }));
 
 import { projects, sessions, workspaces } from "@glade/app-core/state/store";
 import { makeProject, makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
-import { ChatRoute } from "./RouteViews";
+import { ChatRoute, HomeRoute, ProjectRoute } from "./RouteViews";
 
 function renderAt(url: string) {
   const router = createMemoryRouter(
@@ -57,5 +59,33 @@ describe("ChatRoute", () => {
   it("says not found for unknown workspaces", () => {
     renderAt("/chats/nope");
     expect(screen.getByText("Chat not found")).toBeTruthy();
+  });
+});
+
+describe("new-chat routes (I-215)", () => {
+  function renderNew(url: string) {
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <HomeRoute /> },
+        { path: "/projects/:projectId", element: <ProjectRoute /> },
+      ],
+      { initialEntries: [url] },
+    );
+    render(<RouterProvider router={router} />);
+  }
+
+  it("pass ?folder= to the new-chat screen", () => {
+    renderNew("/?folder=F");
+    expect(screen.getByText("new chat - F")).toBeTruthy();
+  });
+
+  it("pass ?folder= on a project's new-chat screen", () => {
+    renderNew("/projects/p?folder=PF");
+    expect(screen.getByText("new chat p PF")).toBeTruthy();
+  });
+
+  it("have no folder without the param", () => {
+    renderNew("/");
+    expect(screen.getByText("new chat - -")).toBeTruthy();
   });
 });

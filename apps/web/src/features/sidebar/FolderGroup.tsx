@@ -5,16 +5,20 @@
  *
  * The row is a drop target for the chats it takes (`accept`, see `useSortable`'s `into`; tinted
  * and outlined while one would go in) and, with `tree`, the drag handle for moving it in its list
- * (the whole folder dims). Its menu: Rename (also right after "New Folder"), Delete Folder (its
- * chats take its place).
+ * (the whole folder dims). Its "+" (hover) and menu's New Chat (I-215) open the new-chat screen
+ * for this folder (standalone in the Chats section, the project's in a project folder). Its menu:
+ * New Chat, Rename (also right after "New Folder"), Delete Folder (its chats take its place).
  */
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
-import { Folders, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-preact";
+import { Folders, MoreHorizontal, Pencil, Plus, SquarePen, Trash2 } from "lucide-preact";
+import { useNavigate } from "react-router";
 import type { ChatStatus, Folder } from "@glade/protocol";
 import { aggregateChatStatus } from "@glade/protocol";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSeparator, SidebarItem, StatusIndicator, confirm, sidebarClass, type SidebarIndent } from "@glade/app-core/ui";
 import { cn } from "@glade/app-core/lib/cn";
+import { routes } from "@glade/app-core/app/routes";
+import { envIdOf } from "@glade/app-core/state/store";
 import { closedProjects, setProjectOpen } from "@glade/app-core/state/ui";
 import { deleteFolder, renameFolder } from "@glade/app-core/state/folder-actions";
 import { DropLine } from "./DropLine";
@@ -32,14 +36,12 @@ export interface FolderGroupProps {
   accept: string;
   /** Drag wiring of the row (measured element = the row) in its list's tree. */
   tree?: TreeBinding;
-  /** "+" on hover (e.g. New Chat in a project folder's project); omitted = none. */
-  onAdd?: { label: string; run: () => void };
   /** What "Delete Folder…" says moves out. */
   contentsLabel: string;
   children: ComponentChildren;
 }
 
-export function FolderGroup({ folder, indent, statuses, accept, tree, onAdd, contentsLabel, children }: FolderGroupProps) {
+export function FolderGroup({ folder, indent, statuses, accept, tree, contentsLabel, children }: FolderGroupProps) {
   const open = !closedProjects.value.has(folder.id);
   const editing = renamingFolderId.value === folder.id;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -48,6 +50,8 @@ export function FolderGroup({ folder, indent, statuses, accept, tree, onAdd, con
     if (renaming.current) e.preventDefault();
     renaming.current = false;
   };
+  const navigate = useNavigate();
+  const newChat = () => navigate(folder.projectId ? routes.project(folder.projectId, undefined, folder.id) : routes.home(envIdOf(folder), folder.id));
   const dropping = dropIntoTarget.value === folder.id;
 
   const remove = async () => {
@@ -63,6 +67,8 @@ export function FolderGroup({ folder, indent, statuses, accept, tree, onAdd, con
 
   const items = (
     <>
+      <MenuItem icon={<SquarePen />} onSelect={newChat}>New Chat</MenuItem>
+      <MenuSeparator />
       <MenuItem
         icon={<Pencil />}
         onSelect={() => {
@@ -115,11 +121,9 @@ export function FolderGroup({ folder, indent, statuses, accept, tree, onAdd, con
             }
             actions={
               <>
-                {onAdd && (
-                  <IconButton size="sm" label={onAdd.label} onClick={onAdd.run}>
-                    <Plus />
-                  </IconButton>
-                )}
+                <IconButton size="sm" label={`New chat in ${folder.name}`} onClick={newChat}>
+                  <Plus />
+                </IconButton>
                 <Menu
                   open={menuOpen}
                   onOpenChange={setMenuOpen}

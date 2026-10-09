@@ -12,6 +12,8 @@
  *
  *   /new                      the first connected Mac, no project
  *   /new?env=<id>&project=<id> preselected (e.g. a project's "+")
+ *   /new?…&folder=<id>        the chat starts in that sidebar folder (I-215: a folder's New Chat);
+ *                             shown as "in <folder>", dropped when the Mac or project changes
  */
 import { useSignal } from "@preact/signals";
 import { ChevronLeft, FolderOpen, Laptop, MessageSquare } from "lucide-preact";
@@ -24,7 +26,8 @@ import { cn } from "@glade/app-core/lib/cn";
 import { connections, type EnvHandle } from "@glade/app-core/state/env-registry";
 import { remoteStateOf } from "@glade/app-core/state/remote-status";
 import { isGroupProject, needsNewChatFolder, newChatFolderFor, resetNewChatFolder } from "@glade/app-core/state/new-chat-folder";
-import { envIdOf, sortedProjects, workspaces } from "@glade/app-core/state/store";
+import { setNewChatInFolder } from "@glade/app-core/state/new-chat-in-folder";
+import { envIdOf, foldersById, sortedProjects, workspaces } from "@glade/app-core/state/store";
 import { baseName } from "@glade/app-core/ui/FolderBrowser";
 import { ProjectIcon } from "@glade/app-core/ui/ProjectIcon";
 import { useKeyboardViewport } from "~/chat/keyboard";
@@ -52,6 +55,7 @@ export function NewChatScreen() {
   const [search] = useSearchParams();
   const envChoice = useSignal<string | null>(search.get("env"));
   const projectChoice = useSignal<string | null>(search.get("project"));
+  const folderChoice = useSignal<string | null>(search.get("folder"));
   const picker = useSignal<Picker>(null);
   const { height, keyboardOpen } = useKeyboardViewport();
   // Voice mode's first utterance starts the chat like Send (I-180).
@@ -70,6 +74,14 @@ export function NewChatScreen() {
   const groupFolders = group && project ? groupChatFolders(project.id, workspaces.value) : [];
   // The choice belongs to this screen and project: forget it when either goes away.
   useEffect(() => resetNewChatFolder, [project?.id]);
+  // I-215: the sidebar folder the chat starts in; only one of this Mac and project's list counts.
+  const picked = folderChoice.value ? foldersById.value.get(folderChoice.value) : undefined;
+  const inFolder = picked && envIdOf(picked) === envId && picked.projectId === (project?.id ?? null) ? picked : null;
+  const inFolderId = inFolder?.id ?? null;
+  useEffect(() => {
+    setNewChatInFolder(inFolderId);
+    return () => setNewChatInFolder(null);
+  }, [inFolderId]);
 
   // The empty state stays centred in the space above the floating composer.
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -116,6 +128,11 @@ export function NewChatScreen() {
                   : project?.path
                     ? shortenPath(project.path)
                     : `Standalone chats run in a scratch folder${env && envs.length > 1 ? ` on ${env.name.value}` : ""}.`}
+                {inFolder && (
+                  <span class="mt-0.5 block text-fg-subtle" data-testid="new-chat-folder">
+                    in {inFolder.name}
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -177,7 +194,10 @@ export function NewChatScreen() {
               checked={c.id === envId}
               onClick={() => {
                 envChoice.value = c.id;
-                if (c.id !== envId) projectChoice.value = null;
+                if (c.id !== envId) {
+                  projectChoice.value = null;
+                  folderChoice.value = null;
+                }
                 close();
               }}
             />
@@ -193,6 +213,7 @@ export function NewChatScreen() {
             subtitle="A standalone chat"
             checked={!project}
             onClick={() => {
+              if (project) folderChoice.value = null;
               projectChoice.value = null;
               close();
             }}
@@ -208,6 +229,7 @@ export function NewChatScreen() {
                 subtitle={p.path === null ? "Group · each chat picks its folder" : shortenPath(p.path)}
                 checked={p.id === project?.id}
                 onClick={() => {
+                  if (p.id !== project?.id) folderChoice.value = null;
                   projectChoice.value = p.id;
                   close();
                 }}

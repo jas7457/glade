@@ -59,6 +59,8 @@ export class Workspaces {
   /** A new workspace with its first main session (started, and prompted if a prompt is given). */
   async createWorkspace(req: CreateWorkspaceRequest): Promise<CreateWorkspaceResponse> {
     const project = req.projectId ? this.records.requireProject(req.projectId) : null;
+    // A folder to start in (I-215) must exist in the chat's own list; checked before anything is created.
+    if (req.folderId) this.folders.requireFolderFor(project?.id ?? null, req.folderId);
     const id = randomUUID();
     // A group project's chat (I-213) runs in the folder picked for it, named after it.
     const folder = await this.groupFolder(project, req);
@@ -84,7 +86,9 @@ export class Workspaces {
       layout: null,
       ...(created ? { worktree: created.worktree } : {}),
     };
-    this.ctx.store.upsertWorkspace(workspace);
+    // In a folder: at the folder's top (like moving a chat in).
+    const placed = req.folderId ? this.folders.moveWorkspace(workspace, req.folderId) : workspace;
+    this.ctx.store.upsertWorkspace(placed);
     try {
       const session = await this.sessions.createSession(workspace.id, req);
       return { ...this.getWorkspaceDetail(workspace.id), session };

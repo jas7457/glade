@@ -40,6 +40,7 @@ export function HomeScreen() {
           onOpenSession={(t) => navigate(paths.chat(t.envId, t.workspaceId, t.sessionId))}
           onOpenDevice={(id) => navigate(paths.device(id))}
           onNewChat={() => navigate(paths.newChat())}
+          onNewChatInFolder={(f) => navigate(paths.newChat({ envId: envIdOf(f), projectId: f.projectId, folderId: f.id }))}
         />
       </ScreenBody>
     </Screen>

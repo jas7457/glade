@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import type { Folder } from "@glade/protocol";
 
 vi.mock("@glade/app-core/lib/api", () => ({
@@ -31,11 +31,17 @@ import { renamingFolderId } from "./folder-menu";
 
 const folder = (over: Partial<Folder> & { id: string }): Folder => ({ name: over.id, projectId: null, sortOrder: 0, createdAt: 0, ...over });
 
+function LocationProbe() {
+  const { pathname, search } = useLocation();
+  return <output data-testid="location">{pathname + search}</output>;
+}
+
 function renderSidebar() {
   return render(
     <TooltipProvider>
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={["/projects/p2"]}>
         <Sidebar />
+        <LocationProbe />
         <ConfirmHost />
       </MemoryRouter>
     </TooltipProvider>,
@@ -216,6 +222,34 @@ describe("sidebar folders (I-165, I-202)", () => {
     fireEvent.click(screen.getByRole("button", { name: "New Folder" }));
     await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith({ name: "New Folder", projectId: null }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Folder name" })).toBeTruthy());
+  });
+
+  it("the Chats header has New Folder, then New Chat to its right, which starts a standalone chat (I-215)", () => {
+    renderSidebar();
+    const folderButton = screen.getByRole("button", { name: "New Folder" });
+    const chatButton = screen.getByRole("button", { name: "New Chat" });
+    expect(folderButton.compareDocumentPosition(chatButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(folderButton.parentElement).toBe(chatButton.parentElement);
+    fireEvent.click(chatButton);
+    expect(screen.getByTestId("location").textContent).toBe("/");
+  });
+
+  it("a Chats folder's + and New Chat item open a standalone new chat for that folder (I-215)", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "New chat in Work" }));
+    expect(screen.getByTestId("location").textContent).toBe("/?folder=F");
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Work" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Chat" }));
+    expect(screen.getByTestId("location").textContent).toBe("/?folder=F");
+  });
+
+  it("a project folder's + and New Chat item open that project's new chat for the folder (I-215)", async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: "New chat in Bugs" }));
+    expect(screen.getByTestId("location").textContent).toBe("/projects/p1?folder=PF");
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Bugs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New Chat" }));
+    expect(screen.getByTestId("location").textContent).toBe("/projects/p1?folder=PF");
   });
 
   it("deleting a folder asks first", async () => {

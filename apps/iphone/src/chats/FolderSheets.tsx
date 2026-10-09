@@ -1,12 +1,12 @@
 /**
  * Folder sheets on the iPhone (I-165; iOS has no context menus over web content, so long-press
  * opens a bottom sheet): "Move to Folder" for a chat (the folders it can go in, New Folder…,
- * Remove from Folder), a folder's actions (Rename, Delete) and a project's (New Folder). Projects
+ * Remove from Folder), a folder's actions (New Chat in it, Rename, Delete) and a project's (New Folder). Projects
  * never go in folders (I-202).
  */
 import { useEffect, useState } from "preact/hooks";
 import type { Folder, Project } from "@glade/protocol";
-import { Check, FolderMinus, FolderPlus, Folders, Pencil, Trash2 } from "lucide-preact";
+import { Check, FolderMinus, FolderPlus, Folders, Pencil, SquarePen, Trash2 } from "lucide-preact";
 import { createFolder, deleteFolder, renameFolder } from "@glade/app-core/state/folder-actions";
 import { envIdOf, foldersForProject } from "@glade/app-core/state/store";
 import { ListGroup, ListRow, PhoneButton, PhoneInput, Sheet } from "~/ui/phone";
@@ -98,8 +98,8 @@ export function MoveToFolderSheet({ name, projectId, envId, current, onMove, onC
 
 type FolderMode = "menu" | "rename" | "delete";
 
-/** A folder's actions: Rename, Delete (its chats take its place). */
-export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null; onClose: () => void }) {
+/** A folder's actions: New Chat (I-215), Rename, Delete (its chats take its place). */
+export function FolderActionsSheet({ folder, onClose, onNewChat }: { folder: Folder | null; onClose: () => void; onNewChat?: (folder: Folder) => void }) {
   const [mode, setMode] = useState<FolderMode>("menu");
   useEffect(() => setMode("menu"), [folder?.id]);
   if (!folder) return null;
@@ -127,6 +127,11 @@ export function FolderActionsSheet({ folder, onClose }: { folder: Folder | null;
   return (
     <Sheet open onClose={onClose} title={folder.name}>
       <div class="pt-1">
+        {onNewChat && (
+          <ListGroup>
+            <ListRow icon={<SquarePen size={20} />} title="New Chat" onClick={() => run(() => onNewChat(folder))} />
+          </ListGroup>
+        )}
         <ListGroup>
           <ListRow icon={<Pencil size={20} />} title="Rename" onClick={() => setMode("rename")} />
         </ListGroup>

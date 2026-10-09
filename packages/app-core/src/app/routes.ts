@@ -15,8 +15,12 @@ import { isLocalEnvironment } from "@glade/app-core/state/env-registry";
 import { envIdOfProject, envIdOfWorkspace } from "@glade/app-core/state/store";
 
 export const TAB_PARAM = "tab";
+/** `?folder=<folderId>` on a new-chat screen: the chat starts in that folder (I-215). */
+export const FOLDER_PARAM = "folder";
 
 const withTab = (path: string, tab?: string | null) => (tab ? `${path}?${TAB_PARAM}=${encodeURIComponent(tab)}` : path);
+
+const withFolder = (path: string, folderId?: string | null) => (folderId ? `${path}?${FOLDER_PARAM}=${encodeURIComponent(folderId)}` : path);
 
 /** `""` for the local environment, `/e/<id>` for another one. */
 export function envPrefix(envId: string | null | undefined): string {
@@ -31,11 +35,13 @@ export function parseEnvPath(pathname: string): { envId: string | null; path: st
 }
 
 export const routes = {
-  /** New chat (standalone); `envId`: on another environment. */
-  home: (envId?: string | null) => envPrefix(envId) || "/",
+  /** New chat (standalone); `envId`: on another environment; `folderId`: a Chats folder it starts in (I-215). */
+  home: (envId?: string | null, folderId?: string | null) => withFolder(envPrefix(envId) || "/", folderId),
   chat: (workspaceId: string, tab?: string | null, envId: string | null = envIdOfWorkspace(workspaceId)) =>
     withTab(`${envPrefix(envId)}/chats/${workspaceId}`, tab),
-  project: (projectId: string, envId: string | null = envIdOfProject(projectId)) => `${envPrefix(envId)}/projects/${projectId}`,
+  /** A project's new-chat screen; `folderId`: one of its folders the chat starts in (I-215). */
+  project: (projectId: string, envId: string | null = envIdOfProject(projectId), folderId?: string | null) =>
+    withFolder(`${envPrefix(envId)}/projects/${projectId}`, folderId),
   projectChat: (projectId: string, workspaceId: string, tab?: string | null, envId: string | null = envIdOfProject(projectId)) =>
     withTab(`${envPrefix(envId)}/projects/${projectId}/chats/${workspaceId}`, tab),
   /** A settings section; without one, `/settings` reopens the last section you had open (I-133). */

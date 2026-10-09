@@ -128,9 +128,14 @@ export function Sidebar() {
               title="Chats"
               collapsible
               actions={
-                <IconButton size="sm" label="New Folder" onClick={newFolder}>
-                  <FolderPlus />
-                </IconButton>
+                <>
+                  <IconButton size="sm" label="New Folder" onClick={newFolder}>
+                    <FolderPlus />
+                  </IconButton>
+                  <IconButton size="sm" label="New Chat" onClick={newChat}>
+                    <Plus />
+                  </IconButton>
+                </>
               }
             >
               <div {...dropAreaProps(listArea(null))}>

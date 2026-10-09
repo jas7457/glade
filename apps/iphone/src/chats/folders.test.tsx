@@ -26,10 +26,12 @@ const api = {
   deleteFolder: vi.fn(async () => undefined),
 };
 
+const onNewChatInFolder = vi.fn();
+
 function renderList(query = "") {
   return render(
     <MemoryRouter>
-      <ChatList onOpen={vi.fn()} query={query} />
+      <ChatList onOpen={vi.fn()} query={query} onNewChatInFolder={onNewChatInFolder} />
     </MemoryRouter>,
   );
 }
@@ -100,6 +102,14 @@ describe("iPhone chat list folders (I-165)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith({ name: "Later", projectId: null }));
     await waitFor(() => expect(api.updateWorkspace).toHaveBeenCalledWith("c5", { folderId: "NEW" }));
+  });
+
+  it("a folder's actions start a new chat in it (I-215)", () => {
+    const { container } = renderList();
+    fireEvent.contextMenu(container.querySelector("button[data-folder-id=B]")!);
+    fireEvent.click(screen.getByRole("button", { name: "New Chat" }));
+    expect(onNewChatInFolder).toHaveBeenCalledWith(expect.objectContaining({ id: "B", projectId: "p1" }));
+    expect(screen.queryByRole("button", { name: "Rename" })).toBeNull(); // the sheet closed
   });
 
   it("long-press on a folder offers Rename and Delete", async () => {

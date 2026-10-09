@@ -21,7 +21,8 @@ import { api } from "@glade/app-core/lib/api";
 import { makeSession, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { createSession, createWorkspace, deleteSession, deleteWorkspace, dismissInterrupted } from "./actions";
 import { getChatSession, resetChatSessions } from "./chat-session";
-import { handleServerMessage, mainSessionsFor, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "./store";
+import { setNewChatInFolder } from "./new-chat-in-folder";
+import { folders, handleServerMessage, mainSessionsFor, resolveSessionId, sessions, sessionsById, workspaces, workspacesById } from "./store";
 
 const mocked = vi.mocked(api);
 
@@ -116,6 +117,21 @@ describe("actions", () => {
     expect(workspacesById.value.has("new")).toBe(true);
     expect(resolveSessionId("new")).toBe("new-s");
     expect(getChatSession("new-s").status.value).toBe("ready");
+  });
+
+  it("createWorkspace sends the folder the new-chat screen was opened for (I-215)", async () => {
+    mocked.createWorkspace.mockResolvedValue({
+      workspace: makeWorkspace({ id: "new2" }),
+      sessions: [makeSession({ id: "new2-s", workspaceId: "new2" })],
+      session: detail("new2-s", "new2"),
+    });
+    folders.value = [{ id: "F", name: "Work", projectId: null, sortOrder: 0, createdAt: 0 }];
+    setNewChatInFolder("F");
+    await createWorkspace({ projectId: null, prompt: "hi" });
+    expect(mocked.createWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: null, folderId: "F" }));
+    setNewChatInFolder(null);
+    await createWorkspace({ projectId: null, prompt: "hi" });
+    expect(mocked.createWorkspace.mock.calls.at(-1)![0]).not.toHaveProperty("folderId");
   });
 
   it("createSession adds a tab", async () => {

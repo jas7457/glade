@@ -32,7 +32,8 @@ import { connections } from "@glade/app-core/state/env-registry";
 import { newChatHarness } from "@glade/app-core/state/harnesses";
 import { savedEnvironments } from "@glade/app-core/state/saved-environments";
 import { newChatFolder } from "@glade/app-core/state/new-chat-folder";
-import { projects, workspaces } from "@glade/app-core/state/store";
+import { folders, projects, workspaces } from "@glade/app-core/state/store";
+import { folderIdRequestFor, setNewChatInFolder } from "@glade/app-core/state/new-chat-in-folder";
 import { makeProject, makeWorkspace } from "@glade/app-core/test/fixtures";
 import { chatPath } from "@glade/app-core/app/routes";
 import { TooltipProvider } from "@glade/app-core/ui";
@@ -83,6 +84,8 @@ describe("NewChatScreen", () => {
   afterEach(() => {
     delete (window as { __GLADE_IPHONE__?: boolean }).__GLADE_IPHONE__;
     workspaces.value = [];
+    folders.value = [];
+    setNewChatInFolder(null);
     newChatFolder.value = null;
   });
 
@@ -128,6 +131,35 @@ describe("NewChatScreen", () => {
     renderNew(`${paths.newChat()}?env=m2&project=p2`);
     expect(screen.getByRole("button", { name: "Mac: Air" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Project: Beta" })).toBeTruthy();
+  });
+
+  describe("starting in a sidebar folder (I-215)", () => {
+    const folder = (id: string, name: string, projectId: string | null) => ({ id, name, projectId, sortOrder: 0, createdAt: 0, environmentId: "m1" });
+    beforeEach(() => {
+      folders.value = [folder("W", "Work", null), folder("B", "Bugs", "p1")];
+    });
+
+    it("names a standalone folder and hands it to chat creation while the screen is open", () => {
+      renderNew(paths.newChat({ envId: "m1", folderId: "W" }));
+      expect(screen.getByTestId("new-chat-folder").textContent).toContain("in Work");
+      expect(folderIdRequestFor(null)).toEqual({ folderId: "W" });
+    });
+
+    it("a project folder preselects its project and drops the folder when the project changes", () => {
+      renderNew(paths.newChat({ envId: "m1", projectId: "p1", folderId: "B" }));
+      expect(screen.getByRole("button", { name: "Project: Alpha" })).toBeTruthy();
+      expect(screen.getByTestId("new-chat-folder").textContent).toContain("in Bugs");
+      expect(folderIdRequestFor("p1")).toEqual({ folderId: "B" });
+      fireEvent.click(screen.getByRole("button", { name: "Project: Alpha" }));
+      fireEvent.click(screen.getByRole("button", { name: /No Project/ }));
+      expect(screen.queryByTestId("new-chat-folder")).toBeNull();
+      expect(folderIdRequestFor(null)).toEqual({});
+    });
+
+    it("ignores a folder of another list", () => {
+      renderNew(paths.newChat({ envId: "m1", folderId: "B" }));
+      expect(screen.queryByTestId("new-chat-folder")).toBeNull();
+    });
   });
 
   it("offers the agent as a section of the Model & Thinking sheet when the Mac has several", () => {

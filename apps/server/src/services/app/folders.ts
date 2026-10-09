@@ -112,6 +112,16 @@ export class Folders {
     for (const folderId of ids) this.ctx.broadcast({ type: "folder_removed", folderId });
   }
 
+  /** The folder a new chat of `projectId` (null = standalone) may start in (I-215); 400 otherwise. */
+  requireFolderFor(projectId: string | null, folderId: string): Folder {
+    const folder = this.store.getFolder(folderId);
+    if (!folder) throw new HttpError(400, "That folder doesn't exist");
+    if (folder.projectId !== projectId) {
+      throw new HttpError(400, projectId === null ? "Standalone chats can only go in Chats folders" : "A chat can only go in a folder of its own project");
+    }
+    return folder;
+  }
+
   /**
    * Move a chat into a folder of its list (to the folder's top) or out of one (`null`: right
    * after the folder). Returns the chat as it should be saved; other chats and folders that had

@@ -13,7 +13,7 @@ import { connectionFor, isLocalEnvironment } from "@glade/app-core/state/env-reg
 import { envIdOfProject, envIdOfWorkspace, projectsById, resolveSessionId, workspacesById } from "@glade/app-core/state/store";
 import { Spinner } from "@glade/app-core/ui";
 import { NotFound } from "./NotFound";
-import { TAB_PARAM, chatPath, envPrefix, routes } from "@glade/app-core/app/routes";
+import { FOLDER_PARAM, TAB_PARAM, chatPath, envPrefix, routes } from "@glade/app-core/app/routes";
 
 /** The URL names this environment (no `/e/` = local). */
 function sameEnv(urlEnv: string | undefined, itemEnv: string): boolean {
@@ -37,6 +37,7 @@ function Loading() {
 
 export function HomeRoute() {
   const { envId } = useParams();
+  const folderId = useSearchParams()[0].get(FOLDER_PARAM);
   if (envId) {
     // `/e/<local id>` is just the local new-chat screen.
     if (isLocalEnvironment(envId) || !envPrefix(envId)) return <Navigate to={routes.home()} replace />;
@@ -44,17 +45,18 @@ export function HomeRoute() {
       return <NotFound title="Environment not connected" message="Turn on remote access in Settings, or connect to it again." />;
     }
   }
-  return <NewChatView key={envId ?? ""} projectId={null} envId={envId ?? null} />;
+  return <NewChatView key={envId ?? ""} projectId={null} envId={envId ?? null} folderId={folderId} />;
 }
 
 export function ProjectRoute() {
   const { projectId, envId } = useParams();
+  const [search] = useSearchParams();
   if (!projectId || !projectsById.value.has(projectId)) {
     if (stillLoading(envId)) return <Loading />;
     return <NotFound title="Project not found" message="It may have been removed. Your other projects are in the sidebar." />;
   }
   if (!sameEnv(envId, envIdOfProject(projectId))) return <Navigate to={routes.project(projectId)} replace />;
-  return <NewChatView key={projectId} projectId={projectId} />;
+  return <NewChatView key={projectId} projectId={projectId} folderId={search.get(FOLDER_PARAM)} />;
 }
 
 /** `/chats/:chatId` (a workspace id) with optional `?tab=<sessionId>`. */

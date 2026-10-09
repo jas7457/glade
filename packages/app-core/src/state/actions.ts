@@ -39,6 +39,7 @@ import {
 import { notify } from "./toasts";
 import { resetNewChatWorktree, worktreeRequestFor } from "./worktrees";
 import { folderRequestFor, resetNewChatFolder } from "./new-chat-folder";
+import { folderIdRequestFor } from "./new-chat-in-folder";
 
 function fail(prefix: string, err: unknown): void {
   notify("error", `${prefix}: ${(err as Error).message}`);
@@ -74,7 +75,9 @@ export async function createWorkspace(req: CreateWorkspaceRequest, envId?: strin
   const fromBar = req.worktree === undefined ? worktreeRequestFor(req.projectId) : {};
   // A group project's chat runs in the folder picked on the new-chat screen (I-213).
   const fromFolder = req.folder === undefined ? folderRequestFor(req.projectId) : {};
-  const created = await apiFor(env).createWorkspace({ ...req, ...fromBar, ...fromFolder });
+  // The sidebar folder the new-chat screen was opened for (I-215).
+  const inFolder = req.folderId === undefined ? folderIdRequestFor(req.projectId) : {};
+  const created = await apiFor(env).createWorkspace({ ...req, ...fromBar, ...fromFolder, ...inFolder });
   if (fromBar.worktree) resetNewChatWorktree();
   if (fromFolder.folder) resetNewChatFolder();
   const workspace = tagged(created.workspace, env);

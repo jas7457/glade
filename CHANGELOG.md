@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **New chat buttons in the sidebar:** a + on the Chats header starts a standalone chat, and every
+  folder has a + (and New Chat in its menu) that starts a chat right inside that folder. On the
+  iPhone, a folder's long-press sheet has New Chat too.
+
 - **Sub-agents on any agent:** a chat on pi, Claude Code or Codex can hand work to a sub-agent that
   runs on another one (e.g. a pi chat starting a Claude Code helper), with that agent's models.
 - **Your own sub-agents** (Settings → Sub-agents): set up agents with a description, a prompt, the

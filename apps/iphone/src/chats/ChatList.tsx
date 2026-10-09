@@ -51,11 +51,13 @@ export interface ChatListProps {
   onOpenDevice?: (envId: string) => void;
   /** Shown in the empty state when set. */
   onNewChat?: () => void;
+  /** "New Chat" in a folder's actions (I-215): open the new-chat screen for that folder. */
+  onNewChatInFolder?: (folder: Folder) => void;
 }
 
 type Actions = { kind: "chat"; chat: WorkspaceSummary } | { kind: "folder"; folder: Folder } | { kind: "project"; project: Project };
 
-export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenSession, onOpenDevice, onNewChat }: ChatListProps) {
+export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenSession, onOpenDevice, onNewChat, onNewChatInFolder }: ChatListProps) {
   const groups = chatGroups(query);
   const searching = query.trim().length > 0;
   const deepSearch = query.trim().length >= SEARCH_MIN_CHARS;
@@ -121,7 +123,7 @@ export function ChatList({ query = "", selectedChatId = null, onOpen, onOpenSess
       })}
       {deepSearch && <ChatSearchResults query={query} content={content} ask={ask.state} onAsk={ask.run} onOpen={openTarget} multi={multi} />}
       <ChatActionsSheet chat={actions.value?.kind === "chat" ? actions.value.chat : null} onClose={() => (actions.value = null)} />
-      <FolderActionsSheet folder={actions.value?.kind === "folder" ? actions.value.folder : null} onClose={() => (actions.value = null)} />
+      <FolderActionsSheet folder={actions.value?.kind === "folder" ? actions.value.folder : null} onClose={() => (actions.value = null)} onNewChat={onNewChatInFolder} />
       <ProjectActionsSheet project={actions.value?.kind === "project" ? actions.value.project : null} onClose={() => (actions.value = null)} />
     </div>
   );

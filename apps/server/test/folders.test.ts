@@ -152,6 +152,38 @@ describe("folders API (I-165, I-202)", () => {
     expect((await req("PATCH", `/api/workspaces/${a1}`, { folderId: "nope" })).status).toBe(404);
   });
 
+  it("creates a chat inside a folder (I-215): at the folder's top, in its own list only", async () => {
+    const a = addProject("a");
+    const b = addProject("b");
+    const top = env.service.createFolder({ name: "Top" });
+    const inA = env.service.createFolder({ name: "A", projectId: a.id });
+    const inB = env.service.createFolder({ name: "B", projectId: b.id });
+    const create = (body: Record<string, unknown>) => req<{ workspace: WorkspaceSummary }>("POST", "/api/workspaces", body);
+    const s1 = await chat("s1");
+    await req("PATCH", `/api/workspaces/${s1}`, { folderId: top.id });
+
+    const made = await create({ projectId: null, folderId: top.id });
+    expect(made.status).toBe(200);
+    expect(made.body.workspace.folderId).toBe(top.id);
+    await req("PATCH", `/api/workspaces/${made.body.workspace.id}`, { title: "s2" });
+    expect(list(null)).toEqual(["[Top]", "  s2", "  s1"]);
+
+    const inProject = await create({ projectId: a.id, folderId: inA.id });
+    expect(inProject.body.workspace.folderId).toBe(inA.id);
+    expect(list(a.id)).toEqual(["[A]", `  ${inProject.body.workspace.title}`]);
+
+    // Without a folder (or null) it still goes to the top of the list, outside folders.
+    expect((await create({ projectId: null, folderId: null })).body.workspace.folderId ?? null).toBeNull();
+
+    const before = env.service.listWorkspaces().length;
+    expect((await create({ projectId: null, folderId: inA.id })).status).toBe(400);
+    expect((await create({ projectId: a.id, folderId: top.id })).status).toBe(400);
+    expect((await create({ projectId: a.id, folderId: inB.id })).status).toBe(400);
+    expect((await create({ projectId: null, folderId: "nope" })).status).toBe(400);
+    expect((await create({ projectId: null, folderId: 5 })).status).toBe(400);
+    expect(env.service.listWorkspaces()).toHaveLength(before);
+  });
+
   it("unpinning puts a chat at the top of its container, below the pinned ones", async () => {
     const a = addProject("a");
     const x = await chat("x", a.id);
