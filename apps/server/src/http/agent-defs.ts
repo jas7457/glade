@@ -13,7 +13,8 @@
  * environment is its own server with its own agents; there's no proxying).
  *
  * Errors: 400 bad body/fields or a project scope without a folder (group projects, I-213),
- * 404 unknown project / agent, 409 rename onto an existing name, 501 no quick-tasks model.
+ * 404 unknown project / agent, 409 a name another listed agent has or a second customization of
+ * one agent (I-220), 501 no quick-tasks model.
  */
 import { Hono, type Context } from "hono";
 import type { AgentDefScope, DescribeAgentDefRequest, ListAgentDefsResponse, SaveAgentDefRequest, SaveAgentDefResponse } from "@glade/protocol";
@@ -35,7 +36,9 @@ export function agentDefsRoutes(service: AppService): Hono {
     if (denied) return denied;
     const body = await readBody<SaveAgentDefRequest>(c);
     const projectDir = projectFolder(service, body.scope, body.projectId ?? null);
-    const agent = await service.agentDefs.save(body, projectDir, service.agentDefsContext());
+    // A personal save still looks at the project the client is in (name checks); no error for unknown ones.
+    const viewDir = !projectDir && typeof body.projectId === "string" ? safeFolder(service, body.projectId) : null;
+    const agent = await service.agentDefs.save(body, projectDir, service.agentDefsContext(), viewDir);
     return c.json({ agent } satisfies SaveAgentDefResponse);
   });
 
@@ -87,6 +90,14 @@ function projectFolder(service: AppService, scope: unknown, projectId: string | 
   const { cwd } = service.agentDefsScope(projectId);
   if (!cwd) throw new HttpError(400, "Group projects have no folder for project agents");
   return cwd;
+}
+
+function safeFolder(service: AppService, projectId: string): string | null {
+  try {
+    return service.agentDefsScope(projectId).cwd;
+  } catch {
+    return null;
+  }
 }
 
 async function readBody<T>(c: Context): Promise<T> {

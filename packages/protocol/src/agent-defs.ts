@@ -9,6 +9,11 @@
  *   frontmatter (Claude Code's field names where they mean the same) in Glade's data folder
  *   (`<data>/agents/*.md`, scope `personal`) or a project's `.agents/agents/*.md` (scope `project`).
  *   Glade never writes to `~/.claude/agents`, `~/.codex/agents`, pi's folders, etc.
+ * - **One agent per name (I-220).** Names are unique across everything listed (Glade's and
+ *   discovered, any scope); two agents with one name are both unavailable (a problem on each)
+ *   until one is renamed or removed. The one exception is a **customization**: a Glade file named
+ *   like its source that `extends` it. A source has at most one, it is listed on the source's row
+ *   (`customizedBy` / `customizes`) and is what chats get; resetting it deletes the file.
  * - **Discovered agents** from Claude Code (`~/.claude/agents`, `<project>/.claude/agents`), Codex
  *   (`~/.codex/agents/*.toml`, `<project>/.codex/agents`) and pi (`~/.pi/agent/agents`,
  *   `<project>/.pi/agents`, pi packages' `agents/`) are listed live, read-only, usable as they are.
@@ -118,8 +123,17 @@ export interface AgentDef {
   available: boolean;
   /** Why not available, or warnings (e.g. "source not found", "fields not used on Codex: hooks"). */
   problems: string[];
-  /** Another definition with the same name wins (project over personal over discovered). */
-  shadowedBy: string | null;
+  /**
+   * On a Glade file that customizes a listed agent (same name, `extends: <tool>:<name>`; I-220):
+   * the id of that source (`pi:scout`). Clients show it on the source's row, not as an agent of
+   * its own.
+   */
+  customizes: string | null;
+  /**
+   * On a listed agent (Claude Code / Codex / pi) that has a customization: the id of the Glade file
+   * that is used instead (`personal:scout`). The source itself isn't offered to chats then.
+   */
+  customizedBy: string | null;
 }
 
 /** `GET /api/agent-defs?projectId=` */
@@ -127,10 +141,13 @@ export interface ListAgentDefsResponse {
   agents: AgentDef[];
 }
 
-/** `PUT /api/agent-defs` (create or replace a Glade agent; `previousName` renames). */
+/**
+ * `PUT /api/agent-defs` (create or replace a Glade agent; `previousName` renames). 409 when the
+ * name is taken by another listed agent, or the source already has a customization (I-220).
+ */
 export interface SaveAgentDefRequest {
   scope: AgentDefScope;
-  /** Required for scope `project`. */
+  /** Required for scope `project`; for `personal` the project being looked at (name checks include its agents). */
   projectId?: string | null;
   fields: AgentDefFields;
   /** The name it had before (rename); absent = create or overwrite by `fields.name`. */

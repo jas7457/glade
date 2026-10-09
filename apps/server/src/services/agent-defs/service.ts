@@ -9,7 +9,7 @@
  * Everything is read fresh on every call (agent files are tiny), so edits in any editor apply to
  * the next list/spawn. The work is in the modules next to this one: `format.ts` (Glade's files),
  * `discover.ts` (Claude Code / Codex / pi files and the folders), `build.ts` (extends, effective
- * fields, availability, shadowing), `tools-cache.ts`, `switches.ts` (settings), `describe.ts`.
+ * fields, availability, one-agent-per-name), `tools-cache.ts`, `switches.ts` (settings), `describe.ts`.
  *
  * CONTRACT (lead, I-218): the method signatures below are shared by the agent-defs worker (who
  * implements this file and the folder around it) and the spawn worker (who calls it). Keep them
@@ -35,8 +35,9 @@ import {
   type SaveAgentDefRequest,
 } from "@glade/protocol";
 import { HttpError } from "../app/errors.js";
-import { buildAgents, type BuiltAgent } from "./build.js";
+import { buildAgents, toolRef, type BuiltAgent } from "./build.js";
 import { agentFiles, gladeAgentsDir, loadAll, loadGladeAgent, personalDirs, type DiscoveryRoots } from "./discover.js";
+import { harnessLabel } from "./fields.js";
 import { serializeGladeAgent } from "./format.js";
 import { ToolsCache } from "./tools-cache.js";
 
@@ -83,32 +84,45 @@ export class AgentDefsService {
     this.toolsCache = ToolsCache.inDataDir(options.dataDir, options.log);
   }
 
-  /** Every definition visible in `scope` (Glade's, then discovered), with switches and availability. */
+  /**
+   * Every definition visible in `scope` (Glade's, then discovered), with switches and availability.
+   * A customization is listed too, linked to its source (`customizes` / `customizedBy`).
+   */
   async list(scope: AgentDefsScope, ctx: AgentDefsListContext): Promise<AgentDef[]> {
     return this.build(scope, ctx).map((b) => b.def);
   }
 
   /**
-   * The enabled, available definition named `name` that wins in `scope` (project over personal over
-   * discovered). Throws `HttpError(400)` naming the available ones when unknown/unavailable.
-   * `name` may also be an id (`claude:code-reviewer`) to pick a shadowed one.
+   * The enabled, available definition named `name` in `scope` (one agent per name, I-220; a
+   * customized agent resolves to its customization). Throws `HttpError(400)` naming the available
+   * ones when unknown/unavailable. `name` may also be an id (`claude:code-reviewer`).
    */
   async resolve(name: string, scope: AgentDefsScope, ctx: AgentDefsListContext): Promise<ResolvedAgentDef> {
     const built = this.build(scope, ctx);
     const wanted = name.trim();
     const byId = wanted.includes(":") ? built.find((b) => b.def.id === wanted) : undefined;
     const key = normalizeAgentDefName(wanted);
-    const hit = byId ?? built.find((b) => b.def.fields.name === key && !b.def.shadowedBy);
-    const usable = built.filter((b) => !b.def.shadowedBy && b.def.enabled && b.def.available).map((b) => b.def.fields.name);
-    const listing = usable.length ? `Available agents: ${usable.join(", ")}.` : "No agents are available here.";
+    // A source with a customization stands aside for it.
+    const current = (b: BuiltAgent) => !b.def.customizedBy;
+    const used = (b: BuiltAgent | undefined) => (b?.def.customizedBy ? built.find((c) => c.def.id === b.def.customizedBy) : b) ?? b;
+    const hit = used(byId) ?? built.find((b) => b.def.fields.name === key && current(b));
+    const usable = built.filter((b) => current(b) && b.def.enabled && b.def.available).map((b) => b.def.fields.name);
+    const listing = usable.length ? `Available agents: ${[...new Set(usable)].join(", ")}.` : "No agents are available here.";
     if (!hit) throw new HttpError(400, `Unknown agent "${wanted}". ${listing}`);
     if (!hit.def.enabled) throw new HttpError(400, `Agent "${hit.def.fields.name}" is turned off here. ${listing}`);
     if (!hit.def.available) throw new HttpError(400, `Agent "${hit.def.fields.name}" can't run: ${hit.def.problems.join("; ")}. ${listing}`);
     return { def: hit.def, native: hit.native };
   }
 
-  /** Create/replace (rename with `previousName`) a Glade agent file; validates (HttpError 400). */
-  async save(req: SaveAgentDefRequest, projectDir: string | null, ctx: AgentDefsListContext): Promise<AgentDef> {
+  /**
+   * Create/replace (rename with `previousName`) a Glade agent file; validates (HttpError 400).
+   * One agent per name (I-220, HttpError 409): creating or renaming onto a name another listed
+   * agent has is refused, and so is a second customization of one source (any scope). A
+   * customization (`extends: <tool>:<name>`) is always named like its source (400 otherwise).
+   * `viewDir`: the folder of the project the client is looking at, so a personal save checks that
+   * project's agents too.
+   */
+  async save(req: SaveAgentDefRequest, projectDir: string | null, ctx: AgentDefsListContext, viewDir: string | null = null): Promise<AgentDef> {
     if (req.scope !== "personal" && req.scope !== "project") throw new HttpError(400, 'scope must be "personal" or "project"');
     if (req.scope === "project" && !projectDir) throw new HttpError(400, "Project agents need a project with a folder");
     const fields = validateFields(req.fields);
@@ -118,18 +132,41 @@ export class AgentDefsService {
     if (previous !== fields.name && this.findFile(dir, fields.name)) {
       throw new HttpError(409, `There's already an agent named "${fields.name}" here`);
     }
+    this.checkUnique(fields, req.scope, existing ? previous : null, { projectId: req.projectId ?? null, cwd: projectDir ?? viewDir }, ctx, !existing || previous !== fields.name);
     // Keys Glade doesn't know stay as they were written.
     const unknownRaw = existing ? (loadGladeAgent(existing, req.scope, req.scope)?.unknownRaw ?? []) : [];
     const target = existing && previous === fields.name ? existing : join(dir, `${fields.name}.md`);
     writeAtomic(target, serializeGladeAgent(fields, unknownRaw));
     if (existing && existing !== target) unlinkSync(existing);
-    const scope: AgentDefsScope = { projectId: req.projectId ?? null, cwd: projectDir };
+    const scope: AgentDefsScope = { projectId: req.projectId ?? null, cwd: projectDir ?? viewDir };
     const def = this.build(scope, ctx).find((b) => b.def.id === `${req.scope}:${fields.name}`)?.def;
     if (!def) throw new HttpError(500, "The agent was saved but can't be read back");
     return def;
   }
 
-  /** Delete a Glade agent file. */
+  /** The 409/400 checks of {@link save}; `ownName`: the file being replaced; `claimsName`: a new or renamed agent. */
+  private checkUnique(fields: AgentDefFields, scope: AgentDefScope, ownName: string | null, view: AgentDefsScope, ctx: AgentDefsListContext, claimsName: boolean): void {
+    const built = this.build(view, ctx).map((b) => b.def);
+    const ownId = ownName ? `${scope}:${ownName}` : null;
+    const source = toolRef(fields.extends);
+    if (source) {
+      const sourceName = source.slice(source.indexOf(":") + 1);
+      if (sourceName !== fields.name) throw new HttpError(400, `A customization is named like its source: ${sourceName}`);
+      const other = built.find((d) => d.customizes === source && d.id !== ownId);
+      if (other) throw new HttpError(409, `${agentSourceLabel(source.slice(0, source.indexOf(":")))}'s ${sourceName} is already customized (${other.id.startsWith("project:") ? "in the project" : "in your settings"}). Edit or reset that one`);
+    }
+    // Turning a customization into a standalone agent claims the source's name, too.
+    if (!claimsName && !(source === null && built.find((d) => d.id === ownId)?.customizes)) return;
+    const clash = built.find((d) => d.fields.name === fields.name && !d.customizes && d.id !== ownId && d.id !== source);
+    if (!clash) return;
+    const by = agentSourceLabel(clash.source);
+    throw new HttpError(
+      409,
+      clash.editable ? `Glade already has an agent named ${fields.name} (${clash.path})` : `${by} already has an agent named ${fields.name} — customize it instead`,
+    );
+  }
+
+  /** Delete a Glade agent file (for a customization: reset it to the original). */
   async remove(scope: AgentDefScope, name: string, projectDir: string | null): Promise<void> {
     if (scope !== "personal" && scope !== "project") throw new HttpError(400, 'scope must be "personal" or "project"');
     if (scope === "project" && !projectDir) throw new HttpError(400, "Project agents need a project with a folder");
@@ -175,6 +212,11 @@ export class AgentDefsService {
     if (files.includes(direct) && loadGladeAgent(direct, "personal", "personal")?.fields.name === name) return direct;
     return files.find((f) => loadGladeAgent(f, "personal", "personal")?.fields.name === name) ?? null;
   }
+}
+
+/** "Glade" for Glade's own sources, else the tool's name. */
+function agentSourceLabel(source: string): string {
+  return source === "personal" || source === "project" ? "Glade" : harnessLabel(source);
 }
 
 /** What `list`/`resolve` need from the server to fill `enabled`/`available`/`problems`. */

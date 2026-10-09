@@ -2,10 +2,14 @@
  * One agent's page under Settings → Sub-agents (I-218): `/settings/subagents/new/<harness>`
  * creates a Glade agent on the harness picked first (New Agent ▾), `/settings/subagents/edit/<id>`
  * edits a Glade agent (rename, delete) or shows a discovered one read only with **Customize**
- * (a Glade file with the same name that `extends` it and sets only what you change).
+ * (a Glade file with the same name that `extends` it and sets only what you change). The harness
+ * is fixed (I-219): chosen once in the New Agent menu, shown as text here; a customization runs on
+ * its source's. One customization per source (I-220): Customize on an agent that has one opens it,
+ * its page offers **Reset to Original** (deletes the file) and it is saved personal, with no scope
+ * choice (an existing project-level one stays where it is).
  *
  * Shared settings on top (name, nicknames, description with "Write description for me", prompt,
- * agent, model, thinking, colour, icon, where it's saved), then the harness's own settings with a
+ * agent, model, thinking, colour, icon, where a new Glade agent is saved), then the harness's own settings with a
  * Read-only preset: pi's tools; Claude Code's tools, denied tools and permission mode; Codex's
  * sandbox. Tool lists are the harness's live list from its last session (`GET
  * /api/agent-defs/tools`); tools named in the file but missing there stay checked, marked "not
@@ -14,7 +18,7 @@
  */
 import { useEffect, useState } from "preact/hooks";
 import { Navigate, useNavigate, useParams } from "react-router";
-import { Ban, Lock, Sparkles, Trash2 } from "lucide-preact";
+import { Ban, Lock, RotateCcw, Sparkles, Trash2 } from "lucide-preact";
 import {
   AGENT_COLORS,
   AGENT_ICONS,
@@ -41,7 +45,7 @@ import { describeAgentDef, getAgentDefTools } from "@glade/app-core/lib/api-agen
 import { request } from "@glade/app-core/lib/api";
 import { requestFor } from "@glade/app-core/state/env-api";
 import { harnessName } from "@glade/app-core/state/harnesses";
-import { hostAgentModels, hostEnvId, hostHarnesses, hostModelsFor, hostProjects, hostReadOnly, hostVisibleModelsFor } from "@glade/app-core/state/host-settings";
+import { hostAgentModels, hostEnvId, hostModelsFor, hostProjects, hostReadOnly, hostVisibleModelsFor } from "@glade/app-core/state/host-settings";
 import { agentDefsOf, deleteAgentDef, loadAgentDefs, saveAgentDef } from "@glade/app-core/state/agent-defs";
 import { cn } from "@glade/app-core/lib/cn";
 import {
@@ -142,6 +146,7 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
   const navigate = useNavigate();
   const def = target.kind === "def" ? target.def : null;
   const [customizing, setCustomizing] = useState(false);
+  const isCustomization = !!def?.customizes;
   const [fields, setFields] = useState<AgentDefFields>(() =>
     def ? { ...(def.editable ? def.fields : def.effective) } : emptyAgentDefFields(target.kind === "new" ? target.harness : INHERIT),
   );
@@ -165,6 +170,7 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
   const name = normalizeAgentDefName(fields.name);
   const valid = name !== "" && (fields.prompt.trim() !== "" || !!fields.extends);
   const harnessLabel = (id: string) => harnessName(id, hostEnvId());
+  const sourcePath = def?.customizes ? agentDefsOf(projectId).agents?.find((a) => a.id === def.customizes)?.path : undefined;
 
   const save = async () => {
     if (!valid || busy) return;
@@ -174,7 +180,8 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
       await saveAgentDef(
         {
           scope,
-          projectId: scope === "project" ? projectId : null,
+          // Personal saves still say which project is open (the server checks names against its agents).
+          projectId,
           fields: { ...fields, name },
           ...(def?.editable ? { previousName: def.fields.name } : {}),
         },
@@ -203,6 +210,24 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
       navigate(routes.settingsSubagents(projectId));
     } catch (err) {
       setError((err as Error).message || "Could not delete the agent");
+    }
+  };
+
+  const reset = async () => {
+    if (!def?.customizes) return;
+    const ok = await confirm({
+      title: "Reset to original?",
+      subject: def.fields.name,
+      message: `goes back to ${from ?? "the original"}'s version. Your customization (${def.path}) will be deleted. This can't be undone.`,
+      confirmLabel: "Reset to Original",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteAgentDef(def.source as AgentDefScope, def.fields.name, def.source === "project" ? projectId : null, projectId);
+      navigate(routes.settingsSubagents(projectId));
+    } catch (err) {
+      setError((err as Error).message || "Could not reset the agent");
     }
   };
 
@@ -249,9 +274,10 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
               <Button
                 size="sm"
                 onClick={() => {
+                  // One customization per agent: open the one it has.
+                  if (def.customizedBy) return navigate(routes.settingsSubagent(def.customizedBy, projectId), { replace: true });
                   setFields(customizeDraft(def));
-                  // A project's own agent (e.g. its .claude/agents) is customized for that project.
-                  if (canProject && project?.path && def.path.startsWith(`${project.path}/`)) setScope("project");
+                  setScope("personal");
                   setCustomizing(true);
                 }}
               >
@@ -261,12 +287,31 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
           </FormRow>
         </FormGroup>
       )}
-      {def && (def.problems.length > 0 || def.shadowedBy) && (
+      {def && isCustomization && (
+        <FormGroup>
+          <FormRow
+            label={`Customization of ${from ?? "its source"}`}
+            description={
+              <>
+                Saved in <span class="font-mono [overflow-wrap:anywhere]">{def.path}</span>; it extends {sourcePath ? <span class="font-mono [overflow-wrap:anywhere]">{sourcePath}</span> : "the original"}, which stays as it
+                is. Reset to Original deletes this file.
+              </>
+            }
+          >
+            {!deviceReadOnly && (
+              <Button size="sm" onClick={() => void reset()}>
+                <RotateCcw size={12} />
+                Reset to Original
+              </Button>
+            )}
+          </FormRow>
+        </FormGroup>
+      )}
+      {def && def.problems.length > 0 && (
         <FormGroup>
           {def.problems.map((p) => (
             <FormRow key={p} label={<span class={def.available ? "text-warning" : "text-danger"}>{p}</span>} />
           ))}
-          {def.shadowedBy && <FormRow label={<span class="text-fg-muted">Overridden by {def.shadowedBy}: that one is used.</span>} />}
         </FormGroup>
       )}
 
@@ -276,14 +321,16 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
             <label for="agent-name" class="font-medium">
               Name
             </label>
-            <TextField id="agent-name" class="w-[260px]" value={fields.name} placeholder="scout" onInput={(e) => set({ name: e.currentTarget.value })} />
+            <TextField id="agent-name" class="w-[260px]" disabled={isCustomization || customizing} value={fields.name} placeholder="scout" onInput={(e) => set({ name: e.currentTarget.value })} />
             <p class={hint}>
               {name && name !== fields.name ? (
                 <>
                   Saved as <span class="font-mono text-fg">{name}</span>.{" "}
                 </>
               ) : null}
-              What a chat asks for ("have {name || "scout"} look"), shown greyed next to its nickname.
+              {isCustomization || customizing
+                ? `A customization keeps its source's name.`
+                : `What a chat asks for ("have ${name || "scout"} look"), shown greyed next to its nickname. Every agent has its own name.`}
             </p>
           </div>
           <div class={field}>
@@ -373,7 +420,7 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
               ]}
             />
           </div>
-          {(!def || customizing) && (
+          {!def && (
             <FormRow label="Saved for" description={scope === "project" ? `In ${project?.name ?? "the project"}'s .agents/agents folder, shared with everyone who uses the repo.` : "In Glade's data folder, for all your chats."}>
               <SegmentedControl
                 aria-label="Saved for"
@@ -474,7 +521,7 @@ export function SubagentEditor({ target, projectId }: { target: EditorTarget; pr
       )}
       {!viewOnly && (
         <div class="flex items-center gap-2">
-          {def?.editable && (
+          {def?.editable && !isCustomization && (
             <Button variant="ghost" onClick={() => void remove()}>
               <Trash2 size={12} />
               Delete
@@ -509,15 +556,9 @@ function HarnessRows({
   set: (patch: Partial<AgentDefFields>) => void;
   harnessLabel: (id: string) => string;
 }) {
-  const offered = hostHarnesses.value ?? [];
   const harness = effectiveHarness(fields, base);
   const all = harness === INHERIT ? [] : hostModelsFor(harness);
   const visible = harness === INHERIT ? [] : hostVisibleModelsFor(harness);
-  const harnessOptions: SelectOption<string>[] = [
-    { value: INHERIT, label: base ? (base.harness === INHERIT || harnessLabel(base.harness) === from ? `From ${from}` : `From ${from}: ${harnessLabel(base.harness)}`) : "Same as the parent chat" },
-    ...offered.map((h) => ({ value: h.id, label: h.label })),
-    ...(fields.harness !== INHERIT && !offered.some((h) => h.id === fields.harness) ? [{ value: fields.harness, label: `${harnessLabel(fields.harness)} (turned off)` }] : []),
-  ];
   const baseModel = base && base.model !== INHERIT ? modelName(base.model, all) : null;
   // `inherit` on a specific agent: that agent's sub-agent model / thinking settings (Settings → Agents).
   const sub = harness === INHERIT ? null : hostAgentModels(harness);
@@ -538,10 +579,10 @@ function HarnessRows({
   ];
   return (
     <>
-      <FormRow label="Runs on" description={fields.harness === INHERIT && !base ? "The agent of the chat that starts it." : undefined}>
-        <Select aria-label="Runs on" class="w-[240px]" value={fields.harness} options={harnessOptions} onChange={(h) => set({ harness: h, model: INHERIT, thinking: INHERIT })} />
+      <FormRow label="Runs on" description={harness === INHERIT ? "Runs on the agent of the chat that starts it, with that chat's model." : "Fixed. To use another agent, create a new one."}>
+        <span data-testid="agent-harness" class="text-fg">{harness === INHERIT ? "Same agent as the parent chat" : harnessLabel(harness)}</span>
       </FormRow>
-      <FormRow label="Model" description={harness === INHERIT ? "Pick an agent above to choose a model." : undefined}>
+      <FormRow label="Model" description={harness === INHERIT ? "Follows the parent chat." : undefined}>
         <Select aria-label="Model" class="w-[240px]" disabled={harness === INHERIT} value={fields.model} options={modelOptions} onChange={(model) => set({ model })} />
       </FormRow>
       <FormRow label="Thinking">

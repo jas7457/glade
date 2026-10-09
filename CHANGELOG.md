@@ -280,6 +280,11 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- **Settings → Sub-agents:** each agent appears once. A customized agent stays in its original
+  group with a Customized badge, Customize opens your existing customization, and Reset to
+  Original removes it. Two agents can't share a name. An agent's harness is shown, not chosen
+  again in the editor.
+
 - **New Chat** (sidebar, ⌘N) always starts a chat on its own, even while you're in a project. To start a chat in a project, use the project's + (or pick the project above the composer).
 
 - The sidebar has a cool bluish tint while staying see-through to your desktop (a soft lavender-blue

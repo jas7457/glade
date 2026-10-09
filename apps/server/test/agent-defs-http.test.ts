@@ -83,13 +83,10 @@ describe("agent-defs REST", () => {
     const saved = await call("PUT", "/api/agent-defs", { body: { scope: "personal", fields: fields({ name: "scout", harness: "fake", prompt: "Look." }) } });
     expect(saved.status).toBe(200);
     expect(((await saved.json()) as SaveAgentDefResponse).agent).toMatchObject({ id: "personal:scout", available: true, enabled: true });
-    expect((await call("PUT", "/api/agent-defs", { body: { scope: "project", projectId: p.id, fields: fields({ name: "scout", harness: "fake" }) } })).status).toBe(200);
+    expect((await call("PUT", "/api/agent-defs", { body: { scope: "project", projectId: p.id, fields: fields({ name: "ranger", harness: "fake" }) } })).status).toBe(200);
 
     const listed = (await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse;
-    expect(listed.agents.map((a) => [a.id, a.shadowedBy])).toEqual([
-      ["project:scout", null],
-      ["personal:scout", "project:scout"],
-    ]);
+    expect(listed.agents.map((a) => a.id)).toEqual(["project:ranger", "personal:scout"]);
     const global = (await (await call("GET", "/api/agent-defs")).json()) as ListAgentDefsResponse;
     expect(global.agents.map((a) => a.id)).toEqual(["personal:scout"]);
 
@@ -97,7 +94,7 @@ describe("agent-defs REST", () => {
     expect(((await renamed.json()) as SaveAgentDefResponse).agent.id).toBe("personal:finder");
     expect((await call("DELETE", "/api/agent-defs?scope=personal&name=finder")).status).toBe(204);
     expect((await call("DELETE", "/api/agent-defs?scope=personal&name=finder")).status).toBe(404);
-    expect((await call("DELETE", `/api/agent-defs?scope=project&name=scout&projectId=${p.id}`)).status).toBe(204);
+    expect((await call("DELETE", `/api/agent-defs?scope=project&name=ranger&projectId=${p.id}`)).status).toBe(204);
     expect(((await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse).agents).toEqual([]);
   });
 
@@ -148,6 +145,35 @@ describe("agent-defs REST", () => {
     const listed = (await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse;
     // Claude Code isn't offered in this server (only the fake harness).
     expect(listed.agents).toEqual([expect.objectContaining({ id: "claude:reviewer", available: false, problems: ["Claude Code is turned off or not installed"] })]);
+  });
+});
+
+describe("one agent per name (I-220)", () => {
+  it("lists a customization on its source, refuses a second one and a name another agent has (409)", async () => {
+    const p = await project({ path: repo });
+    mkdirSync(join(repo, ".pi", "agents"), { recursive: true });
+    writeFileSync(join(repo, ".pi", "agents", "scout.md"), "---\nname: scout\ndescription: pi scout\n---\nScout.");
+    const put = (body: unknown) => call("PUT", "/api/agent-defs", { body });
+    const message = async (res: Response) => ((await res.json()) as { error: string }).error;
+    const clash = await put({ scope: "personal", projectId: p.id, fields: fields({ name: "scout", harness: "fake", prompt: "x" }) });
+    expect(clash.status).toBe(409);
+    expect(await message(clash)).toBe("pi already has an agent named scout — customize it instead");
+    const customization = fields({ name: "scout", extends: "pi:scout", nicknames: ["Rex"] });
+    const saved = await put({ scope: "personal", projectId: p.id, fields: customization });
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as SaveAgentDefResponse).agent).toMatchObject({ id: "personal:scout", customizes: "pi:scout" });
+    const second = await put({ scope: "project", projectId: p.id, fields: customization });
+    expect(second.status).toBe(409);
+    expect(await message(second)).toContain("already customized");
+    const listed = (await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse;
+    expect(listed.agents.map((a) => [a.id, a.customizes, a.customizedBy])).toEqual([
+      ["personal:scout", "pi:scout", null],
+      ["pi:scout", null, "personal:scout"],
+    ]);
+    // Reset to Original.
+    expect((await call("DELETE", "/api/agent-defs?scope=personal&name=scout")).status).toBe(204);
+    const after = (await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse;
+    expect(after.agents.map((a) => [a.id, a.customizedBy])).toEqual([["pi:scout", null]]);
   });
 });
 

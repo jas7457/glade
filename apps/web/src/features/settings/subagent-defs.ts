@@ -1,7 +1,8 @@
 /**
  * Settings → Sub-agents (I-218): pure helpers for the list and the editor: source and harness
  * labels, the model line, the per-harness Read-only preset, and the Customize draft for a
- * discovered agent (a Glade file that `extends` it). Unit-tested.
+ * discovered agent (a Glade file that `extends` it), and the list's rows (customizations fold into
+ * their source's row, I-220). Unit-tested.
  */
 import { INHERIT, emptyAgentDefFields, parseModelKey, sameModel, type AgentDef, type AgentDefFields, type AgentDefSource, type ModelInfo } from "@glade/protocol";
 
@@ -38,13 +39,21 @@ export function extendsSourceLabel(ref: string | null): string | null {
   return source && source in SOURCE_LABELS ? SOURCE_LABELS[source] : ref;
 }
 
-/** `project:scout` → "Project · scout" (who wins over a shadowed agent). */
-export function agentIdLabel(id: string): string {
-  const colon = id.indexOf(":");
-  if (colon <= 0) return id;
-  const source = id.slice(0, colon) as AgentDefSource;
-  return `${SOURCE_LABELS[source] ?? source} · ${id.slice(colon + 1)}`;
+/** One row of the list (I-220): an agent, with its customization when it has one (shown on the source's row). */
+export interface AgentRow {
+  def: AgentDef;
+  custom: AgentDef | null;
 }
+
+/** The list's rows: customizations fold into their source's row; the rest stand alone. */
+export function agentRows(agents: readonly AgentDef[]): AgentRow[] {
+  return agents
+    .filter((a) => !a.customizes)
+    .map((def) => ({ def, custom: (def.customizedBy && agents.find((a) => a.id === def.customizedBy)) || null }));
+}
+
+/** What the row shows and the editor opens: the customization when there is one, else the agent. */
+export const rowAgent = (row: AgentRow): AgentDef => row.custom ?? row.def;
 
 /** The model of its harness's list a value means (`provider/id`, a bare id, Claude Code's `haiku`). */
 export function findModel(value: string, models: readonly ModelInfo[]): ModelInfo | undefined {
@@ -102,8 +111,9 @@ export function readOnlyPreset(harness: string, liveTools: readonly string[]): P
 }
 
 /**
- * Customize a discovered agent (I-218): a Glade file with the same name (so it overrides the
- * source) that `extends` it and sets nothing else yet. `inherit`/empty fields mean "the source's".
+ * Customize a discovered agent (I-218, I-220): a Glade file with the same name (the one
+ * customization of that source) that `extends` it and sets nothing else yet. `inherit`/empty
+ * fields mean "the source's"; the harness is the source's, never chosen.
  */
 export function customizeDraft(def: Pick<AgentDef, "source" | "fields">): AgentDefFields {
   return { ...emptyAgentDefFields(INHERIT), name: def.fields.name, extends: `${def.source}:${def.fields.name}` };

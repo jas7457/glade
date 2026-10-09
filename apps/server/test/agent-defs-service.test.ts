@@ -1,6 +1,6 @@
 /**
  * I-218: AgentDefsService against temp home / project / data folders: discovery of Claude Code,
- * Codex and pi agents, `extends`, precedence and shadowing, switches, availability, saving, and
+ * Codex and pi agents, `extends`, one agent per name and customizations (I-220), switches, availability, saving, and
  * the tools cache.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -73,7 +73,7 @@ describe("discovery", () => {
     write(join(home, ".claude", "agents", "fixer.md"), "---\nname: fixer\ndescription: Fixes\nmodel: inherit\ncolor: blue\n---\nFix it.");
     const defs = await service.list(scope(), ALL);
     const reviewer = byId(defs, "claude:code-reviewer");
-    expect(reviewer).toMatchObject({ source: "claude", path: "~/.claude/agents/code-reviewer.md", editable: false, enabled: true, available: true, problems: [], shadowedBy: null });
+    expect(reviewer).toMatchObject({ source: "claude", path: "~/.claude/agents/code-reviewer.md", editable: false, enabled: true, available: true, problems: [], customizes: null, customizedBy: null });
     expect(reviewer.fields).toMatchObject({ harness: "claude", model: "anthropic/sonnet", thinking: "high", tools: ["Read", "Grep", "Glob"], permissionMode: "plan", color: "pink", prompt: "You review code." });
     expect(reviewer.effective).toEqual(reviewer.fields);
     const resolved = await service.resolve("code-reviewer", scope(), ALL);
@@ -166,29 +166,34 @@ describe("the tools' folder variables", () => {
   });
 });
 
-describe("precedence, switches and availability", () => {
+describe("one agent per name, switches and availability", () => {
   beforeEach(() => {
-    claudeReviewer(home);
-    write(join(home, ".pi", "agent", "agents", "code-reviewer.md"), "---\nname: code-reviewer\n---\npi version");
-    write(join(home, ".codex", "agents", "code-reviewer.toml"), 'name = "code-reviewer"\ndeveloper_instructions = "codex version"');
     write(join(dataDir, "agents", "code-reviewer.md"), "---\nname: code-reviewer\nharness: pi\n---\nPersonal Glade.");
   });
 
-  it("project Glade > personal Glade > Claude > Codex > pi", async () => {
+  it("agents with one name are all unavailable until resolved (no silent winner), with a problem each", async () => {
+    claudeReviewer(home);
+    write(join(home, ".pi", "agent", "agents", "code-reviewer.md"), "---\nname: code-reviewer\n---\npi version");
+    write(join(home, ".codex", "agents", "code-reviewer.toml"), 'name = "code-reviewer"\ndeveloper_instructions = "codex version"');
     write(join(cwd, ".agents", "agents", "code-reviewer.md"), "---\nname: code-reviewer\nharness: pi\n---\nProject Glade.");
     const defs = await service.list(scope(), ALL);
-    expect(defs.filter((d) => d.fields.name === "code-reviewer").map((d) => [d.id, d.shadowedBy])).toEqual([
-      ["project:code-reviewer", null],
-      ["personal:code-reviewer", "project:code-reviewer"],
-      ["claude:code-reviewer", "project:code-reviewer"],
-      ["codex:code-reviewer", "project:code-reviewer"],
-      ["pi:code-reviewer", "project:code-reviewer"],
-    ]);
-    expect((await service.resolve("code-reviewer", scope(), ALL)).def.effective.prompt).toBe("Project Glade.");
-    // An id picks a shadowed one.
-    expect((await service.resolve("claude:code-reviewer", scope(), ALL)).def.source).toBe("claude");
-    // Without the project, the personal Glade file wins.
-    expect((await service.resolve("code-reviewer", { projectId: null, cwd: null }, ALL)).def.id).toBe("personal:code-reviewer");
+    const same = defs.filter((d) => d.fields.name === "code-reviewer");
+    expect(same.map((d) => d.id)).toEqual(["project:code-reviewer", "personal:code-reviewer", "claude:code-reviewer", "codex:code-reviewer", "pi:code-reviewer"]);
+    for (const d of same) {
+      expect(d.available, d.id).toBe(false);
+      expect(d.problems, d.id).toContain("5 agents are named code-reviewer; rename all but one");
+    }
+    await expect(service.resolve("code-reviewer", scope(), ALL)).rejects.toThrow(/can't run: 5 agents are named code-reviewer/);
+    await expect(service.resolve("claude:code-reviewer", scope(), ALL)).rejects.toThrow(/can't run/);
+  });
+
+  it("two agents named alike: 'Two agents are named scout; rename one' on both, usable again once one goes", async () => {
+    write(join(dataDir, "agents", "scout.md"), "---\nname: scout\nharness: pi\n---\nGlade scout.");
+    write(join(home, ".claude", "agents", "scout.md"), "---\nname: scout\n---\nClaude scout.");
+    const defs = await service.list({ projectId: null, cwd: null }, ALL);
+    for (const id of ["personal:scout", "claude:scout"]) expect(byId(defs, id)).toMatchObject({ available: false, problems: ["Two agents are named scout; rename one"] });
+    rmSync(join(home, ".claude", "agents", "scout.md"));
+    expect(byId(await service.list({ projectId: null, cwd: null }, ALL), "personal:scout")).toMatchObject({ available: true, problems: [] });
   });
 
   it("honours the switches: global off, project override", async () => {
@@ -209,10 +214,11 @@ describe("precedence, switches and availability", () => {
     expect(err).toBeInstanceOf(HttpError);
     expect((err as HttpError).status).toBe(400);
     expect((err as HttpError).message).toBe('Unknown agent "nope". Available agents: code-reviewer.');
+    write(join(home, ".codex", "agents", "lint.toml"), 'name = "lint"\ndeveloper_instructions = "x"');
     const piOff = { ...ALL, offeredHarnesses: ["claude"] };
     const defs = await service.list(scope(), piOff);
     expect(byId(defs, "personal:code-reviewer")).toMatchObject({ available: false, problems: ["pi is turned off or not installed"] });
-    expect(byId(defs, "codex:code-reviewer")).toMatchObject({ available: false, problems: ["Codex is turned off or not installed"] });
+    expect(byId(defs, "codex:lint")).toMatchObject({ available: false, problems: ["Codex is turned off or not installed"] });
     await expect(service.resolve("code-reviewer", scope(), piOff)).rejects.toThrow(/can't run: pi is turned off or not installed\. No agents are available here\./);
   });
 
@@ -336,7 +342,95 @@ describe("save and remove", () => {
     await service.save({ scope: "personal", fields: fields({ name: "b" }) }, null, ALL);
     await expect(service.save({ scope: "personal", previousName: "b", fields: fields({ name: "a" }) }, null, ALL)).rejects.toMatchObject({ status: 409 });
     // A model with `extends` and no harness is fine (the source's harness).
-    await expect(service.save({ scope: "personal", fields: fields({ name: "c", extends: "claude:x", model: "anthropic/haiku" }) }, null, ALL)).resolves.toMatchObject({ id: "personal:c" });
+    await expect(service.save({ scope: "personal", fields: fields({ name: "c", extends: "claude:c", model: "anthropic/haiku" }) }, null, ALL)).resolves.toMatchObject({ id: "personal:c" });
+  });
+});
+
+describe("customizations (I-220)", () => {
+  const fields = (over: Partial<ReturnType<typeof emptyAgentDefFields>>) => ({ ...emptyAgentDefFields(), ...over });
+  const custom = (over: Partial<ReturnType<typeof emptyAgentDefFields>> = {}) => fields({ name: "code-reviewer", extends: "claude:code-reviewer", nicknames: ["Rex"], ...over });
+  const piScout = () => write(join(cwd, ".pi", "agents", "scout.md"), "---\nname: scout\ndescription: pi scout\nmodel: pi/tiny\n---\nScout it.");
+  beforeEach(() => claudeReviewer(home));
+
+  it("a same-named extends file is the source's customization, not a second agent or a clash", async () => {
+    write(join(dataDir, "agents", "code-reviewer.md"), "---\nname: code-reviewer\nextends: claude:code-reviewer\nnickname: Rex\ndescription: Mine\n---\nAlso tests.");
+    const defs = await service.list(scope(), ALL);
+    expect(byId(defs, "claude:code-reviewer")).toMatchObject({ customizedBy: "personal:code-reviewer", customizes: null, available: true, problems: [] });
+    expect(byId(defs, "personal:code-reviewer")).toMatchObject({ customizes: "claude:code-reviewer", customizedBy: null, available: true, problems: [] });
+    // The customization carries the source's harness and the customized values.
+    expect(byId(defs, "personal:code-reviewer").effective).toMatchObject({ harness: "claude", description: "Mine", nicknames: ["Rex"], prompt: "You review code.\n\nAlso tests." });
+    // Chats get the customization, by name or by the source's id.
+    expect((await service.resolve("code-reviewer", scope(), ALL)).def.id).toBe("personal:code-reviewer");
+    expect((await service.resolve("claude:code-reviewer", scope(), ALL)).def.id).toBe("personal:code-reviewer");
+    await expect(service.resolve("nope", scope(), ALL)).rejects.toThrow('Available agents: code-reviewer.');
+    // The switch is by name: one for both.
+    expect(byId(await service.list(scope(), { ...ALL, switches: { disabled: ["code-reviewer"], projects: {} } }), "personal:code-reviewer").enabled).toBe(false);
+  });
+
+  it("a project-level customization counts when it is the only one; both together is a problem on the row", async () => {
+    write(join(cwd, ".agents", "agents", "code-reviewer.md"), "---\nname: code-reviewer\nextends: claude:code-reviewer\n---\n");
+    let defs = await service.list(scope(), ALL);
+    expect(byId(defs, "claude:code-reviewer")).toMatchObject({ customizedBy: "project:code-reviewer", available: true });
+    write(join(dataDir, "agents", "code-reviewer.md"), "---\nname: code-reviewer\nextends: claude:code-reviewer\n---\n");
+    defs = await service.list(scope(), ALL);
+    for (const id of ["claude:code-reviewer", "project:code-reviewer", "personal:code-reviewer"]) {
+      expect(byId(defs, id), id).toMatchObject({ available: false, problems: ["Customized in the project and your settings; reset one to the original"] });
+    }
+    // Resetting the project one leaves the personal one.
+    await service.remove("project", "code-reviewer", cwd);
+    expect(byId(await service.list(scope(), ALL), "claude:code-reviewer")).toMatchObject({ customizedBy: "personal:code-reviewer", available: true, problems: [] });
+  });
+
+  it("saves one customization per source (409 for a second, in any scope) and Reset deletes it", async () => {
+    const saved = await service.save({ scope: "personal", fields: custom() }, null, ALL);
+    expect(saved).toMatchObject({ id: "personal:code-reviewer", customizes: "claude:code-reviewer" });
+    // Editing it is fine.
+    await expect(service.save({ scope: "personal", previousName: "code-reviewer", fields: custom({ nicknames: ["Rex", "Ria"] }) }, null, ALL)).resolves.toMatchObject({ id: "personal:code-reviewer" });
+    // A second one: in the project (seen from the project) or when the project one comes first.
+    await expect(service.save({ scope: "project", projectId: "p1", fields: custom() }, cwd, ALL)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("already customized") });
+    await service.remove("personal", "code-reviewer", null);
+    await service.save({ scope: "project", projectId: "p1", fields: custom() }, cwd, ALL);
+    await expect(service.save({ scope: "personal", projectId: "p1", fields: custom() }, null, ALL, cwd)).rejects.toMatchObject({ status: 409 });
+    expect(byId(await service.list(scope(), ALL), "claude:code-reviewer").customizedBy).toBe("project:code-reviewer");
+    // Reset to Original = delete the Glade file; the source is a plain agent again.
+    await service.remove("project", "code-reviewer", cwd);
+    expect(byId(await service.list(scope(), ALL), "claude:code-reviewer")).toMatchObject({ customizedBy: null, available: true });
+  });
+
+  it("a standalone agent can't overwrite a customization (it would claim the source's name)", async () => {
+    await service.save({ scope: "personal", fields: custom() }, null, ALL);
+    await expect(service.save({ scope: "personal", fields: fields({ name: "code-reviewer", harness: "pi", prompt: "x" }) }, null, ALL)).rejects.toMatchObject({
+      status: 409,
+      message: "Claude Code already has an agent named code-reviewer — customize it instead",
+    });
+  });
+
+  it("a customization is always named like its source", async () => {
+    await expect(service.save({ scope: "personal", fields: custom({ name: "rex" }) }, null, ALL)).rejects.toMatchObject({ status: 400, message: "A customization is named like its source: code-reviewer" });
+  });
+
+  it("refuses creating or renaming a Glade agent onto a name another listed agent has (409)", async () => {
+    piScout();
+    write(join(dataDir, "agents", "mine.md"), "---\nname: mine\n---\nMine.");
+    const refused = (req: Parameters<typeof service.save>[0], dir: string | null = null) => expect(service.save(req, dir, ALL, cwd)).rejects.toMatchObject({ status: 409 });
+    // Any source, any scope.
+    await expect(service.save({ scope: "personal", projectId: "p1", fields: fields({ name: "scout", prompt: "x" }) }, null, ALL, cwd)).rejects.toMatchObject({
+      status: 409,
+      message: "pi already has an agent named scout — customize it instead",
+    });
+    await refused({ scope: "personal", projectId: "p1", fields: fields({ name: "code-reviewer" }) });
+    await refused({ scope: "project", projectId: "p1", fields: fields({ name: "mine" }) }, cwd);
+    await refused({ scope: "project", projectId: "p1", previousName: "other", fields: fields({ name: "scout" }) }, cwd);
+    await expect(service.save({ scope: "personal", projectId: "p1", previousName: "mine", fields: fields({ name: "scout" }) }, null, ALL, cwd)).rejects.toMatchObject({ status: 409 });
+    // The agent's own customization is allowed; naming a standalone agent like a customized one is not.
+    await service.save({ scope: "personal", projectId: "p1", fields: fields({ name: "scout", extends: "pi:scout" }) }, null, ALL, cwd);
+    await refused({ scope: "project", projectId: "p1", fields: fields({ name: "scout" }) }, cwd);
+    // A customization of another source with the same name clashes with the first.
+    write(join(home, ".claude", "agents", "scout.md"), "---\nname: scout\n---\nClaude scout.");
+    const clash = await service.list(scope(), ALL);
+    for (const id of ["pi:scout", "claude:scout", "personal:scout"]) expect(byId(clash, id).problems, id).toContain("Two agents are named scout; rename one");
+    // Saving it unchanged while a clash exists is still possible (only new names are checked).
+    await expect(service.save({ scope: "personal", projectId: "p1", previousName: "mine", fields: fields({ name: "mine", prompt: "Still mine." }) }, null, ALL, cwd)).resolves.toMatchObject({ id: "personal:mine" });
   });
 });
 

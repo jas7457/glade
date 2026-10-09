@@ -1,9 +1,10 @@
 /**
  * Settings → Sub-agents (I-218): the list (sources, switches, problems), the harness-first create
- * flow, the Read-only preset per harness, and Customize (a Glade file that extends the source).
+ * flow, the Read-only preset per harness, Customize (a Glade file that extends the source), the
+ * fixed harness (I-219) and one agent per name with customizations on their source's row (I-220).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { defaultSettings, emptyAgentDefFields, type AgentDef, type AgentDefFields, type HarnessCapabilities, type HarnessInfo } from "@glade/protocol";
 
@@ -52,7 +53,8 @@ function def(over: Partial<AgentDef> & { fields: AgentDefFields }): AgentDef {
     enabled: true,
     available: true,
     problems: [],
-    shadowedBy: null,
+    customizes: null,
+    customizedBy: null,
     ...over,
   };
 }
@@ -68,7 +70,6 @@ const BROKEN = def({
   fields: fieldsOf({ name: "fixer", harness: "codex" }),
   available: false,
   problems: ["Codex is turned off"],
-  shadowedBy: "personal:fixer",
 });
 
 function Where() {
@@ -127,8 +128,41 @@ describe("Sub-agents list", () => {
     expect(within(reviewer).getByRole("switch", { name: "Use reviewer" }).getAttribute("aria-checked")).toBe("false");
     const fixer = screen.getByRole("button", { name: "fixer" }).parentElement!;
     expect(fixer.textContent).toContain("Can't be used: Codex is turned off");
-    expect(fixer.textContent).toContain("Overridden by Glade · fixer");
+    expect(fixer.textContent).not.toContain("Overridden");
     expect(defs.listAgentDefs).toHaveBeenCalledWith(null, expect.any(Function));
+  });
+
+  it("a customized agent is one row on its source's group with a Customized badge and the customized values", async () => {
+    const piFields = fieldsOf({ name: "oracle", harness: "pi", description: "Original.", model: "x/y", prompt: "Orig." });
+    const source = def({ source: "pi", path: "~/.pi/agent/agents/oracle.md", fields: piFields, customizedBy: "personal:oracle" });
+    const custom = def({
+      fields: fieldsOf({ name: "oracle", harness: "inherit", extends: "pi:oracle", description: "Mine.", nicknames: ["Rex"], icon: "bug" }),
+      effective: { ...piFields, description: "Mine.", nicknames: ["Rex"], icon: "bug" },
+      base: piFields,
+      customizes: "pi:oracle",
+    });
+    defs.listAgentDefs.mockResolvedValue([custom, SCOUT, source]);
+    renderAt("/settings/subagents");
+    await screen.findByRole("button", { name: "scout" });
+    const rows = screen.getAllByRole("button", { name: "oracle" });
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!.parentElement!;
+    expect(row.textContent).toContain("Mine.");
+    expect(row.textContent).toContain("Rex");
+    expect(row.textContent).not.toContain("Original.");
+    expect(row.querySelector('[data-agent-icon="bug"]')).not.toBeNull();
+    expect(within(row).getByText("Customized")).toBeTruthy();
+    expect(within(row).getByTitle("~/.pi/agent/agents/oracle.md").textContent).toBe("pi");
+    expect(row.textContent).not.toContain("Overridden");
+    // It sits under pi, not in the Glade group.
+    const heading = (name: string) => screen.getByRole("heading", { name });
+    const after = (a: HTMLElement, b: HTMLElement) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(after(heading("pi"), rows[0]!)).toBe(true);
+    expect(after(rows[0]!, heading("Glade"))).toBe(false);
+    expect(after(heading("Glade"), rows[0]!)).toBe(true);
+    // The row opens the customization.
+    fireEvent.click(rows[0]!);
+    await waitFor(() => expect(where()).toBe("/settings/subagents/edit/personal%3Aoracle"));
   });
 
   it("a project's view uses its overrides and writes the project's switch", async () => {
@@ -166,7 +200,9 @@ describe("creating an agent", () => {
     renderAt("/settings/subagents");
     await screen.findByRole("button", { name: "scout" });
     fireEvent.keyDown(screen.getByRole("button", { name: /New Agent/ }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Claude Code" }));
+    // The harness is chosen here, once: pi, Claude Code, Codex, or the parent chat's.
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["pi", "Claude Code", "Codex", "Same Agent as the Parent Chat"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Claude Code" }));
     await waitFor(() => expect(where()).toBe("/settings/subagents/new/claude"));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("New Agent");
     expect(screen.getByRole("heading", { name: "Claude Code settings" })).toBeTruthy();
@@ -273,6 +309,116 @@ describe("labels", () => {
   });
 });
 
+describe("the harness is fixed (I-219)", () => {
+  const harnessText = () => screen.getByTestId("agent-harness").textContent;
+  const noPicker = () => {
+    expect(screen.queryByRole("button", { name: "Runs on" })).toBeNull();
+    expect(screen.queryByLabelText("Runs on")).toBeNull();
+  };
+
+  it("a new agent shows the harness picked in the menu as text", async () => {
+    renderAt("/settings/subagents/new/codex");
+    noPicker();
+    expect(harnessText()).toBe("Codex");
+    expect(screen.getByRole("heading", { name: "Codex settings" })).toBeTruthy();
+    // The model picker works off that harness.
+    expect(screen.getByRole("button", { name: "Model" })).toBeTruthy();
+  });
+
+  it("the parent chat's agent is text too, and then there is no model to choose", () => {
+    renderAt("/settings/subagents/new/inherit");
+    noPicker();
+    expect(harnessText()).toBe("Same agent as the parent chat");
+    expect((screen.getByRole("button", { name: "Model" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("an existing Glade agent, a discovered one and a customization show their harness as text", async () => {
+    renderAt(`/settings/subagents/edit/${encodeURIComponent("personal:scout")}`);
+    await screen.findByLabelText("Name");
+    noPicker();
+    expect(harnessText()).toBe("Claude Code");
+    cleanup();
+
+    renderAt(`/settings/subagents/edit/${encodeURIComponent("claude:reviewer")}`);
+    await screen.findByLabelText("Name");
+    noPicker();
+    expect(harnessText()).toBe("Claude Code");
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    noPicker();
+    expect(harnessText()).toBe("Claude Code");
+    fireEvent.click(screen.getByRole("button", { name: "Save Customization" }));
+    await waitFor(() => expect(defs.saveAgentDef).toHaveBeenCalled());
+    // The UI never writes a harness onto a customization.
+    expect(defs.saveAgentDef.mock.calls[0]![0].fields.harness).toBe("inherit");
+  });
+});
+
+describe("customizations (I-220)", () => {
+  const SOURCE_FIELDS = fieldsOf({ name: "oracle", harness: "pi", description: "Original.", prompt: "Orig." });
+  const SOURCE = def({ source: "pi", path: "~/.pi/agent/agents/oracle.md", fields: SOURCE_FIELDS, customizedBy: "personal:oracle" });
+  const CUSTOM = def({
+    path: "~/data/agents/oracle.md",
+    fields: fieldsOf({ name: "oracle", harness: "inherit", extends: "pi:oracle", nicknames: ["Rex"] }),
+    effective: { ...SOURCE_FIELDS, nicknames: ["Rex"] },
+    base: SOURCE_FIELDS,
+    customizes: "pi:oracle",
+  });
+  beforeEach(() => defs.listAgentDefs.mockResolvedValue([CUSTOM, SOURCE]));
+
+  it("Customize on an agent that already has one opens it", async () => {
+    renderAt(`/settings/subagents/edit/${encodeURIComponent("pi:oracle")}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
+    await waitFor(() => expect(where()).toBe("/settings/subagents/edit/personal%3Aoracle"));
+    expect(defs.saveAgentDef).not.toHaveBeenCalled();
+    expect(((await screen.findByLabelText("Name")) as HTMLInputElement).value).toBe("oracle");
+  });
+
+  it("the customization's page: harness text, fixed name, no scope choice, no Delete; Reset to Original deletes it after asking", async () => {
+    defs.deleteAgentDef.mockResolvedValue(undefined);
+    renderAt(`/settings/subagents/edit/${encodeURIComponent("personal:oracle")}`);
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.disabled).toBe(true);
+    expect(screen.getByTestId("agent-harness").textContent).toBe("pi");
+    expect(screen.getByText("Customization of pi")).toBeTruthy();
+    expect(screen.queryByText("Saved for")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset to Original" }));
+    const alert = await screen.findByRole("alertdialog");
+    fireEvent.click(within(alert).getByRole("button", { name: "Cancel" }));
+    expect(defs.deleteAgentDef).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Reset to Original" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Reset to Original" }));
+    await waitFor(() => expect(defs.deleteAgentDef).toHaveBeenCalledWith("personal", "oracle", null, expect.any(Function)));
+    await waitFor(() => expect(where()).toBe("/settings/subagents"));
+  });
+
+  it("saving an edit keeps it the one customization (scope and name unchanged)", async () => {
+    renderAt(`/settings/subagents/edit/${encodeURIComponent("personal:oracle")}`);
+    fireEvent.input(await screen.findByLabelText("Description"), { target: { value: "Better." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(defs.saveAgentDef).toHaveBeenCalled());
+    expect(defs.saveAgentDef.mock.calls[0]![0]).toMatchObject({ scope: "personal", previousName: "oracle", fields: { name: "oracle", extends: "pi:oracle", description: "Better." } });
+  });
+
+  it("shows the server's refusal of a name another agent has", async () => {
+    defs.saveAgentDef.mockRejectedValue(new Error("pi already has an agent named scout — customize it instead"));
+    renderAt("/settings/subagents/new/claude");
+    fireEvent.input(screen.getByLabelText("Name"), { target: { value: "scout" } });
+    fireEvent.input(screen.getByLabelText("Prompt"), { target: { value: "p" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("pi already has an agent named scout — customize it instead");
+  });
+
+  it("a clash from outside shows as a problem on the row", async () => {
+    const clash = (id: "claude" | "personal") => def({ source: id, fields: fieldsOf({ name: "twin" }), available: false, problems: ["Two agents are named twin; rename one"] });
+    defs.listAgentDefs.mockResolvedValue([clash("personal"), clash("claude")]);
+    renderAt("/settings/subagents");
+    const rows = await screen.findAllByRole("button", { name: "twin" });
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.parentElement!.textContent).toContain("Can't be used: Two agents are named twin; rename one");
+  });
+});
+
 describe("discovered agents", () => {
   it("open read only; Customize saves a Glade file that extends the source with only the changes", async () => {
     renderAt(`/settings/subagents/edit/${encodeURIComponent("claude:reviewer")}`);
@@ -308,14 +454,15 @@ describe("discovered agents", () => {
     expect(description.placeholder).toBe("Reviews diffs.");
   });
 
-  it("a project's own discovered agent is customized for that project", async () => {
+  it("customizations are saved personal, even for a project's own agent (no scope choice)", async () => {
     const local = def({ source: "claude", path: "/p1/.claude/agents/local.md", fields: fieldsOf({ name: "local", prompt: "x" }) });
     defs.listAgentDefs.mockResolvedValue([local]);
     renderAt(`/settings/subagents/edit/${encodeURIComponent("claude:local")}?project=p1`);
     fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
     fireEvent.click(screen.getByRole("button", { name: "Save Customization" }));
     await waitFor(() => expect(defs.saveAgentDef).toHaveBeenCalled());
-    expect(defs.saveAgentDef.mock.calls[0]![0]).toMatchObject({ scope: "project", projectId: "p1", fields: { name: "local", extends: "claude:local" } });
+    expect(screen.queryByText("Saved for")).toBeNull();
+    expect(defs.saveAgentDef.mock.calls[0]![0]).toMatchObject({ scope: "personal", projectId: "p1", fields: { name: "local", extends: "claude:local" } });
   });
 
   it("Glade agents can be renamed and deleted", async () => {

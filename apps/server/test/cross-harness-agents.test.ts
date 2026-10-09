@@ -39,7 +39,8 @@ function def(fields: Partial<AgentDefFields> & { name: string }, native: Resolve
     enabled: true,
     available: true,
     problems: [],
-    shadowedBy: null,
+    customizes: null,
+    customizedBy: null,
   };
   return { def: agentDef, native };
 }
@@ -284,13 +285,16 @@ describe("agent definitions at spawn (I-218)", () => {
 });
 
 describe("spawn_agent's agent list and tool reports (I-218)", () => {
-  it("lists enabled, available, unshadowed agents with harness label, model and read-only", async () => {
+  it("lists enabled, available agents (not a customized source) with harness label, model and read-only", async () => {
     const sid = await parent();
     defs.defs.set("scout", def({ name: "scout", harness: "other", model: "other/tiny", tools: ["Read", "Grep"] }));
     defs.defs.set("writer", def({ name: "writer" }));
     const off = def({ name: "off" });
     off.def.enabled = false;
     defs.defs.set("off", off);
+    const superseded = def({ name: "pi-scout" });
+    superseded.def.customizedBy = "personal:pi-scout";
+    defs.defs.set("pi-scout", superseded);
     const list = await service.spawnableAgents(sid);
     expect(list.agents).toEqual([
       { name: "scout", description: "scout agent", harness: "other", harnessLabel: "Other Agent", model: "tiny", readOnly: true },

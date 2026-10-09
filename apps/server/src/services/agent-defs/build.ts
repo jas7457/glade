@@ -1,7 +1,7 @@
 /**
  * From agent files to {@link AgentDef}s (I-218): `extends` (one level or a chain of Glade files,
- * loops refused), the effective fields a spawn uses, availability and problems, switches and
- * shadowing (same name: project Glade > personal Glade > Claude Code > Codex > pi, as loaded).
+ * loops refused), the effective fields a spawn uses, availability and problems, switches, and the
+ * one-agent-per-name rule with customizations (I-220).
  *
  * Merge rules for `extends`: the Glade file's fields win when set (not inherit/null/[]/""), so its
  * `inherit` harness/model/thinking mean the source's (lead decision); its body is appended to the
@@ -43,15 +43,48 @@ const GLADE_SOURCES = new Set<AgentDefSource>(["personal", "project"]);
 const TOOL_REF = /^(claude|codex|pi):(.+)$/;
 const MAX_EXTENDS_DEPTH = 4;
 
-/** Every loaded agent as an {@link AgentDef}, with its native settings, in precedence order. */
+/**
+ * Every loaded agent as an {@link AgentDef}, with its native settings (precedence order of the
+ * files within a source). One agent per name (I-220): a Glade file named like its source that
+ * extends it is that source's customization (not a second agent); any other two agents with one
+ * name are both unavailable.
+ */
 export function buildAgents(loaded: LoadedAgent[], options: BuildOptions): BuiltAgent[] {
-  const winners = new Map<string, string>();
-  return loaded.map((agent) => {
-    const id = `${agent.source}:${agent.fields.name}`;
+  const ids = loaded.map((agent) => `${agent.source}:${agent.fields.name}`);
+  const known = new Set(ids);
+  // Customizations by their source's id (project file first, as loaded).
+  const customizations = new Map<string, string[]>();
+  const customizes = new Map<string, string>();
+  loaded.forEach((agent, i) => {
+    const source = customizationSource(agent);
+    if (!source || !known.has(source)) return;
+    customizes.set(ids[i]!, source);
+    customizations.set(source, [...(customizations.get(source) ?? []), ids[i]!]);
+  });
+  // Problems that make an agent unusable from outside its own file.
+  const extraErrors = new Map<string, string[]>();
+  const addError = (id: string, message: string) => extraErrors.set(id, [...(extraErrors.get(id) ?? []), message]);
+  for (const [source, files] of customizations) {
+    if (files.length < 2) continue;
+    const where = files.map((id) => (id.startsWith("project:") ? "the project" : "your settings")).join(" and ");
+    for (const id of [source, ...files]) addError(id, `Customized in ${where}; reset one to the original`);
+  }
+  // One agent per name: customizations belong to their source's entry.
+  const byName = new Map<string, string[]>();
+  loaded.forEach((agent, i) => {
+    if (customizes.has(ids[i]!)) return;
+    byName.set(agent.fields.name, [...(byName.get(agent.fields.name) ?? []), ids[i]!]);
+  });
+  for (const [name, entries] of byName) {
+    if (entries.length < 2) continue;
+    const message = entries.length === 2 ? `Two agents are named ${name}; rename one` : `${entries.length} agents are named ${name}; rename all but one`;
+    for (const id of entries) for (const own of [id, ...(customizations.get(id) ?? [])]) addError(own, message);
+  }
+  return loaded.map((agent, i) => {
+    const id = ids[i]!;
     const effective = effectiveOf(agent, options.roots, 0, new Set());
+    effective.errors.push(...(extraErrors.get(id) ?? []));
     check(effective, options.offeredHarnesses);
-    const winner = winners.get(agent.fields.name);
-    if (!winner) winners.set(agent.fields.name, id);
     const def: AgentDef = {
       id,
       source: agent.source,
@@ -63,10 +96,27 @@ export function buildAgents(loaded: LoadedAgent[], options: BuildOptions): Built
       enabled: agentDefEnabled(options.switches, agent.fields.name, options.projectId),
       available: effective.errors.length === 0,
       problems: [...new Set([...effective.errors, ...effective.warnings])],
-      shadowedBy: winner ?? null,
+      customizes: customizes.get(id) ?? null,
+      customizedBy: customizations.get(id)?.[0] ?? null,
     };
     return { def, native: effective.native };
   });
+}
+
+/** The tool agent `ref` (`claude:x`) names, as `<tool>:<name>`; null for file paths. */
+export function toolRef(ref: string | null): string | null {
+  const tool = ref ? TOOL_REF.exec(ref.trim()) : null;
+  return tool ? `${tool[1]}:${normalizeAgentDefName(tool[2]!)}` : null;
+}
+
+/**
+ * The id of the agent a Glade file customizes: it `extends: <tool>:<name>` and is itself named
+ * `name` (I-220). Null for other files (a different name is a separate agent that extends).
+ */
+export function customizationSource(agent: Pick<LoadedAgent, "source" | "fields">): string | null {
+  if (!GLADE_SOURCES.has(agent.source)) return null;
+  const ref = toolRef(agent.fields.extends);
+  return ref && ref.endsWith(`:${agent.fields.name}`) ? ref : null;
 }
 
 /** `~/…` for paths in the home folder. */

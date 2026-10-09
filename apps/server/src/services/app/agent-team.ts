@@ -297,7 +297,7 @@ export class AgentTeam {
       ctx.options.log?.(`agent definitions: listing failed: ${err.message}`);
       return [] as AgentDef[];
     });
-    const agents = defs.filter((d) => d.enabled && d.available && !d.shadowedBy).map((d) => spawnableAgent(d.effective, label));
+    const agents = defs.filter((d) => d.enabled && d.available && !d.customizedBy).map((d) => spawnableAgent(d.effective, label));
     const harnesses = ctx.harnesses
       .offered()
       .filter((h) => h.info.capabilities.subagents !== false || h.id === session.harness)
