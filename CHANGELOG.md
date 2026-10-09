@@ -7,6 +7,17 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Sub-agents on any agent:** a chat on pi, Claude Code or Codex can hand work to a sub-agent that
+  runs on another one (e.g. a pi chat starting a Claude Code helper), with that agent's models.
+- **Your own sub-agents** (Settings → Sub-agents): set up agents with a description, a prompt, the
+  agent and model they run on, their permissions (a Read only preset per agent), nicknames, a
+  colour and an icon. Chats pick them by their description, or when you name one. Agents you
+  already have in Claude Code, Codex or pi are listed as they are; Customize one to change it in
+  Glade without touching the original. Turn each one on or off everywhere or per project.
+- Sub-agent cards and tabs show the agent's icon and "Brandon · scout", plus which agent it runs on
+  when that differs from the chat's.
+- A sub-agent that finishes its turn without reporting back gets one reminder to report.
+
 - **Group projects** (Projects + → New Group…): a project that's just a name, for grouping chats that each work in their own folder, e.g. one group per checkout with a chat each for different parts of a monorepo. A new chat in a group asks for its folder (any folder, in any checkout); it's named after it, its tabs run there, and the folder stays fixed. Works on the iPhone too.
 
 - The folder browser (Add Project, a group chat's folder) reopens where you last left it, or at the nearest folder that still exists.

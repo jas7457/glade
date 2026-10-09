@@ -9,8 +9,12 @@
  * used one; the colour is unique among them while one is free, else one of the
  * least used. Closing an agent frees both (only active agents count). Stored on the session and
  * the agent record at spawn, so reloads and every client agree.
+ *
+ * An agent definition (I-218) can set the identity: its `nicknames` (the first one no active agent
+ * of the workspace has; all taken → numbered, "Brandon 2"), its `color` (used even when another
+ * agent has it) and its `icon`.
  */
-import { AGENT_COLORS, type AgentColor } from "@glade/protocol";
+import { AGENT_COLORS, type AgentColor, type AgentIcon } from "@glade/protocol";
 
 /**
  * ~300 friendly, distinct, easy-to-read first names from varied origins (I-144). No two share
@@ -55,6 +59,15 @@ export const AGENT_DISPLAY_NAMES = [
 export interface AgentIdentity {
   displayName: string;
   color: AgentColor;
+  /** From the agent definition (I-218). */
+  icon?: AgentIcon;
+}
+
+/** The identity an agent definition asks for (I-218); unset parts are picked as usual. */
+export interface IdentityWish {
+  nicknames?: readonly string[];
+  color?: AgentColor | null;
+  icon?: AgentIcon | null;
 }
 
 type Taken = { displayName?: string | null; color?: string | null };
@@ -66,14 +79,32 @@ function pick<T>(items: readonly T[], random: () => number): T {
 /**
  * A name and colour for a new agent, given the identities of the workspace's other active agents
  * (`taken`) and the display names the parent chat's sub-agents have had so far, oldest first
- * (`history`, closed agents included). `random` is injectable for tests.
+ * (`history`, closed agents included). `wish` = the agent definition's identity (I-218). `random`
+ * is injectable for tests.
  */
 export function pickAgentIdentity(
   taken: readonly Taken[],
   history: readonly (string | null | undefined)[] = [],
   random: () => number = Math.random,
+  wish: IdentityWish = {},
 ): AgentIdentity {
   const usedNames = new Set(taken.map((t) => t.displayName?.toLowerCase()).filter(Boolean));
+  const nicknames = (wish.nicknames ?? []).map((n) => n.trim()).filter(Boolean);
+  const displayName = nicknames.length ? pickNickname(nicknames, usedNames) : pickName(usedNames, history, random);
+  const color = wish.color && (AGENT_COLORS as readonly string[]).includes(wish.color) ? wish.color : pickColor(taken, random);
+  return { displayName, color, ...(wish.icon ? { icon: wish.icon } : {}) };
+}
+
+/** The first nickname no active agent has; all taken: the first one numbered ("Brandon 2"). */
+function pickNickname(nicknames: readonly string[], usedNames: Set<string | undefined>): string {
+  const free = nicknames.find((n) => !usedNames.has(n.toLowerCase()));
+  if (free) return free;
+  let n = 2;
+  while (usedNames.has(`${nicknames[0]} ${n}`.toLowerCase())) n++;
+  return `${nicknames[0]} ${n}`;
+}
+
+function pickName(usedNames: Set<string | undefined>, history: readonly (string | null | undefined)[], random: () => number): string {
   const freeNames = AGENT_DISPLAY_NAMES.filter((n) => !usedNames.has(n.toLowerCase()));
   // When each name was last used by this chat's sub-agents (index into `history`).
   const lastUsed = new Map<string, number>();
@@ -94,12 +125,15 @@ export function pickAgentIdentity(
     while (usedNames.has(`${base} ${n}`.toLowerCase())) n++;
     displayName = `${base} ${n}`;
   }
+  return displayName;
+}
+
+function pickColor(taken: readonly Taken[], random: () => number): AgentColor {
   const uses = new Map<AgentColor, number>(AGENT_COLORS.map((c) => [c, 0]));
   for (const t of taken) if (t.color && uses.has(t.color as AgentColor)) uses.set(t.color as AgentColor, uses.get(t.color as AgentColor)! + 1);
   const least = Math.min(...uses.values());
-  const color = pick(
+  return pick(
     AGENT_COLORS.filter((c) => uses.get(c) === least),
     random,
   );
-  return { displayName, color };
 }

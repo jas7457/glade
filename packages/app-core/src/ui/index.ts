@@ -58,3 +58,6 @@ export { StatusDot, type StatusDotProps, type StatusTone } from "./StatusDot";
 export { QrCode, qrPath, type QrCodeProps } from "./QrCode";
 export { Meter, type MeterProps, type MeterTone } from "./Meter";
 export { CopyableCode, type CopyableCodeProps } from "./CopyableCode";
+export { AgentIconGlyph, AGENT_ICON_COMPONENTS, agentIconOf, type AgentIconGlyphProps } from "./AgentIcon";
+export { TokenField, type TokenFieldProps } from "./TokenField";
+export { ChoiceGrid, type ChoiceGridProps, type ChoiceGridOption } from "./ChoiceGrid";

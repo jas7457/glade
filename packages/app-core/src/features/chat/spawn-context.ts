@@ -7,7 +7,7 @@
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import type { SessionSummary, SpawnedAgentRef } from "@glade/protocol";
-import { agentIdentity, sessionAgentIdentity, type AgentIdentityView } from "./agent-identity";
+import { refAgentIdentity, sessionAgentIdentity, type AgentIdentityView } from "./agent-identity";
 import type { AgentSpawnLinks } from "./agent-spawns";
 
 export interface SpawnLinksValue {
@@ -16,6 +16,8 @@ export interface SpawnLinksValue {
   subagents: readonly SessionSummary[];
   /** The chat's `SessionSummary.spawnedAgents`. */
   refs: readonly SpawnedAgentRef[];
+  /** The chat's own harness (I-217: agents on another one are labelled). */
+  parentHarness?: string | null;
 }
 
 export const SpawnLinksContext = createContext<SpawnLinksValue | null>(null);
@@ -28,7 +30,7 @@ export function useSpawnLinks(): SpawnLinksValue | null {
 export function identityFor(value: SpawnLinksValue | null, name: string): AgentIdentityView | null {
   if (!value) return null;
   const live = [...value.subagents].reverse().find((s) => s.agentName === name);
-  if (live) return sessionAgentIdentity(live);
+  if (live) return sessionAgentIdentity(live, value.parentHarness);
   const ref = [...value.refs].reverse().find((r) => r.name === name);
-  return ref ? agentIdentity({ id: ref.sessionId, name: ref.name, displayName: ref.displayName, color: ref.color }) : null;
+  return ref ? refAgentIdentity(ref, value.parentHarness) : null;
 }

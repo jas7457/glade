@@ -1,6 +1,7 @@
 /**
  * One-line bar above a sub-agent's conversation (I-054; always shown since I-084): the agent's
- * fun name in its colour with its role greyed ("Maya · reviewer"), its status, and once done its
+ * fun name in its colour with its role greyed ("Maya · reviewer"; I-218: its icon and "Brandon ·
+ * scout"; I-217: a harness badge when it isn't the parent's), its status, and once done its
  * report_done result (expandable), or a note while closing / after its process stopped. Its ⋯
  * menu has "Remove Sub-agent…" (I-141; confirmed, the tab itself has no ×).
  *
@@ -12,6 +13,7 @@ import type { SessionSummary } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
 import { IconButton, Menu, MenuItem, Spinner } from "@glade/app-core/ui";
 import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
+import { AgentName } from "@glade/app-core/features/chat/AgentName";
 import { agentDisplay } from "./agent-status";
 import { removeSubagent } from "./layout-actions";
 
@@ -58,9 +60,8 @@ export function AgentBar({ session }: { session: SessionSummary }) {
           title={display.tooltip}
           class="flex h-7 min-w-0 flex-1 items-center gap-1.5 px-2.5 text-left outline-none"
         >
-          <span aria-hidden="true" class="size-2 shrink-0 rounded-full bg-agent" />
-          <span class="shrink-0 font-medium text-agent">{identity.displayName}</span>
-          {identity.role && <span class="shrink-0 text-fg-subtle">· {identity.role}</span>}
+          {!identity.icon && <span aria-hidden="true" class="size-2 shrink-0 rounded-full bg-agent" />}
+          <AgentName identity={identity} envId={session.environmentId} />
           <span class="w-1 shrink-0" />
           {icon}
           <span class="shrink-0 text-fg">{display.label}</span>

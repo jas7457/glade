@@ -6,7 +6,7 @@
  * inside the Glade server with the session's agent-API identity, so the identity never reaches
  * the Claude Code process.
  */
-import { readIdentity, registerGladeTools, type PiExtensionApi } from "../pi/extension/glade-tools.js";
+import { readIdentity, registerGladeTools, type PiExtensionApi, type SpawnableAgentList } from "../pi/extension/glade-tools.js";
 import type { ClaudeMcpToolSpec } from "./sdk.js";
 
 /**
@@ -23,25 +23,36 @@ export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, string[]>> = {
   ls: ["Glob"],
 };
 
-/** Claude Code's `tools` for a sub-agent's allowlist of pi tool names (Glade's own tools always stay). */
+/**
+ * Claude Code's names for a sub-agent's tool allowlist: pi names are mapped, Claude Code's own
+ * (`Read`) and MCP tools (`mcp__server__tool`, I-218) kept, anything else dropped. Glade's own tools
+ * always stay (they're not restricted by this list).
+ */
 export function claudeToolAllowlist(tools: readonly string[]): string[] {
   const out = new Set<string>();
-  for (const tool of tools) for (const name of PI_TO_CLAUDE_TOOLS[tool] ?? (/^[A-Z]/.test(tool) ? [tool] : [])) out.add(name);
+  for (const tool of tools) for (const name of PI_TO_CLAUDE_TOOLS[tool] ?? (/^[A-Z]/.test(tool) || tool.startsWith("mcp__") ? [tool] : [])) out.add(name);
   return [...out];
 }
+
+/** The MCP server Glade's own tools are served by (`mcp__glade__spawn_agent`, …). */
+export const GLADE_MCP_SERVER = "glade";
 
 export interface GladeToolsOptions {
   /** The session's agent-API identity (`GLADE_URL`, `GLADE_TOKEN`, …; `AGENT_ENV`). */
   env: Record<string, string>;
   /** The "Use sub-agents" setting. */
   subagents: boolean;
-  /** The chat's folder (agent definitions in `<cwd>/.pi/agents`). */
+  /** The chat's folder. */
   cwd: string;
+  /** What spawn_agent lists (I-218; main sessions). */
+  agents?: SpawnableAgentList | null;
+  /** The calling harness's id (spawn results name another harness, I-217). */
+  harness?: string;
   fetch?: typeof fetch;
 }
 
 /** The tools for this session; none without an agent-API identity. */
-export function gladeToolSpecs({ env, subagents, cwd, fetch: fetchImpl }: GladeToolsOptions): ClaudeMcpToolSpec[] {
+export function gladeToolSpecs({ env, subagents, cwd, agents, harness, fetch: fetchImpl }: GladeToolsOptions): ClaudeMcpToolSpec[] {
   const identity = readIdentity(env);
   if (!identity) return [];
   const tools: ClaudeMcpToolSpec[] = [];
@@ -61,6 +72,6 @@ export function gladeToolSpecs({ env, subagents, cwd, fetch: fetchImpl }: GladeT
     getAllTools: () => [...Object.keys(PI_TO_CLAUDE_TOOLS), ...tools.map((t) => t.name)].map((name) => ({ name })),
     on() {},
   };
-  registerGladeTools(api, { ...identity, subagents }, fetchImpl);
+  registerGladeTools(api, { ...identity, subagents, ...(harness ? { harness } : {}) }, fetchImpl, agents);
   return tools;
 }

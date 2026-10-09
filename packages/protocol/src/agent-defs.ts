@@ -106,6 +106,12 @@ export interface AgentDef {
    * `inherit` (resolved against the parent at spawn).
    */
   effective: AgentDefFields;
+  /**
+   * With `extends`: the source's effective fields alone, i.e. what the agent would be without this
+   * file's overrides (the editor greys these as "From …" placeholders). `null` without `extends` or
+   * when the source isn't found.
+   */
+  base: AgentDefFields | null;
   /** Turned on for this project (global switch, then the project's override). */
   enabled: boolean;
   /** Can run now: its harness is installed and on, its `extends` source exists, no errors. */

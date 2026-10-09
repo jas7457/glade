@@ -1,12 +1,15 @@
 /**
  * A chat's sub-agents on the iPhone (I-164, doc §5.3): no side panes, so each agent is a card
  * above the composer (a row that scrolls sideways when there are several): its fun name in its
- * colour, status marker and label, and its latest activity. Tapping a card opens the agent's
+ * colour (with its definition's icon and name, I-218, and its harness when it isn't the chat's,
+ * I-217), status marker and label, and its latest activity. Tapping a card opens the agent's
  * chat full screen (`onOpen`). Same derivation as the desktop's chips (`agentChip`).
  */
 import { ChevronRight } from "lucide-preact";
 import type { SessionSummary } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
+import { AgentIconGlyph } from "@glade/app-core/ui";
+import { harnessName } from "@glade/app-core/state/harnesses";
 import { useChatSession } from "@glade/app-core/state/chat-session";
 import { envIdOfSession, shellOf } from "@glade/app-core/state/store";
 import { useNow } from "@glade/app-core/features/chat/duration";
@@ -55,8 +58,10 @@ function SubagentCard({ session, single, onOpen }: { session: SessionSummary; si
       </span>
       <span class="min-w-0 flex-1">
         <span class="flex items-baseline gap-1.5 text-[15px]">
+          {identity.icon && <AgentIconGlyph icon={identity.icon} size={13} class="self-center text-agent" />}
           <span class="shrink-0 font-semibold text-agent">{identity.displayName}</span>
           {identity.role && <span class="truncate text-fg-subtle">{identity.role}</span>}
+          {identity.harness && <span class="shrink-0 text-[13px] text-fg-subtle">{harnessName(identity.harness, envIdOfSession(session.id))}</span>}
           <span class={cn("ml-auto shrink-0 text-[13px]", chip.attention === "danger" ? "text-danger" : chip.attention === "warning" ? "text-fg" : "text-fg-muted")}>
             {chip.label}
           </span>

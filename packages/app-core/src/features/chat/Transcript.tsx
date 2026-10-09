@@ -97,7 +97,8 @@ export function Transcript({ chatId, grouping = DEFAULT_GROUPING_OPTIONS, class:
   const refs = useMemo(() => allSessions.find((s) => s.id === chatId)?.spawnedAgents ?? [], [allSessions, chatId]);
   const subagents = useMemo(() => subagentSessionsOf(allSessions, chatId), [allSessions, chatId]);
   const links = useMemo(() => linkAgentSpawns(transcript, refs), [transcript, refs]);
-  const spawnValue = useMemo<SpawnLinksValue>(() => ({ links, subagents, refs }), [links, subagents, refs]);
+  const chatHarness = allSessions.find((s) => s.id === chatId)?.harness ?? null;
+  const spawnValue = useMemo<SpawnLinksValue>(() => ({ links, subagents, refs, parentHarness: chatHarness }), [links, subagents, refs, chatHarness]);
   const items = useMemo(
     () => groupTranscript(transcript, { isRunning }, grouping).filter((i) => !(i.type === "user" && links.hidden.has(i.message.id))),
     [transcript, isRunning, grouping, links],

@@ -103,7 +103,7 @@ describe("agentChip", () => {
 describe("chip identity and text", () => {
   it("uses the fun name and colour, falling back to the agent name and a colour from its id", () => {
     const named = agentChip(sub({ id: "a", status: "working", agentDisplayName: "Maya", agentColor: "teal" }), null, [], 2_000);
-    expect(named.identity).toEqual({ displayName: "Maya", role: "reviewer", color: "teal" });
+    expect(named.identity).toEqual({ displayName: "Maya", role: "reviewer", color: "teal", icon: null, harness: null });
     const old = agentChip(sub({ id: "a", status: "working" }), null, [], 2_000);
     expect(old.identity.displayName).toBe("reviewer");
     expect(old.identity.role).toBeNull();

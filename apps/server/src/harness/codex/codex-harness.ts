@@ -22,12 +22,12 @@ import { cachedWhich, findExecutable, type WhichFn } from "../which.js";
 import { resolveAgentCommand, type CustomCommandFn } from "../agent-command.js";
 import type { AgentHarness, HarnessDescription, HarnessSession, OpenSessionOptions } from "../types.js";
 import { CodexAppServer } from "./app-server.js";
-import { CodexSession, type CodexSessionOptions } from "./codex-session.js";
+import { CodexSession, codexAgentConfig, type CodexSessionOptions } from "./codex-session.js";
 import { codexSlashCommands } from "./commands.js";
 import { NOT_INSTALLED, codexUsageLimits } from "./errors.js";
 import { codexGladeTools } from "./glade-tools.js";
 import { CODEX_PROVIDER, defaultLevel, findCodexModel, translateCodexModels } from "./models.js";
-import { CODEX_PLAN_MODE, codexPermissionModes, modeFromConfig } from "./permissions.js";
+import { CODEX_PLAN_MODE, codexPermissionModes, modeFromConfig, presetForSandbox } from "./permissions.js";
 import { spawnCodexTransport, traceCodexTransport, type CodexTransport } from "./rpc.js";
 
 export { CODEX_COMMAND, CODEX_HARNESS_ID };
@@ -151,16 +151,20 @@ export class CodexHarness implements AgentHarness {
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
     const env = options.env ?? {};
+    // I-218: the agents spawn_agent lists (main sessions), read once per session.
+    const agents = options.spawnableAgents ? await options.spawnableAgents().catch(() => null) : null;
     const session = new CodexSession({
       server: this.server,
       cwd: options.cwd,
       sessionRef: options.sessionRef,
       model: options.model ?? null,
       thinkingLevel: options.thinkingLevel ?? null,
-      permissionMode: options.permissionMode ?? null,
+      // I-218: an agent definition's sandbox is the sub-agent's mode until the user picks another.
+      permissionMode: options.permissionMode ?? presetForSandbox(options.agentDefinition?.sandbox) ?? null,
       ...(options.appendSystemPrompt ? { developerInstructions: options.appendSystemPrompt } : {}),
+      ...(options.agentDefinition?.native?.codex ? { agentConfig: codexAgentConfig(options.agentDefinition.native.codex) } : {}),
       ...(childShell(this.options.env ?? process.env) ? { shell: childShell(this.options.env ?? process.env)! } : {}),
-      gladeTools: () => codexGladeTools({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, ...(this.options.fetch ? { fetch: this.options.fetch } : {}) }),
+      gladeTools: () => codexGladeTools({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, agents, harness: this.id, ...(this.options.fetch ? { fetch: this.options.fetch } : {}) }),
       ...this.options.session,
       log: this.options.log,
     });

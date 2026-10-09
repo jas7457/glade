@@ -138,6 +138,7 @@ export class NativeSubagents {
       name,
       displayName,
       color: picked.color,
+      harness: parent.harness,
       agent: null,
       task,
       systemPrompt: "",

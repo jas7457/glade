@@ -262,6 +262,23 @@ export function dropRemovedAgentSettings(stored: DeepPartial<Settings>): DeepPar
 }
 
 /**
+ * I-218: `agentDefs` switches cleared with `null` in a settings patch (patches merge deeply, so
+ * `null` is how a client removes a project's overrides or one override) are removed after merging.
+ */
+export function pruneAgentDefSwitches(stored: DeepPartial<Settings>): DeepPartial<Settings> {
+  const projects = (stored as { agentDefs?: { projects?: unknown } }).agentDefs?.projects;
+  if (!isRecord(projects)) return stored;
+  const hasNull = Object.values(projects).some((p) => p === null || (isRecord(p) && Object.values(p).some((v) => v === null)));
+  if (!hasNull) return stored;
+  const next: Record<string, Record<string, unknown>> = {};
+  for (const [id, names] of Object.entries(projects)) {
+    if (!isRecord(names)) continue;
+    next[id] = Object.fromEntries(Object.entries(names).filter(([, v]) => v !== null));
+  }
+  return { ...stored, agentDefs: { ...(stored as { agentDefs: object }).agentDefs, projects: next } } as DeepPartial<Settings>;
+}
+
+/**
  * I-019: projects get a manual `sortOrder` (from their previous order: pinned first, then most
  * recently active) and lose `pinned`.
  */

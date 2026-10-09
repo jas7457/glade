@@ -176,10 +176,12 @@ describe("spawn", () => {
     const chat = await newChat(env);
     const { agent } = await spawn(chat.sid, "a", { model: "smart", thinking: "low" });
     expect(env.store.getSession(agent.sessionId)).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "low" });
+    // I-217: a model the harness doesn't list falls back (here: the parent's model).
     const b = await spawn(chat.sid, "b", { model: "other/x-1" });
-    expect(env.store.getSession(b.agent.sessionId)!.model).toEqual({ provider: "other", id: "x-1" });
-    await expect(env.service.spawnAgent(chat.sid, { name: "c", task: "t", model: "nope" })).rejects.toThrow(/Unknown model/);
-    await expect(env.service.spawnAgent(chat.sid, { name: "c", task: "t", thinking: "lots" })).rejects.toThrow(/thinking/);
+    expect(env.store.getSession(b.agent.sessionId)!.model).toEqual({ provider: "fake", id: "smart" });
+    const c = await spawn(chat.sid, "c", { model: "fake/fast" });
+    expect(env.store.getSession(c.agent.sessionId)!.model).toEqual({ provider: "fake", id: "fast" });
+    await expect(env.service.spawnAgent(chat.sid, { name: "d", task: "t", thinking: "lots" })).rejects.toThrow(/thinking/);
   });
 
   it("guards: children can't spawn, names are unique, at most MAX_ACTIVE_AGENTS per workspace", async () => {

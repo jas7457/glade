@@ -95,6 +95,7 @@ import {
 } from "./permissions.js";
 import { CodexRpcError } from "./rpc.js";
 import type {
+  JsonValue,
   CodexModel,
   CollaborationModeKind,
   CommandExecutionRequestApprovalParams,
@@ -154,6 +155,24 @@ const COMPACT_TIMEOUT_MS = 5 * 60_000;
  * runs sub-agents Glade can't show; Glade's sub-agent tools are the way to delegate (I-179).
  */
 export const CODEX_THREAD_CONFIG = { "features.multi_agent": false } as const;
+
+/**
+ * Codex agent-file keys (I-218: a discovered `~/.codex/agents/*.toml`, or one a Glade agent extends)
+ * passed to the thread as `config` overrides. Model, effort, sandbox and instructions go their own
+ * ways (thread/turn params); identity keys (`name`, `description`, `nickname_candidates`) are
+ * Glade's; anything else is dropped (the app-server would reject or ignore it).
+ */
+export const CODEX_AGENT_CONFIG_KEYS = ["mcp_servers", "model_reasoning_summary", "model_verbosity", "web_search", "tools"] as const;
+
+/** The thread `config` overrides from an agent definition's native Codex fields. */
+export function codexAgentConfig(native: Record<string, unknown> | null | undefined): Record<string, JsonValue> {
+  const config: Record<string, JsonValue> = {};
+  for (const key of CODEX_AGENT_CONFIG_KEYS) {
+    const value = native?.[key];
+    if (value !== undefined && value !== null) config[key] = value as JsonValue;
+  }
+  return config;
+}
 /**
  * GPT-6 models always have Codex's multi-agent v2 (no flag turns it off), so Glade's tools go in
  * their own namespace (no clash with Codex's `spawn_agent`) and the thread is told to use them.
@@ -179,6 +198,8 @@ export interface CodexSessionOptions {
   permissionMode?: string | null;
   /** Developer instructions for the thread (a sub-agent's role). */
   developerInstructions?: string;
+  /** Thread `config` overrides from a sub-agent's agent definition (I-218, {@link codexAgentConfig}). */
+  agentConfig?: Record<string, JsonValue>;
   /** Glade's tools for this chat (dynamic tools), read when a thread starts. */
   gladeTools?: () => CodexGladeTool[];
   /** The user's shell for `!cmd` (default: `/bin/zsh`). */
@@ -309,7 +330,7 @@ export class CodexSession implements HarnessSession {
       cwd,
       ...(model ? { model } : {}),
       ...threadPermissions(this.mode()),
-      config: { ...CODEX_THREAD_CONFIG },
+      config: { ...this.options.agentConfig, ...CODEX_THREAD_CONFIG },
       ...(instructions ? { developerInstructions: instructions } : {}),
     };
     if (this.ref) {

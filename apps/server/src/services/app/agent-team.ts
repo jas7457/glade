@@ -4,11 +4,15 @@
  * agent messages into prompts (retried while the target runs in another server, I-062).
  */
 import {
+  INHERIT,
   MAX_ACTIVE_AGENTS,
   THINKING_LEVELS,
   agentLabel,
   agentModelSettings,
+  clampThinkingLevel,
   sameModel,
+  type AgentDef,
+  type AgentDefFields,
   type CloseAgentResponse,
   type ListAgentsResponse,
   type MessageAgentRequest,
@@ -21,12 +25,17 @@ import {
   type SpawnAgentResponse,
   type ThinkingLevel,
 } from "@glade/protocol";
-import type { AgentHarness } from "../../harness/types.js";
+import { GLADE_MCP_SERVER } from "../../harness/claude/glade-tools.js";
+import { GLADE_TOOL_NAMES } from "../../harness/pi/extension/glade-tools.js";
+import type { AgentHarness, SessionAgentDefinition, SpawnableAgent, SpawnableAgentList } from "../../harness/types.js";
+import type { AgentDefsListContext, AgentDefsScope, ResolvedAgentDef } from "../agent-defs/service.js";
+import { agentDefsListContext } from "../agent-defs/switches.js";
 import { pickAgentIdentity } from "../agent-names.js";
 import {
   CLOSE_GRACE_MS,
   IDLE_CLOSE_MS,
   MAIN_AGENT,
+  REPORT_REMINDER,
   agentInfo,
   buildRolePrompt,
   doneText,
@@ -44,6 +53,12 @@ import type { Titles } from "./titles.js";
 
 /** Deliveries to a session busy in another server are retried this long. */
 const ELSEWHERE_RETRY_MS = 30 * 60_000;
+
+/**
+ * Harnesses that silently ignore tool names they don't have (pi's `--tools`): a definition's tools
+ * are checked against the last reported list before spawning (I-218).
+ */
+const STRICT_TOOL_HARNESSES = new Set(["pi"]);
 
 export class AgentTeam {
   constructor(
@@ -63,12 +78,17 @@ export class AgentTeam {
     return session;
   }
 
-  /** Start a sub-agent in the caller's workspace (same folder); its first prompt is the task. */
+  /**
+   * Start a sub-agent in the caller's workspace (same folder); its first prompt is the task. Its
+   * agent definition (`req.agent`, I-218) is resolved here; it runs on the requested harness, else
+   * the definition's, else the parent's (I-217).
+   */
   async spawnAgent(callerId: string, req: SpawnAgentRequest): Promise<SpawnAgentResponse> {
     const { ctx } = this;
     const caller = this.records.requireSession(callerId);
     if (caller.kind !== "main") throw new HttpError(403, "Sub-agents can't spawn agents");
-    if (!ctx.store.getSettings().agent.subagents) {
+    const settings = ctx.store.getSettings();
+    if (!settings.agent.subagents) {
       throw new HttpError(403, "Sub-agents are turned off in Glade (Settings → Agent → Use sub-agents). Do the work yourself.");
     }
     const name = normalizeAgentName(req.name ?? "");
@@ -79,17 +99,38 @@ export class AgentTeam {
     if (req.keepOpen && !keepOpenReason) {
       throw new HttpError(400, "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.");
     }
-    // Precedence (I-078): the spawn request / agent definition → the sub-agent settings → the parent's.
-    const harness = this.records.requireHarness(caller);
-    // I-198: the parent's agent's sub-agent settings.
-    const settingsModels = agentModelSettings(ctx.store.getSettings(), harness.id);
-    const model = req.model
-      ? await this.resolveModel(harness, req.model)
-      : ((await this.availableModel(harness, settingsModels.subagentModel)) ?? caller.model);
-    if (req.thinking !== undefined && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
+    if (req.thinking !== undefined && req.thinking !== INHERIT && !(THINKING_LEVELS as readonly string[]).includes(req.thinking)) {
       throw new HttpError(400, `thinking must be one of ${THINKING_LEVELS.join(", ")}`);
     }
-    const thinkingLevel = (req.thinking as ThinkingLevel | undefined) ?? settingsModels.subagentThinkingLevel ?? caller.thinkingLevel;
+    const workspace = this.records.requireWorkspace(caller.workspaceId);
+    const scope = { projectId: workspace.projectId, cwd: workspace.cwd };
+    const parentHarness = this.records.requireHarness(caller);
+
+    // I-218: the agent definition, resolved by the server. Older agent-teams versions send the
+    // definition's prompt/model/tools themselves (`agentPrompt`, …): used when the name doesn't resolve.
+    const requested = req.agent?.trim() || null;
+    const resolved = requested ? await this.resolveDefinition(requested, scope, req) : null;
+    const def = resolved?.def.effective ?? null;
+    const agent = resolved ? def!.name || requested : requested;
+
+    // I-217: the child's harness: the request's → the definition's → the parent's.
+    const harness = this.childHarness([req.harness, def?.harness].find((h) => h && h !== INHERIT) ?? parentHarness.id, agent);
+    const sameHarness = harness.id === parentHarness.id;
+    if (!sameHarness && harness.info.capabilities.subagents === false) {
+      throw new HttpError(400, `${harness.info.label} can't run Glade sub-agents (it has no report_done/message_agent tools). Pick another harness.`);
+    }
+
+    // Model and thinking within that harness (I-078, I-198, I-217): the request's / definition's when
+    // the harness lists it → its sub-agent settings → the parent's (same harness only) → its defaults.
+    const { model, thinkingLevel } = await this.childModel(harness, caller, sameHarness, {
+      model: req.model ?? (def && def.model !== INHERIT ? def.model : undefined),
+      thinking: (req.thinking !== INHERIT ? req.thinking : undefined) ?? (def && def.thinking !== INHERIT ? def.thinking : undefined),
+    });
+
+    // Tools: the definition's (or the legacy request's), checked where the harness ignores unknown names.
+    const listed = resolved ? def!.tools : req.tools?.length ? req.tools : null;
+    if (listed?.length) this.checkTools(harness, scope.projectId, agent ?? name, listed);
+    const tools = listed?.length ? [...new Set([...listed, "report_done", "message_agent"])] : null;
 
     // No awaits from here until the record is registered, so parallel spawns can't overshoot.
     if (ctx.agents.findActive(caller.id, name)) throw new HttpError(409, `An agent named "${name}" is already running. Pick another name.`);
@@ -98,26 +139,44 @@ export class AgentTeam {
     if (active.filter((r) => !r.native).length >= MAX_ACTIVE_AGENTS) {
       throw new HttpError(429, `Limit reached: ${MAX_ACTIVE_AGENTS} active agents. Close one first (close_agent).`);
     }
-    // I-144: avoid names this chat's sub-agents (closed ones too) have already had.
-    const identity = pickAgentIdentity(active, ctx.agents.childrenOf(caller.id).map((r) => r.displayName));
-    const agent = req.agent?.trim() || null;
-    const tools = req.tools?.length ? [...new Set([...req.tools, "report_done", "message_agent"])] : null;
-    const systemPrompt = buildRolePrompt({
+    // I-144: avoid names this chat's sub-agents (closed ones too) have already had. I-218: the
+    // definition's nicknames, colour and icon.
+    const identity = pickAgentIdentity(
+      active,
+      ctx.agents.childrenOf(caller.id).map((r) => r.displayName),
+      Math.random,
+      def ? { nicknames: def.nicknames, color: def.color, icon: def.icon } : {},
+    );
+    const roleOptions = {
       name,
       displayName: identity.displayName,
       teammates: active.filter((r) => r.parentSessionId === caller.id && !r.native).map((r) => agentLabel(r.name, r.displayName)),
       agent,
-      agentPrompt: req.agentPrompt,
-    });
+    };
+    const systemPrompt = buildRolePrompt({ ...roleOptions, agentPrompt: resolved ? def!.prompt : req.agentPrompt });
+    const definition: SessionAgentDefinition | undefined = resolved
+      ? {
+          name: agent!,
+          description: def!.description,
+          prompt: def!.prompt,
+          rolePrompt: buildRolePrompt(roleOptions),
+          tools: def!.tools,
+          disallowedTools: def!.disallowedTools,
+          permissionMode: def!.permissionMode,
+          sandbox: def!.sandbox,
+          native: resolved.native,
+        }
+      : undefined;
     let record: AgentRecord | undefined;
     const detail = await this.sessions.createSession(
       caller.workspaceId,
-      { prompt: task, model, thinkingLevel },
+      { prompt: task, ...(model ? { model } : {}), ...(thinkingLevel ? { thinkingLevel } : {}) },
       {
         kind: "subagent",
         parentSessionId: caller.id,
         agentName: name,
         identity,
+        harness: harness.id,
         register: (session) => {
           record = ctx.agents.upsert({
             sessionId: session.id,
@@ -126,7 +185,10 @@ export class AgentTeam {
             name,
             displayName: identity.displayName,
             color: identity.color,
+            ...(identity.icon ? { icon: identity.icon } : {}),
+            harness: harness.id,
             agent,
+            ...(definition ? { definition } : {}),
             task,
             systemPrompt,
             tools,
@@ -150,21 +212,108 @@ export class AgentTeam {
     return { agent: agentInfo(ctx.agents.get(detail.session.id) ?? record!, detail.session.running) };
   }
 
-  /** `model` when the harness lists it, else `null` (a setting's model from another harness). */
-  private async availableModel(harness: AgentHarness, model: ModelRef | null): Promise<ModelRef | null> {
-    if (!model) return null;
-    const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    return models.some((m) => sameModel(m, model)) ? model : null;
+  /** What `list`/`resolve` need: the on/off switches and the harnesses offered here. */
+  private defsContext(): AgentDefsListContext {
+    return agentDefsListContext(this.ctx);
   }
 
-  /** `provider/id`, or a bare id matched against the harness's models. */
-  private async resolveModel(harness: AgentHarness, value: string): Promise<ModelRef> {
-    const slash = value.indexOf("/");
-    if (slash > 0 && slash < value.length - 1) return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+  /**
+   * The definition named `name` (I-218); `null` for an older agent-teams request that carries the
+   * definition itself (it then works as before). Unknown/unavailable otherwise: 400 naming the
+   * available ones.
+   */
+  private async resolveDefinition(name: string, scope: AgentDefsScope, req: SpawnAgentRequest): Promise<ResolvedAgentDef | null> {
+    try {
+      return await this.ctx.agentDefs.resolve(name, scope, this.defsContext());
+    } catch (err) {
+      if (req.agentPrompt?.trim() || req.tools?.length || req.model || req.thinking) return null;
+      throw err instanceof HttpError ? err : new HttpError(400, (err as Error).message);
+    }
+  }
+
+  /** A registered harness this device offers (installed and on), else 400 for the orchestrator. */
+  private childHarness(id: string, agent: string | null): AgentHarness {
+    const { harnesses } = this.ctx;
+    const offered = harnesses.offered().filter((h) => h.info.capabilities.subagents !== false);
+    const others = offered.length ? ` Available: ${offered.map((h) => `${h.id} (${h.info.label})`).join(", ")}.` : "";
+    const harness = harnesses.get(id);
+    const what = agent ? `the agent "${agent}"` : "the sub-agent";
+    if (!harness) throw new HttpError(400, `There's no agent harness "${id}" in Glade, so ${what} can't start.${others}`);
+    if (!harnesses.isOffered(harness)) {
+      throw new HttpError(400, `${harness.info.label} isn't available on ${this.ctx.deviceName()} (turned off or not installed), so ${what} can't start on it.${others}`);
+    }
+    return harness;
+  }
+
+  /**
+   * The child's model and thinking level (see {@link spawnAgent}). `undefined` = leave it to the
+   * new session's defaults (the harness's default model / thinking for new chats).
+   */
+  private async childModel(
+    harness: AgentHarness,
+    caller: Session,
+    sameHarness: boolean,
+    wanted: { model?: string; thinking?: string },
+  ): Promise<{ model?: ModelRef; thinkingLevel?: ThinkingLevel }> {
+    if (harness.info.capabilities.models === false) return {}; // ACP agents pick their own (I-119)
+    const settingsModels = agentModelSettings(this.ctx.store.getSettings(), harness.id);
     const models = await harness.listModels().catch(() => [] as ModelInfo[]);
-    const match = models.find((m) => m.id === value);
-    if (!match) throw new HttpError(400, `Unknown model "${value}"`);
-    return { provider: match.provider, id: match.id };
+    let model: ModelRef | undefined;
+    if (wanted.model) {
+      const match = findModel(models, wanted.model);
+      if (match) model = { provider: match.provider, id: match.id };
+      else this.ctx.options.log?.(`sub-agent: ${harness.info.label} has no model "${wanted.model}"; using its sub-agent default`);
+    }
+    model ??= (settingsModels.subagentModel && models.some((m) => sameModel(m, settingsModels.subagentModel)) ? settingsModels.subagentModel : undefined) ?? undefined;
+    if (!model && sameHarness && caller.model) model = caller.model;
+    let thinkingLevel = (wanted.thinking as ThinkingLevel | undefined) ?? settingsModels.subagentThinkingLevel ?? (sameHarness ? (caller.thinkingLevel ?? undefined) : undefined);
+    const info = model ? models.find((m) => sameModel(m, model)) : undefined;
+    if (thinkingLevel && info?.thinkingLevels?.length) thinkingLevel = clampThinkingLevel(info.thinkingLevels, thinkingLevel);
+    return { ...(model ? { model } : {}), ...(thinkingLevel ? { thinkingLevel } : {}) };
+  }
+
+  /**
+   * Refuse a tool list naming tools the harness doesn't have, on harnesses that silently ignore
+   * unknown names (pi's `--tools`): checked against the tools a session last reported, when known.
+   */
+  private checkTools(harness: AgentHarness, projectId: string | null, agent: string, tools: readonly string[]): void {
+    if (!STRICT_TOOL_HARNESSES.has(harness.id)) return;
+    const seen = this.ctx.agentDefs.tools(harness.id, projectId);
+    if (!seen.seenAt || !seen.tools.length) return;
+    const known = new Set([...seen.tools, ...GLADE_TOOL_NAMES]);
+    const missing = tools.filter((t) => !known.has(t));
+    if (missing.length) {
+      throw new HttpError(400, `Can't spawn "${agent}": ${harness.info.label} doesn't have the tools ${missing.join(", ")}. Install them (then start a new chat), or remove them from the agent.`);
+    }
+  }
+
+  /** The agents a session's spawn_agent lists (I-218): enabled and available in its project. */
+  async spawnableAgents(sessionId: string): Promise<SpawnableAgentList> {
+    const { ctx } = this;
+    const session = this.records.requireSession(sessionId);
+    const workspace = this.records.requireWorkspace(session.workspaceId);
+    const label = (id: string) => ctx.harnesses.get(id)?.info.label ?? id;
+    const defs = await ctx.agentDefs.list({ projectId: workspace.projectId, cwd: workspace.cwd }, this.defsContext()).catch((err: Error) => {
+      ctx.options.log?.(`agent definitions: listing failed: ${err.message}`);
+      return [] as AgentDef[];
+    });
+    const agents = defs.filter((d) => d.enabled && d.available && !d.shadowedBy).map((d) => spawnableAgent(d.effective, label));
+    const harnesses = ctx.harnesses
+      .offered()
+      .filter((h) => h.info.capabilities.subagents !== false || h.id === session.harness)
+      .map((h) => ({ id: h.id, label: h.info.label }));
+    return { agents, harnesses };
+  }
+
+  /** A session's harness reported its tools (I-218); Glade's own are left out. */
+  recordTools(sessionId: string, harnessId: string, tools: readonly string[], mcpServers: readonly string[] = []): void {
+    const session = this.records.requireSession(sessionId);
+    const projectId = this.ctx.store.getWorkspace(session.workspaceId)?.projectId ?? null;
+    const glade = new Set(GLADE_TOOL_NAMES);
+    const own = (t: string) => glade.has(t) || t.startsWith(`mcp__${GLADE_MCP_SERVER}__`);
+    const names = [...new Set(tools.filter((t) => typeof t === "string" && t && !own(t)))];
+    const servers = [...new Set(mcpServers.filter((s) => typeof s === "string" && s && s !== GLADE_MCP_SERVER))];
+    this.ctx.agentDefs.recordTools(harnessId, projectId, names, servers);
   }
 
   /** Message the parent (`to: "main"`, sub-agents only) or an active sub-agent of the team. */
@@ -180,6 +329,8 @@ export class AgentTeam {
     }
     const target = this.ctx.agents.findActive(self ? self.parentSessionId : caller.id, normalizeAgentName(req.to ?? ""));
     if (!target || target.sessionId === caller.id) throw new HttpError(404, `No active agent named "${req.to}".`);
+    // New work from its team: it may be reminded to report again.
+    if (target.reminded) this.ctx.agents.update(target.sessionId, { reminded: false });
     this.deliver(target.sessionId, messageText(self ?? MAIN_AGENT, req.text), "steer");
   }
 
@@ -193,6 +344,20 @@ export class AgentTeam {
       self: { sessionId: caller.id, role: self ? "subagent" : "main", name: self?.name ?? null },
       agents: team.map((r) => agentInfo(r, this.ctx.live.get(r.sessionId)?.running ?? null)),
     };
+  }
+
+  /**
+   * A sub-agent's turn ended without report_done (and it isn't closing): remind it once, so a
+   * finished agent reports and a stuck one asks. Not when the user typed in it, the turn was
+   * stopped or failed, a message for it is already on its way, or it was reminded already.
+   */
+  agentTurnEnded(sessionId: string, clean: boolean): void {
+    const { ctx } = this;
+    const record = ctx.agents.get(sessionId);
+    if (!record || record.native || record.closed || record.closing || record.doneAt !== null || record.userEngaged || record.reminded) return;
+    if (!clean || ctx.deliveries.has(sessionId)) return;
+    ctx.agents.update(sessionId, { reminded: true });
+    this.deliver(sessionId, REPORT_REMINDER, "followUp");
   }
 
   /**
@@ -297,4 +462,38 @@ export class AgentTeam {
   async settleAgentDeliveries(): Promise<void> {
     while (this.ctx.deliveries.size) await Promise.all([...this.ctx.deliveries.values()]);
   }
+}
+
+/** `provider/id` (first slash) or a bare id, matched against a harness's models. */
+export function findModel(models: readonly ModelInfo[], value: string): ModelInfo | undefined {
+  const slash = value.indexOf("/");
+  if (slash > 0 && slash < value.length - 1) {
+    const ref = { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+    const exact = models.find((m) => sameModel(m, ref));
+    if (exact) return exact;
+  }
+  return models.find((m) => m.id === value);
+}
+
+/** Tools that change files or run commands, per harness's naming (pi, Claude Code). */
+const WRITE_TOOLS = new Set(["write", "edit", "bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
+
+/**
+ * Whether an agent can't change anything (the "read-only" hint in spawn_agent's list): Codex's
+ * read-only sandbox, Claude Code's plan mode or a tool list without writing tools (also through
+ * `disallowedTools`), pi's tool list without write/edit/bash.
+ */
+export function isReadOnlyAgent(def: Pick<AgentDefFields, "harness" | "tools" | "disallowedTools" | "permissionMode" | "sandbox">): boolean {
+  if (def.sandbox) return def.sandbox === "read-only";
+  if (def.permissionMode === "plan") return true;
+  if (def.tools?.length) return !def.tools.some((t) => WRITE_TOOLS.has(t));
+  const denied = new Set(def.disallowedTools ?? []);
+  return ["Write", "Edit", "Bash"].every((t) => denied.has(t));
+}
+
+/** A definition as spawn_agent lists it: `- scout (Claude Code · haiku, read-only): …`. */
+export function spawnableAgent(def: AgentDefFields, label: (harnessId: string) => string): SpawnableAgent {
+  const harness = def.harness && def.harness !== INHERIT ? def.harness : null;
+  const model = def.model && def.model !== INHERIT ? def.model.slice(def.model.indexOf("/") + 1) : null;
+  return { name: def.name, description: def.description, harness, harnessLabel: harness ? label(harness) : null, model, readOnly: isReadOnlyAgent(def) };
 }

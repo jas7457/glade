@@ -52,6 +52,7 @@ import { migrateImagesPerChat, moveAttachmentsIntoChats, type ImageMigrationResu
 import { migrateSidebarOrder, SIDEBAR_ORDER_META_KEY } from "./migrate-sidebar-order.js";
 import {
   dropRemovedAgentSettings,
+  pruneAgentDefSwitches,
   dropRemovedAppearance,
   dropRemovedGeneral,
   legacyModelsOwner,
@@ -1117,8 +1118,10 @@ export class Store {
       const owner = legacyModelsOwner(stored);
       const current = migrateAgentModels(migrateSmallModel(stored), owner);
       // Removed settings (e.g. I-153's `sendKey`, also from an older client's patch) are dropped on write.
-      const merged = dropRemovedAgentSettings(
-        dropRemovedAppearance(dropRemovedGeneral(deepMerge(current as Settings, migrateAgentModels(patch, owner)) as DeepPartial<Settings>)),
+      const merged = pruneAgentDefSwitches(
+        dropRemovedAgentSettings(
+          dropRemovedAppearance(dropRemovedGeneral(deepMerge(current as Settings, migrateAgentModels(patch, owner)) as DeepPartial<Settings>)),
+        ),
       );
       this.putSettings(merged, Date.now());
       this.event("settings", null);

@@ -1,7 +1,8 @@
 /**
  * Settings screen (main pane). The section list lives in the sidebar (SettingsNav); this renders
  * the selected section at `/settings/:section`, or one agent's page at `/settings/agent/:harness`
- * (I-198; titled with the agent's name and a back button to Agents). The AI pages (host sections)
+ * (I-198; titled with the agent's name and a back button to Agents), or a sub-agent definition's
+ * page under Sub-agents (I-218, `SubagentEditor`). The AI pages (host sections)
  * say which device they belong to; another device's are view only (I-155): the panel's controls
  * are disabled (a disabled fieldset) and a note says where to change them. Local Models and Agents
  * are the exceptions (I-196, I-198): Load/Unload and agent updates work on any Mac, so those panels
@@ -25,11 +26,13 @@ import { AgentSettings, useHostCatalog } from "./AgentSettings";
 import { AgentPage } from "./AgentPage";
 import { CommandSettings } from "./CommandSettings";
 import { PromptSettings } from "./PromptSettings";
+import { SubagentSettings } from "./SubagentSettings";
 import { LocalModelSettings } from "./LocalModelSettings";
 
 const PANELS: Record<SettingsSection, () => preact.JSX.Element> = {
   general: GeneralSettings,
   agent: AgentSettings,
+  subagents: SubagentSettings,
   commands: CommandSettings,
   prompts: PromptSettings,
   "local-models": LocalModelSettings,
@@ -40,7 +43,16 @@ export function isSettingsSection(value: string | undefined): value is SettingsS
   return !!value && (SETTINGS_SECTIONS as readonly string[]).includes(value);
 }
 
-export function SettingsView({ section, agent }: { section: SettingsSection; agent?: { id: string; label: string; page: preact.ComponentChildren } }) {
+export interface SettingsSubpage {
+  /** Remembered for `/settings` (I-133; agent pages only, "" = not remembered). */
+  id: string;
+  label: string;
+  page: preact.ComponentChildren;
+  /** Where the back button goes (default the section). */
+  back?: string;
+}
+
+export function SettingsView({ section, agent }: { section: SettingsSection; agent?: SettingsSubpage }) {
   const navigate = useNavigate();
   const Panel = PANELS[section];
   const host = HOST_SECTIONS.includes(section);
@@ -59,7 +71,7 @@ export function SettingsView({ section, agent }: { section: SettingsSection; age
         <div class="mx-auto w-full max-w-[640px] px-8 pb-10">
           <div class={cn("flex items-center gap-1", host ? "mb-1" : "mb-5", agent && "-ml-8")}>
             {agent && (
-              <IconButton label={SECTION_INFO[section].label} class="w-7 shrink-0" onClick={() => navigate(routes.settings(section))}>
+              <IconButton label={SECTION_INFO[section].label} class="w-7 shrink-0" onClick={() => navigate(agent.back ?? routes.settings(section))}>
                 <ChevronLeft />
               </IconButton>
             )}

@@ -3,7 +3,8 @@
  * to sub-agents (the ext-kit agent-teams extension's Glade backend calls it). Every request carries
  * `Authorization: Bearer <GLADE_TOKEN>`; the token identifies the calling session (and so its
  * workspace). Behaviour lives in AppService; see docs/ARCHITECTURE.md → "Agent API".
- * `/chats/find|read|open` are the chat tools (I-091, `services/chat-tools.ts`).
+ * `/chats/find|read|open` are the chat tools (I-091, `services/chat-tools.ts`). `/definitions` lists the
+ * agents spawn_agent offers and `/tools` takes the harness's tool list (I-218, pi's extension).
  */
 import { Hono, type Context } from "hono";
 import type {
@@ -48,12 +49,28 @@ export function createAgentsRoutes(service: AppService, search?: SearchService):
     const body = await readBody<SpawnAgentRequest>(c);
     requireString(body.name, "name");
     requireString(body.task, "task");
-    for (const key of ["agent", "agentPrompt", "model", "thinking", "keepOpenReason"] as const) optional(body[key], "string", key);
+    for (const key of ["agent", "agentPrompt", "harness", "model", "thinking", "keepOpenReason"] as const) optional(body[key], "string", key);
     optional(body.keepOpen, "boolean", "keepOpen");
     if (body.tools !== undefined && (!Array.isArray(body.tools) || !body.tools.every((t) => typeof t === "string"))) {
       throw new HttpError(400, "tools must be an array of strings");
     }
     return c.json(await service.spawnAgent(session.id, body));
+  });
+
+  // Glade agents (I-218) ----------------------------------------------------------------------------
+
+  api.get("/definitions", async (c) => c.json(await service.spawnableAgents(caller(c).id)));
+
+  api.post("/tools", async (c) => {
+    const session = caller(c);
+    const body = await readBody<{ tools?: unknown; mcpServers?: unknown }>(c);
+    const strings = (value: unknown, name: string): string[] => {
+      if (value === undefined) return [];
+      if (!Array.isArray(value) || !value.every((t) => typeof t === "string")) throw new HttpError(400, `${name} must be an array of strings`);
+      return value;
+    };
+    service.recordAgentTools(session.id, strings(body.tools, "tools"), strings(body.mcpServers, "mcpServers"));
+    return c.body(null, 204);
   });
 
   api.post("/message", once, async (c) => {

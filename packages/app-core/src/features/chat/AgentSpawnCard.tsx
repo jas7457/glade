@@ -1,7 +1,8 @@
 /**
  * A sub-agent's card where it was spawned (I-084): the parent's `task` tool call, linked to its
  * agent by `linkAgentSpawns` (agent-spawns.ts), renders in the agent's colour as "Maya ·
- * reviewer", status marker, latest activity and elapsed time; collapsed by default. Expanded:
+ * reviewer" (I-218: its icon and "Brandon · scout" with an agent definition; a harness badge when
+ * it runs on another harness than this chat, I-217), status marker, latest activity and elapsed time; collapsed by default. Expanded:
  * the task, the latest activity while it runs and, once finished, its report (Markdown, the
  * same rendering as `AgentMessageCard`). "Open" shows it in the right-hand pane while it exists.
  * The agent's later messages to this chat are folded into the card (the transcript hides them).
@@ -29,6 +30,7 @@ import { useAgentLinks } from "./agent-links";
 import { spawnCardState, spawnedAgentName, type SpawnCardState, type SpawnLink } from "./agent-spawns";
 import { useSpawnLinks } from "./spawn-context";
 import { Markdown } from "./Markdown";
+import { AgentName } from "./AgentName";
 import { ToolCallRow } from "./tools/ToolViews";
 
 export function AgentSpawnCard({ part }: { part: ToolCallPart }) {
@@ -75,7 +77,8 @@ function SpawnCard({ part, link, session, transcript }: { part: ToolCallPart; li
   const callActive = isActiveStatus(part.status);
   const live = !!session && (session.status === "working" || session.status === "blocked" || session.agent?.status === "working");
   const now = useNow(live || (!session && callActive), session?.createdAt ?? link.ref.spawnedAt);
-  const state = spawnCardState({ link, session, transcript, description: part.call.input?.description, callActive, now });
+  const parentHarness = useSpawnLinks()?.parentHarness;
+  const state = spawnCardState({ link, session, transcript, description: part.call.input?.description, callActive, now, parentHarness });
   const links = useAgentLinks();
   const canOpen = !!session && !!links;
   const openAgent = () => session && links?.openSession?.(session.id);
@@ -103,8 +106,7 @@ function SpawnCard({ part, link, session, transcript }: { part: ToolCallPart; li
           <span class="flex size-3.5 shrink-0 items-center justify-center">
             <AgentStatusMarker kind={state.kind} />
           </span>
-          <span class="shrink-0 font-medium text-agent">{identity.displayName}</span>
-          {identity.role && <span class="shrink-0 text-fg-subtle">· {identity.role}</span>}
+          <AgentName identity={identity} envId={session?.environmentId} />
           {state.attention && <span class={cn("shrink-0", state.attention === "warning" ? "text-fg" : "text-danger")}>{state.label}</span>}
           <span class="min-w-0 flex-1 truncate text-fg-muted">{open ? "" : state.latest}</span>
           <span class="shrink-0 text-fg-subtle tabular-nums" title={state.label}>

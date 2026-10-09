@@ -53,8 +53,8 @@ import {
 } from "@glade/protocol";
 import { compactionNoticeText } from "../format.js";
 import { SessionEvents } from "../session-events.js";
-import type { HarnessSession, NativeSubagentEvent } from "../types.js";
-import { claudeToolAllowlist } from "./glade-tools.js";
+import type { HarnessSession, NativeSubagentEvent, SessionAgentDefinition } from "../types.js";
+import { GLADE_MCP_SERVER, claudeToolAllowlist } from "./glade-tools.js";
 import {
   PERMISSION_ALLOW,
   PERMISSION_ALWAYS,
@@ -100,6 +100,10 @@ export interface ClaudeSessionOptions {
   appendSystemPrompt?: string;
   /** Tool allowlist (pi names, sub-agent definitions). */
   tools?: string[];
+  /** The Glade agent definition this sub-agent runs as (I-218): Claude Code's `agents` + `agent`. */
+  agentDefinition?: SessionAgentDefinition;
+  /** Called with the first `system/init`'s tools and MCP server names (I-218). */
+  onTools?: (tools: string[], mcpServers: string[]) => void;
   /** Environment of the Claude Code process. */
   env: NodeJS.ProcessEnv;
   /** Glade's own tools for this session (in-process MCP server), read when a process starts. */
@@ -184,8 +188,10 @@ export class ClaudeSession implements HarnessSession {
     this.existing = options.existing;
     this.events = new SessionEvents(options.log);
     const model = claudeModelId(options.model) ? options.model : null;
-    this.modeChosen = isClaudePermissionMode(options.permissionMode);
-    const permissionMode = isClaudePermissionMode(options.permissionMode) ? options.permissionMode : "default";
+    // I-218: an agent definition's permission mode is the sub-agent's until the user picks another.
+    const chosen = isClaudePermissionMode(options.permissionMode) ? options.permissionMode : isClaudePermissionMode(options.agentDefinition?.permissionMode) ? options.agentDefinition.permissionMode : null;
+    this.modeChosen = chosen !== null;
+    const permissionMode = chosen ?? "default";
     this.state = {
       ...defaultSessionState(),
       model,
@@ -489,6 +495,11 @@ export class ClaudeSession implements HarnessSession {
     const gladeTools = this.options.gladeTools?.() ?? [];
     const mcpServers = gladeTools.length ? { glade: await sdk.mcpServer("glade", gladeTools) } : undefined;
     const canUseTool: CanUseTool = (toolName, input, opts) => this.onCanUseTool(toolName, input, opts);
+    // I-218: run as the agent definition (its prompt replaces Claude Code's; the role prompt is appended).
+    const agent = claudeAgentOptions(this.options.agentDefinition, gladeTools.map((t) => t.name), cwd);
+    const append = agent.agent ? this.options.agentDefinition!.rolePrompt : this.options.appendSystemPrompt;
+    // `tools` = Claude Code's built-in set; MCP tools are restricted by the agent's own list.
+    const baseTools = this.options.tools?.length ? claudeToolAllowlist(this.options.tools).filter((t) => !t.startsWith("mcp__")) : [];
     const options: ClaudeOptions = {
       cwd,
       pathToClaudeCodeExecutable: executable,
@@ -499,14 +510,17 @@ export class ClaudeSession implements HarnessSession {
       ...(resume ? { resume: this.sessionRef } : { sessionId: this.sessionRef }),
       ...(modelId ? { model: modelId } : {}),
       ...thinkingOptions(this.state.thinkingLevel, findClaudeModel(models, modelId)),
-      systemPrompt: { type: "preset", preset: "claude_code", ...(this.options.appendSystemPrompt ? { append: this.options.appendSystemPrompt } : {}) },
+      systemPrompt: { type: "preset", preset: "claude_code", ...(append ? { append } : {}) },
       canUseTool,
       // I-174: a saved/picked mode is passed; otherwise Claude Code starts in its own default.
       ...(this.modeChosen && isClaudePermissionMode(this.state.permissionMode) ? { permissionMode: this.state.permissionMode } : {}),
       // Bypass stays selectable mid-run unless Claude Code's settings turn it off.
       ...(this.bypassDisabled ? {} : { allowDangerouslySkipPermissions: true }),
-      ...(mcpServers ? { mcpServers } : {}),
-      ...(this.options.tools?.length ? { tools: claudeToolAllowlist(this.options.tools) } : {}),
+      // Glade's own tools (report_done, message_agent, spawn_agent, chat tools) never ask: they act
+      // on Glade, not on the machine, and pi/Codex run them without a permission card too.
+      ...(mcpServers ? { mcpServers, allowedTools: [`mcp__${GLADE_MCP_SERVER}`] } : {}),
+      ...(baseTools.length ? { tools: baseTools } : {}),
+      ...agent,
       ...this.options.limits,
       stderr: (data) => {
         this.stderr = (this.stderr + data).slice(-2000);
@@ -604,10 +618,27 @@ export class ClaudeSession implements HarnessSession {
     }
   }
 
+  /** The first init's tools and MCP servers (I-218: the agent editor's tool picker). */
+  private toolsReported = false;
+  private reportTools(message: ClaudeWire): void {
+    if (this.toolsReported || !this.options.onTools) return;
+    this.toolsReported = true;
+    const tools = Array.isArray(message.tools) ? message.tools.filter((t): t is string => typeof t === "string") : [];
+    const servers = Array.isArray(message.mcp_servers)
+      ? message.mcp_servers.map((s) => (s && typeof s === "object" ? (s as { name?: unknown }).name : null)).filter((n): n is string => typeof n === "string")
+      : [];
+    try {
+      this.options.onTools(tools, servers);
+    } catch (err) {
+      this.options.log?.(`claude: recording tools failed: ${(err as Error).message}`);
+    }
+  }
+
   private onSystem(message: ClaudeWire): void {
     switch (message.subtype) {
       case "init": {
         this.confirmed = true;
+        this.reportTools(message);
         const model = typeof message.model === "string" ? message.model : null;
         if (!this.state.model && model) void this.adoptModel(model);
         this.adoptMode(message.permissionMode);
@@ -1046,4 +1077,38 @@ export function friendlyError(text: string): string {
     return "Claude Code isn't logged in. Run `claude` in a terminal and log in (/login), then try again.";
   }
   return text;
+}
+
+/**
+ * Claude Code agent-file fields (I-218: a discovered `.claude/agents/*.md`, or one a Glade agent
+ * extends) passed through in the SDK's `AgentDefinition`. Glade handles the rest itself: model and
+ * effort (the chat's model/thinking), permission mode (the chat's mode), tools. `hooks` and other
+ * keys the SDK's `AgentDefinition` doesn't take are dropped.
+ */
+export const CLAUDE_AGENT_NATIVE_KEYS = ["mcpServers", "skills", "maxTurns", "memory", "initialPrompt", "criticalSystemReminder_EXPERIMENTAL"] as const;
+
+/**
+ * SDK options that run the session as a Glade agent definition (I-218): `agents: { name: def }` +
+ * `agent: name`, Claude Code's own way of running a custom agent as the main thread. Its prompt
+ * replaces Claude Code's system prompt (as with `claude --agent`), so the folder is named in it;
+ * Glade's role prompt still goes in through `systemPrompt.append`, and Glade's MCP tools are added
+ * to its tool allowlist. A definition without a prompt keeps Claude Code's prompt: then only its
+ * tools apply (through `tools` / `disallowedTools`).
+ */
+export function claudeAgentOptions(def: SessionAgentDefinition | undefined, gladeTools: readonly string[], cwd: string): Pick<ClaudeOptions, "agent" | "agents" | "disallowedTools"> {
+  if (!def) return {};
+  const glade = gladeTools.map((name) => `mcp__${GLADE_MCP_SERVER}__${name}`);
+  const tools = def.tools?.length ? [...new Set([...claudeToolAllowlist(def.tools), ...glade])] : undefined;
+  const disallowed = def.disallowedTools?.length ? def.disallowedTools : undefined;
+  if (!def.prompt.trim()) return disallowed ? { disallowedTools: disallowed } : {};
+  const native: Record<string, unknown> = {};
+  for (const key of CLAUDE_AGENT_NATIVE_KEYS) if (def.native?.claude?.[key] !== undefined) native[key] = def.native.claude[key];
+  const definition = {
+    ...native,
+    description: def.description || def.name,
+    prompt: `${def.prompt.trim()}\n\nYou are working in ${cwd}.`,
+    ...(tools ? { tools } : {}),
+    ...(disallowed ? { disallowedTools: disallowed } : {}),
+  } as NonNullable<ClaudeOptions["agents"]>[string];
+  return { agents: { [def.name]: definition }, agent: def.name, ...(disallowed ? { disallowedTools: disallowed } : {}) };
 }

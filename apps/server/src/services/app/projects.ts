@@ -15,6 +15,7 @@ import type { AppContext } from "./context.js";
 import { HttpError } from "./errors.js";
 import type { Folders } from "./folders.js";
 import { dropProjectPrompts } from "./prompts.js";
+import { dropProjectAgentDefs } from "../agent-defs/switches.js";
 import type { Records } from "./records.js";
 import { sameIdSet, type Workspaces } from "./workspaces.js";
 
@@ -165,6 +166,7 @@ export class Projects {
     this.folders.deleteProjectFolders(id); // its folders (I-165)
     this.ctx.store.removeProject(id);
     dropProjectPrompts(this.ctx, id); // its saved prompts (I-098) go with it
+    dropProjectAgentDefs(this.ctx, id); // and its agent switches (I-218)
     this.ctx.broadcast({ type: "project_removed", projectId: id });
   }
 }

@@ -55,7 +55,7 @@ import type {
   WorktreeRemoval,
   WorktreeStatus,
 } from "@glade/protocol";
-import type { SessionText } from "../harness/types.js";
+import type { SessionText, SpawnableAgentList } from "../harness/types.js";
 import { buildAgentCatalog } from "../harness/agent-catalog.js";
 import { AgentTeam } from "./app/agent-team.js";
 import { createAppContext, type AppContext, type AppServiceOptions, type Listener } from "./app/context.js";
@@ -66,6 +66,8 @@ import { Folders } from "./app/folders.js";
 import { Bookmarks } from "./app/bookmarks.js";
 import { sanitizeSettingsPatch } from "./app/prompts.js";
 import { sanitizeAgentsPatch } from "./app/agent-settings.js";
+import { agentDefsListContext, sanitizeAgentDefsPatch } from "./agent-defs/switches.js";
+import type { AgentDefsListContext, AgentDefsScope, AgentDefsService } from "./agent-defs/service.js";
 import { Records } from "./app/records.js";
 import { SessionActions } from "./app/session-actions.js";
 import { SideQuestions } from "./app/side-questions.js";
@@ -170,6 +172,9 @@ export class AppService {
     this.pool = new LivePool(ctx, this.records, this.transcripts, {
       closeAgentSession: (id) => this.team.closeAgentSession(id),
       deliver: (targetId, text, behavior) => this.team.deliver(targetId, text, behavior),
+      spawnableAgents: (id) => this.team.spawnableAgents(id),
+      agentTurnEnded: (id, clean) => this.team.agentTurnEnded(id, clean),
+      recordTools: (id, harness, tools, mcp) => this.team.recordTools(id, harness, tools, mcp),
     });
     this.leaseSync = new LeaseSync(ctx, this.records, this.pool);
     this.titles = new Titles(ctx, this.records, this.transcripts, { updateWorkspace: (id, req) => this.workspaces.updateWorkspace(id, req) });
@@ -411,9 +416,36 @@ export class AppService {
   updateSettings(patch: DeepPartial<Settings>): Settings {
     validateLocalModelsPatch(patch);
     validateModelsPatch(patch);
-    const settings = this.ctx.store.updateSettings(sanitizeAgentsPatch(sanitizeSettingsPatch(patch)));
+    const projectIds = new Set(this.ctx.store.listProjects().map((p) => p.id));
+    const settings = this.ctx.store.updateSettings(sanitizeAgentDefsPatch(sanitizeAgentsPatch(sanitizeSettingsPatch(patch)), projectIds));
     this.ctx.broadcast({ type: "settings", settings });
     return settings;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Glade agents (I-218): the service, plus the project folder and harnesses it needs
+  // -------------------------------------------------------------------------------------------
+
+  get agentDefs(): AgentDefsService {
+    return this.ctx.agentDefs;
+  }
+
+  /** The switches and offered harnesses for `agentDefs.list`/`resolve`. */
+  agentDefsContext(): AgentDefsListContext {
+    return agentDefsListContext(this.ctx);
+  }
+
+  /** A project's scope (404 unknown; a group project, I-213, has no folder: `cwd` null); `null` = none. */
+  agentDefsScope(projectId: string | null): AgentDefsScope {
+    if (!projectId) return { projectId: null, cwd: null };
+    const project = this.ctx.store.listProjects().find((p) => p.id === projectId);
+    if (!project) throw new HttpError(404, "Unknown project");
+    return { projectId, cwd: project.path ?? null };
+  }
+
+  /** One-shot quick-task completion where no folder matters (the scratch folder). */
+  completeQuickAnywhere(prompt: string): Promise<string | null> {
+    return this.completeQuick(prompt, this.ctx.options.scratchDir);
   }
 
   /** The installed harnesses, the default first (`GET /api/harnesses`, I-065). */
@@ -669,6 +701,17 @@ export class AppService {
     return this.team.listAgents(callerId);
   }
 
+  /** The agents the caller's spawn_agent can start (I-218; the pi extension asks at load). */
+  spawnableAgents(callerId: string): Promise<SpawnableAgentList> {
+    return this.team.spawnableAgents(callerId);
+  }
+
+  /** The caller's harness reported its tools (I-218: pi's extension). */
+  recordAgentTools(callerId: string, tools: string[], mcpServers: string[]): void {
+    const session = this.records.requireSession(callerId);
+    this.team.recordTools(callerId, session.harness, tools, mcpServers);
+  }
+
   closeAgent(callerId: string, name: string): Promise<CloseAgentResponse> {
     return this.team.closeAgent(callerId, name);
   }
@@ -722,6 +765,7 @@ export class AppService {
     for (const off of this.unwatch.splice(0)) off();
     ctx.usage?.stop();
     this.localModels.stop();
+    ctx.agentDefs.flush();
     ctx.agentTimers.clearAll();
     ctx.agents.flush();
     await Promise.all([...ctx.live.keys()].map((id) => this.pool.closeLive(id, { quiet: true })));

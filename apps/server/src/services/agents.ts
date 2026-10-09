@@ -10,6 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { agentOpenNote, formatAgentExited, formatAgentFinished, formatAgentMessage } from "@glade/protocol";
 import type { AgentInfo, AgentStatus, SessionAgentState, SpawnedAgentRef } from "@glade/protocol";
+import type { SessionAgentDefinition } from "../harness/types.js";
 import type { Store } from "../store/store.js";
 
 /** The name a sub-agent uses for its parent. */
@@ -30,7 +31,14 @@ export interface AgentRecord {
   /** Fun display name and colour key (I-084); absent on records from before. */
   displayName?: string;
   color?: string;
+  /** Icon from its agent definition (I-218). */
+  icon?: string;
+  /** The harness it runs on (I-217; may differ from its parent's). Absent on records from before. */
+  harness?: string;
+  /** Agent definition name, if any. */
   agent: string | null;
+  /** The resolved agent definition applied at each start (I-218); absent: none, or a legacy one. */
+  definition?: SessionAgentDefinition;
   task: string;
   /** Appended to its system prompt (built once at spawn). */
   systemPrompt: string;
@@ -44,6 +52,11 @@ export interface AgentRecord {
   result: string | null;
   /** Stops when its current turn ends. */
   closing: boolean;
+  /**
+   * It was reminded to call report_done after a turn ended without it (once per spawn, or per
+   * message from its team since).
+   */
+  reminded?: boolean;
   /** Finished for good (closed, or its process crashed); it no longer counts as active. */
   closed: boolean;
   /**
@@ -181,7 +194,7 @@ export function buildRolePrompt(opts: {
   return [
     "# agent-teams: you are a sub-agent",
     "",
-    `You are "${opts.name}"${shownAs}, a sub-agent spawned by the main Pi session ("${MAIN_AGENT}") to handle one delegated task.`,
+    `You are "${opts.name}"${shownAs}, a sub-agent spawned by the main session ("${MAIN_AGENT}") to handle one delegated task.`,
     "You run in your own tab in Glade. The user can watch you and may type to you directly; treat their messages as authoritative.",
     "",
     "- Your task is the first user message. Stay within its scope.",
@@ -213,6 +226,10 @@ export function exitedText(agent: string | Pick<AgentRecord, "name" | "displayNa
   return typeof agent === "string" ? formatAgentExited(agent, reason) : formatAgentExited(agent.name, reason, agent.displayName);
 }
 
+/** Sent (once) to a sub-agent whose turn ended without report_done. */
+export const REPORT_REMINDER =
+  "[agent-teams] Your turn ended without report_done. If your task is finished, call report_done with your result now; if you're blocked, message_agent main with the question.";
+
 /** After a result, tell the parent what happens to the sub-agent so it acts on it. */
 function openNote(record: AgentRecord): string {
   return agentOpenNote({
@@ -236,6 +253,8 @@ export function agentInfo(record: AgentRecord, running: boolean | null): AgentIn
     name: record.name,
     ...(record.displayName ? { displayName: record.displayName } : {}),
     ...(record.color ? { color: record.color } : {}),
+    ...(record.icon ? { icon: record.icon } : {}),
+    ...(record.harness ? { harness: record.harness } : {}),
     sessionId: record.sessionId,
     agent: record.agent,
     task: record.task,
@@ -269,6 +288,9 @@ export function spawnedAgentRef(record: AgentRecord): SpawnedAgentRef {
   const ref: SpawnedAgentRef = { name: record.name, sessionId: record.sessionId, spawnedAt: record.spawnedAt };
   if (record.displayName) ref.displayName = record.displayName;
   if (record.color) ref.color = record.color;
+  if (record.icon) ref.icon = record.icon;
+  if (record.agent) ref.agent = record.agent;
+  if (record.harness) ref.harness = record.harness;
   if (record.toolCallId) ref.toolCallId = record.toolCallId;
   if (record.native) ref.native = true;
   return ref;

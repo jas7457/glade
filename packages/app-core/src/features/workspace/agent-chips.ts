@@ -14,6 +14,7 @@ import { sessionAgentIdentity, type AgentIdentityView } from "@glade/app-core/fe
 import { formatDuration } from "@glade/app-core/features/chat/duration";
 import { summarizeToolCall } from "@glade/app-core/features/chat/tools/summaries";
 import { homeOf } from "@glade/app-core/lib/paths";
+import { harnessName } from "@glade/app-core/state/harnesses";
 import { sessionsById, workspacesById } from "@glade/app-core/state/store";
 
 /** The folder a session's chat works in (its workspace's cwd), for relative tool paths (I-158). */
@@ -60,7 +61,8 @@ export interface AgentChip {
   result: string | null;
 }
 
-type ChipSession = Pick<SessionSummary, "id" | "title" | "titleSource" | "agentName" | "agentDisplayName" | "agentColor" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model">;
+type ChipSession = Pick<SessionSummary, "id" | "title" | "titleSource" | "agentName" | "agentDisplayName" | "agentColor" | "status" | "agent" | "createdAt" | "lastActivityAt" | "lastRunFailed" | "model"> &
+  Partial<Pick<SessionSummary, "agentIcon" | "harness" | "parentSessionId">>;
 
 export function chipKind(session: ChipSession): ChipKind {
   const agent = session.agent;
@@ -236,13 +238,15 @@ export function taskSummary(name: string, task: string | null | undefined): stri
 
 /**
  * The chip's tooltip (I-148): "<Name> · <summary> — <status> · <time> · <model>", then what it's
- * doing ("Now: …" while it runs, else "Latest: …"), then the click hint.
+ * doing ("Now: …" while it runs, else "Latest: …"), the harness when it isn't the parent's
+ * (I-217), then the click hint.
  */
 export function chipTooltip(chip: AgentChip, selected: boolean): string {
   const live = chip.kind === "working" || chip.kind === "blocked" || chip.kind === "closing";
   return [
     `${chip.identity.displayName} · ${chip.summary} — ${chip.label} · ${formatDuration(chip.elapsedMs)}${chip.model ? ` · ${chip.model}` : ""}`,
     chip.activity && `${live ? "Now" : "Latest"}: ${chip.activity}`,
+    chip.identity.harness && `Runs on ${harnessName(chip.identity.harness)}`,
     selected ? "Click to hide" : "Click to open",
   ]
     .filter(Boolean)

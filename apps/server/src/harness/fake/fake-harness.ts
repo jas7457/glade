@@ -196,6 +196,8 @@ export function fakeSideAnswer(question: string): string {
 export interface FakeHarnessOptions {
   /** Harness id (default "fake"); tests register several fakes with different ids (I-064). */
   id?: string;
+  /** Its model list (default {@link FAKE_MODELS}; tests of sub-agents on another harness, I-217). */
+  models?: ModelInfo[];
   label?: string;
   /** Overrides of {@link FAKE_CAPABILITIES}. */
   capabilities?: Partial<HarnessCapabilities>;
@@ -253,6 +255,7 @@ export class FakeHarness implements AgentHarness {
     options: FakeHarnessOptions = {},
   ) {
     this.id = options.id ?? "fake";
+    this.models = options.models ?? FAKE_MODELS;
     this.permissionModes = options.permissionModes ?? [];
     this.defaultPermissionMode = options.defaultPermissionMode ?? this.permissionModes[0]?.id ?? null;
     const modes = this.permissionModes.length ? { permissionModes: true } : {};
@@ -263,6 +266,11 @@ export class FakeHarness implements AgentHarness {
 
   /** With {@link FakeHarnessOptions.usageLimits}. */
   declare getUsageLimits?: () => Promise<UsageLimits | null>;
+
+  /** See {@link FakeHarnessOptions.models}. */
+  readonly models: ModelInfo[];
+  /** Options of every session opened, in order (tests). */
+  readonly opened: OpenSessionOptions[] = [];
 
   /** See {@link FakeHarnessOptions.permissionModes}. */
   readonly permissionModes: PermissionModeInfo[];
@@ -276,11 +284,11 @@ export class FakeHarness implements AgentHarness {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    return FAKE_MODELS;
+    return this.models;
   }
 
   async getDefaults(): Promise<HarnessDefaults> {
-    return { model: { provider: FAKE_MODELS[0]!.provider, id: FAKE_MODELS[0]!.id }, thinkingLevel: null };
+    return { model: { provider: this.models[0]!.provider, id: this.models[0]!.id }, thinkingLevel: null };
   }
 
   async listFolderCommands(): Promise<SlashCommand[]> {
@@ -288,6 +296,7 @@ export class FakeHarness implements AgentHarness {
   }
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
+    this.opened.push(options);
     let ref = options.sessionRef;
     if (!ref || !this.sessions.has(ref)) {
       // Unique across restarts too: chats outlive the harness's memory (the store keeps them, I-121).
@@ -298,7 +307,7 @@ export class FakeHarness implements AgentHarness {
         totalTokens: 0,
         cost: 0,
         title: null,
-        model: options.model ?? { provider: FAKE_MODELS[0]!.provider, id: FAKE_MODELS[0]!.id },
+        model: options.model ?? { provider: this.models[0]!.provider, id: this.models[0]!.id },
         thinkingLevel: options.thinkingLevel ?? "medium",
         permissionMode: this.permissionModes.some((m) => m.id === options.permissionMode) ? options.permissionMode! : this.defaultPermissionMode,
       });
@@ -363,7 +372,7 @@ export class FakeSession implements HarnessSession {
     private readonly env: Record<string, string> = {},
   ) {
     const stored = this.stored;
-    const model = FAKE_MODELS.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
+    const model = harness.models.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
     this.state = {
       ...defaultSessionState(),
       model: stored.model,
@@ -377,7 +386,7 @@ export class FakeSession implements HarnessSession {
   /** `contextUsage` + `sessionStats` derived from the stored counters. */
   private statsState(): Pick<SessionState, "contextUsage" | "sessionStats"> {
     const stored = this.stored;
-    const info = FAKE_MODELS.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
+    const info = this.harness.models.find((m) => m.provider === stored.model?.provider && m.id === stored.model?.id);
     const contextWindow = info?.contextWindow ?? 200_000;
     const tokens = stored.contextTokens === null ? null : Math.min(stored.contextTokens, contextWindow);
     return {
@@ -616,7 +625,7 @@ export class FakeSession implements HarnessSession {
   }
 
   async setModel(model: ModelRef): Promise<void> {
-    const info = FAKE_MODELS.find((m) => m.provider === model.provider && m.id === model.id);
+    const info = this.harness.models.find((m) => m.provider === model.provider && m.id === model.id);
     if (!info) throw new Error(`Unknown model ${model.provider}/${model.id}`);
     this.stored.model = model;
     const thinkingLevel = clampThinkingLevel(info.thinkingLevels, this.state.thinkingLevel);

@@ -254,6 +254,8 @@ export class ClaudeHarness implements AgentHarness {
 
   async openSession(options: OpenSessionOptions): Promise<HarnessSession> {
     const env = options.env ?? {};
+    // I-218: the agents spawn_agent lists (main sessions), read once per session.
+    const agents = options.spawnableAgents ? await options.spawnableAgents().catch(() => null) : null;
     const session = new ClaudeSession({
       sdk: this.sdk,
       executable: () => this.executable(),
@@ -266,8 +268,10 @@ export class ClaudeHarness implements AgentHarness {
       permissionSettings: this.options.permissionSettings ?? (() => readClaudePermissionSettings(options.cwd)),
       ...(options.appendSystemPrompt ? { appendSystemPrompt: options.appendSystemPrompt } : {}),
       ...(options.tools ? { tools: options.tools } : {}),
+      ...(options.agentDefinition ? { agentDefinition: options.agentDefinition } : {}),
+      ...(options.onTools ? { onTools: options.onTools } : {}),
       env: this.childEnv(),
-      gladeTools: () => gladeToolSpecs({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, fetch: this.options.fetch }),
+      gladeTools: () => gladeToolSpecs({ env, subagents: this.options.subagents?.() ?? true, cwd: options.cwd, agents, harness: this.id, fetch: this.options.fetch }),
       models: () => this.claudeModels(),
       folderCommands: () => this.listFolderCommands(options.cwd),
       ...(this.options.limits ? { limits: this.options.limits } : {}),

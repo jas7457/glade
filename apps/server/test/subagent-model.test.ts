@@ -4,6 +4,7 @@
  * `settings.models.agents.<harness>`) → the parent's.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SpawnAgentRequest } from "@glade/protocol";
 import { createTestEnv, flush, newChat, type TestEnv } from "./helpers.js";
 
 let env: TestEnv;
@@ -19,7 +20,7 @@ afterEach(async () => {
 async function spawnFrom(extra: Record<string, unknown> = {}) {
   const chat = await newChat(env, { prompt: "orchestrate", model: { provider: "fake", id: "smart" }, thinkingLevel: "high" });
   await flush();
-  const { agent } = await env.service.spawnAgent(chat.sid, { name: "helper", task: "do it", ...extra });
+  const { agent } = await env.service.spawnAgent(chat.sid, { name: "helper", task: "do it", ...extra } as SpawnAgentRequest);
   return env.store.getSession(agent.sessionId)!;
 }
 
@@ -30,7 +31,10 @@ describe("sub-agent model and thinking (I-078)", () => {
 
   it("uses the settings over the parent's", async () => {
     env.service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } } } });
-    expect(await spawnFrom()).toMatchObject({ model: { provider: "fake", id: "fast" }, thinkingLevel: "low" });
+    // Clamped to the model's levels (I-217): Fake Fast only has "off".
+    expect(await spawnFrom()).toMatchObject({ model: { provider: "fake", id: "fast" }, thinkingLevel: "off" });
+    env.service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "fake", id: "smart" } } } } });
+    expect(await spawnFrom({ name: "helper2" })).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "low" });
   });
 
   it("an explicit model/thinking in the request wins over the settings", async () => {

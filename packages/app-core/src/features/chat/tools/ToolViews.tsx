@@ -16,7 +16,7 @@ import { useState } from "preact/hooks";
 import { ChevronRight, CircleX, Layers, type LucideProps } from "lucide-preact";
 import type { ToolKind } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
-import { Spinner } from "@glade/app-core/ui";
+import { AgentIconGlyph, Spinner } from "@glade/app-core/ui";
 import { formatDuration, groupDuration, toolDuration, useNow } from "../duration";
 import { isActiveStatus, outcomeCounts, toolOutcome, type GroupItem, type ToolCallPart, type ToolGroupPart } from "../grouping";
 import { Markdown } from "../Markdown";
@@ -264,6 +264,7 @@ export const ToolGroup = memo(function ToolGroup({ part, defaultOpen = false }: 
 function AgentSubject({ agent, text }: { agent: AgentIdentityView; text?: string }) {
   return (
     <span data-agent-color={agent.color}>
+      {agent.icon && <AgentIconGlyph icon={agent.icon} size={11} class="mr-1 inline align-[-1px] text-agent" />}
       <span class="font-medium text-agent">{agent.displayName}</span>
       {agent.role && <span class="text-fg-subtle"> · {agent.role}</span>}
       {text && <span class="text-fg">: {truncate(text)}</span>}

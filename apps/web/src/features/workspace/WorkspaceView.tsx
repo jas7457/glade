@@ -32,13 +32,14 @@ import { bookmarkShortcutFor, paneShortcutFor, TAB_SHORTCUTS, TERMINAL_SHORTCUTS
 import { markSessionRead, markSessionUnread, renameFromSession } from "@glade/app-core/state/actions";
 import { mainSessionsFor, sessions, workspacesById } from "@glade/app-core/state/store";
 import { bookmarkListOpen, toggleLatestReplyBookmark } from "@glade/app-core/state/bookmarks";
-import { Button, IconButton, Menu, MenuItem, MenuSeparator, SplitView, TabStrip, Tooltip, formatShortcut, type TabStripTab } from "@glade/app-core/ui";
+import { AgentIconGlyph, Button, IconButton, Menu, MenuItem, MenuSeparator, SplitView, TabStrip, Tooltip, formatShortcut, type TabStripTab } from "@glade/app-core/ui";
 import type { TerminalTab } from "@glade/protocol";
 import { TerminalView, terminalTitles } from "@/features/terminal";
 import { ChatHeader } from "@/features/chat/ChatHeader";
 import { ChatPane } from "@/features/chat/ChatView";
 import { AgentLinksContext, type AgentLinks } from "@glade/app-core/features/chat/agent-links";
 import { sessionAgentIdentity } from "@glade/app-core/features/chat/agent-identity";
+import { agentHarnessNote } from "@glade/app-core/features/chat/AgentName";
 import { ChangesPanel, useChangesAutoRefresh } from "@/features/changes";
 import { AgentBar } from "./AgentBar";
 import { SubagentStrip } from "@glade/app-core/features/workspace/SubagentStrip";
@@ -258,6 +259,7 @@ export function WorkspaceView({ workspaceId, sessionId, terminalId = null }: Wor
       title: identity && !renamed ? identity.displayName : tabTitle(s),
       subtitle: identity && !renamed ? ((retitled ? s.title : identity.role) ?? undefined) : undefined,
       agentColor: identity?.color,
+      titleIcon: identity?.icon ? <AgentIconGlyph icon={identity.icon} /> : undefined,
       status: s.status,
       failed: s.lastRunFailed,
       badge:
@@ -266,7 +268,7 @@ export function WorkspaceView({ workspaceId, sessionId, terminalId = null }: Wor
         ) : agent?.kind === "closed" ? (
           <CircleSlash aria-label="Stopped" />
         ) : null,
-      tooltip: agent?.tooltip,
+      tooltip: [agent?.tooltip, identity && agentHarnessNote(identity, s.environmentId)].filter(Boolean).join("\n") || undefined,
       closable,
       contextMenu: (
         <>

@@ -23,7 +23,7 @@ import {
 } from "@glade/protocol";
 import { CHIP_LABELS, chipKind, latestActivity, sessionCwd, type ChipKind } from "@glade/app-core/features/workspace/agent-chips";
 import { agentPreview } from "./AgentMessageCard";
-import { agentIdentity, sessionAgentIdentity, type AgentIdentityView } from "./agent-identity";
+import { refAgentIdentity, sessionAgentIdentity, type AgentIdentityView } from "./agent-identity";
 
 export interface LinkedAgentMessage extends AgentMessage {
   /** The transcript message it came from. */
@@ -136,13 +136,13 @@ export interface SpawnCardInput {
   /** The spawn call is still streaming / running. */
   callActive: boolean;
   now: number;
+  /** The chat's harness (I-217: the card names the agent's harness when it differs). */
+  parentHarness?: string | null;
 }
 
-export function spawnCardState({ link, session, transcript, description, callActive, now }: SpawnCardInput): SpawnCardState {
+export function spawnCardState({ link, session, transcript, description, callActive, now, parentHarness }: SpawnCardInput): SpawnCardState {
   const { ref, messages } = link;
-  const identity = session
-    ? sessionAgentIdentity(session)
-    : agentIdentity({ id: ref.sessionId, name: ref.name, displayName: ref.displayName, color: ref.color });
+  const identity = session ? sessionAgentIdentity(session, parentHarness) : refAgentIdentity(ref, parentHarness);
   const last = messages.at(-1);
   const finished = [...messages].reverse().find((m) => m.kind === "finished");
   const end = [...messages].reverse().find((m) => m.kind === "finished" || m.kind === "exited");

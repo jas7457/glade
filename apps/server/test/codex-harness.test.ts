@@ -647,6 +647,33 @@ describe("Codex sessions", () => {
     expect(session.getState()).toMatchObject({ permissionMode: "full-access", thinkingLevel: "xhigh" });
   });
 
+  it("applies a sub-agent's agent definition: its sandbox as the mode, its prompt, native config keys (I-218)", async () => {
+    const codex = new FakeCodexAppServer({ onTurn: (t) => t.reply("ok") });
+    const h = harness(codex);
+    const agentDefinition = {
+      name: "oracle",
+      description: "Second opinion.",
+      prompt: "Be brief.",
+      rolePrompt: "role",
+      tools: null,
+      disallowedTools: null,
+      permissionMode: null,
+      sandbox: "read-only",
+      native: { codex: { mcp_servers: { docs: { command: "docs-mcp" } }, model_verbosity: "low", nickname_candidates: ["Ada"], hooks: "x" } },
+    };
+    const session = (await h.openSession({ cwd, sessionRef: null, appendSystemPrompt: "role\n\n## Agent role: oracle\n\nBe brief.", agentDefinition })) as CodexSession;
+    open.push(session);
+    expect(session.getState().permissionMode).toBe("read-only");
+    const start = codex.sent("thread/start")[0]!;
+    expect(start).toMatchObject({ sandbox: "read-only", approvalPolicy: "on-request" });
+    expect(start.developerInstructions).toMatch(/## Agent role: oracle\n\nBe brief\./);
+    expect(start.config).toEqual({ mcp_servers: { docs: { command: "docs-mcp" } }, model_verbosity: "low", "features.multi_agent": false });
+    // The user's saved mode wins over the definition's.
+    const saved = (await h.openSession({ cwd, sessionRef: null, permissionMode: "full-access", agentDefinition })) as CodexSession;
+    open.push(saved);
+    expect(saved.getState().permissionMode).toBe("full-access");
+  });
+
   it("starts a new chat in the preset of Codex's config and its configured model and effort", async () => {
     const codex = new FakeCodexAppServer({ config: { model: "gpt-5.6-terra", model_reasoning_effort: "xhigh", sandbox_mode: "read-only", approval_policy: "on-request" } });
     const h = harness(codex);

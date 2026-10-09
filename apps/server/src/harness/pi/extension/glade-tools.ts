@@ -19,14 +19,19 @@
  *   sub-agent:   report_done, message_agent
  *   both:        find_chats, read_chat, open_chat
  *
+ * Agents (I-218): `spawn_agent` lists the agents the orchestrator can pick in its description
+ * (`GET /api/agents/definitions` at load; Claude Code and Codex get the same list in-process) and
+ * sends only the agent's name: the server resolves the definition and applies it. At session start
+ * the extension reports pi's tools (`POST /api/agents/tools`) for the agent editor's tool picker.
+ *
  * pi loads `-e` extensions before package extensions and the first registration of a tool name
  * wins, so an older ext-kit that still registers the same names inside Glade is shadowed. This
  * extension also consumes the identity variables (so nested `pi` runs started from bash can't act
  * as this session), which leaves an older agent-teams without a Glade identity: it registers nothing.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------------------------
 // Minimal structural types for pi's extension API (the real ones live in pi's package, which
@@ -59,6 +64,8 @@ interface ToolDefinition extends ToolSpec {
 export interface PiExtensionApi {
   registerTool(tool: ToolDefinition): void;
   getAllTools(): Array<{ name: string }>;
+  /** MCP servers registered by extensions (newer pi versions). */
+  getMcpServers?(): Array<{ name: string }>;
   on(event: "session_start", handler: (event: unknown, ctx: { hasUI?: boolean; ui: { setTitle(title: string): void } }) => Promise<void> | void): void;
 }
 
@@ -82,34 +89,100 @@ const MAIN = "main";
 // Tool specs (kept identical to ext-kit's extensions/agent-teams/specs.ts)
 // ---------------------------------------------------------------------------------------------
 
-export const spawnAgentSpec: ToolSpec = {
-  name: "spawn_agent",
-  label: "Spawn agent",
-  description:
-    "Start a sub-agent in its own pane or tab, next to this session. Returns immediately; the sub-agent's result arrives later as an [agent-teams] message. The user can watch and talk to it directly.",
-  promptSnippet: "Delegate an independent workstream to a sub-agent in its own pane or tab",
-  promptGuidelines: [
-    "Use spawn_agent only when the request splits into two or more substantial, independent workstreams that benefit from running in parallel, or needs a long isolated investigation that would flood your context. Do small, quick, or tightly sequential work yourself.",
-    "Sub-agents do not see this conversation: give each spawn_agent task the goal, relevant file paths, constraints, and exactly what to report back.",
-    "After spawn_agent, do not poll or sleep waiting for results. They arrive automatically as [agent-teams] messages; continue other work or end your turn.",
-    "spawn_agent closes each sub-agent (its pane or tab) when it finishes. Set keep_open (with keep_open_reason) only when a specific follow-up is likely: you already plan a next step that builds on that agent's context (iterate on its draft, apply review feedback to its own work, phase 2 of the same task), or the user said they want to talk to it. 'Might be useful later' is not a reason; a different job gets a fresh, specialized agent.",
-    "When an [agent-teams] result says an agent is still open, either send the planned follow-up with message_agent right away or call close_agent. Do not leave it idle.",
-    "Use list_agents to see available agent definitions and team status before choosing an agent for spawn_agent.",
-    "Refer to sub-agents by their display name (e.g. Leo) when talking to the user; use the code name only as the id for message_agent/close_agent.",
-  ],
-  parameters: obj(
-    {
-      name: str("Short unique name, e.g. 'auth-scout'. Lowercase letters, digits, dashes."),
-      task: str("Complete, self-contained task description for the sub-agent."),
-      agent: str("Agent definition to use (see list_agents). Omit for a general agent."),
-      keep_open: bool(
-        "Keep the sub-agent open after it reports done (default false: it closes). Requires keep_open_reason. Sub-agents the user typed in never auto-close.",
-      ),
-      keep_open_reason: str("The concrete follow-up you expect to send this agent, e.g. 'apply reviewer feedback to its draft'."),
-    },
-    ["name", "task"],
-  ),
-};
+/**
+ * An agent `spawn_agent` can start (I-218), as listed in its description (`GET /api/agents/definitions`,
+ * mirrored by the server's `SpawnableAgent` in `harness/types.ts`).
+ */
+export interface SpawnableAgent {
+  name: string;
+  description: string;
+  /** Harness id, `null` = the caller's (inherit). */
+  harness: string | null;
+  /** "Claude Code"; `null` with `harness`. */
+  harnessLabel: string | null;
+  /** Model as written (`haiku`, `gpt-5.4-mini`); `null` = inherit / the harness's sub-agent default. */
+  model: string | null;
+  /** Can't change files (Claude Code tools/permission mode, Codex read-only sandbox, pi tools). */
+  readOnly: boolean;
+}
+
+/** What `GET /api/agents/definitions` answers: the agents, and the harnesses sub-agents can run on. */
+export interface SpawnableAgentList {
+  agents: SpawnableAgent[];
+  harnesses: Array<{ id: string; label: string }>;
+}
+
+const BASE_SPAWN_GUIDELINES = [
+  "Use spawn_agent only when the request splits into two or more substantial, independent workstreams that benefit from running in parallel, or needs a long isolated investigation that would flood your context. Do small, quick, or tightly sequential work yourself.",
+  "Sub-agents do not see this conversation: give each spawn_agent task the goal, relevant file paths, constraints, and exactly what to report back.",
+  "After spawn_agent, do not poll or sleep waiting for results. They arrive automatically as [agent-teams] messages; continue other work or end your turn.",
+  "spawn_agent closes each sub-agent (its pane or tab) when it finishes. Set keep_open (with keep_open_reason) only when a specific follow-up is likely: you already plan a next step that builds on that agent's context (iterate on its draft, apply review feedback to its own work, phase 2 of the same task), or the user said they want to talk to it. 'Might be useful later' is not a reason; a different job gets a fresh, specialized agent.",
+  "When an [agent-teams] result says an agent is still open, either send the planned follow-up with message_agent right away or call close_agent. Do not leave it idle.",
+];
+
+/** I-218: how the orchestrator picks an agent (only when there are agents to pick). */
+const AGENT_CHOICE_GUIDELINES = [
+  "When one of spawn_agent's listed agents fits the task, pass it as `agent` instead of starting a general sub-agent; use read-only agents for looking things up. When the user names an agent, use that one.",
+];
+
+const NAMES_GUIDELINE =
+  "Refer to sub-agents by their display name (e.g. Leo) when talking to the user; use the code name only as the id for message_agent/close_agent.";
+
+/** `- scout (Claude Code · haiku, read-only): Fast read-only code search…` */
+export function formatSpawnableAgent(agent: SpawnableAgent): string {
+  const traits = [[agent.harnessLabel ?? agent.harness, agent.model].filter(Boolean).join(" · "), agent.readOnly ? "read-only" : ""].filter(Boolean);
+  const description = (agent.description ?? "").trim().replace(/\s+/g, " ") || "(no description)";
+  return `- ${agent.name}${traits.length ? ` (${traits.join(", ")})` : ""}: ${description}`;
+}
+
+/** `spawn_agent` with the available agents (I-218) in its description and parameters. */
+export function spawnAgentSpecFor(list?: SpawnableAgentList | null): ToolSpec {
+  const agents = list?.agents ?? [];
+  const harnesses = list?.harnesses ?? [];
+  const listing = agents.length
+    ? `\n\nAvailable agents (pass the name as \`agent\`; omit it for a general sub-agent):\n${agents.map(formatSpawnableAgent).join("\n")}`
+    : "";
+  return {
+    name: "spawn_agent",
+    label: "Spawn agent",
+    description:
+      "Start a sub-agent in its own pane or tab, next to this session. Returns immediately; the sub-agent's result arrives later as an [agent-teams] message. The user can watch and talk to it directly." +
+      listing,
+    promptSnippet: "Delegate an independent workstream to a sub-agent in its own pane or tab",
+    promptGuidelines: [
+      ...BASE_SPAWN_GUIDELINES,
+      ...(agents.length ? AGENT_CHOICE_GUIDELINES : []),
+      "Use list_agents to see the team's status and the available agents.",
+      NAMES_GUIDELINE,
+    ],
+    parameters: obj(
+      {
+        name: str("Short unique name, e.g. 'auth-scout'. Lowercase letters, digits, dashes."),
+        task: str("Complete, self-contained task description for the sub-agent."),
+        agent: str(
+          agents.length
+            ? `Agent to use: one of ${agents.map((a) => a.name).join(", ")} (see the list above). Omit for a general agent.`
+            : "Agent definition to use (see list_agents). Omit for a general agent.",
+        ),
+        ...(harnesses.length > 1
+          ? {
+              harness: str(
+                `Run the sub-agent on another agent harness: ${harnesses.map((h) => `${h.id} (${h.label})`).join(", ")}. Default: the agent's own, else yours. Only when the user asks for one.`,
+              ),
+            }
+          : {}),
+        keep_open: bool(
+          "Keep the sub-agent open after it reports done (default false: it closes). Requires keep_open_reason. Sub-agents the user typed in never auto-close.",
+        ),
+        keep_open_reason: str("The concrete follow-up you expect to send this agent, e.g. 'apply reviewer feedback to its draft'."),
+      },
+      ["name", "task"],
+    ),
+  };
+}
+
+/** `spawn_agent` without an agent list (Glade unreachable at load, or no agents). */
+export const spawnAgentSpec: ToolSpec = spawnAgentSpecFor(null);
 
 export const mainMessageAgentSpec: ToolSpec = {
   name: "message_agent",
@@ -121,7 +194,7 @@ export const mainMessageAgentSpec: ToolSpec = {
 export const listAgentsSpec: ToolSpec = {
   name: "list_agents",
   label: "List agents",
-  description: "Show team status (active and finished sub-agents) and available agent definitions.",
+  description: "Show team status (active and finished sub-agents) and the available agents.",
   parameters: obj({}),
 };
 
@@ -210,6 +283,8 @@ export interface GladeIdentity {
   agentName?: string;
   /** The "Use sub-agents" setting (GLADE_SUBAGENTS); only affects main agents. */
   subagents: boolean;
+  /** The calling harness's id (`pi`, `claude`, `codex`): spawn results name another one (I-217). */
+  harness?: string;
 }
 
 const PREFIXES = ["GLADE_", "PI_UI_"] as const;
@@ -246,51 +321,22 @@ export function takeIdentity(env: NodeJS.ProcessEnv = process.env): GladeIdentit
   return identity;
 }
 
-/** Tool specs this process gets. */
-export function toolSpecsFor(identity: Pick<GladeIdentity, "agentName" | "subagents">): ToolSpec[] {
+/** Tool specs this process gets (`agents`: what spawn_agent lists, I-218). */
+export function toolSpecsFor(identity: Pick<GladeIdentity, "agentName" | "subagents">, agents?: SpawnableAgentList | null): ToolSpec[] {
   const chat = [findChatsSpec, readChatSpec, openChatSpec];
   if (identity.agentName) return [reportDoneSpec, childMessageAgentSpec, ...chat];
   if (!identity.subagents) return chat;
-  return [spawnAgentSpec, mainMessageAgentSpec, listAgentsSpec, closeAgentSpec, ...chat];
+  return [agents ? spawnAgentSpecFor(agents) : spawnAgentSpec, mainMessageAgentSpec, listAgentsSpec, closeAgentSpec, ...chat];
 }
+
+/** Names of every tool this extension can register (left out of the tool lists it reports). */
+export const GLADE_TOOL_NAMES: readonly string[] = [
+  ...new Set([...toolSpecsFor({ subagents: true }), ...toolSpecsFor({ agentName: "a", subagents: true })].map((t) => t.name)),
+];
 
 // ---------------------------------------------------------------------------------------------
-// Agent definitions (same files as ext-kit's agent-teams: Markdown with a small frontmatter)
+// pi packages' agent folders (used by the server's agent discovery, `services/agent-defs`)
 // ---------------------------------------------------------------------------------------------
-
-export interface AgentDef {
-  name: string;
-  description: string;
-  model?: string;
-  thinking?: string;
-  tools?: string[];
-  requires?: string[];
-  body: string;
-}
-
-function parseAgent(path: string): AgentDef {
-  const raw = readFileSync(path, "utf8");
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  const meta: Record<string, string> = {};
-  let body = raw;
-  if (match) {
-    body = match[2]!;
-    for (const line of match[1]!.split(/\r?\n/)) {
-      const kv = line.match(/^([A-Za-z_-]+)\s*:\s*(.*)$/);
-      if (kv) meta[kv[1]!.toLowerCase()] = kv[2]!.trim();
-    }
-  }
-  const list = (v: string | undefined) => (v ? v.split(",").map((t) => t.trim()).filter(Boolean) : undefined);
-  return {
-    name: meta.name || basename(path, ".md"),
-    description: meta.description || "",
-    model: meta.model || undefined,
-    thinking: meta.thinking || undefined,
-    tools: list(meta.tools),
-    requires: list(meta.requires),
-    body: body.trim(),
-  };
-}
 
 /**
  * `agents/` folders of the pi packages in `~/.pi/agent/settings.json` (e.g. ext-kit ships
@@ -323,32 +369,6 @@ export function packageAgentDirs(agentDir: string): string[] {
   return dirs;
 }
 
-/** Search order (later wins): pi packages' `agents/` → ~/.pi/agent/agents → <cwd>/.pi/agents. */
-export function loadAgents(cwd: string, home = homedir()): Map<string, AgentDef> {
-  const agentDir = join(home, ".pi", "agent");
-  const dirs = [...packageAgentDirs(agentDir), join(agentDir, "agents"), join(cwd, ".pi", "agents")];
-  const agents = new Map<string, AgentDef>();
-  for (const dir of dirs) {
-    if (!existsSync(dir)) continue;
-    let files: string[];
-    try {
-      files = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const file of files) {
-      if (!file.endsWith(".md")) continue;
-      try {
-        const def = parseAgent(join(dir, file));
-        agents.set(def.name, def);
-      } catch {
-        // skip unreadable definitions
-      }
-    }
-  }
-  return agents;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Agent API client (shapes mirror packages/protocol/src/agents.ts and chat-tools.ts)
 // ---------------------------------------------------------------------------------------------
@@ -374,6 +394,8 @@ interface AgentInfo {
   name: string;
   /** Fun name the user sees (I-120), e.g. "Leo"; absent on older servers. */
   displayName?: string;
+  /** The harness it runs on (I-217). */
+  harness?: string;
   sessionId: string;
   agent: string | null;
   task: string;
@@ -422,16 +444,58 @@ async function attempt(fn: () => Promise<ToolResult>): Promise<ToolResult> {
 // Registration
 // ---------------------------------------------------------------------------------------------
 
-export default function gladeTools(pi: PiExtensionApi): void {
+/**
+ * pi's factory (pi awaits it before the session starts): the agents spawn_agent lists come from
+ * Glade first (a short timeout; without them spawn_agent still works, it just lists none), and
+ * pi's tools are reported to Glade once the session has started (every extension loaded by then).
+ */
+export default async function gladeTools(pi: PiExtensionApi): Promise<void> {
   const identity = takeIdentity();
   if (!identity) return; // not started by Glade: register nothing
-  registerGladeTools(pi, identity);
+  const agents = !identity.agentName && identity.subagents ? await fetchSpawnableAgents(identity) : null;
+  registerGladeTools(pi, { harness: "pi", ...identity }, undefined, agents);
+  pi.on("session_start", () => reportTools(pi, identity));
 }
 
-export function registerGladeTools(pi: PiExtensionApi, identity: GladeIdentity, fetchImpl?: typeof fetch): void {
+/** `GET /api/agents/definitions`; `null` when Glade doesn't answer in time (or is older). */
+export async function fetchSpawnableAgents(identity: GladeIdentity, fetchImpl: typeof fetch = fetch, timeoutMs = 5000): Promise<SpawnableAgentList | null> {
+  try {
+    const res = await fetchImpl(`${identity.url}/api/agents/definitions`, {
+      headers: { authorization: `Bearer ${identity.token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<SpawnableAgentList>;
+    return { agents: Array.isArray(data.agents) ? data.agents : [], harnesses: Array.isArray(data.harnesses) ? data.harnesses : [] };
+  } catch {
+    return null;
+  }
+}
+
+/** Tell Glade which tools pi has (I-218: the agent editor's tool picker); best effort. */
+export async function reportTools(pi: PiExtensionApi, identity: GladeIdentity, fetchImpl: typeof fetch = fetch): Promise<void> {
+  try {
+    const tools = pi.getAllTools().map((t) => t.name);
+    const mcpServers = pi.getMcpServers?.().map((s) => s.name) ?? [];
+    await fetchImpl(`${identity.url}/api/agents/tools`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${identity.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ tools, mcpServers }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    // only the tool picker misses out
+  }
+}
+
+/**
+ * Register Glade's tools on `pi` (or the Claude Code / Codex adapters' stand-in). `agents`: what
+ * spawn_agent lists (I-218); `null` lists none.
+ */
+export function registerGladeTools(pi: PiExtensionApi, identity: GladeIdentity, fetchImpl?: typeof fetch, agents?: SpawnableAgentList | null): void {
   const call = client(identity, fetchImpl);
-  const executors = executorsFor(pi, call);
-  for (const spec of toolSpecsFor(identity)) {
+  const executors = executorsFor(call, identity, agents ?? null);
+  for (const spec of toolSpecsFor(identity, agents)) {
     const execute = executors[spec === childMessageAgentSpec ? "child_message_agent" : spec.name]!;
     pi.registerTool({ ...spec, execute });
   }
@@ -443,9 +507,13 @@ export function registerGladeTools(pi: PiExtensionApi, identity: GladeIdentity, 
   }
 }
 
+/** Display names of the harnesses Glade knows (for spawn results naming another harness). */
+const HARNESS_LABELS: Record<string, string> = { pi: "pi", claude: "Claude Code", codex: "Codex" };
+
 type Execute = ToolDefinition["execute"];
 
-function executorsFor(pi: PiExtensionApi, call: Call): Record<string, Execute> {
+function executorsFor(call: Call, identity: GladeIdentity, agents: SpawnableAgentList | null): Record<string, Execute> {
+  const harnessLabel = (id: string) => agents?.harnesses?.find((h) => h.id === id)?.label ?? HARNESS_LABELS[id] ?? id;
   const sendMessage: Execute = (_id, params) =>
     attempt(async () => {
       await call("/message", { to: params.to, text: params.text });
@@ -453,40 +521,25 @@ function executorsFor(pi: PiExtensionApi, call: Call): Record<string, Execute> {
     });
 
   return {
-    spawn_agent: (_id, params, _signal, _onUpdate, ctx) =>
+    spawn_agent: (_id, params) =>
       attempt(async () => {
         const keepOpenReason = params.keep_open_reason?.trim();
         if (params.keep_open && !keepOpenReason)
           return text(
             "keep_open needs keep_open_reason: name the concrete follow-up you expect to send. If there isn't one, omit keep_open.",
           );
-        const defs = loadAgents(ctx.cwd);
-        const def = params.agent ? defs.get(params.agent) : undefined;
-        if (params.agent && !def)
-          return text(`Unknown agent "${params.agent}". Available: ${[...defs.keys()].join(", ") || "(none)"}`);
-        // pi silently ignores unknown --tools names, so refuse when a listed tool isn't installed.
-        if (def?.tools) {
-          const installed = new Set(pi.getAllTools().map((t) => t.name));
-          const missing = def.tools.filter((t) => !installed.has(t));
-          if (missing.length)
-            return text(
-              `Cannot spawn "${def.name}": missing tools ${missing.join(", ")}.` +
-                (def.requires?.length ? ` Install: ${def.requires.map((r) => `pi install ${r}`).join("; ")}, then /reload.` : ""),
-            );
-        }
+        // The server resolves the agent (I-218) and starts it on its harness (I-217).
         const { agent } = await call<{ agent: AgentInfo }>("/spawn", {
           name: params.name,
           task: params.task,
-          agent: def?.name,
-          agentPrompt: def?.body || undefined,
-          model: def?.model,
-          thinking: def?.thinking,
-          tools: def?.tools,
+          agent: params.agent?.trim() || undefined,
+          harness: params.harness?.trim() || undefined,
           keepOpen: params.keep_open || undefined,
           keepOpenReason: params.keep_open ? keepOpenReason : undefined,
         });
+        const elsewhere = agent.harness && identity.harness && agent.harness !== identity.harness ? ` on ${harnessLabel(agent.harness)}` : "";
         return text(
-          `Spawned ${agent.displayName ? `${agent.displayName} ("${agent.name}")` : `"${agent.name}"`}${def ? ` (agent: ${def.name})` : ""} in a new Glade tab. ${params.keep_open ? `Kept open for: ${keepOpenReason}.` : "It closes when done."} ` +
+          `Spawned ${agent.displayName ? `${agent.displayName} ("${agent.name}")` : `"${agent.name}"`}${agent.agent ? ` (agent: ${agent.agent})` : ""}${elsewhere} in a new Glade tab. ${params.keep_open ? `Kept open for: ${keepOpenReason}.` : "It closes when done."} ` +
             "Its result will arrive as an [agent-teams] message; do not wait or poll.",
         );
       }),
@@ -494,10 +547,12 @@ function executorsFor(pi: PiExtensionApi, call: Call): Record<string, Execute> {
     message_agent: sendMessage,
     child_message_agent: sendMessage,
 
-    list_agents: (_id, _params, _signal, _onUpdate, ctx) =>
+    list_agents: () =>
       attempt(async () => {
-        const { agents } = await call<{ agents: AgentInfo[] }>("");
-        return text(formatTeam(agents, ctx.cwd));
+        const { agents: team } = await call<{ agents: AgentInfo[] }>("");
+        // The server's current list (agents may have been added or switched off since load).
+        const available = await call<SpawnableAgentList>("/definitions").catch(() => agents);
+        return text(formatTeam(team, Array.isArray(available?.agents) ? available.agents : []));
       }),
 
     close_agent: (_id, params) =>
@@ -581,7 +636,7 @@ function formatMatch(m: ChatMatch, i: number): string {
     .join("\n");
 }
 
-function formatTeam(agents: AgentInfo[], cwd: string): string {
+function formatTeam(agents: AgentInfo[], available: SpawnableAgent[]): string {
   const team = agents.length
     ? agents
         .map(
@@ -591,14 +646,5 @@ function formatTeam(agents: AgentInfo[], cwd: string): string {
         )
         .join("\n")
     : "(no sub-agents yet)";
-  const defs = [...loadAgents(cwd).values()];
-  const available = defs.length
-    ? defs
-        .map(
-          (d) =>
-            `- ${d.name}: ${d.description}${d.model ? ` (model: ${d.model})` : ""}${d.requires?.length ? ` (requires: ${d.requires.join(", ")})` : ""}`,
-        )
-        .join("\n")
-    : "(none)";
-  return `Team:\n${team}\n\nAgent definitions:\n${available}`;
+  return `Team:\n${team}\n\nAvailable agents:\n${available.length ? available.map(formatSpawnableAgent).join("\n") : "(none)"}`;
 }

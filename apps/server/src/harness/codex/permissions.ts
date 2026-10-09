@@ -132,6 +132,23 @@ export function sandboxPolicy(mode: SandboxMode): SandboxPolicy {
   }
 }
 
+/**
+ * A Codex agent definition's `sandbox` (I-218) as the preset a sub-agent starts in (Read only keeps
+ * Codex's read-only sandbox; its approvals are the preset's). `null` for none/unknown.
+ */
+export function presetForSandbox(sandbox: string | null | undefined): CodexPreset | null {
+  switch (sandbox) {
+    case "read-only":
+      return "read-only";
+    case "workspace-write":
+      return "auto";
+    case "danger-full-access":
+      return "full-access";
+    default:
+      return null;
+  }
+}
+
 /** The preset matching Codex's configured approval policy and sandbox (a new chat's mode). */
 export function modeFromConfig(config: CodexConfig | null | undefined): CodexPreset {
   const sandbox = config?.sandbox_mode;

@@ -43,8 +43,10 @@ export type NewSessionKind =
       kind: "subagent";
       parentSessionId: string;
       agentName: string;
-      /** Fun name + colour (I-084). */
+      /** Fun name + colour (I-084), icon (I-218). */
       identity?: AgentIdentity;
+      /** The harness it runs on (I-217); default: the parent's. Must be offered here. */
+      harness?: string;
       register?: (session: Session) => void;
     };
 
@@ -109,16 +111,18 @@ export class Sessions {
       if (parent.workspaceId !== workspaceId) throw new HttpError(400, "The parent session belongs to another workspace");
     }
     const settings = this.ctx.store.getSettings();
-    // Sub-agents run in their parent's harness; other new sessions in the chosen one, else the
-    // harness of the workspace's focused tab (a new tab keeps the chat's agent), else the default.
-    // I-155: only harnesses this device offers (installed and turned on).
+    // Sub-agents run in the harness the spawn chose (I-217), else their parent's; other new sessions
+    // in the chosen one, else the harness of the workspace's focused tab (a new tab keeps the chat's
+    // agent), else the default. I-155: only harnesses this device offers (installed and turned on).
     const harness =
       how.kind === "subagent"
-        ? records.requireOfferedHarness(records.requireSession(how.parentSessionId))
+        ? how.harness
+          ? this.ctx.harnesses.get(how.harness)
+          : records.requireOfferedHarness(records.requireSession(how.parentSessionId))
         : req.harness
           ? this.ctx.harnesses.get(req.harness)
           : this.workspaceHarness(workspace);
-    if (!harness) throw new HttpError(400, `The agent "${req.harness}" isn't installed`);
+    if (!harness) throw new HttpError(400, `The agent "${(how.kind === "subagent" ? how.harness : undefined) ?? req.harness}" isn't installed`);
     if (!this.ctx.harnesses.isEnabled(harness.id)) throw new HttpError(400, `${harness.info.label} is turned off on ${this.ctx.deviceName()}`);
     if (!this.ctx.harnesses.isInstalled(harness)) throw new HttpError(400, `${harness.info.label} isn't installed on ${this.ctx.deviceName()}`);
     // Harnesses without Glade's model picker (ACP agents, I-119) choose their own model.
@@ -131,7 +135,9 @@ export class Sessions {
       kind: how.kind,
       parentSessionId: how.kind === "subagent" ? how.parentSessionId : null,
       agentName: how.kind === "subagent" ? how.agentName : null,
-      ...(how.kind === "subagent" && how.identity ? { agentDisplayName: how.identity.displayName, agentColor: how.identity.color } : {}),
+      ...(how.kind === "subagent" && how.identity
+        ? { agentDisplayName: how.identity.displayName, agentColor: how.identity.color, ...(how.identity.icon ? { agentIcon: how.identity.icon } : {}) }
+        : {}),
       title: how.kind === "subagent" ? how.agentName : req.prompt ? quickTitle(req.prompt) : "New chat",
       titleSource: how.kind === "subagent" ? "user" : "auto",
       harness: harness.id,

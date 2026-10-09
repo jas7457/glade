@@ -52,6 +52,7 @@ import { changesRoutes } from "./changes.js";
 import { GitChangesService } from "../services/git-changes.js";
 import { searchRoutes } from "./search.js";
 import { createAgentsRoutes } from "./agents.js";
+import { agentDefsRoutes } from "./agent-defs.js";
 import type { SearchService } from "../services/search/search-service.js";
 import { isLocal, localOnly, securityMiddleware } from "./security.js";
 import { authRoutes } from "./auth.js";
@@ -143,6 +144,8 @@ export function createApp({ service, auth: givenAuth, remote, ownPorts, staticDi
   app.route("/api/agents", createAgentsRoutes(service, search));
   // Folder browser (I-124): directories in the home folder and /Volumes, New Folder.
   app.route("/api", fsBrowseRoutes(service.fsBrowse));
+  // Glade agents (I-218): Settings → Sub-agents; writes are host-only (checked in the routes).
+  app.route("/api", agentDefsRoutes(service));
   if (power) {
     app.use("/api/power", localOnly);
     app.use("/api/desktop/*", localOnly);

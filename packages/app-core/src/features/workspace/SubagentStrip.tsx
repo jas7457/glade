@@ -1,7 +1,7 @@
 /**
  * Sub-agent chips (I-080, compact since I-084), shown just above the main chat's composer while
  * the chat has sub-agents: small chips side by side (wrapping when needed), one per agent, in
- * the agent's colour with its fun name, a tiny status marker (spinner / needs input / ✓ /
+ * the agent's colour with its icon (I-218) and fun name, a tiny status marker (spinner / needs input / ✓ /
  * failed) and its latest activity truncated (its short title, status and activity in words in the
  * tooltip, I-148; the full task is in its Task card). Needs
  * input / failed chips are tinted amber / red. Clicking a chip opens the agent in the
@@ -21,6 +21,7 @@ import { runAction, useChatSession } from "@glade/app-core/state/chat-session";
 import { envIdOfSession, shellOf } from "@glade/app-core/state/store";
 import { IconButton, Menu, MenuItem, Spinner } from "@glade/app-core/ui";
 import { useNow } from "@glade/app-core/features/chat/duration";
+import { AgentName } from "@glade/app-core/features/chat/AgentName";
 import { agentChip, chipKind, chipTooltip, type ChipKind } from "./agent-chips";
 
 export interface SubagentStripProps {
@@ -114,7 +115,7 @@ function AgentChipView({ session, selected, onOpen }: { session: SessionSummary;
       <span class="flex w-3 shrink-0 justify-center">
         <AgentStatusMarker kind={chip.kind} size={10} />
       </span>
-      <span class="shrink-0 font-medium text-agent">{chip.identity.displayName}</span>
+      <AgentName identity={chip.identity} role={false} harness={false} iconSize={11} />
       {chip.shortActivity && (
         <span class={cn("min-w-0 flex-1 truncate", chip.attention === "danger" ? "text-danger" : chip.attention === "warning" ? "text-fg" : "text-fg-muted")}>
           {chip.shortActivity}

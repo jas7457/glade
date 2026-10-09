@@ -15,7 +15,7 @@ import {
   type UiRequest,
   type Workspace,
 } from "@glade/protocol";
-import type { AgentHarness, HarnessSession } from "../../harness/types.js";
+import type { AgentHarness, HarnessSession, SpawnableAgentList } from "../../harness/types.js";
 import { exitedText } from "../agents.js";
 import { externalizeImages } from "../../store/images.js";
 import { MAX_IDLE_PROCESSES, type AppContext, type LiveSession } from "./context.js";
@@ -31,6 +31,12 @@ export interface LivePoolHooks {
   closeAgentSession(sessionId: string): Promise<void>;
   /** Queue a prompt to a session (a sub-agent's exit notice to its parent). */
   deliver(targetId: string, text: string, behavior: "steer" | "followUp"): void;
+  /** The agents a main session's spawn_agent lists (I-218). */
+  spawnableAgents?(sessionId: string): Promise<SpawnableAgentList>;
+  /** A sub-agent's turn ended (`clean`: not stopped or failed) and it isn't closing. */
+  agentTurnEnded?(sessionId: string, clean: boolean): void;
+  /** A harness reported the tools a session saw (I-218). */
+  recordTools?(sessionId: string, harnessId: string, tools: string[], mcpServers: string[]): void;
 }
 
 export class LivePool {
@@ -112,7 +118,17 @@ export class LivePool {
         thinkingLevel: record.thinkingLevel,
         ...(record.permissionMode ? { permissionMode: record.permissionMode } : {}),
         env: this.agentEnv(record),
-        ...(agent ? { appendSystemPrompt: agent.systemPrompt, ...(agent.tools ? { tools: agent.tools } : {}) } : {}),
+        ...(agent
+          ? {
+              appendSystemPrompt: agent.systemPrompt,
+              ...(agent.tools ? { tools: agent.tools } : {}),
+              // I-218: the agent definition it runs as (re-applied at every start).
+              ...(agent.definition ? { agentDefinition: agent.definition } : {}),
+            }
+          : {}),
+        // I-218: main sessions list the agents spawn_agent offers and report their (unrestricted) tools.
+        ...(record.kind === "main" && this.hooks.spawnableAgents ? { spawnableAgents: () => this.hooks.spawnableAgents!(id) } : {}),
+        ...(record.kind === "main" && this.hooks.recordTools ? { onTools: (tools: string[], mcp: string[]) => this.hooks.recordTools!(id, harness.id, tools, mcp) } : {}),
       });
     } catch (err) {
       this.ctx.tokens.revoke(id);
@@ -248,7 +264,9 @@ export class LivePool {
         { ...session, lastActivityAt: Date.now(), runInProgress: false, unread: session.unread || !this.ctx.viewers.has(id) },
         { touch: true },
       );
-      if (this.ctx.agents.get(id)?.closing) void this.hooks.closeAgentSession(id);
+      const agent = this.ctx.agents.get(id);
+      if (agent?.closing) void this.hooks.closeAgentSession(id);
+      else if (agent && !agent.native) this.hooks.agentTurnEnded?.(id, !endedBadly(live.transcript));
       this.evictIdle();
     } else if (event.type === "ui_request" || event.type === "ui_request_closed") {
       this.records.saveSession(session); // pendingInputs/status changed
@@ -443,6 +461,12 @@ function stampEvent(event: AgentEvent): AgentEvent {
     default:
       return event;
   }
+}
+
+/** Whether the last reply was stopped or failed. */
+function endedBadly(transcript: Transcript): boolean {
+  const last = [...transcript.messages].reverse().find((m) => m.role === "assistant");
+  return last?.role === "assistant" && (last.stopReason === "aborted" || last.stopReason === "error");
 }
 
 /** Whether the transcript's last message is an assistant reply that failed with `message`. */

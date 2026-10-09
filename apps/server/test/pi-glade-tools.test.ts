@@ -11,8 +11,12 @@ import { AGENT_ENV, LEGACY_AGENT_ENV } from "@glade/protocol";
 import { piChildEnv } from "../src/harness/pi/child-env.js";
 import { extensionCandidates, gladeExtensionLaunch, gladeExtensionPath } from "../src/harness/pi/extension-path.js";
 import gladeTools, {
-  loadAgents,
+  fetchSpawnableAgents,
+  formatSpawnableAgent,
+  packageAgentDirs,
   readIdentity,
+  reportTools,
+  spawnAgentSpecFor,
   registerGladeTools,
   takeIdentity,
   toolSpecsFor,
@@ -108,46 +112,82 @@ describe("glade-tools: identity", () => {
   });
 });
 
-describe("glade-tools: agent definitions", () => {
+describe("glade-tools: pi packages' agent folders", () => {
   let home: string;
-  let cwd: string;
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "glade-ext-home-"));
-    cwd = mkdtempSync(join(tmpdir(), "glade-ext-cwd-"));
   });
-  afterEach(() => {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(cwd, { recursive: true, force: true });
-  });
-  const def = (dir: string, file: string, body: string) => {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, file), body);
-  };
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-  it("reads pi packages' agents/ folders, ~/.pi/agent/agents and <cwd>/.pi/agents (later wins)", () => {
+  it("local and npm packages from ~/.pi/agent/settings.json (git packages aren't searched)", () => {
     const agentDir = join(home, ".pi", "agent");
     mkdirSync(agentDir, { recursive: true });
-    const kit = join(home, "src", "kit");
-    writeFileSync(
-      join(agentDir, "settings.json"),
-      JSON.stringify({ packages: ["../../src/kit", "npm:@me/agents-pkg@1.2.0", "git:github.com/x/y", { source: "npm:plain" }] }),
-    );
-    def(join(kit, "agents"), "worker.md", "---\nname: worker\ndescription: Does work\ntools: read, bash\n---\nWork hard.");
-    def(join(kit, "agents"), "scout.md", "---\ndescription: from kit\n---\nKit scout.");
-    def(join(agentDir, "npm", "node_modules", "@me", "agents-pkg", "agents"), "researcher.md", "---\ndescription: Researches\nmodel: m1\n---\nR.");
-    def(join(agentDir, "agents"), "scout.md", "---\ndescription: global scout\nthinking: low\n---\nGlobal scout.");
-    def(join(cwd, ".pi", "agents"), "reviewer.md", "No frontmatter here.");
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["../../src/kit", "npm:@me/agents-pkg@1.2.0", "git:github.com/x/y", { source: "npm:plain" }] }));
+    expect(packageAgentDirs(agentDir)).toEqual([
+      join(home, "src", "kit", "agents"),
+      join(agentDir, "npm", "node_modules", "@me", "agents-pkg", "agents"),
+      join(agentDir, "npm", "node_modules", "plain", "agents"),
+    ]);
+    expect(packageAgentDirs(join(home, "nowhere"))).toEqual([]);
+  });
+});
 
-    const agents = loadAgents(cwd, home);
-    expect([...agents.keys()].sort()).toEqual(["researcher", "reviewer", "scout", "worker"]);
-    expect(agents.get("worker")).toMatchObject({ description: "Does work", tools: ["read", "bash"], body: "Work hard." });
-    expect(agents.get("scout")).toMatchObject({ description: "global scout", thinking: "low", body: "Global scout." });
-    expect(agents.get("researcher")).toMatchObject({ model: "m1" });
-    expect(agents.get("reviewer")).toMatchObject({ description: "", body: "No frontmatter here." });
+describe("glade-tools: spawn_agent lists the agents (I-218)", () => {
+  const list = {
+    agents: [
+      { name: "scout", description: "Fast read-only code search.\nUse before changing code.", harness: "claude", harnessLabel: "Claude Code", model: "haiku", readOnly: true },
+      { name: "writer", description: "Writes docs.", harness: null, harnessLabel: null, model: null, readOnly: false },
+    ],
+    harnesses: [
+      { id: "pi", label: "pi" },
+      { id: "claude", label: "Claude Code" },
+    ],
+  };
+
+  it("names, harness · model, read-only and the description in spawn_agent's description", () => {
+    expect(formatSpawnableAgent(list.agents[0]!)).toBe("- scout (Claude Code · haiku, read-only): Fast read-only code search. Use before changing code.");
+    expect(formatSpawnableAgent(list.agents[1]!)).toBe("- writer: Writes docs.");
+    const spec = spawnAgentSpecFor(list);
+    expect(spec.description).toContain("Available agents (pass the name as `agent`; omit it for a general sub-agent):\n- scout (Claude Code · haiku, read-only)");
+    expect(spec.promptGuidelines!.join("\n")).toMatch(/use read-only agents for looking things up\. When the user names an agent, use that one\./);
+    const props = (spec.parameters as { properties: Record<string, { description: string }> }).properties;
+    expect(props.agent!.description).toMatch(/one of scout, writer/);
+    expect(props.harness!.description).toMatch(/pi \(pi\), claude \(Claude Code\)/);
   });
 
-  it("no settings or folders: no definitions", () => {
-    expect(loadAgents(cwd, home).size).toBe(0);
+  it("no agents: the plain spawn_agent (no listing, no choice guideline, no harness parameter)", () => {
+    const spec = spawnAgentSpecFor({ agents: [], harnesses: [{ id: "pi", label: "pi" }] });
+    expect(spec.description).not.toMatch(/Available agents/);
+    expect(spec.promptGuidelines!.join("\n")).not.toMatch(/listed agents/);
+    expect((spec.parameters as { properties: Record<string, unknown> }).properties.harness).toBeUndefined();
+    expect(toolSpecsFor({ subagents: true }, list)[0]!.description).toMatch(/- scout/);
+  });
+
+  it("fetches the list with the token; failures list none", async () => {
+    const seen: string[] = [];
+    const ok = (async (url: string, init: RequestInit) => {
+      seen.push(`${url} ${(init.headers as Record<string, string>).authorization}`);
+      return new Response(JSON.stringify(list), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await fetchSpawnableAgents({ url: "http://glade", token: "tok", subagents: true }, ok)).toEqual(list);
+    expect(seen).toEqual(["http://glade/api/agents/definitions Bearer tok"]);
+    const down = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    expect(await fetchSpawnableAgents({ url: "http://glade", token: "tok", subagents: true }, down)).toBeNull();
+    const old = (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch;
+    expect(await fetchSpawnableAgents({ url: "http://glade", token: "tok", subagents: true }, old)).toBeNull();
+  });
+
+  it("reports pi's tools and MCP servers to /tools", async () => {
+    const posts: unknown[] = [];
+    const f = (async (url: string, init: RequestInit) => {
+      posts.push({ url, body: JSON.parse(init.body as string) });
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const api: PiExtensionApi = { registerTool: () => {}, getAllTools: () => [{ name: "read" }, { name: "mcp__docs__search" }], getMcpServers: () => [{ name: "docs" }], on: () => {} };
+    await reportTools(api, { url: "http://glade", token: "t", subagents: true }, f);
+    expect(posts).toEqual([{ url: "http://glade/api/agents/tools", body: { tools: ["read", "mcp__docs__search"], mcpServers: ["docs"] } }]);
   });
 });
 
@@ -203,16 +243,18 @@ describe("glade-tools: calls to the agent API", () => {
     reply = () => ({ status: 403, body: { error: "Sub-agents are turned off in Glade" } });
     expect(await run("spawn_agent", { name: "x", task: "t" })).toBe("Sub-agents are turned off in Glade");
     expect(await run("spawn_agent", { name: "x", task: "t", keep_open: true })).toMatch(/keep_open needs keep_open_reason/);
-    expect(await run("spawn_agent", { name: "x", task: "t", agent: "nope" })).toMatch(/^Unknown agent "nope"/);
+    reply = () => ({ status: 400, body: { error: 'Unknown agent "nope". Available: scout' } });
+    expect(await run("spawn_agent", { name: "x", task: "t", agent: "nope" })).toBe('Unknown agent "nope". Available: scout');
   });
 
-  it("spawn_agent passes an agent definition from <cwd>/.pi/agents", async () => {
-    mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "agents", "rev.md"), "---\nname: rev\nmodel: m\nthinking: low\n---\nReview it.");
-    register();
-    reply = () => ({ status: 200, body: { agent: { name: "r" } } });
-    expect(await run("spawn_agent", { name: "r", task: "t", agent: "rev" })).toMatch(/^Spawned "r" \(agent: rev\)/);
-    expect(requests[0]!.body).toMatchObject({ agent: "rev", agentPrompt: "Review it.", model: "m", thinking: "low" });
+  it("spawn_agent sends the agent's name (the server resolves it, I-218) and names another harness", async () => {
+    register({ harness: "pi" });
+    reply = () => ({ status: 200, body: { agent: { name: "r", displayName: "Brandon", agent: "scout", harness: "claude" } } });
+    expect(await run("spawn_agent", { name: "r", task: "t", agent: "scout" })).toMatch(/^Spawned Brandon \("r"\) \(agent: scout\) on Claude Code in a new Glade tab\. /);
+    expect(requests[0]!.body).toEqual({ name: "r", task: "t", agent: "scout" });
+    reply = () => ({ status: 200, body: { agent: { name: "q", agent: null, harness: "pi" } } });
+    expect(await run("spawn_agent", { name: "q", task: "t", harness: "pi" })).toMatch(/^Spawned "q" in a new Glade tab\. /);
+    expect(requests[1]!.body).toEqual({ name: "q", task: "t", harness: "pi" });
   });
 
   it("sub-agents: report_done and message_agent", async () => {
@@ -228,7 +270,12 @@ describe("glade-tools: calls to the agent API", () => {
   it("list_agents, close_agent and the chat tools", async () => {
     register();
     reply = () => ({ status: 200, body: { agents: [{ name: "a", agent: null, status: "closed", tabOpen: false, userEngaged: false, keepOpenReason: null }] } });
-    expect(await run("list_agents", {})).toMatch(/^Team:\n- a: closed \(tab closed\)\n\nAgent definitions:\n/);
+    expect(await run("list_agents", {})).toMatch(/^Team:\n- a: closed \(tab closed\)\n\nAvailable agents:\n/);
+    reply = (path) =>
+      path === "/definitions"
+        ? { status: 200, body: { agents: [{ name: "scout", description: "Looks.", harness: "codex", harnessLabel: "Codex", model: null, readOnly: true }], harnesses: [] } }
+        : { status: 200, body: { agents: [] } };
+    expect(await run("list_agents", {})).toBe("Team:\n(no sub-agents yet)\n\nAvailable agents:\n- scout (Codex, read-only): Looks.");
     reply = () => ({ status: 200, body: { agents: [{ name: "t3-research", displayName: "Leo", agent: "rev", status: "working", userEngaged: false, keepOpenReason: null }] } });
     expect(await run("list_agents", {})).toMatch(/^Team:\n- Leo \(t3-research\) \[rev\]: working\n/);
     reply = () => ({ status: 200, body: { closed: false, alreadyClosed: true } });

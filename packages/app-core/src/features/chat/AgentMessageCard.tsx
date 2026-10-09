@@ -18,7 +18,7 @@ import { useState } from "preact/hooks";
 import { Bot, Check, ChevronRight, Copy, MessageSquare, OctagonAlert, PanelRight } from "lucide-preact";
 import type { AgentMessage } from "@glade/protocol";
 import { cn } from "@glade/app-core/lib/cn";
-import { IconButton } from "@glade/app-core/ui";
+import { AgentIconGlyph, IconButton } from "@glade/app-core/ui";
 import { useAgentLinks } from "./agent-links";
 import { identityFor, useSpawnLinks } from "./spawn-context";
 import { Markdown } from "./Markdown";
@@ -36,6 +36,7 @@ function Name({ children }: { children: string }) {
   const identity = identityFor(useSpawnLinks(), children);
   const label = identity ? (
     <>
+      {identity.icon && <AgentIconGlyph icon={identity.icon} size={11} class="mr-1 inline align-[-1px] text-agent" />}
       <span class="font-medium text-agent">{identity.displayName}</span>
       {identity.role && <span class="text-fg-subtle"> · {identity.role}</span>}
     </>

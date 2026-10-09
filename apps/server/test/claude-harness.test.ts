@@ -673,8 +673,78 @@ describe("Claude harness", () => {
     await run("hi");
     expect(sdk.servers.map((s) => [s.name, s.tools.length])).toEqual([["glade", 7]]);
     expect(sdk.chats[0]!.options.mcpServers).toHaveProperty("glade");
+    // Glade's own tools never ask for permission (a sub-agent's report_done would block otherwise).
+    expect(sdk.chats[0]!.options.allowedTools).toEqual(["mcp__glade"]);
     expect(sdk.chats[0]!.options.env).not.toHaveProperty("GLADE_TOKEN");
-    expect(claudeToolAllowlist(["read", "bash", "find", "Grep", "spawn_agent"])).toEqual(["Read", "Bash", "Glob", "Grep"]);
+    expect(claudeToolAllowlist(["read", "bash", "find", "Grep", "spawn_agent", "mcp__docs__x"])).toEqual(["Read", "Bash", "Glob", "Grep", "mcp__docs__x"]);
+  });
+
+  it("runs a sub-agent as its Glade agent definition: agents + agent, role prompt appended, Glade's tools allowed (I-218)", async () => {
+    const sdk = new FakeClaudeSdk({ onUser: (q) => q.reply("ok") });
+    const env = { GLADE_URL: "http://127.0.0.1:1", GLADE_TOKEN: "tok", GLADE_SESSION_ID: "s1", GLADE_AGENT_NAME: "auth-scout" };
+    const agentDefinition = {
+      name: "scout",
+      description: "Fast read-only search.",
+      prompt: "Cite file:line.",
+      rolePrompt: "# agent-teams: you are a sub-agent",
+      tools: ["Read", "Grep", "mcp__docs__search"],
+      disallowedTools: ["WebFetch"],
+      permissionMode: "plan",
+      sandbox: null,
+      native: { claude: { maxTurns: 3, skills: ["lint"], hooks: { Stop: [] } } },
+    };
+    const session = (await harness(sdk).openSession({ cwd, sessionRef: null, env, tools: ["Read", "Grep", "mcp__docs__search", "report_done", "message_agent"], appendSystemPrompt: "role + def", agentDefinition })) as ClaudeSession;
+    open.push(session);
+    expect(session.getState().permissionMode).toBe("plan");
+    await session.prompt({ text: "go" });
+    await until(() => sdk.chats.length === 1);
+    const options = sdk.chats[0]!.options;
+    expect(options.agent).toBe("scout");
+    expect(options.agents).toEqual({
+      scout: {
+        description: "Fast read-only search.",
+        prompt: `Cite file:line.\n\nYou are working in ${cwd}.`,
+        tools: ["Read", "Grep", "mcp__docs__search", "mcp__glade__report_done", "mcp__glade__message_agent", "mcp__glade__find_chats", "mcp__glade__read_chat", "mcp__glade__open_chat"],
+        disallowedTools: ["WebFetch"],
+        maxTurns: 3,
+        skills: ["lint"],
+      },
+    });
+    // The role prompt alone (the definition's prompt is the agent's own); built-in tools only in `tools`.
+    expect(options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "# agent-teams: you are a sub-agent" });
+    expect(options.tools).toEqual(["Read", "Grep"]);
+    expect(options.disallowedTools).toEqual(["WebFetch"]);
+    expect(options.permissionMode).toBe("plan");
+  });
+
+  it("a definition without a prompt keeps Claude Code's prompt (no agent; tools still apply)", async () => {
+    const sdk = new FakeClaudeSdk({ onUser: (q) => q.reply("ok") });
+    const agentDefinition = { name: "lite", description: "", prompt: "", rolePrompt: "role", tools: ["Read"], disallowedTools: null, permissionMode: null, sandbox: null };
+    const session = (await harness(sdk).openSession({ cwd, sessionRef: null, tools: ["Read", "report_done"], appendSystemPrompt: "role", agentDefinition })) as ClaudeSession;
+    open.push(session);
+    await session.prompt({ text: "go" });
+    await until(() => sdk.chats.length === 1);
+    expect(sdk.chats[0]!.options).toMatchObject({ tools: ["Read"], systemPrompt: { append: "role" } });
+    expect(sdk.chats[0]!.options.agent).toBeUndefined();
+  });
+
+  it("reports the first init's tools and MCP servers; main sessions list the spawnable agents (I-218)", async () => {
+    const sdk = new FakeClaudeSdk({
+      onUser: (q) => {
+        q.emit({ type: "system", subtype: "init", model: "claude-sonnet-5", session_id: "s", tools: ["Read", "Bash", "mcp__docs__search"], mcp_servers: [{ name: "docs", status: "connected" }] });
+        q.reply("ok");
+      },
+    });
+    const reported: unknown[] = [];
+    const env = { GLADE_URL: "http://127.0.0.1:1", GLADE_TOKEN: "tok", GLADE_SESSION_ID: "s1" };
+    const list = { agents: [{ name: "scout", description: "Looks.", harness: "codex", harnessLabel: "Codex", model: null, readOnly: true }], harnesses: [] };
+    const session = (await harness(sdk).openSession({ cwd, sessionRef: null, env, onTools: (t, m) => reported.push([t, m]), spawnableAgents: async () => list })) as ClaudeSession;
+    open.push(session);
+    await session.prompt({ text: "go" });
+    await until(() => reported.length === 1);
+    expect(reported).toEqual([[["Read", "Bash", "mcp__docs__search"], ["docs"]]]);
+    const spawn = sdk.servers[0]!.tools.find((t) => t.name === "spawn_agent")!;
+    expect(spawn.description).toContain("- scout (Codex, read-only): Looks.");
   });
 
   it("deletes Claude's session file with the chat", async () => {

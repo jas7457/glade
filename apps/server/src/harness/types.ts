@@ -23,6 +23,7 @@ import type {
   UiResponse,
   UsageLimits,
 } from "@glade/protocol";
+import type { SpawnableAgent, SpawnableAgentList } from "./pi/extension/glade-tools.js";
 
 /**
  * A sub-agent the harness runs itself (I-188): Claude Code's Task/Agent tool, Codex's own
@@ -73,7 +74,45 @@ export interface OpenSessionOptions {
   appendSystemPrompt?: string;
   /** Tool allowlist (sub-agents from a definition with `tools`, I-037). */
   tools?: string[];
+  /**
+   * The Glade agent definition a sub-agent runs as (I-218). Each harness applies what it supports:
+   * pi via `appendSystemPrompt`/`tools` (already filled in), Claude Code natively (`agents` +
+   * `agent`), Codex through its sandbox and thread config.
+   */
+  agentDefinition?: SessionAgentDefinition;
+  /**
+   * The agents `spawn_agent` offers (I-218), for harnesses that build Glade's tools in-process
+   * (Claude Code, Codex; pi's extension asks the agent API). Main sessions only.
+   */
+  spawnableAgents?: () => Promise<SpawnableAgentList>;
+  /**
+   * The harness saw its tool list (I-218: Claude Code's `system/init` `tools` + MCP servers), for
+   * agent definitions' tool pickers. Only passed for sessions without a tool restriction.
+   */
+  onTools?: (tools: string[], mcpServers: string[]) => void;
 }
+
+/** A Glade agent definition as applied to a sub-agent's session (I-218), stored on its record. */
+export interface SessionAgentDefinition {
+  name: string;
+  description: string;
+  /** The definition's own prompt (`OpenSessionOptions.appendSystemPrompt` has it after the role). */
+  prompt: string;
+  /** The sub-agent role prompt alone (agent-teams' role.md), without the definition's prompt. */
+  rolePrompt: string;
+  /** The harness's tool names (pi / Claude Code); `null` = its defaults. */
+  tools: string[] | null;
+  /** Claude Code. */
+  disallowedTools: string[] | null;
+  /** Claude Code's permission mode (the session's mode until the user picks another). */
+  permissionMode: string | null;
+  /** Codex's sandbox mode (`read-only`, `workspace-write`, `danger-full-access`). */
+  sandbox: string | null;
+  /** Harness-native fields Glade doesn't model, passed through on that harness. */
+  native?: { claude?: Record<string, unknown>; codex?: Record<string, unknown> };
+}
+
+export type { SpawnableAgent, SpawnableAgentList };
 
 /** A shell command the user runs in the session's folder (`!cmd` / `!!cmd`, I-076). */
 export interface ShellRunRequest {

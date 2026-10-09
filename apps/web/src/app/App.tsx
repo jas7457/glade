@@ -4,7 +4,7 @@
 import { RouterProvider, createBrowserRouter, type RouteObject } from "react-router";
 import { ConfirmHost, Toaster, TooltipProvider } from "@glade/app-core/ui";
 import { PairRoute, PendingPairingHost } from "@/features/environments";
-import { SettingsAgentRoute, SettingsIndexRoute, SettingsRoute } from "@/features/settings";
+import { SettingsAgentRoute, SettingsIndexRoute, SettingsRoute, SettingsSubagentRoute } from "@/features/settings";
 import { DeleteChatHost } from "@/features/sidebar";
 import { Layout } from "./Layout";
 import { NotFound } from "./NotFound";
@@ -30,6 +30,8 @@ export const appRoutes: RouteObject[] = [
       { path: "/settings/:section", element: <SettingsRoute /> },
       // One agent's page under Settings → Agents (I-198).
       { path: "/settings/agent/:harness", element: <SettingsAgentRoute /> },
+      // Settings → Sub-agents' editor (I-218): `new/<harness>` or `edit/<agent id>`.
+      { path: "/settings/subagents/:mode/:key", element: <SettingsSubagentRoute /> },
       { path: "*", element: <NotFound /> },
     ],
   },

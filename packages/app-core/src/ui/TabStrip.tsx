@@ -37,6 +37,8 @@ export interface TabStripTab {
   subtitle?: string;
   /** Sub-agent colour key (I-084, `data-agent-color`): the title and the active tab's top line use it. */
   agentColor?: string;
+  /** Small icon just before the title, in the title's colour (a sub-agent's icon, I-218). */
+  titleIcon?: ComponentChildren;
   /** Shown instead of the status glyph (e.g. a terminal tab's icon, I-187). */
   icon?: ComponentChildren;
 }
@@ -157,6 +159,9 @@ export function TabStrip({
                 <span class="flex size-3 shrink-0 items-center justify-center text-fg-muted [&_svg]:size-3">{tab.icon}</span>
               ) : (
                 <StatusIndicator status={tab.status} failed={tab.failed} size={12} tooltip={false} />
+              )}
+              {!!tab.titleIcon && !renaming && (
+                <span class={cn("-mr-0.5 flex shrink-0 items-center [&_svg]:size-3", tab.agentColor ? "text-agent" : "text-fg-muted")}>{tab.titleIcon}</span>
               )}
               {renaming ? (
                 <TabRenameInput value={tab.title} onDone={(title) => onRenameDone?.(tab.id, title)} />

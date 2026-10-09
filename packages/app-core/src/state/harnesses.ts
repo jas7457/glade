@@ -81,6 +81,17 @@ export function harnessLabel(id?: string | null, envId?: string | null): string 
   return find(id, envId)?.label ?? "the agent";
 }
 
+/** Names of the built-in agents, for harnesses an environment doesn't list (turned off, not loaded yet). */
+const KNOWN_LABELS: Record<string, string> = { pi: "pi", claude: "Claude Code", codex: "Codex" };
+
+/**
+ * A harness's own name ("Claude Code"), never another one's: unlike {@link harnessLabel} an
+ * unknown id doesn't fall back to the default harness (I-217: a sub-agent's harness badge).
+ */
+export function harnessName(id: string, envId?: string | null): string {
+  return harnessesOf(envId)?.find((h) => h.id === id)?.label ?? KNOWN_LABELS[id] ?? id;
+}
+
 export async function loadHarnesses(envId?: string | null): Promise<void> {
   const conn = envId ? connectionFor(envId) : undefined;
   try {

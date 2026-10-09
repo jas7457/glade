@@ -42,11 +42,21 @@ export const routes = {
   settings: (section?: SettingsSection) => (section ? `/settings/${section}` : "/settings"),
   /** One agent's page under Settings → Agents (I-198): its version, defaults and models. */
   settingsAgent: (harnessId: string) => `/settings/agent/${encodeURIComponent(harnessId)}`,
+  /** Settings → Sub-agents (I-218), showing the agents of one project (`null` = all chats). */
+  settingsSubagents: (projectId?: string | null) => `/settings/subagents${projectQuery(projectId)}`,
+  /** A new Glade agent on `harness` (`inherit` too), harness first (I-218). */
+  settingsSubagentNew: (harness: string, projectId?: string | null) => `/settings/subagents/new/${encodeURIComponent(harness)}${projectQuery(projectId)}`,
+  /** One agent definition (`AgentDef.id`, e.g. `personal:scout`): edit, or view a discovered one. */
+  settingsSubagent: (agentId: string, projectId?: string | null) => `/settings/subagents/edit/${encodeURIComponent(agentId)}${projectQuery(projectId)}`,
 };
+
+function projectQuery(projectId: string | null | undefined): string {
+  return projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+}
 
 // `about` and `appearance` were folded into General (I-160, I-161); their old links open General.
 // `models` was folded into Agents (I-198): `/settings/models` opens Agents.
-export const SETTINGS_SECTIONS = ["general", "agent", "commands", "prompts", "local-models", "remote"] as const;
+export const SETTINGS_SECTIONS = ["general", "agent", "subagents", "commands", "prompts", "local-models", "remote"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**
