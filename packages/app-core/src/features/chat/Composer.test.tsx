@@ -150,6 +150,63 @@ describe("sendModeFor (I-200)", () => {
   });
 });
 
+describe("sendModeFor while compacting (I-216)", () => {
+  const base: SendModeInput = { running: false, compacting: true, steering: true, sideQuestions: true, shellInput: false, hasText: true, hasAttachments: false, command: null, meta: false, alt: false };
+  const mode = (over: Partial<SendModeInput>) => sendModeFor({ ...base, ...over });
+  const MODS = [
+    { meta: false, alt: false },
+    { meta: true, alt: false },
+    { meta: false, alt: true },
+    { meta: true, alt: true },
+  ];
+
+  it("every combination of running, steering, side questions and held keys is a Follow-up", () => {
+    for (const running of [false, true]) {
+      for (const steering of [false, true]) {
+        for (const sideQuestions of [false, true]) {
+          for (const mods of MODS) {
+            expect(mode({ running, steering, sideQuestions, ...mods })).toMatchObject({ mode: "followUp", behavior: "followUp", label: "Send follow-up", menuLabel: "Send as Follow-up", enabled: true });
+          }
+        }
+      }
+    }
+    expect(mode({}).tooltip).toContain("sent once compacting is done");
+  });
+
+  it("attachments alone can be sent; nothing at all shows Follow-up disabled", () => {
+    expect(mode({ hasText: false, hasAttachments: true })).toMatchObject({ mode: "followUp", enabled: true });
+    expect(mode({ hasText: false })).toMatchObject({ mode: "followUp", enabled: false });
+  });
+
+  it("shell input and /btw can't run now: shown disabled with the reason", () => {
+    for (const mods of MODS) {
+      expect(mode({ shellInput: true, ...mods })).toMatchObject({ mode: "runCommand", enabled: false, tooltip: "Can't run commands while compacting" });
+      expect(mode({ command: { kind: "btw" }, ...mods })).toMatchObject({ mode: "askAside", enabled: false });
+    }
+  });
+
+  it("/compact again is refused; other built-ins and saved prompts work as usual", () => {
+    expect(mode({ command: { kind: "builtin", name: "compact" } })).toMatchObject({ mode: "runBuiltin", label: "Run /compact", enabled: false, tooltip: "Already compacting" });
+    expect(mode({ command: { kind: "builtin", name: "export" }, running: true })).toMatchObject({ mode: "runBuiltin", label: "Run /export", enabled: true });
+    expect(mode({ command: { kind: "savedPrompt", name: "review" } })).toMatchObject({ mode: "insertPrompt", enabled: true });
+  });
+
+  it("not compacting is unchanged", () => {
+    expect(mode({ compacting: false }).mode).toBe("send");
+    expect(mode({ compacting: undefined, running: true }).mode).toBe("steer");
+  });
+
+  it("the right-click menu lists only Follow-up", () => {
+    const menu = (over: Partial<Omit<SendModeInput, "meta" | "alt">> = {}) => sendMenuModes({ ...base, ...over }).map((m) => [m.menuLabel, m.shortcut, m.enabled]);
+    for (const running of [false, true]) {
+      expect(menu({ running })).toEqual([["Send as Follow-up", "↩", true]]);
+      expect(menu({ running, steering: false })).toEqual([["Send as Follow-up", "↩", true]]);
+    }
+    expect(menu({ hasText: false })).toEqual([["Send as Follow-up", "↩", false]]);
+    expect(menu({ shellInput: true })).toEqual([["Run Command", "↩", false]]);
+  });
+});
+
 function renderAt(ui: preact.ComponentChildren) {
   const router = createMemoryRouter(
     [
@@ -770,6 +827,99 @@ describe("one Send button for every mode (I-200)", () => {
     // Not a Glade command: sent to the agent like text (steers).
     fireEvent.input(box, { target: { value: "/skill:review now" } });
     expect(sendButton().getAttribute("aria-label")).toBe("Steer");
+  });
+});
+
+describe("Composer while compacting (I-216)", () => {
+  const setCaps = (steering: boolean) => {
+    harnesses.value = [{ id: "fake", label: "Fake", isDefault: true, capabilities: { ...ALL_CAPS, steering, sideQuestions: true } }];
+  };
+  afterEach(() => {
+    harnesses.value = null;
+  });
+  const sendButton = () => screen.getByRole("button", { name: /^(Send|Steer|Send follow-up|Queue message|Ask Aside|Run command|Run \/\w+|Insert prompt)$/ }) as HTMLButtonElement;
+  const compactingChat = (running: boolean) => {
+    const store = readyChat("c1", running);
+    store.state.value = { ...store.state.value, isCompacting: true };
+    return store;
+  };
+
+  const cases: Array<{ steering: boolean; running: boolean }> = [
+    { steering: true, running: false },
+    { steering: true, running: true },
+    { steering: false, running: false },
+    { steering: false, running: true },
+  ];
+  it.each(cases)("↩, ⌘↩, ⌥↩ and a click all send a follow-up: steering=$steering running=$running", async ({ steering, running }) => {
+    setCaps(steering);
+    compactingChat(running);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(box.disabled).toBe(false);
+    expect(box.placeholder).toBe("Compacting… your message is sent when it's done");
+    const behavior = steering ? "followUp" : undefined;
+    const type = (value: string) => fireEvent.input(box, { target: { value } });
+
+    type("enter");
+    expect(sendButton()).toMatchObject({ disabled: false });
+    expect(sendButton().getAttribute("aria-label")).toBe("Send follow-up");
+    expect(sendButton().dataset.sendBehavior).toBe("followUp");
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "enter", images: undefined, behavior }));
+    type("meta");
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "meta", images: undefined, behavior }));
+    type("alt");
+    fireEvent.keyDown(box, { key: "Enter", altKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "alt", images: undefined, behavior }));
+    type("click");
+    fireEvent.click(sendButton(), { altKey: true });
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "click", images: undefined, behavior }));
+    expect(api.prompt).toHaveBeenCalledTimes(4);
+    expect(api.askSideQuestion).not.toHaveBeenCalled();
+  });
+
+  it("holding ⌥ or ⌘ doesn't change the button; right-click lists only Follow-up", async () => {
+    setCaps(true);
+    compactingChat(true);
+    renderAt(<Composer chatId="c1" />);
+    fireEvent.input(screen.getByRole("textbox", { name: "Message" }), { target: { value: "queued" } });
+    const icon = sendButton().innerHTML;
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    await new Promise((r) => setTimeout(r, MODIFIER_SHOW_DELAY_MS + 60));
+    expect(sendButton().getAttribute("aria-label")).toBe("Send follow-up");
+    expect(sendButton().innerHTML).toBe(icon);
+    fireEvent.keyUp(window, { key: "Alt", altKey: false });
+    fireEvent.contextMenu(sendButton());
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["Send as Follow-up↩"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Send as Follow-up/ }));
+    await waitFor(() => expect(api.prompt).toHaveBeenLastCalledWith("c1", { text: "queued", images: undefined, behavior: "followUp" }));
+  });
+
+  it("/btw and /compact typed now do nothing; the button says why", () => {
+    setCaps(true);
+    compactingChat(false);
+    renderAt(<Composer chatId="c1" />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(box, { target: { value: "/btw is it done?" } });
+    expect(sendButton().disabled).toBe(true);
+    fireEvent.keyDown(box, { key: "Enter" });
+    fireEvent.input(box, { target: { value: "/compact" } });
+    expect(sendButton().getAttribute("aria-label")).toBe("Run /compact");
+    expect(sendButton().disabled).toBe(true);
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(api.prompt).not.toHaveBeenCalled();
+    expect(api.askSideQuestion).not.toHaveBeenCalled();
+  });
+
+  it("goes back to Send once compaction is over", async () => {
+    setCaps(true);
+    const store = compactingChat(false);
+    renderAt(<Composer chatId="c1" />);
+    fireEvent.input(screen.getByRole("textbox", { name: "Message" }), { target: { value: "hi" } });
+    expect(sendButton().getAttribute("aria-label")).toBe("Send follow-up");
+    store.state.value = { ...store.state.value, isCompacting: false };
+    await waitFor(() => expect(sendButton().getAttribute("aria-label")).toBe("Send"));
   });
 });
 

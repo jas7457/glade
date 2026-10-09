@@ -242,7 +242,13 @@ export class ClaudeSession implements HarnessSession {
   async prompt(request: PromptRequest): Promise<void> {
     if (this.disposed) throw new Error("The session is closed");
     const turn = this.turn;
-    if (turn && !turn.compact) {
+    if (turn?.compact) {
+      // I-216: a manual `/compact` isn't a run; whatever is sent meanwhile goes out right after it.
+      this.queue.push(request);
+      this.emitQueue();
+      return;
+    }
+    if (turn) {
       if (request.behavior === "followUp") {
         this.queue.push(request);
         this.emitQueue();
@@ -253,7 +259,6 @@ export class ClaudeSession implements HarnessSession {
       this.send(request);
       return;
     }
-    if (turn?.compact) throw new Error("Wait for the compaction to finish");
     void this.runTurn(request);
   }
 
@@ -456,7 +461,8 @@ export class ClaudeSession implements HarnessSession {
       this.restartPending = false;
       this.closeQuery();
     }
-    const finished = !turn.compact && !turn.aborted && end.stopReason !== "error" && end.stopReason !== "aborted";
+    // Messages sent during a compaction go out when it ends, however it ended (I-216).
+    const finished = !!turn.compact || (!turn.aborted && end.stopReason !== "error" && end.stopReason !== "aborted");
     const next = this.disposed || !finished ? undefined : this.queue.shift();
     if (next) {
       this.emitQueue();

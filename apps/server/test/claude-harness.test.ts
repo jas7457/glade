@@ -590,6 +590,39 @@ describe("Claude sessions", () => {
     expect(session.getState().isCompacting).toBe(false);
     expect(events.filter((e) => e.type === "run_start")).toHaveLength(1); // compaction isn't a run
   });
+
+  it("holds messages sent during an idle /compact and sends them once it has finished, in order (I-216)", async () => {
+    let finishCompact!: () => void;
+    const sdk = new FakeClaudeSdk({
+      onUser: async (q, msg) => {
+        const text = (msg.message.content as Array<{ text: string }>)[0]!.text;
+        if (text.startsWith("/compact")) {
+          q.emit({ type: "system", subtype: "status", status: "compacting" });
+          await new Promise<void>((r) => (finishCompact = r));
+          q.emit({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 150_000, post_tokens: 32_000 } });
+          q.emit({ type: "system", subtype: "status", status: null });
+          q.emit(result());
+        } else q.reply(`re: ${text}`);
+      },
+    });
+    const { session, run, events } = await openSession(harness(sdk));
+    await run("hi");
+    const compacting = session.compact();
+    await until(() => session.getState().isCompacting && !!finishCompact);
+    // Neither a follow-up nor a steer starts a turn or reaches Claude Code before the compaction is over.
+    await session.prompt({ text: "one", behavior: "followUp" });
+    await session.prompt({ text: "two", behavior: "steer" });
+    expect(session.getState().queue.followUp).toEqual(["one", "two"]);
+    expect(sdk.chats[0]!.received).toHaveLength(2); // "hi" and "/compact"
+    expect(events.filter((e) => e.type === "run_start")).toHaveLength(1);
+    finishCompact();
+    await compacting;
+    await until(() => events.filter((e) => e.type === "run_end").length === 3, 3000);
+    expect(sdk.chats[0]!.received.map((m) => (m.message.content as Array<{ text: string }>)[0]!.text)).toEqual(["hi", "/compact", "one", "two"]);
+    expect(session.getState().queue.followUp).toEqual([]);
+    const users = (await session.loadTranscript()).messages.filter((m) => m.role === "user").map(messageText);
+    expect(users).toEqual(["hi", "one", "two"]);
+  });
 });
 
 describe("Claude harness", () => {

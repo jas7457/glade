@@ -92,6 +92,8 @@ export interface FakeCodexOptions {
   skills?: (cwd: string) => SkillMetadata[];
   /** `command/exec` (default: `fake output of: <command>` in two chunks, exit 0). */
   onExec?: (exec: FakeExec) => Promise<CommandExecResponse>;
+  /** `thread/compact/start` (default: the compaction item, usage, then the end); the turn is notified as started first. */
+  onCompact?: (turn: FakeTurn) => void;
   /** A steered message arrived (`turn/steer`). */
   onSteer?: (turn: FakeTurn, text: string) => void;
   account?: GetAccountResponse;
@@ -243,6 +245,7 @@ export class FakeCodexAppServer {
         thread.turns.push(turn);
         setImmediate(() => {
           turn.notify("turn/started", { threadId: thread.id, turn: { id: turn.id, status: "inProgress", error: null } });
+          if (o.onCompact) return o.onCompact(turn);
           turn.item({ type: "contextCompaction", id: "cc1" });
           turn.usage(1200, 272000);
           turn.complete();

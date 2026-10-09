@@ -17,6 +17,20 @@
  * disabled). ⌥ wins when both are held. A harness command (`/skill:…`) is sent like text. With
  * nothing to send the mode still shows, disabled.
  *
+ * While the chat is compacting (I-216; running or not, any harness), steering makes no sense, so
+ * whatever is typed is a Follow-up, whatever is held (⌥ too: no Ask Aside), and it goes out once
+ * the compaction has ended (the harnesses hold it until then):
+ *
+ * | Compacting, with …                      | ↩ / ⌘ / ⌥ / click                                      |
+ * | --------------------------------------- | ------------------------------------------------------ |
+ * | text or attachments                     | Follow-up                                              |
+ * | a harness command (`/skill:…`)          | Follow-up                                              |
+ * | shell input (`!cmd` / `!!cmd`)          | Run command, disabled (pi would store the output mid-compaction) |
+ * | `/btw …` typed                          | Ask Aside, disabled (not offered while compacting)     |
+ * | `/compact` typed                        | Run /compact, disabled (already compacting)            |
+ * | another Glade built-in typed            | Run command, as usual                                  |
+ * | a saved prompt typed in full (`/name`)  | Insert prompt, as usual (nothing is sent)              |
+ *
  * Right-clicking Send (desktop) lists the modes ↩, ⌘↩ and ⌥↩ give right now (`sendMenuModes`).
  */
 /** What the user asked for while running (↩ steer, ⌘↩ follow-up, I-153); ignored when idle. */
@@ -29,6 +43,8 @@ export type SendModeCommand = { kind: "btw" } | { kind: "builtin"; name: string 
 
 export interface SendModeInput {
   running: boolean;
+  /** The chat is compacting its context (I-216); counts whether or not `running` is true. */
+  compacting?: boolean;
   /** The harness can steer a running agent (I-065). */
   steering: boolean;
   /** The harness can answer side questions (I-140). */
@@ -59,14 +75,18 @@ export interface SendModeInfo {
 }
 
 export function sendModeFor(input: SendModeInput): SendModeInfo {
-  const { running, steering, sideQuestions, shellInput, hasText, hasAttachments, command, meta, alt } = input;
+  const { running, compacting, steering, sideQuestions, shellInput, hasText, hasAttachments, command, meta, alt } = input;
   const anything = hasText || hasAttachments;
+  if (compacting) {
+    // I-216: what's sent is a Follow-up; what can't happen now shows disabled, with the reason.
+    if (shellInput) return { ...info("runCommand", false), tooltip: "Can't run commands while compacting" };
+    if (command?.kind === "btw") return { ...info("askAside", false), tooltip: "Ask Aside isn't available while compacting" };
+    if (command?.kind === "builtin" && command.name === "compact") return { ...runBuiltin(command.name, false), tooltip: "Already compacting" };
+    if (!command) return { ...info("followUp", anything), tooltip: "Follow-up (↩): sent once compacting is done" };
+  }
   if (shellInput) return info("runCommand", hasText);
   if (command?.kind === "btw") return info("askAside", hasText);
-  if (command?.kind === "builtin") {
-    const run = `Run /${command.name}`;
-    return { ...info("runBuiltin", true), label: run, menuLabel: run, tooltip: `${run} (↩)` };
-  }
+  if (command?.kind === "builtin") return runBuiltin(command.name, true);
   if (command?.kind === "savedPrompt") return { ...info("insertPrompt", true), tooltip: `Insert the saved prompt /${command.name} (↩)` };
   if (!running) return info("send", anything);
   if (alt && sideQuestions) return info("askAside", hasText);
@@ -106,7 +126,7 @@ const MENU_KEYS = [
 /**
  * The modes ↩, ⌘↩ and ⌥↩ give right now, each once (with the first key that gives it), for Send's
  * right-click menu. Idle: just Send; running: Steer / Send as Follow-up / Ask Aside (Queue Message
- * without steering). A mode is disabled when it has nothing to send, like the button.
+ * without steering); compacting: just Send as Follow-up. A mode is disabled when it has nothing to send, like the button.
  */
 export function sendMenuModes(input: Omit<SendModeInput, "meta" | "alt">): SendMenuMode[] {
   const modes: SendMenuMode[] = [];
@@ -115,6 +135,11 @@ export function sendMenuModes(input: Omit<SendModeInput, "meta" | "alt">): SendM
     if (!modes.some((m) => m.mode === mode.mode)) modes.push({ ...mode, shortcut, mods });
   }
   return modes;
+}
+
+function runBuiltin(name: string, enabled: boolean): SendModeInfo {
+  const run = `Run /${name}`;
+  return { ...info("runBuiltin", enabled), label: run, menuLabel: run, tooltip: `${run} (↩)` };
 }
 
 function info(mode: SendMode, enabled: boolean): SendModeInfo {

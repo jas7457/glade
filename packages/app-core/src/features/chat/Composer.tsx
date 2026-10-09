@@ -35,6 +35,9 @@
  * (after the agent finishes), ⌥↩ asks aside, ⇧↩ inserts a new line. Harnesses without steering
  * queue either way.
  *
+ * While the chat is compacting (I-216) Send is always Follow-up: ↩, ⌘↩, ⌥↩, clicks and the
+ * right-click menu alike (send-mode.ts has the table); the message is sent once compaction ends.
+ *
  * One Send button (I-200): its icon, colour, label and tooltip show what ↩ does with the modifiers
  * held right now (`sendModeFor` in send-mode.ts: Send / Steer / Follow-up / Queue message / Ask
  * Aside / Run command / a typed built-in / Insert prompt; `useHeldModifiers`), in the same size and
@@ -170,6 +173,11 @@ export interface ComposerBoxProps {
   placeholder?: string;
   autoFocus?: boolean;
   isRunning?: boolean;
+  /**
+   * The chat is compacting its context (I-216): Send is a Follow-up whatever is held (no steer,
+   * no Ask Aside), delivered once compaction ends. Counts whether or not `isRunning`.
+   */
+  compacting?: boolean;
   /** Disable input (e.g. while creating a chat). */
   busy?: boolean;
   /**
@@ -249,7 +257,7 @@ export const SEND_LONG_PRESS_MS = 450;
 export type { SendBehavior };
 
 export function ComposerBox(props: ComposerBoxProps) {
-  const { draftKey, isRunning = false, busy: loading = false, supportsImages, lockedReason } = props;
+  const { draftKey, isRunning = false, compacting = false, busy: loading = false, supportsImages, lockedReason } = props;
   /** No typing or sending: loading, or locked (read-only). */
   const busy = loading || !!lockedReason;
   const touch = props.touch ?? isIphoneApp();
@@ -379,10 +387,10 @@ export function ComposerBox(props: ComposerBoxProps) {
   const blocked = props.sendBlockedReason;
   const canSend = !busy && !blocked && (shellInput ? shellInput.command.length > 0 : text.trim().length > 0 || images.length > 0 || files.length > 0 || references.length > 0);
   // Ask Aside (I-140): only while the agent works and there's a question typed.
-  const canAskAside = !!props.askAside && isRunning && !busy && !shellInput && text.trim().length > 0;
+  const canAskAside = !!props.askAside && isRunning && !compacting && !busy && !shellInput && text.trim().length > 0;
   // Steer vs follow-up (I-153): only while running, for harnesses that steer, and not in shell mode.
   const steering = props.steering !== false;
-  const choosesBehavior = isRunning && steering && !busy && !shellInput;
+  const choosesBehavior = isRunning && !compacting && steering && !busy && !shellInput;
   // I-200: held ⌘/⌥ pick Send's mode; only while running (idle, they change nothing).
   const held = useHeldModifiers(isRunning && !busy && !touch);
 
@@ -487,6 +495,7 @@ export function ComposerBox(props: ComposerBoxProps) {
   /** What ↩ / Send does with these modifiers (send-mode.ts). */
   const modeInput = {
     running: isRunning,
+    compacting,
     steering,
     sideQuestions: !!props.askAside,
     shellInput: !!shellInput,
@@ -818,7 +827,7 @@ export function ComposerBox(props: ComposerBoxProps) {
           placeholder={
             lockedReason ??
             props.placeholder ??
-            (isRunning ? (touch ? touchRunningPlaceholder(steering, !!props.askAside) : runningPlaceholder(steering, !!props.askAside)) : "Ask anything…")
+            (compacting ? COMPACTING_PLACEHOLDER : isRunning ? (touch ? touchRunningPlaceholder(steering, !!props.askAside) : runningPlaceholder(steering, !!props.askAside)) : "Ask anything…")
           }
           aria-label="Message"
           aria-autocomplete={slash || props.mentions ? "list" : undefined}
@@ -1037,6 +1046,9 @@ export function runningPlaceholder(steering: boolean, askAside: boolean): string
   return askAside ? "↩ steer · ⌘↩ follow-up · ⌥↩ ask aside" : "↩ steer · ⌘↩ follow-up";
 }
 
+/** The placeholder while compacting (I-216): everything sent waits for it as a follow-up. */
+export const COMPACTING_PLACEHOLDER = "Compacting… your message is sent when it's done";
+
 /** The touch placeholder while the agent works (I-164): Send steers; hold it for more. */
 export function touchRunningPlaceholder(steering: boolean, _askAside: boolean): string {
   // Short enough for one line in the slim pill; holding Send (follow-up, Ask Aside) is in its sheet.
@@ -1118,7 +1130,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
           text: await attachFilesToText(chatId, text, files),
           images: images.length ? images : undefined,
           // Steer vs follow-up only exists for harnesses with message queues (I-065).
-          behavior: store.state.value.isRunning && capabilities.steering ? behavior : undefined,
+          behavior: (store.state.value.isRunning || store.state.value.isCompacting) && capabilities.steering ? behavior : undefined,
         }),
       "Could not send message",
     );
@@ -1192,6 +1204,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       autoFocus={autoFocus && !uiRequests[0]}
       // A native sub-agent (I-188) can still be stopped from its tab.
       isRunning={state.isRunning && (!lockedReason || !!native)}
+      compacting={state.isCompacting}
       lockedReason={lockedReason}
       supportsImages={supportsImageInput(modelInfo(models, state.model))}
       model={state.model}

@@ -250,6 +250,14 @@ export class PiSession implements HarnessSession {
   private commands: Promise<SlashCommand[]> | null = null;
   /** `compact` requests in flight (their failures are reported by the request, not as a toast). */
   private manualCompactions = 0;
+  /**
+   * Messages sent while compacting (I-216): pi refuses a prompt during a manual compaction and,
+   * between an auto-compaction and its run, could start a turn alongside it. They wait here and
+   * go out as follow-ups when the compaction ends.
+   */
+  private held: PromptRequest[] = [];
+  /** pi's own queue (`queue_update`), so the held messages can be shown after it. */
+  private piQueue: SessionState["queue"] = { steering: [], followUp: [] };
   /** `get_session_stats` in flight; further requests meanwhile coalesce into one follow-up. */
   private statsInflight = false;
   private statsDirty = false;
@@ -269,13 +277,19 @@ export class PiSession implements HarnessSession {
   ) {
     this.events = new SessionEvents(log);
     proc.on("event", (raw) => {
-      for (const event of this.translator.translate(raw)) {
+      for (const translated of this.translator.translate(raw)) {
+        let event = translated;
+        if (event.type === "state" && event.state.queue) {
+          this.piQueue = event.state.queue;
+          event = { ...event, state: { ...event.state, queue: this.shownQueue() } };
+        }
         if (event.type === "state") this.state = { ...this.state, ...event.state };
         // A failed manual compaction is reported to its caller (the RPC response); don't toast twice.
         if (event.type === "notify" && raw.type === "compaction_end" && this.manualCompactions > 0) continue;
         this.emit(event);
       }
       if (typeof raw.type === "string" && STATS_TRIGGERS.has(raw.type)) this.refreshStats();
+      if (raw.type === "compaction_end") void this.flushHeld();
     });
     proc.on("exit", () => {
       const error = this.disposed ? null : new Error(proc.recentStderr || "pi process exited unexpectedly");
@@ -351,6 +365,7 @@ export class PiSession implements HarnessSession {
       );
     } finally {
       this.manualCompactions--;
+      if (!this.state.isCompacting) void this.flushHeld(); // also when pi never reported the end (a failed request)
     }
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
     return { tokensBefore: num(data?.tokensBefore) ?? 0, tokensAfter: num(data?.estimatedTokensAfter) };
@@ -400,6 +415,39 @@ export class PiSession implements HarnessSession {
   }
 
   async prompt(request: PromptRequest): Promise<void> {
+    if (this.state.isCompacting || this.manualCompactions > 0) {
+      this.held.push(request);
+      this.emitQueue();
+      return;
+    }
+    await this.promptNow(request);
+  }
+
+  private shownQueue(): SessionState["queue"] {
+    return { steering: this.piQueue.steering, followUp: [...this.piQueue.followUp, ...this.held.map((r) => r.text)] };
+  }
+
+  private emitQueue(): void {
+    this.setState({ queue: this.shownQueue() });
+  }
+
+  /** Send what was held during a compaction (in order; the first may start the run, the rest queue). */
+  private async flushHeld(): Promise<void> {
+    if (this.disposed || !this.held.length) return;
+    const batch = this.held;
+    this.held = [];
+    this.emitQueue();
+    for (const request of batch) {
+      try {
+        await this.promptNow({ ...request, behavior: "followUp" });
+      } catch (err) {
+        this.log?.(`pi: sending a message held during compaction failed: ${(err as Error).message}`);
+        this.emit({ type: "notify", level: "error", message: (err as Error).message });
+      }
+    }
+  }
+
+  private async promptNow(request: PromptRequest): Promise<void> {
     const images = request.images?.map((img) => ({ type: "image", data: img.data, mimeType: img.mimeType }));
     await this.proc.request({
       type: "prompt",
@@ -447,6 +495,7 @@ export class PiSession implements HarnessSession {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.held = [];
     await this.proc.kill();
   }
 

@@ -410,7 +410,16 @@ export class FakeSession implements HarnessSession {
     return this.stored.transcript;
   }
 
+  /** Messages sent during a compaction wait for its end, like the real harnesses (I-216). */
+  private compacting = false;
+  private heldDuringCompaction: PromptRequest[] = [];
+
   async prompt(request: PromptRequest): Promise<void> {
+    if (this.compacting) {
+      this.heldDuringCompaction.push(request);
+      this.emit({ type: "state", state: { queue: { steering: [], followUp: this.heldDuringCompaction.map((r) => r.text) } } });
+      return;
+    }
     this.prompts.push(request);
     const native = /^native(?: (\d))? ([\s\S]+)$/.exec(request.text.trim());
     if (native) {
@@ -657,14 +666,24 @@ export class FakeSession implements HarnessSession {
     const stored = this.stored;
     const tokensBefore = stored.contextTokens ?? 0;
     const tokensAfter = Math.round(tokensBefore / 5);
+    this.compacting = true;
     this.emit({ type: "state", state: { isCompacting: true } });
     if (this.harness.eventDelayMs > 0) await new Promise((r) => setTimeout(r, this.harness.eventDelayMs * 10));
+    this.compacting = false;
     stored.contextTokens = null; // unknown until the next reply, like pi
     this.emit({ type: "state", state: { isCompacting: false, ...this.statsState() } });
     this.emit({
       type: "message_end",
       message: { id: `${this.sessionRef}-${this.idCounter++}`, role: "notice", kind: "compaction", text: compactionNoticeText(tokensBefore, tokensAfter), timestamp: Date.now() },
     });
+    const held = this.heldDuringCompaction;
+    this.heldDuringCompaction = [];
+    if (held.length) {
+      this.emit({ type: "state", state: { queue: { steering: [], followUp: [] } } });
+      const [first, ...rest] = held;
+      await this.prompt(first!);
+      for (const request of rest) await this.prompt({ ...request, behavior: "followUp" });
+    }
     return { tokensBefore, tokensAfter };
   }
 

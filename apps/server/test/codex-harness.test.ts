@@ -701,6 +701,33 @@ describe("Codex sessions", () => {
     expect(session.getState().isRunning).toBe(false);
   });
 
+  it("holds messages sent during an idle compaction and starts them once it has finished, in order (I-216)", async () => {
+    let compaction!: FakeTurn;
+    const codex = new FakeCodexAppServer({
+      onTurn: (t) => t.reply(`re: ${t.text}`),
+      onCompact: (t) => {
+        compaction = t;
+      },
+    });
+    const { session, run, events } = await openSession(harness(codex));
+    await run("hi");
+    const compacting = session.compact();
+    await until(() => !!compaction && session.getState().isCompacting);
+    await session.prompt({ text: "one", behavior: "followUp" });
+    await session.prompt({ text: "two", behavior: "steer" });
+    expect(session.getState().queue.followUp).toEqual(["one", "two"]);
+    expect(codex.sent("turn/start")).toHaveLength(1);
+    expect(codex.sent("turn/steer")).toHaveLength(0);
+    compaction.item({ type: "contextCompaction", id: "cc1" });
+    compaction.usage(1200, 272000);
+    compaction.complete();
+    await compacting;
+    await until(() => codex.sent("turn/start").length === 3 && !session.getState().isRunning, 5000);
+    expect(codex.sent("turn/start").map((p) => (p.input as Array<{ text: string }>)[0]!.text)).toEqual(["hi", "one", "two"]);
+    expect(session.getState().queue.followUp).toEqual([]);
+    expect(events.filter((e) => e.type === "run_start")).toHaveLength(3);
+  });
+
   it("fails the running turn and exits the session when the app-server dies; the next chat starts a new one", async () => {
     const codex = new FakeCodexAppServer({ onTurn: (t) => void t.message("half") });
     const h = harness(codex);

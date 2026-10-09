@@ -266,6 +266,25 @@ describe("slash-command endpoints", () => {
     await until(() => !env.service.listSessions()[0]!.running);
   });
 
+  it("a message sent during an idle /compact is delivered after it, not run alongside it (I-216)", async () => {
+    env.harness.eventDelayMs = 5;
+    const { chat } = await newChat();
+    const compacting = req("POST", `/api/sessions/${chat.id}/compact`, {});
+    const session = [...env.harness.openSessions][0] as FakeSession;
+    await until(() => session.getState().isCompacting);
+    await env.service.prompt(chat.id, { text: "after compaction", behavior: "followUp" });
+    expect(session.prompts.map((p) => p.text)).not.toContain("after compaction");
+    expect(session.getState().queue.followUp).toEqual(["after compaction"]);
+    expect((await compacting).status).toBe(200);
+    await until(() => session.prompts.some((p) => p.text === "after compaction"));
+    await until(() => !env.service.listSessions()[0]!.running && session.getState().queue.followUp.length === 0);
+    await new Promise((r) => setTimeout(r, 150)); // the fake's reply plays out
+    const detail = await env.service.getSessionDetail(chat.id);
+    const kinds = detail.transcript.messages.map((m) => (m.role === "notice" ? "notice" : m.role));
+    expect(kinds.indexOf("notice")).toBeGreaterThanOrEqual(0);
+    expect(kinds.indexOf("notice")).toBeLessThan(kinds.lastIndexOf("user"));
+  });
+
   it("POST /export returns the path; /fs/reveal only reveals exported files", async () => {
     const { chat } = await newChat();
     const res = await req("POST", `/api/sessions/${chat.id}/export`);

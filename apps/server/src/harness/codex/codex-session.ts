@@ -389,9 +389,9 @@ export class CodexSession implements HarnessSession {
   async prompt(request: PromptRequest): Promise<void> {
     if (this.disposed) throw new Error("The session is closed");
     const turn = this.turn;
-    if (turn?.compact) throw new Error("Wait for the compaction to finish");
     if (turn) {
-      if (request.behavior === "followUp" || !turn.id || parseSlashText(request.text)?.name === "review") {
+      // I-216: a manual compaction isn't a run; whatever is sent meanwhile goes out right after it.
+      if (turn.compact || request.behavior === "followUp" || !turn.id || parseSlashText(request.text)?.name === "review") {
         this.queue.push(request);
         this.emitQueue();
         return;
@@ -752,7 +752,8 @@ export class CodexSession implements HarnessSession {
       this.emit({ type: "state", state: { isRunning: false } });
       this.emit({ type: "run_end" });
     }
-    const finished = !turn.compact && !turn.aborted && end.stopReason !== "error" && end.stopReason !== "aborted";
+    // Messages sent during a compaction go out when it ends, however it ended (I-216).
+    const finished = !!turn.compact || (!turn.aborted && end.stopReason !== "error" && end.stopReason !== "aborted");
     const next = this.disposed || !finished ? undefined : this.queue.shift();
     if (next) {
       this.emitQueue();
