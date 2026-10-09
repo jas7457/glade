@@ -1735,7 +1735,7 @@ Next id: I-217.
 - [ ] **I-216** While a chat is compacting, Send is always Follow-up — `app-core`
   - Reported: 2026-10-08 — while the conversation is being compacted, the Send button (and ↩) should automatically be Follow-up, whatever modifier is held; steering makes no sense then. The user says they'd raised this before.
   - Notes: `sendModeFor` in `packages/app-core/src/features/chat/send-mode.ts` decides the mode from `running`, `steering`, held ⌘/⌥ (I-200); the composer knows `state.isCompacting` (`Composer.tsx`, the "Compacting context…" row). Add a `compacting` input: while compacting, ↩, ⌘↩ and clicks all give Follow-up (button shows the follow-up icon/colour, tooltip says it's sent after compacting); right-click menu lists only Follow-up. Also covers `/compact` run while idle (if `running` is false during compaction, compacting still counts) and harnesses without steering (Queue message → Follow-up wording is the same queue). Server side: check a follow-up sent during compaction is delivered after it for pi, Claude Code and Codex (a steer sent then may be lost or misapplied). Table in the header comment + `send-mode` tests.
-  - Open question: should ⌥ (Ask Aside) still work while compacting, or is everything Follow-up? Default: everything Follow-up.
+  - Decided (user, 2026-10-08): everything is Follow-up while compacting, ⌥ included (no Ask Aside then); keep it simple.
   - Acceptance: during compaction the Send button shows Follow-up regardless of keys held, and the message is sent once compaction finishes; tests.
 
 ## Future features
