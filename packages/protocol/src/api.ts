@@ -374,6 +374,17 @@ export interface Settings {
      * spawns (403) when off. Applies to agent processes started afterwards (new chats, restarts).
      */
     subagents: boolean;
+    /**
+     * Sub-agents may run on another harness than their chat's (I-221; I-217). Off (default): every
+     * sub-agent runs on its chat's harness; agents pinned to another one aren't offered.
+     */
+    subagentOtherHarnesses: boolean;
+    /**
+     * Sub-agents may use another model than their chat's (I-221). Off (default): every sub-agent
+     * uses its chat's model and thinking; definitions' model/thinking and the per-agent
+     * "Sub-agent model" settings are ignored.
+     */
+    subagentOtherModels: boolean;
   };
   /**
    * Agents this device offers (I-155), keyed by harness id: `enabled: false` turns one off (it's
@@ -441,6 +452,8 @@ export function defaultSettings(): Settings {
     agent: {
       defaultHarness: null,
       subagents: true,
+      subagentOtherHarnesses: false,
+      subagentOtherModels: false,
     },
     agents: {},
     harnesses: {

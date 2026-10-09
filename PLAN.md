@@ -1793,6 +1793,7 @@ Next id: I-223.
     - **Use other models for sub-agents** (cross-model). Off: every sub-agent uses its chat's model and thinking; agent definitions' model/thinking and the per-agent "Sub-agent model" settings are ignored (rows show a note; the Sub-agent model pickers in Settings → Agents are greyed with the reason). Prompts, tools, permissions, nicknames still apply.
     - The server enforces both at spawn (not just the tool text), and `spawn_agent`'s agent list follows them.
   - Decided (user, 2026-10-08): both switches **default off** (a sub-agent uses its chat's harness and model until the user opts in), and they are **per device** only (no project overrides).
+  - Status: started 2026-10-08 (user said go). Contract: `Settings.agent.subagentOtherHarnesses` / `subagentOtherModels` (default false).
   - Acceptance: with each switch off, spawns stay on the chat's harness / model regardless of definitions and settings; Settings explains what's ignored; tests.
 
 - [ ] **I-222** iPhone composer: one toolbar row, no wrapping — `iphone` / `app-core`
@@ -1800,6 +1801,7 @@ Next id: I-223.
   - Notes: the chat header already shows "pi · Claude Opus 5.5 · High" with a chevron, so the composer's model chip repeats it. Touch layout lives in `packages/app-core/src/features/chat/Composer.tsx` (`touch`/`compact` classes, `toolbarExtra` = `ContextMeter`) and the iPhone chat screen.
   - Proposal (lead): on the phone, drop the model/thinking chip from the composer (the header's picker is the place to change them; make sure tapping it opens the model/thinking picker); keep a small context ring only if everything fits on one row, otherwise move it next to the header's model line; one row: `+` · (context) · spacer · voice · Stop · Send, never wrapping at the narrowest supported width (iPhone SE / mini). Check both idle and running, with and without the keyboard, light and dark, and the compact (collapsed) composer.
   - Also reported (2026-10-08, second screenshot): in the collapsed composer pill (`+` · text · voice · Stop) the placeholder ("Steer the agent…") sits visibly lower than the centre of `+` and the buttons. The pill's text area has 15px top / 16px bottom padding (`Composer.tsx`, the `compact` classes) with 18px text; align its first line to the row's centre (check with a placeholder, one typed line, and the moment it grows to two lines).
+  - Status: started 2026-10-08 (user said go).
   - Acceptance: expanded composer toolbar is a single row on every iPhone width; the collapsed pill's text and placeholder are vertically centred with its buttons; model and thinking still changeable from the header; screenshots; tests for the touch layout.
 
 ## Future features
