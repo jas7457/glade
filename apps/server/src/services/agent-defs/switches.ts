@@ -60,8 +60,11 @@ export function dropProjectAgentDefs(ctx: AppContext, projectId: string): void {
 
 /** The switches and offered harnesses of this server, for `AgentDefsService.list`/`resolve`. */
 export function agentDefsListContext(ctx: Pick<AppContext, "store" | "harnesses">): AgentDefsListContext {
+  const settings = ctx.store.getSettings();
   return {
-    switches: ctx.store.getSettings().agentDefs ?? { disabled: [], projects: {} },
+    switches: settings.agentDefs ?? { disabled: [], projects: {} },
     offeredHarnesses: ctx.harnesses.offered().map((h) => h.id),
+    otherHarnesses: settings.agent.subagentOtherHarnesses,
+    otherModels: settings.agent.subagentOtherModels,
   };
 }

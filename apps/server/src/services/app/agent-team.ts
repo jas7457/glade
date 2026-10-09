@@ -113,6 +113,11 @@ export class AgentTeam {
     const def = resolved?.def.effective ?? null;
     const agent = resolved ? def!.name || requested : requested;
 
+    // I-221: with other agents off, the child stays on the parent's harness: an agent pinned to
+    // another one isn't offered and an explicit request harness is refused.
+    const { subagentOtherHarnesses: otherHarnesses, subagentOtherModels: otherModels } = settings.agent;
+    if (!otherHarnesses) this.requireParentHarness(parentHarness, def, agent, req.harness);
+
     // I-217: the child's harness: the request's → the definition's → the parent's.
     const harness = this.childHarness([req.harness, def?.harness].find((h) => h && h !== INHERIT) ?? parentHarness.id, agent);
     const sameHarness = harness.id === parentHarness.id;
@@ -122,7 +127,8 @@ export class AgentTeam {
 
     // Model and thinking within that harness (I-078, I-198, I-217): the request's / definition's when
     // the harness lists it → its sub-agent settings → the parent's (same harness only) → its defaults.
-    const { model, thinkingLevel } = await this.childModel(harness, caller, sameHarness, {
+    // I-221: with other models off, always the parent's (the harness's defaults on another harness).
+    const { model, thinkingLevel } = await this.childModel(harness, caller, sameHarness, otherModels, {
       model: req.model ?? (def && def.model !== INHERIT ? def.model : undefined),
       thinking: (req.thinking !== INHERIT ? req.thinking : undefined) ?? (def && def.thinking !== INHERIT ? def.thinking : undefined),
     });
@@ -212,6 +218,22 @@ export class AgentTeam {
     return { agent: agentInfo(ctx.agents.get(detail.session.id) ?? record!, detail.session.running) };
   }
 
+  /**
+   * I-221 (Settings → Sub-agents → "Use other agents" off): 400, worded for the orchestrator, for
+   * an agent pinned to another harness than the chat's or a `harness` argument naming one.
+   */
+  private requireParentHarness(parent: AgentHarness, def: AgentDefFields | null, agent: string | null, requested: string | undefined): void {
+    const off = "Sub-agents on other agents are turned off in Glade (Settings → Sub-agents)";
+    const label = (id: string) => this.ctx.harnesses.get(id)?.info.label ?? id;
+    const pinned = def?.harness && def.harness !== INHERIT ? def.harness : null;
+    if (pinned && pinned !== parent.id) {
+      throw new HttpError(400, `${off}, so the agent "${agent}" (it runs on ${label(pinned)}) can't start from this ${parent.info.label} chat. Pick an agent that runs on ${parent.info.label} or none, or do the work yourself.`);
+    }
+    if (requested && requested !== INHERIT && requested !== parent.id) {
+      throw new HttpError(400, `${off}: the sub-agent runs on ${parent.info.label}, like this chat. Omit \`harness\`.`);
+    }
+  }
+
   /** What `list`/`resolve` need: the on/off switches and the harnesses offered here. */
   private defsContext(): AgentDefsListContext {
     return agentDefsListContext(this.ctx);
@@ -253,9 +275,17 @@ export class AgentTeam {
     harness: AgentHarness,
     caller: Session,
     sameHarness: boolean,
+    otherModels: boolean,
     wanted: { model?: string; thinking?: string },
   ): Promise<{ model?: ModelRef; thinkingLevel?: ThinkingLevel }> {
     if (harness.info.capabilities.models === false) return {}; // ACP agents pick their own (I-119)
+    if (!otherModels) {
+      // I-221: the chat's model and thinking; on another harness (agents on) its own defaults.
+      return {
+        ...(sameHarness && caller.model ? { model: caller.model } : {}),
+        ...(sameHarness && caller.thinkingLevel ? { thinkingLevel: caller.thinkingLevel } : {}),
+      };
+    }
     const settingsModels = agentModelSettings(this.ctx.store.getSettings(), harness.id);
     const models = await harness.listModels().catch(() => [] as ModelInfo[]);
     let model: ModelRef | undefined;
@@ -297,10 +327,16 @@ export class AgentTeam {
       ctx.options.log?.(`agent definitions: listing failed: ${err.message}`);
       return [] as AgentDef[];
     });
-    const agents = defs.filter((d) => d.enabled && d.available && !d.customizedBy).map((d) => spawnableAgent(d.effective, label));
+    // I-221: with other agents off, only the chat's harness (agents pinned elsewhere are left out and
+    // spawn_agent loses its `harness` parameter); with other models off, no model is shown.
+    const { subagentOtherHarnesses: otherHarnesses, subagentOtherModels: otherModels } = ctx.store.getSettings().agent;
+    const here = (d: AgentDef) => otherHarnesses || d.effective.harness === INHERIT || d.effective.harness === session.harness;
+    const agents = defs
+      .filter((d) => d.enabled && d.available && !d.customizedBy && here(d))
+      .map((d) => spawnableAgent(otherModels ? d.effective : { ...d.effective, model: INHERIT }, label));
     const harnesses = ctx.harnesses
       .offered()
-      .filter((h) => h.info.capabilities.subagents !== false || h.id === session.harness)
+      .filter((h) => (otherHarnesses || h.id === session.harness) && (h.info.capabilities.subagents !== false || h.id === session.harness))
       .map((h) => ({ id: h.id, label: h.info.label }));
     return { agents, harnesses };
   }

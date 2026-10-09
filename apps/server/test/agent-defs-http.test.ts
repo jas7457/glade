@@ -144,7 +144,28 @@ describe("agent-defs REST", () => {
     writeFileSync(join(repo, ".claude", "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Reviews\n---\nReview.");
     const listed = (await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse;
     // Claude Code isn't offered in this server (only the fake harness).
+    // I-221: notes only go on agents that can run; this one's errors already say why not.
     expect(listed.agents).toEqual([expect.objectContaining({ id: "claude:reviewer", available: false, problems: ["Claude Code is turned off or not installed"] })]);
+  });
+
+  it("notes agents that pin a harness or a model while the sub-agent switches are off; they stay available (I-221)", async () => {
+    const p = await project({ path: repo });
+    mkdirSync(join(repo, ".agents", "agents"), { recursive: true });
+    writeFileSync(join(repo, ".agents", "agents", "fastlook.md"), "---\nname: fastlook\ndescription: Quick look\nharness: fake\nmodel: fake/fast\nthinking: low\n---\nLook.");
+    writeFileSync(join(repo, ".agents", "agents", "plain.md"), "---\nname: plain\ndescription: Plain\n---\nDo.");
+    const list = async () => ((await (await call("GET", `/api/agent-defs?projectId=${p.id}`)).json()) as ListAgentDefsResponse).agents;
+    const byName = (agents: Awaited<ReturnType<typeof list>>, name: string) => agents.find((a) => a.fields.name === name)!;
+    let agents = await list();
+    expect(byName(agents, "fastlook")).toMatchObject({
+      available: true,
+      problems: ["Runs on fake; other agents are off for sub-agents (only used by fake chats)", "Uses the chat's model and thinking (other models are off)"],
+    });
+    expect(byName(agents, "plain").problems).toEqual([]);
+    service.updateSettings({ agent: { subagentOtherModels: true } });
+    agents = await list();
+    expect(byName(agents, "fastlook").problems).toEqual(["Runs on fake; other agents are off for sub-agents (only used by fake chats)"]);
+    service.updateSettings({ agent: { subagentOtherHarnesses: true } });
+    expect(byName(await list(), "fastlook").problems).toEqual([]);
   });
 });
 

@@ -11,6 +11,7 @@ let env: TestEnv;
 beforeEach(() => {
   env = createTestEnv();
   env.service.setServerUrl("http://127.0.0.1:4999");
+  env.service.updateSettings({ agent: { subagentOtherModels: true } }); // I-221: off by default
   env.harness.script = () => [];
 });
 afterEach(async () => {

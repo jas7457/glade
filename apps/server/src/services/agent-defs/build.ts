@@ -23,6 +23,9 @@ export interface BuildOptions {
   projectId: string | null;
   switches: AgentDefSwitches;
   offeredHarnesses: string[];
+  /** I-221: `Settings.agent.subagentOtherHarnesses` / `subagentOtherModels`; absent = on (no notes). */
+  otherHarnesses?: boolean;
+  otherModels?: boolean;
 }
 
 export interface BuiltAgent {
@@ -85,6 +88,7 @@ export function buildAgents(loaded: LoadedAgent[], options: BuildOptions): Built
     const effective = effectiveOf(agent, options.roots, 0, new Set());
     effective.errors.push(...(extraErrors.get(id) ?? []));
     check(effective, options.offeredHarnesses);
+    if (effective.errors.length === 0) switchNotes(effective, options); // notes only on agents that can run
     const def: AgentDef = {
       id,
       source: agent.source,
@@ -198,6 +202,21 @@ function findSource(ref: string, from: string, roots: DiscoveryRoots): LoadedAge
   const expanded = ref === "~" ? home : ref.startsWith("~/") ? join(home, ref.slice(2)) : ref;
   const path = isAbsolute(expanded) ? expanded : resolvePath(dirname(from), expanded);
   return loadAgentFile(path);
+}
+
+/**
+ * I-221: warnings (not errors: the agent still works for chats of its own harness) when Settings →
+ * Sub-agents turns other agents / other models off, and this agent pins one.
+ */
+function switchNotes(effective: Effective, options: Pick<BuildOptions, "otherHarnesses" | "otherModels">): void {
+  const { harness, model, thinking } = effective.fields;
+  if (options.otherHarnesses === false && harness !== INHERIT) {
+    const label = harnessLabel(harness);
+    effective.warnings.push(`Runs on ${label}; other agents are off for sub-agents (only used by ${label} chats)`);
+  }
+  if (options.otherModels === false && (model !== INHERIT || thinking !== INHERIT)) {
+    effective.warnings.push(`Uses the chat's ${model !== INHERIT && thinking !== INHERIT ? "model and thinking" : model !== INHERIT ? "model" : "thinking"} (other models are off)`);
+  }
 }
 
 /** Availability errors and harness-applicability warnings on the effective fields. */

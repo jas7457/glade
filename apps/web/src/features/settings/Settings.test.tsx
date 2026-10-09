@@ -166,7 +166,11 @@ describe("settings", () => {
       { provider: "a", id: "m1", name: "M1", thinkingLevels: ["off", "low", "high"], input: ["text"] },
       { provider: "a", id: "m2", name: "M2", thinkingLevels: ["off"], input: ["text"] },
     ];
-    settings.value = { ...defaultSettings(), models: { quickTasks: null, agents: { pi: { hiddenModels: ["a/m2"] } } } };
+    settings.value = {
+      ...defaultSettings(),
+      agent: { ...defaultSettings().agent, subagentOtherModels: true },
+      models: { quickTasks: null, agents: { pi: { hiddenModels: ["a/m2"] } } },
+    };
     renderAt("/settings/agent/pi");
     const pick = async (select: string, option: RegExp) => {
       const trigger = screen.getByRole("button", { name: select });
@@ -186,6 +190,18 @@ describe("settings", () => {
     expect(screen.queryByRole("menuitemradio", { name: /^Extra High$/ })).toBeNull();
     fireEvent.click(screen.getByRole("menuitemradio", { name: /^Low$/ }));
     expect(mocked.updateSettings).toHaveBeenCalledWith({ models: { agents: { pi: { subagentThinkingLevel: "low" } } } });
+  });
+
+  it("Agent page: the sub-agent model and thinking are greyed out, with the reason and a link, while other models are off (I-221)", () => {
+    models.value = [{ provider: "a", id: "m1", name: "M1", thinkingLevels: ["off", "low"], input: ["text"] }];
+    renderAt("/settings/agent/pi");
+    expect((screen.getByRole("button", { name: "Sub-agent model" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Sub-agent thinking" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Sub-agents use their chat's model\./)).toBeTruthy();
+    const link = screen.getByRole("link", { name: /Use other models for sub-agents/ });
+    expect(link.getAttribute("href")).toBe("/settings/subagents");
+    // The default model stays editable.
+    expect((screen.getByRole("button", { name: "Default model" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("Agent page: the empty state names the agent", () => {

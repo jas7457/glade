@@ -195,6 +195,39 @@ describe("Sub-agents list", () => {
   });
 });
 
+describe("Sub-agent switches (I-221)", () => {
+  it("two switches at the top, off by default, saved in Settings.agent", async () => {
+    renderAt("/settings/subagents");
+    await screen.findByRole("button", { name: "scout" });
+    const harnesses = screen.getByRole("switch", { name: "Use other agents for sub-agents" });
+    const models = screen.getByRole("switch", { name: "Use other models for sub-agents" });
+    expect(harnesses.getAttribute("aria-checked")).toBe("false");
+    expect(models.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText("Let a chat hand work to a sub-agent on another agent, e.g. a pi chat to Claude Code.")).toBeTruthy();
+    expect(screen.getByText("Let sub-agents use their own model and thinking instead of the chat's.")).toBeTruthy();
+    // Above the agent list, inside the panel (so another device's page is view only).
+    expect(harnesses.compareDocumentPosition(screen.getByRole("button", { name: "scout" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(harnesses.closest("fieldset")).not.toBeNull();
+    fireEvent.click(harnesses);
+    await waitFor(() => expect(mockedApi.updateSettings).toHaveBeenCalledWith({ agent: { subagentOtherHarnesses: true } }));
+    fireEvent.click(models);
+    await waitFor(() => expect(mockedApi.updateSettings).toHaveBeenCalledWith({ agent: { subagentOtherModels: true } }));
+  });
+
+  it("the editor keeps the model and thinking rows (still editable) with a note while other models are off", async () => {
+    const view = renderAt("/settings/subagents/edit/claude%3Areviewer");
+    const model = await screen.findByRole("button", { name: "Model" });
+    expect((model as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Thinking" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getAllByText(/sub-agents use their chat's model while “Use other models for sub-agents” is off/)).toHaveLength(2);
+    view.unmount();
+    settings.value = { ...settings.value, agent: { ...settings.value.agent, subagentOtherModels: true } };
+    renderAt("/settings/subagents/edit/claude%3Areviewer");
+    await screen.findByRole("button", { name: "Model" });
+    expect(screen.queryByText(/while “Use other models for sub-agents” is off/)).toBeNull();
+  });
+});
+
 describe("creating an agent", () => {
   it("asks for the harness first, then saves the editor's fields", async () => {
     renderAt("/settings/subagents");

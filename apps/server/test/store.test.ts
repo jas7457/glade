@@ -141,7 +141,7 @@ describe("settings migration", () => {
     );
     const store = new Store(dir, 0);
     const settings = store.getSettings();
-    expect(settings.agent).toEqual({ defaultHarness: null, subagents: true });
+    expect(settings.agent).toEqual({ defaultHarness: null, subagents: true, subagentOtherHarnesses: false, subagentOtherModels: false });
     expect(settings.harnesses).toEqual({ acp: { agents: [] } });
     expect(store.getSettingsOverrides()).toEqual({ agent: {}, general: { generateTitles: false } });
     rmSync(dir, { recursive: true, force: true });
@@ -160,7 +160,7 @@ describe("settings migration", () => {
     );
     db.close();
     const store = new Store(dir, 0);
-    expect(store.getSettings().agent).toEqual({ defaultHarness: null, subagents: false });
+    expect(store.getSettings().agent).toEqual({ defaultHarness: null, subagents: false, subagentOtherHarnesses: false, subagentOtherModels: false });
     expect(store.getSettings().harnesses).toEqual({ acp: { agents: [mine] } });
     store.updateSettings({ models: { agents: { pi: { hiddenModels: ["a/b"] } } } });
     expect(store.getSettingsOverrides()).toEqual({

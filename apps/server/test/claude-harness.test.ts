@@ -724,7 +724,8 @@ describe("Claude harness", () => {
       disallowedTools: ["WebFetch"],
       permissionMode: "plan",
       sandbox: null,
-      native: { claude: { maxTurns: 3, skills: ["lint"], hooks: { Stop: [] } } },
+      // I-221: a native model/effort never reaches the SDK's AgentDefinition (the chat's model stays).
+      native: { claude: { maxTurns: 3, skills: ["lint"], hooks: { Stop: [] }, model: "opus", effort: "high" } },
     };
     const session = (await harness(sdk).openSession({ cwd, sessionRef: null, env, tools: ["Read", "Grep", "mcp__docs__search", "report_done", "message_agent"], appendSystemPrompt: "role + def", agentDefinition })) as ClaudeSession;
     open.push(session);

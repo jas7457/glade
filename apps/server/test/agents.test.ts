@@ -173,6 +173,7 @@ describe("spawn", () => {
   });
 
   it("resolves model names and validates thinking levels", async () => {
+    env.service.updateSettings({ agent: { subagentOtherModels: true } }); // I-221: off by default
     const chat = await newChat(env);
     const { agent } = await spawn(chat.sid, "a", { model: "smart", thinking: "low" });
     expect(env.store.getSession(agent.sessionId)).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "low" });

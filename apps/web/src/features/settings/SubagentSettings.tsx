@@ -18,7 +18,7 @@ import { ChevronDown, Plus, RotateCcw } from "lucide-preact";
 import { INHERIT, type AgentDefSource } from "@glade/protocol";
 import { routes } from "@glade/app-core/app/routes";
 import { AgentIconGlyph, Badge, Button, FormGroup, FormLinkRow, FormRow, IconButton, Menu, MenuItem, MenuSeparator, Select, Spinner, Switch } from "@glade/app-core/ui";
-import { hostEnvId, hostModelsFor, hostProjects } from "@glade/app-core/state/host-settings";
+import { hostEnvId, hostModelsFor, hostProjects, hostSettings, updateHostSettings } from "@glade/app-core/state/host-settings";
 import { harnessName } from "@glade/app-core/state/harnesses";
 import { agentDefOn, agentDefOverride, agentDefsOf, clearAgentDefOverride, loadAgentDefs, setAgentDefOn } from "@glade/app-core/state/agent-defs";
 import { HARNESS_CHOICES, SOURCE_LABELS, agentRows, harnessModelLine, rowAgent, type AgentRow } from "./subagent-defs";
@@ -71,6 +71,33 @@ export function NewAgentMenu({ projectId }: { projectId: string | null }) {
   );
 }
 
+/**
+ * The two per-device switches at the top (I-221): sub-agents on another agent, and with their own
+ * model/thinking. Both off by default; off, the server keeps every sub-agent on its chat's agent
+ * and model. Another device's page is view only (the panel's fieldset).
+ */
+export function SubagentSwitches() {
+  const a = hostSettings.value.agent;
+  return (
+    <FormGroup class="mb-5">
+      <FormRow label="Use other agents for sub-agents" description="Let a chat hand work to a sub-agent on another agent, e.g. a pi chat to Claude Code.">
+        <Switch
+          aria-label="Use other agents for sub-agents"
+          checked={a.subagentOtherHarnesses === true}
+          onCheckedChange={(subagentOtherHarnesses) => void updateHostSettings({ agent: { subagentOtherHarnesses } })}
+        />
+      </FormRow>
+      <FormRow label="Use other models for sub-agents" description="Let sub-agents use their own model and thinking instead of the chat's.">
+        <Switch
+          aria-label="Use other models for sub-agents"
+          checked={a.subagentOtherModels === true}
+          onCheckedChange={(subagentOtherModels) => void updateHostSettings({ agent: { subagentOtherModels } })}
+        />
+      </FormRow>
+    </FormGroup>
+  );
+}
+
 export function SubagentSettings() {
   const navigate = useNavigate();
   const projectId = usePickedProject();
@@ -86,6 +113,7 @@ export function SubagentSettings() {
         Agents a chat can hand work to: each has its own agent, model, prompt and permissions. The chat picks one by its description, or
         when you name it. Agents from Claude Code, Codex and pi are listed as they are; customize one to change it in Glade.
       </p>
+      <SubagentSwitches />
       <div class="mb-5 flex items-center gap-2">
         <span class="text-fg-muted select-none">Show for</span>
         <Select

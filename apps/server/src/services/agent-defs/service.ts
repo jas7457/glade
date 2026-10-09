@@ -202,7 +202,7 @@ export class AgentDefsService {
 
   private build(scope: AgentDefsScope, ctx: AgentDefsListContext): BuiltAgent[] {
     const roots = this.roots(scope.cwd);
-    return buildAgents(loadAll(roots), { roots, projectId: scope.projectId, switches: ctx.switches, offeredHarnesses: ctx.offeredHarnesses });
+    return buildAgents(loadAll(roots), { roots, projectId: scope.projectId, switches: ctx.switches, offeredHarnesses: ctx.offeredHarnesses, otherHarnesses: ctx.otherHarnesses, otherModels: ctx.otherModels });
   }
 
   /** The file in `dir` holding agent `name` (`<name>.md`, else a file whose frontmatter names it). */
@@ -225,6 +225,9 @@ export interface AgentDefsListContext {
   switches: import("@glade/protocol").AgentDefSwitches;
   /** Harness ids this device offers right now (installed and on). */
   offeredHarnesses: string[];
+  /** I-221: the sub-agent switches in Settings (absent = on): they only add notes to the problems. */
+  otherHarnesses?: boolean;
+  otherModels?: boolean;
 }
 
 /** `fields` from a client, checked and normalised (HttpError 400 with the reason). */

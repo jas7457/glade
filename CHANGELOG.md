@@ -7,6 +7,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Added
 
+- **Settings → Sub-agents → Use other agents / Use other models:** sub-agents now run on their chat's
+  agent and model unless you turn these on. With them on, a chat can hand work to another agent
+  (e.g. pi to Claude Code) and sub-agents use the models set for them.
+
 - **New chat buttons in the sidebar:** a + on the Chats header starts a standalone chat, and every
   folder has a + (and New Chat in its menu) that starts a chat right inside that folder. On the
   iPhone, a folder's long-press sheet has New Chat too.

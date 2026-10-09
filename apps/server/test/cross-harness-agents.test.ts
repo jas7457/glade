@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AGENT_ENV, emptyAgentDefFields, type AgentDef, type AgentDefFields, type AgentDefToolsResponse, type ModelInfo, type ServerMessage } from "@glade/protocol";
+import { spawnAgentSpecFor } from "../src/harness/pi/extension/glade-tools.js";
 import { FakeHarness } from "../src/harness/fake/fake-harness.js";
 import { HarnessRegistry } from "../src/harness/registry.js";
 import { createAgentsRoutes } from "../src/http/agents.js";
@@ -89,6 +90,7 @@ beforeEach(() => {
   const registry = new HarnessRegistry([main, other], { enabled: (id) => !offline.has(id) });
   service = new AppService({ store, harnesses: registry, scratchDir: join(dir, "scratch"), agentDefs: defs });
   service.setServerUrl("http://127.0.0.1:4999");
+  service.updateSettings({ agent: { subagentOtherHarnesses: true, subagentOtherModels: true } }); // I-221: off by default
   messages = [];
   service.subscribe((m) => messages.push(m));
 });
@@ -410,6 +412,85 @@ describe("report_done reminder", () => {
     team.agentTurnEnded(stopped.agent.sessionId, false);
     await settle();
     expect(fakeOf(other, stopped.agent.sessionId).prompts.length).toBe(before);
+  });
+});
+
+describe("sub-agent switches (I-221)", () => {
+  const off = () => service.updateSettings({ agent: { subagentOtherHarnesses: false, subagentOtherModels: false } });
+  const SWITCHED = "Sub-agents on other agents are turned off in Glade (Settings → Sub-agents)";
+
+  it("other agents off: the child stays on the chat's harness; an explicit other harness or a pinned agent is a 400", async () => {
+    off();
+    const sid = await parent();
+    defs.defs.set("scout", def({ name: "scout", harness: "other" }));
+    defs.defs.set("local", def({ name: "local", harness: "fake" }));
+    await expect(service.spawnAgent(sid, { name: "x", task: "t", harness: "other" })).rejects.toMatchObject({ status: 400, message: expect.stringContaining(SWITCHED) });
+    await expect(service.spawnAgent(sid, { name: "y", task: "t", agent: "scout" })).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/Settings → Sub-agents\), so the agent "scout" \(it runs on Other Agent\) can't start/),
+    });
+    // The chat's own harness (named or via an agent pinned to it) and inherit are fine.
+    const named = await service.spawnAgent(sid, { name: "a", task: "t", harness: "fake" });
+    const pinned = await service.spawnAgent(sid, { name: "b", task: "t", agent: "local" });
+    const plain = await service.spawnAgent(sid, { name: "c", task: "t" });
+    for (const { agent } of [named, pinned, plain]) expect(store.getSession(agent.sessionId)!.harness).toBe("fake");
+  });
+
+  it("other models off: the chat's model and thinking, whatever the request, the definition or the settings say", async () => {
+    off();
+    service.updateSettings({ models: { agents: { fake: { subagentModel: { provider: "fake", id: "fast" }, subagentThinkingLevel: "low" } } } });
+    const sid = await parent();
+    defs.defs.set("quick", def({ name: "quick", harness: "fake", model: "fake/fast", thinking: "off", prompt: "Be quick.", tools: ["read"] }));
+    const { agent } = await service.spawnAgent(sid, { name: "a", task: "t", agent: "quick", model: "fast", thinking: "off" });
+    expect(store.getSession(agent.sessionId)).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "high" });
+    // Prompt, tools and identity of the definition still apply.
+    expect(main.opened.at(-1)!.agentDefinition).toMatchObject({ name: "quick", prompt: "Be quick.", tools: ["read"] });
+    expect(main.opened.at(-1)!.tools).toEqual(["read", "report_done", "message_agent"]);
+    // Without a definition: the sub-agent setting is ignored too.
+    const plain = await service.spawnAgent(sid, { name: "b", task: "t" });
+    expect(store.getSession(plain.agent.sessionId)).toMatchObject({ model: { provider: "fake", id: "smart" }, thinkingLevel: "high" });
+    // An invalid thinking level is still a 400.
+    await expect(service.spawnAgent(sid, { name: "c", task: "t", thinking: "lots" })).rejects.toThrow(/thinking/);
+  });
+
+  it("other agents on, other models off: another harness gets its own defaults, not the sub-agent settings", async () => {
+    service.updateSettings({ agent: { subagentOtherHarnesses: true, subagentOtherModels: false }, models: { agents: { other: { subagentModel: { provider: "other", id: "tiny" } } } } });
+    const sid = await parent();
+    const { agent } = await service.spawnAgent(sid, { name: "x", task: "t", harness: "other", model: "tiny" });
+    expect(store.getSession(agent.sessionId)).toMatchObject({ harness: "other", model: { provider: "other", id: "big" } });
+  });
+
+  it("both on: the definition's harness and model apply (today's behaviour)", async () => {
+    service.updateSettings({ agent: { subagentOtherHarnesses: true, subagentOtherModels: true } });
+    const sid = await parent();
+    defs.defs.set("tiny", def({ name: "tiny", harness: "other", model: "other/tiny" }));
+    const { agent } = await service.spawnAgent(sid, { name: "x", task: "t", agent: "tiny" });
+    expect(store.getSession(agent.sessionId)).toMatchObject({ harness: "other", model: { provider: "other", id: "tiny" } });
+  });
+
+  it("the spawnable list follows the switches: no other-harness agents or harness list, no models", async () => {
+    const sid = await parent();
+    defs.defs.set("scout", def({ name: "scout", harness: "other", model: "other/tiny" }));
+    defs.defs.set("local", def({ name: "local", harness: "fake", model: "fake/fast" }));
+    defs.defs.set("writer", def({ name: "writer" }));
+    off();
+    let list = await service.spawnableAgents(sid);
+    expect(list.agents).toEqual([
+      { name: "local", description: "local agent", harness: "fake", harnessLabel: "Fake agent", model: null, readOnly: false },
+      { name: "writer", description: "writer agent", harness: null, harnessLabel: null, model: null, readOnly: false },
+    ]);
+    expect(list.harnesses).toEqual([{ id: "fake", label: "Fake agent" }]);
+    expect(spawnAgentSpecFor(list).parameters.properties).not.toHaveProperty("harness");
+    // The settings list context carries the switches (they add the notes).
+    expect(defs.lists.at(-1)!.ctx).toMatchObject({ otherHarnesses: false, otherModels: false });
+    service.updateSettings({ agent: { subagentOtherModels: true } });
+    list = await service.spawnableAgents(sid);
+    expect(list.agents.map((a) => a.model)).toEqual(["fast", null]);
+    service.updateSettings({ agent: { subagentOtherHarnesses: true } });
+    list = await service.spawnableAgents(sid);
+    expect(list.agents.map((a) => a.name)).toEqual(["scout", "local", "writer"]);
+    expect(list.harnesses.map((h) => h.id)).toEqual(["fake", "other"]);
+    expect(spawnAgentSpecFor(list).parameters.properties).toHaveProperty("harness");
   });
 });
 

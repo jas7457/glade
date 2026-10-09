@@ -5,10 +5,12 @@
  * folded into Agents. Helpers for grouping models live here too (families: lib/model-families).
  */
 import { useState } from "preact/hooks";
+import { Link, useInRouterContext } from "react-router";
 import { RefreshCw } from "lucide-preact";
 import { THINKING_LEVELS, modelKey, parseModelKey, sameModel, type ModelInfo, type ModelRef, type ThinkingLevel } from "@glade/protocol";
 import { Button, FormGroup, FormRow, SearchField, Select, Spinner, Switch, type SelectOption } from "@glade/app-core/ui";
 import { cn } from "@glade/app-core/lib/cn";
+import { routes } from "@glade/app-core/app/routes";
 import { groupByFamily, modelMatches } from "@glade/app-core/lib/model-families";
 import {
   hostAgentDefaults,
@@ -17,6 +19,7 @@ import {
   hostHarnesses,
   hostModelsFor,
   hostQuickTasks,
+  hostSettings,
   hostVisibleModelsFor,
   loadHostModels,
   updateHostAgentModels,
@@ -133,6 +136,24 @@ export function QuickTasksRow() {
   );
 }
 
+/** The reason the Sub-agent model pickers are greyed out (I-221), with a link to the switch. */
+function SubagentModelsOff() {
+  const inRouter = useInRouterContext();
+  return (
+    <>
+      Sub-agents use their chat's model.{" "}
+      {inRouter ? (
+        <Link to={routes.settingsSubagents()} class="text-accent hover:underline">
+          Turn on “Use other models for sub-agents”
+        </Link>
+      ) : (
+        "Turn on “Use other models for sub-agents”"
+      )}{" "}
+      in Settings → Sub-agents to choose one.
+    </>
+  );
+}
+
 /**
  * One agent's "Defaults" and "Models" groups (I-198): only its models, its own settings. The
  * Models list (I-207) has a filter box (name or id) and groups each provider's models by family
@@ -154,6 +175,8 @@ export function AgentModelGroups({ harness, readOnly = false }: { harness: strin
   const ownName = nameIn(all, own?.model);
   const levels = agentThinkingLevels(all, s.defaultThinkingLevel);
   const subLevels = agentThinkingLevels(all, s.subagentThinkingLevel);
+  // I-221: with other models off, sub-agents always use their chat's model and thinking.
+  const otherModels = hostSettings.value.agent?.subagentOtherModels === true;
   const set = (patch: Parameters<typeof updateHostAgentModels>[1]) => void updateHostAgentModels(harness, patch);
   const viewOnly = (children: preact.ComponentChildren, className?: string) => (
     <fieldset disabled={readOnly} class={cn("min-w-0", readOnly && "pointer-events-none", className)}>
@@ -217,9 +240,13 @@ export function AgentModelGroups({ harness, readOnly = false }: { harness: strin
           </FormRow>
           {caps?.subagents !== false && (
             <>
-              <FormRow label="Sub-agent model" description="Model for agents started by a chat (spawn_agent). A cheaper model saves usage.">
+              <FormRow
+                label="Sub-agent model"
+                description={otherModels ? "Model for agents started by a chat (spawn_agent). A cheaper model saves usage." : <SubagentModelsOff />}
+              >
                 <Select
                   aria-label="Sub-agent model"
+                  disabled={!otherModels}
                   class="w-[240px]"
                   value={s.subagentModel ? modelKey(s.subagentModel) : ""}
                   options={modelOptions(visible, "Same as the parent chat", s.subagentModel)}
@@ -229,6 +256,7 @@ export function AgentModelGroups({ harness, readOnly = false }: { harness: strin
               <FormRow label="Sub-agent thinking">
                 <Select
                   aria-label="Sub-agent thinking"
+                  disabled={!otherModels}
                   class="w-[240px]"
                   value={s.subagentThinkingLevel ?? ""}
                   options={[{ value: "", label: "Same as the parent chat" }, ...subLevels.map((l) => ({ value: l, label: THINKING_LABELS[l] }))]}

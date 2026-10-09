@@ -45,7 +45,7 @@ import { describeAgentDef, getAgentDefTools } from "@glade/app-core/lib/api-agen
 import { request } from "@glade/app-core/lib/api";
 import { requestFor } from "@glade/app-core/state/env-api";
 import { harnessName } from "@glade/app-core/state/harnesses";
-import { hostAgentModels, hostEnvId, hostModelsFor, hostProjects, hostReadOnly, hostVisibleModelsFor } from "@glade/app-core/state/host-settings";
+import { hostAgentModels, hostEnvId, hostModelsFor, hostProjects, hostReadOnly, hostSettings, hostVisibleModelsFor } from "@glade/app-core/state/host-settings";
 import { agentDefsOf, deleteAgentDef, loadAgentDefs, saveAgentDef } from "@glade/app-core/state/agent-defs";
 import { cn } from "@glade/app-core/lib/cn";
 import {
@@ -542,6 +542,8 @@ function permissionLabel(mode: string): string {
   return CLAUDE_PERMISSION_MODES.find((m) => m.value === mode)?.label ?? mode;
 }
 
+const OTHER_MODELS_OFF = "Not used for now: sub-agents use their chat's model while “Use other models for sub-agents” is off. You can still set it.";
+
 /** Agent, model and thinking: the per-harness pickers, `inherit` first. */
 function HarnessRows({
   fields,
@@ -557,6 +559,9 @@ function HarnessRows({
   harnessLabel: (id: string) => string;
 }) {
   const harness = effectiveHarness(fields, base);
+  // I-221: while these are off the file may still hold a model/harness (for when they're turned on).
+  const { subagentOtherHarnesses, subagentOtherModels } = hostSettings.value.agent;
+  const modelsOff = subagentOtherModels !== true;
   const all = harness === INHERIT ? [] : hostModelsFor(harness);
   const visible = harness === INHERIT ? [] : hostVisibleModelsFor(harness);
   const baseModel = base && base.model !== INHERIT ? modelName(base.model, all) : null;
@@ -566,26 +571,35 @@ function HarnessRows({
   const subThinkingLabel = sub?.subagentThinkingLevel ? `Sub-agent thinking (${THINKING_LABELS[sub.subagentThinkingLevel]})` : "Sub-agent thinking setting";
   const ref = fields.model !== INHERIT ? parseModelKey(fields.model) : null;
   const modelOptions: SelectOption<string>[] = [
-    { value: INHERIT, label: base ? (baseModel ? `From ${from}: ${baseModel}` : `From ${from}`) : harness === INHERIT ? "Same as the parent chat" : subModelLabel },
+    { value: INHERIT, label: base ? (baseModel ? `From ${from}: ${baseModel}` : `From ${from}`) : harness === INHERIT || modelsOff ? "Same as the parent chat" : subModelLabel },
     ...groupModels(visible).flatMap(([group, ms]) => ms.map((m) => ({ value: modelKey(m), label: m.name, group }))),
     ...(fields.model !== INHERIT && !visible.some((m) => modelKey(m) === fields.model) ? [{ value: fields.model, label: modelName(fields.model, all) }] : []),
   ];
   const chosen = ref ? all.find((m) => sameModel(m, ref)) : undefined;
   const levels: ThinkingLevel[] = chosen?.thinkingLevels?.length ? chosen.thinkingLevels : harness === INHERIT ? [...THINKING_LEVELS] : agentThinkingLevels(all);
   const thinkingOptions: SelectOption<string>[] = [
-    { value: INHERIT, label: base ? (base.thinking === INHERIT ? `From ${from}` : `From ${from}: ${THINKING_LABELS[base.thinking]}`) : harness === INHERIT ? "Same as the parent chat" : subThinkingLabel },
+    { value: INHERIT, label: base ? (base.thinking === INHERIT ? `From ${from}` : `From ${from}: ${THINKING_LABELS[base.thinking]}`) : harness === INHERIT || modelsOff ? "Same as the parent chat" : subThinkingLabel },
     ...levels.map((l) => ({ value: l, label: THINKING_LABELS[l] })),
     ...(fields.thinking !== INHERIT && !levels.includes(fields.thinking) ? [{ value: fields.thinking, label: THINKING_LABELS[fields.thinking] }] : []),
   ];
   return (
     <>
-      <FormRow label="Runs on" description={harness === INHERIT ? "Runs on the agent of the chat that starts it, with that chat's model." : "Fixed. To use another agent, create a new one."}>
+      <FormRow
+        label="Runs on"
+        description={
+          harness === INHERIT
+            ? "Runs on the agent of the chat that starts it, with that chat's model."
+            : subagentOtherHarnesses === true
+              ? "Fixed. To use another agent, create a new one."
+              : `Fixed. Only ${harnessLabel(harness)} chats can use it while “Use other agents for sub-agents” is off.`
+        }
+      >
         <span data-testid="agent-harness" class="text-fg">{harness === INHERIT ? "Same agent as the parent chat" : harnessLabel(harness)}</span>
       </FormRow>
-      <FormRow label="Model" description={harness === INHERIT ? "Follows the parent chat." : undefined}>
+      <FormRow label="Model" description={harness === INHERIT ? "Follows the parent chat." : modelsOff ? OTHER_MODELS_OFF : undefined}>
         <Select aria-label="Model" class="w-[240px]" disabled={harness === INHERIT} value={fields.model} options={modelOptions} onChange={(model) => set({ model })} />
       </FormRow>
-      <FormRow label="Thinking">
+      <FormRow label="Thinking" description={modelsOff && harness !== INHERIT ? OTHER_MODELS_OFF : undefined}>
         <Select aria-label="Thinking" class="w-[240px]" value={fields.thinking} options={thinkingOptions} onChange={(t) => set({ thinking: t as AgentDefFields["thinking"] })} />
       </FormRow>
     </>
