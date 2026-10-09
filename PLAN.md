@@ -1792,7 +1792,7 @@ Next id: I-223.
     - **Use other agents for sub-agents** (cross-harness). Off: a sub-agent always runs on its chat's harness; agents pinned to another harness aren't offered to that chat (listed with "Runs on Codex; other agents are turned off for sub-agents"), and `spawn_agent` drops its `harness` parameter.
     - **Use other models for sub-agents** (cross-model). Off: every sub-agent uses its chat's model and thinking; agent definitions' model/thinking and the per-agent "Sub-agent model" settings are ignored (rows show a note; the Sub-agent model pickers in Settings → Agents are greyed with the reason). Prompts, tools, permissions, nicknames still apply.
     - The server enforces both at spawn (not just the tool text), and `spawn_agent`'s agent list follows them.
-  - Open questions: defaults (on, as today, or off for new installs)? Global only, or also per project?
+  - Decided (user, 2026-10-08): both switches **default off** (a sub-agent uses its chat's harness and model until the user opts in), and they are **per device** only (no project overrides).
   - Acceptance: with each switch off, spawns stay on the chat's harness / model regardless of definitions and settings; Settings explains what's ignored; tests.
 
 - [ ] **I-222** iPhone composer: one toolbar row, no wrapping — `iphone` / `app-core`
