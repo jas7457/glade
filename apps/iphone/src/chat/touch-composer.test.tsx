@@ -1,6 +1,6 @@
 /** The touch composer (I-164): ↩ is a new line on the iPhone, Send sends, holding Send offers steer / follow-up / Ask Aside; pickers as sheets. */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import type { ComponentChildren } from "preact";
 import type { ModelInfo } from "@glade/protocol";
 import { TooltipProvider } from "@glade/app-core/ui";
@@ -65,6 +65,42 @@ describe("touch composer", () => {
     expect(box().getAttribute("data-compact")).toBe("false");
     await act(() => new Promise((r) => setTimeout(r, 300)));
     expect(box().getAttribute("data-compact")).toBe("true");
+  });
+
+  it("pickersInHeader (the chat screen, I-222): no model chip in the composer; the toolbar is one row that never wraps", async () => {
+    renderBox({ touch: true, autoFocus: false, pickersInHeader: true, toolbarExtra: <span data-testid="ring" />, onStop: vi.fn(), isRunning: true });
+    expect(screen.queryByRole("button", { name: /^Model/ })).toBeNull();
+    const toolbar = screen.getByRole("button", { name: "Attach files" }).parentElement!;
+    // Collapsed: the toolbar's controls sit in the pill's own row.
+    expect(toolbar.className).toContain("contents");
+    await act(async () => textarea().focus());
+    // Expanded: its own full-width flex row (no flex-wrap, no gap to add up) under the text.
+    expect(toolbar.className).not.toContain("contents");
+    expect(toolbar.className).toContain("flex");
+    expect(toolbar.className).toContain("w-full");
+    expect(toolbar.className).not.toContain("wrap");
+    // + · context · (spacer) · Stop · Send are all in that one row.
+    for (const el of [screen.getByRole("button", { name: "Attach files" }), screen.getByTestId("ring"), screen.getByRole("button", { name: "Stop" }), screen.getByRole("button", { name: "Steer" })]) {
+      expect(toolbar.contains(el)).toBe(true);
+    }
+  });
+
+  it("without pickersInHeader (the new chat screen) the chip stays, and the desktop ignores the prop", () => {
+    renderBox({ touch: true, autoFocus: false });
+    expect(screen.getByRole("button", { name: /^Model and thinking:/ })).toBeTruthy();
+    cleanup();
+    renderBox({ touch: false, autoFocus: false, pickersInHeader: true }, false);
+    expect(screen.getByRole("button", { name: /Model/ })).toBeTruthy();
+  });
+
+  it("the textarea keeps no pixel height measured under the other layout: the pill is 58px again after blur (I-222)", async () => {
+    renderBox({ touch: true, autoFocus: false, pickersInHeader: true });
+    await act(async () => textarea().focus());
+    expect(textarea().style.height).toBe("");
+    await act(async () => textarea().blur());
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(textarea().style.height).toBe("");
+    expect(textarea().className).toContain("pt-[14px]");
   });
 
   it("stays expanded while the context meter's popover is open, so the popover keeps its anchor (I-191)", () => {

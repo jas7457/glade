@@ -246,6 +246,11 @@ export interface ComposerBoxProps {
    * follow-up / Ask Aside. Default: `isIphoneApp()`.
    */
   touch?: boolean;
+  /**
+   * Touch only (I-222): the chat's model / thinking / mode picker lives elsewhere (the iPhone's
+   * title line), so the composer's toolbar stays one short row: [+] · context · voice · Stop · Send.
+   */
+  pickersInHeader?: boolean;
   /** A control just before Stop/Send (the iPhone's voice mode button, I-180); shown in the slim touch pill too. */
   sendAccessory?: ComponentChildren;
   class?: string;
@@ -349,6 +354,16 @@ export function ComposerBox(props: ComposerBoxProps) {
   }, [draftKey]);
 
   // Auto-grow up to 40% of the viewport.
+  const fitTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // One line: leave the height to the box (rows=1 and the padding it has now); an inline pixel
+    // height measured under another layout (the touch pill vs the expanded box, I-222) went stale.
+    el.style.height = "";
+    const max = Math.round(window.innerHeight * 0.4);
+    if (el.scrollHeight > el.clientHeight) el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  };
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -357,10 +372,7 @@ export function ComposerBox(props: ComposerBoxProps) {
       el.setSelectionRange(pendingCaret.current, pendingCaret.current);
       pendingCaret.current = null;
     }
-    el.style.height = "auto";
-    const max = Math.round(window.innerHeight * 0.4);
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
-    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    fitTextarea();
   }, [text]);
 
   const updateText = (value: string) => {
@@ -839,10 +851,11 @@ export function ComposerBox(props: ComposerBoxProps) {
             "selectable block max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[1rem] leading-[1.5] text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none disabled:opacity-60",
             shellInput && "font-mono text-[0.95rem]",
             // Touch: beside [+] and Send while compact, full width above the toolbar when not.
-            // Touch: 18px text. Compact: 58px pill; 1px less on top than below, because the text's
-            // x-height sits low in its line box and otherwise reads as off-centre.
+            // Touch: 18px text. Compact: 58px pill; 3px less on top than below (I-222): the text is
+            // mostly lowercase, so its x-height / ink centre (not its capitals') has to meet the
+            // buttons' centre, and that sits ~1.6px below the line box's centre.
             touch && "text-[1.125rem]",
-            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-2 pt-[15px] pb-[16px] placeholder:truncate" : "order-1 basis-full px-3.5 pt-4"),
+            touch && (compact ? "order-2 w-auto min-w-0 flex-1 px-2 pt-[14px] pb-[17px] placeholder:truncate" : "order-1 basis-full px-3.5 pt-4"),
           )}
           onFocus={
             touch
@@ -880,7 +893,8 @@ export function ComposerBox(props: ComposerBoxProps) {
           }}
         />
         {/* Touch: `contents` lets its children join the box's own row (compact) or wrap below the text. */}
-        <div class={cn("flex items-center gap-1 px-2 pt-1 pb-2", touch && "contents")}>
+        {/* Expanded, it is its own row under the text and never wraps (I-222). */}
+        <div class={cn("flex items-center gap-1 px-2 pt-1 pb-2", touch && (compact ? "contents" : "order-2 w-full gap-0 p-0"))}>
           <Tooltip content="Attach files">
             <button
               type="button"
@@ -907,7 +921,7 @@ export function ComposerBox(props: ComposerBoxProps) {
               e.currentTarget.value = "";
             }}
           />
-          {(!props.hideModelPickers || (touch && OptionSheet && props.agents)) && (
+          {(!props.hideModelPickers || (touch && OptionSheet && props.agents)) && !(touch && props.pickersInHeader) && (
             <span class={cn("contents", touch && "[&>*]:order-2", compact && "[&>*]:hidden")}>
               {touch && OptionSheet ? (
                 // One pill + one sheet for both on the phone (I-164).
@@ -948,7 +962,12 @@ export function ComposerBox(props: ComposerBoxProps) {
           {!touch && props.permissionModes && (
             <PermissionModePicker {...props.permissionModes} disabled={!!lockedReason} {...pickerProps("mode")} />
           )}
-          {touch ? <span class={cn("order-2 flex items-center self-center", compact && "hidden")}>{props.toolbarExtra}</span> : props.toolbarExtra}
+          {touch ? (
+            // The context ring: a 40pt target like its neighbours, in the 9pt margin rhythm.
+            <span class={cn("order-2 flex shrink-0 items-center self-center [&>button]:size-10 [&>button]:rounded-full", compact && "hidden")}>{props.toolbarExtra}</span>
+          ) : (
+            props.toolbarExtra
+          )}
           <div class={cn("flex-1", touch && (compact ? "hidden" : "order-2"))} />
           {loading && <Spinner size={14} class={cn("mr-1", touch && "order-3 m-2.5 self-center")} />}
           {props.sendAccessory && <span class={cn("flex items-center self-center", touch && "order-3")}>{props.sendAccessory}</span>}
@@ -1214,6 +1233,7 @@ function ChatComposer({ chatId, placeholder, autoFocus, class: className, sendAc
       thinkingLevels={state.thinkingLevels}
       onThinkingChange={onThinkingChange}
       hideModelPickers={capabilities.models === false || !!native}
+      pickersInHeader
       permissionModes={native ? undefined : chatPermissionModes(chatId)}
       onSend={onSend}
       onStop={() => void runAction(() => apiForSession(chatId).abort(chatId), "Could not stop")}

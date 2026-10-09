@@ -98,6 +98,8 @@ describe("ChatScreen", () => {
     renderAt("/e/env1/chats/w");
     const line = screen.getByRole("button", { name: "Model and thinking: Opus, Medium" });
     expect(line.textContent).toContain("Opus · Medium");
+    // The header is the one place for it: the composer's toolbar has no model chip (I-222).
+    expect(screen.queryAllByRole("button", { name: /^Model and thinking:/ })).toHaveLength(1);
     fireEvent.click(line);
     expect(screen.getByText("Model & Thinking")).toBeTruthy();
     expect(screen.getByRole("listbox", { name: "Thinking" })).toBeTruthy();

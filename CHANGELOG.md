@@ -284,6 +284,10 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- **iPhone composer:** its buttons stay on one row (no more Stop and Send wrapping below), the model
+  and thinking are changed from the chat's title instead of a chip in the composer, and the text
+  in the collapsed composer lines up with its buttons.
+
 - **Settings → Sub-agents:** each agent appears once. A customized agent stays in its original
   group with a Customized badge, Customize opens your existing customization, and Reset to
   Original removes it. Two agents can't share a name. An agent's harness is shown, not chosen
