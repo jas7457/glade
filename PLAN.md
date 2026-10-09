@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-215.
+Next id: I-216.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1726,6 +1726,11 @@ Next id: I-215.
   - Decided (user, 2026-10-08): the sidebar's New Chat and ⌘N always start a standalone chat; project chats start from each project's +.
   - Decided (user, 2026-10-08): New Chat stays at the top of the sidebar.
   - Outcome (2026-10-08): the sidebar's New Chat, ⌘N, the menu item and the palette's New Chat open the standalone new-chat screen (`routes.home`, same environment) from anywhere; "New Chat in <project>" (palette), each project's + and the context bar's project picker still start project chats. Tests in `Sidebar.test.tsx` and `Palette.test.tsx`.
+
+- [ ] **I-215** New Chat buttons on the Chats header and on folders — `shell` / `app-core`
+  - Reported: 2026-10-08 — follows I-214 (New Chat now starts a standalone chat). The Chats section header only has a New Folder button; the user wants a + (New Chat, standalone) there like each project has, with the New Folder button moved to its left. And a folder has no way to start a chat inside it: today you create a chat and drag it in. Each folder row should get a button that starts a new chat directly in that folder.
+  - Notes: Chats header actions in `apps/web/src/features/sidebar/Sidebar.tsx` (`SidebarGroup` "Chats", `newFolder`); folder rows in `FolderGroup.tsx` (hover "…" menu). Folders live both in the Chats section (standalone chats) and inside projects (that project's chats), so a folder's + starts a standalone chat or a chat in the folder's project, and the new chat gets `folderId` = that folder once it's created (the new-chat screen needs to carry the target folder, e.g. a route/query param, through to workspace creation; check the protocol's create-workspace body accepts `folderId`). Probably also a "New Chat" item in the folder's "…"/context menu. iPhone sidebar: check whether it shows folders and needs the same.
+  - Acceptance: + on the Chats header opens a standalone new chat (folder button sits left of it); a folder's + opens a new chat that lands in that folder after the first send; tests in `Sidebar.test.tsx` / `folders.test.tsx`.
 
 ## Future features
 
