@@ -185,6 +185,12 @@ export interface SpawnedAgentRef {
   sessionId: string;
   displayName?: string;
   color?: string;
+  /** Its icon (`AgentIcon`, I-218), from its agent definition. */
+  icon?: string;
+  /** The agent definition it was started from (I-218), e.g. `scout`. */
+  agent?: string;
+  /** The harness it ran on (I-217); may differ from the parent's. */
+  harness?: string;
   spawnedAt: number;
   /**
    * The parent's tool call that started it (I-188, native sub-agents): links that call's card to
