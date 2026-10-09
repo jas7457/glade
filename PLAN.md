@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-220.
+Next id: I-221.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1768,6 +1768,15 @@ Next id: I-220.
   - Cause: left over from the generic design (an `extends` agent switching to another harness to reuse a prompt); "From pi" and "pi" are also two options meaning the same thing.
   - Plan (lead): the harness is chosen once (New Agent menu: pi / Claude Code / Codex / same as the parent chat) and shown as read-only text in the editor; a customized discovered agent runs on its source's harness, fixed; to use another harness, create a new agent. The file format keeps accepting `harness` on an extends file, but the UI never offers it. `apps/web/src/features/settings/SubagentEditor.tsx` + tests.
   - Acceptance: no harness picker in the editor for new, existing or customized agents; the harness shows as text; tests.
+
+- [ ] **I-220** Sub-agents: one agent per name; a customized agent stays under its source — `settings` / `server`
+  - Reported: 2026-10-08 — after customizing a pi agent, Settings → Sub-agents shows it twice (a Glade copy plus the pi original marked "Overridden by"), and nothing stops several customizations of the same agent (e.g. one for me and one for a project). The user wants exactly one copy of each sub-agent, ever: a customized agent should stay listed where it came from (e.g. under pi) with a "Customized" mark, not appear as a second agent.
+  - Plan (lead):
+    - **List:** a customization (a Glade `extends` file) is shown only on its source's row, with a "Customized" badge; the separate Glade row and "Overridden by …" go away. The Glade group lists only agents created in Glade.
+    - **One customization per source:** Customize on an agent that already has one opens that one; the editor offers **Reset to Original** (deletes the Glade file). Customizations are saved in one place (personal); per-project use stays the on/off switches. The server refuses a second `extends` of the same source (409).
+    - **One agent per name:** creating or renaming a Glade agent to a name any listed agent already has is refused ("pi already has scout — customize it instead"). If a clash appears from outside (e.g. a new `~/.claude/agents/scout.md` while Glade has a scout), both stay listed with a problem "Two agents are named scout; rename one" and neither is offered to chats until it's resolved (no silent winner).
+    - Existing files: an `extends` file with the same name as its source becomes that source's customization automatically; other duplicates show the clash problem.
+  - Acceptance: customizing a pi agent leaves a single row under pi with a Customized badge; a second Customize opens the same customization; Reset to Original works; duplicate names can't be created; tests (server + Settings).
 
 ## Future features
 
