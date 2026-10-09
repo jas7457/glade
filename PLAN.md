@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-216.
+Next id: I-217.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1731,6 +1731,12 @@ Next id: I-216.
   - Reported: 2026-10-08 — follows I-214 (New Chat now starts a standalone chat). The Chats section header only has a New Folder button; the user wants a + (New Chat, standalone) there like each project has, with the New Folder button moved to its left. And a folder has no way to start a chat inside it: today you create a chat and drag it in. Each folder row should get a button that starts a new chat directly in that folder.
   - Notes: Chats header actions in `apps/web/src/features/sidebar/Sidebar.tsx` (`SidebarGroup` "Chats", `newFolder`); folder rows in `FolderGroup.tsx` (hover "…" menu). Folders live both in the Chats section (standalone chats) and inside projects (that project's chats), so a folder's + starts a standalone chat or a chat in the folder's project, and the new chat gets `folderId` = that folder once it's created (the new-chat screen needs to carry the target folder, e.g. a route/query param, through to workspace creation; check the protocol's create-workspace body accepts `folderId`). Probably also a "New Chat" item in the folder's "…"/context menu. iPhone sidebar: check whether it shows folders and needs the same.
   - Acceptance: + on the Chats header opens a standalone new chat (folder button sits left of it); a folder's + opens a new chat that lands in that folder after the first send; tests in `Sidebar.test.tsx` / `folders.test.tsx`.
+
+- [ ] **I-216** While a chat is compacting, Send is always Follow-up — `app-core`
+  - Reported: 2026-10-08 — while the conversation is being compacted, the Send button (and ↩) should automatically be Follow-up, whatever modifier is held; steering makes no sense then. The user says they'd raised this before.
+  - Notes: `sendModeFor` in `packages/app-core/src/features/chat/send-mode.ts` decides the mode from `running`, `steering`, held ⌘/⌥ (I-200); the composer knows `state.isCompacting` (`Composer.tsx`, the "Compacting context…" row). Add a `compacting` input: while compacting, ↩, ⌘↩ and clicks all give Follow-up (button shows the follow-up icon/colour, tooltip says it's sent after compacting); right-click menu lists only Follow-up. Also covers `/compact` run while idle (if `running` is false during compaction, compacting still counts) and harnesses without steering (Queue message → Follow-up wording is the same queue). Server side: check a follow-up sent during compaction is delivered after it for pi, Claude Code and Codex (a steer sent then may be lost or misapplied). Table in the header comment + `send-mode` tests.
+  - Open question: should ⌥ (Ask Aside) still work while compacting, or is everything Follow-up? Default: everything Follow-up.
+  - Acceptance: during compaction the Send button shows Follow-up regardless of keys held, and the message is sent once compaction finishes; tests.
 
 ## Future features
 
