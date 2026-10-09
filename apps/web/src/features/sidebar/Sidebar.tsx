@@ -42,7 +42,8 @@ export function Sidebar() {
   const onChatRemoved = (chat: WorkspaceSummary) => navigate(chat.projectId ? routes.project(chat.projectId) : routes.home(envIdOf(chat)));
   const onProjectRemoved = (_project: Project) => navigate(routes.home());
 
-  const newChat = () => navigate(ctx.projectId ? routes.project(ctx.projectId) : routes.home(ctx.envId));
+  // New Chat always starts a standalone chat (I-214); project chats start from the project's +.
+  const newChat = () => navigate(routes.home(ctx.envId));
   const list = sortedProjects.value;
   const newChatSelected = location.pathname === "/" || /^\/e\/[^/]+\/?$/.test(location.pathname);
   const projectSort = useSortable({

@@ -1719,12 +1719,13 @@ Next id: I-215.
       - Group chats can't use worktrees.
       - Folders under `/tmp` aren't allowed (outside the browser's area).
 
-- [ ] **I-214** Make starting a standalone chat (no project) obvious — `shell`
+- [x] **I-214** Make starting a standalone chat (no project) obvious — `shell` (2026-10-08)
   - Reported: 2026-10-08 — the user couldn't find how to start a chat that belongs to no project: New Chat always lands in the project they were in, and there seemed to be no way to deselect it.
   - Notes: today New Chat / ⌘N (`apps/web/src/app/commands.tsx` `new-chat`) opens the current route's project's new-chat screen; the only way out is the project chip in the context bar above the composer → "No Project" (`context-bar/ProjectPicker.tsx`). The Chats section header (`features/sidebar/Sidebar.tsx`) only has a New Folder button.
   - Proposal (lead): a New Chat (+) button on the Chats section header that always opens a standalone new chat, plus a "New Standalone Chat" palette command; ⌘N and the sidebar's New Chat stay contextual.
   - Decided (user, 2026-10-08): the sidebar's New Chat and ⌘N always start a standalone chat; project chats start from each project's +.
-  - Open question: keep New Chat at the top of the sidebar (lead's recommendation, the convention in Codex and chat apps) or move it to the bottom just above Settings.
+  - Decided (user, 2026-10-08): New Chat stays at the top of the sidebar.
+  - Outcome (2026-10-08): the sidebar's New Chat, ⌘N, the menu item and the palette's New Chat open the standalone new-chat screen (`routes.home`, same environment) from anywhere; "New Chat in <project>" (palette), each project's + and the context bar's project picker still start project chats. Tests in `Sidebar.test.tsx` and `Palette.test.tsx`.
 
 ## Future features
 

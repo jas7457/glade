@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/preact";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 
 vi.mock("@glade/app-core/lib/api", () => ({
   api: {
@@ -21,11 +21,16 @@ import { Sidebar } from "./Sidebar";
 import { agentVersions } from "@glade/app-core/state/agent-versions";
 import { formatRelativeTime } from "@glade/app-core/features/sidebar/time";
 
+function LocationProbe() {
+  return <output data-testid="location">{useLocation().pathname}</output>;
+}
+
 function renderSidebar(path = "/") {
   return render(
     <TooltipProvider>
       <MemoryRouter initialEntries={[path]}>
         <Sidebar />
+        <LocationProbe />
       </MemoryRouter>
     </TooltipProvider>,
   );
@@ -49,6 +54,12 @@ describe("Sidebar", () => {
       makeWorkspace({ id: "c3", projectId: "p1", title: "Pinned", lastActivityAt: 0, pinned: true, pinOrder: 0, status: "unread", unread: true }),
       makeWorkspace({ id: "c4", projectId: null, title: "Loose", lastActivityAt: 2, status: "blocked", pendingInputs: 1 }),
     ];
+  });
+
+  it("New Chat starts a standalone chat even from inside a project (I-214)", () => {
+    renderSidebar("/projects/p1/chats/c1");
+    fireEvent.click(screen.getByText("New Chat"));
+    expect(screen.getByTestId("location").textContent).toBe("/");
   });
 
   it("puts a dot on Settings when one of this Mac's agents has an update (I-210)", async () => {

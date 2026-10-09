@@ -95,7 +95,8 @@ export const isAvailable = (c: Command) => c.available?.() ?? true;
 /** The actions behind global shortcuts and desktop menu items. */
 export function globalCommands(ctx: CommandContext): ShortcutHandlers {
   return {
-    "new-chat": () => ctx.navigate(ctx.route.projectId ? routes.project(ctx.route.projectId) : routes.home(ctx.route.envId)),
+    // Always a standalone chat (I-214); "New Chat in <project>" and the project's + start project chats.
+    "new-chat": () => ctx.navigate(routes.home(ctx.route.envId)),
     settings: () => ctx.navigate(routes.settings()),
     "toggle-sidebar": toggleSidebar,
     "command-palette": ctx.togglePalette,

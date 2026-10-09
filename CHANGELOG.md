@@ -265,6 +265,8 @@ Every entry corresponds to a ticked item in PLAN.md.
 
 ### Changed
 
+- **New Chat** (sidebar, ⌘N) always starts a chat on its own, even while you're in a project. To start a chat in a project, use the project's + (or pick the project above the composer).
+
 - The sidebar has a cool bluish tint while staying see-through to your desktop (a soft lavender-blue
   in light mode); the browser version gets the same look.
 

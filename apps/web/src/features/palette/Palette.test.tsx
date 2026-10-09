@@ -22,6 +22,7 @@ import { bookmarks, projects, sessions, workspaces } from "@glade/app-core/state
 import { toasts } from "@glade/app-core/state/toasts";
 import { paletteOpen, sidebarCollapsed } from "@glade/app-core/state/ui";
 import { useGlobalShortcuts, type ShortcutHandlers } from "@/app/shortcuts";
+import { globalCommands } from "@/app/commands";
 import type { RouteContext } from "@/app/paths";
 import { makeWorkspace, makeProject, makeSession } from "@glade/app-core/test/fixtures";
 import { pendingJump } from "@glade/app-core/features/chat/jump-to-message";
@@ -300,6 +301,15 @@ describe("Palette: message search and Ask (I-045/I-046)", () => {
 });
 
 describe("global shortcuts", () => {
+  it("New Chat (⌘N) always starts a standalone chat, even from inside a project (I-214)", () => {
+    const navigate = vi.fn();
+    const inProject: RouteContext = { workspaceId: "w1", projectId: "p1", isSettings: false, envId: null };
+    globalCommands({ navigate, route: inProject, togglePalette: vi.fn() })["new-chat"]();
+    expect(navigate).toHaveBeenCalledWith("/");
+    globalCommands({ navigate, route: { ...inProject, envId: "e2" }, togglePalette: vi.fn() })["new-chat"]();
+    expect(navigate).toHaveBeenLastCalledWith("/e/e2");
+  });
+
   function Harness({ handlers }: { handlers: ShortcutHandlers }) {
     useGlobalShortcuts(handlers);
     return <textarea aria-label="composer" />;
