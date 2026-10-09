@@ -522,6 +522,11 @@ export interface OpenWorkspaceRequest {
 /** `POST /api/workspaces`: a new workspace with its first main session. */
 export interface CreateWorkspaceRequest {
   projectId: string | null;
+  /**
+   * Start the chat inside this folder (I-215): a Chats-section folder for standalone chats
+   * (`projectId` null), else one of `projectId`'s folders (400 otherwise). It goes to the folder's top.
+   */
+  folderId?: string | null;
   /** Optional first prompt; sent right after the session starts. */
   prompt?: string;
   images?: PromptImage[];

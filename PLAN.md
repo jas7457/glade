@@ -1731,12 +1731,14 @@ Next id: I-221.
 - [ ] **I-215** New Chat buttons on the Chats header and on folders — `shell` / `app-core`
   - Reported: 2026-10-08 — follows I-214 (New Chat now starts a standalone chat). The Chats section header only has a New Folder button; the user wants a + (New Chat, standalone) there like each project has, with the New Folder button moved to its left. And a folder has no way to start a chat inside it: today you create a chat and drag it in. Each folder row should get a button that starts a new chat directly in that folder.
   - Notes: Chats header actions in `apps/web/src/features/sidebar/Sidebar.tsx` (`SidebarGroup` "Chats", `newFolder`); folder rows in `FolderGroup.tsx` (hover "…" menu). Folders live both in the Chats section (standalone chats) and inside projects (that project's chats), so a folder's + starts a standalone chat or a chat in the folder's project, and the new chat gets `folderId` = that folder once it's created (the new-chat screen needs to carry the target folder, e.g. a route/query param, through to workspace creation; check the protocol's create-workspace body accepts `folderId`). Probably also a "New Chat" item in the folder's "…"/context menu. iPhone sidebar: check whether it shows folders and needs the same.
+  - Status: started 2026-10-08 (user said go).
   - Acceptance: + on the Chats header opens a standalone new chat (folder button sits left of it); a folder's + opens a new chat that lands in that folder after the first send; tests in `Sidebar.test.tsx` / `folders.test.tsx`.
 
 - [ ] **I-216** While a chat is compacting, Send is always Follow-up — `app-core`
   - Reported: 2026-10-08 — while the conversation is being compacted, the Send button (and ↩) should automatically be Follow-up, whatever modifier is held; steering makes no sense then. The user says they'd raised this before.
   - Notes: `sendModeFor` in `packages/app-core/src/features/chat/send-mode.ts` decides the mode from `running`, `steering`, held ⌘/⌥ (I-200); the composer knows `state.isCompacting` (`Composer.tsx`, the "Compacting context…" row). Add a `compacting` input: while compacting, ↩, ⌘↩ and clicks all give Follow-up (button shows the follow-up icon/colour, tooltip says it's sent after compacting); right-click menu lists only Follow-up. Also covers `/compact` run while idle (if `running` is false during compaction, compacting still counts) and harnesses without steering (Queue message → Follow-up wording is the same queue). Server side: check a follow-up sent during compaction is delivered after it for pi, Claude Code and Codex (a steer sent then may be lost or misapplied). Table in the header comment + `send-mode` tests.
   - Decided (user, 2026-10-08): everything is Follow-up while compacting, ⌥ included (no Ask Aside then); keep it simple.
+  - Status: started 2026-10-08 (user said go).
   - Acceptance: during compaction the Send button shows Follow-up regardless of keys held, and the message is sent once compaction finishes; tests.
 
 - [x] **I-217** Sub-agents on a different harness than their parent — `server` / `protocol` (2026-10-08)
@@ -1767,6 +1769,7 @@ Next id: I-221.
   - Reported: 2026-10-08 — the Sub-agents editor (I-218) shows a "Runs on" picker (From pi / pi / Claude Code / Codex), which contradicts the harness-first decision; the user asked why they can change the harness at all.
   - Cause: left over from the generic design (an `extends` agent switching to another harness to reuse a prompt); "From pi" and "pi" are also two options meaning the same thing.
   - Plan (lead): the harness is chosen once (New Agent menu: pi / Claude Code / Codex / same as the parent chat) and shown as read-only text in the editor; a customized discovered agent runs on its source's harness, fixed; to use another harness, create a new agent. The file format keeps accepting `harness` on an extends file, but the UI never offers it. `apps/web/src/features/settings/SubagentEditor.tsx` + tests.
+  - Status: started 2026-10-08 (user said go).
   - Acceptance: no harness picker in the editor for new, existing or customized agents; the harness shows as text; tests.
 
 - [ ] **I-220** Sub-agents: one agent per name; a customized agent stays under its source — `settings` / `server`
@@ -1776,6 +1779,7 @@ Next id: I-221.
     - **One customization per source:** Customize on an agent that already has one opens that one; the editor offers **Reset to Original** (deletes the Glade file). Customizations are saved in one place (personal); per-project use stays the on/off switches. The server refuses a second `extends` of the same source (409).
     - **One agent per name:** creating or renaming a Glade agent to a name any listed agent already has is refused ("pi already has scout — customize it instead"). If a clash appears from outside (e.g. a new `~/.claude/agents/scout.md` while Glade has a scout), both stay listed with a problem "Two agents are named scout; rename one" and neither is offered to chats until it's resolved (no silent winner).
     - Existing files: an `extends` file with the same name as its source becomes that source's customization automatically; other duplicates show the clash problem.
+  - Status: started 2026-10-08 (user said go).
   - Acceptance: customizing a pi agent leaves a single row under pi with a Customized badge; a second Customize opens the same customization; Reset to Original works; duplicate names can't be created; tests (server + Settings).
 
 ## Future features
