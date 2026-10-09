@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-219.
+Next id: I-220.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1762,6 +1762,12 @@ Next id: I-219.
   - Acceptance: create a Claude Code `scout` (read-only preset, Haiku, nickname Brandon, colour, icon) from Settings; a pi chat launches it and the card shows "Brandon · scout" on Claude Code; a discovered `~/.claude/agents` agent is listed and usable without copying; tests for the format, `extends`, `inherit`, nickname numbering.
   - Outcome (2026-10-08): `services/agent-defs/` (format, discovery of Claude Code / Codex / pi agents honouring `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, pi's agent dir; `extends` up to 4 deep, cycles refused; precedence + `shadowedBy`; availability/problems; `base` for the editor; live tools cache `<data>/agent-tools.json`; small YAML/TOML subset parsers, no new dependency) + REST `GET/PUT/DELETE /api/agent-defs`, `/describe`, `/tools` (another device: read-only). Spawn resolves `agent` on the server; Claude Code runs it natively (SDK `agents` + `agent`, role prompt via `systemPrompt.append`; `hooks` dropped: no SDK field), Codex via developer instructions + sandbox preset + some config keys, pi via its flags (missing tools refused). `spawn_agent`'s description lists the available agents (+ guideline); pi fetches them at start and reports its tools. Identity: nickname list with numbering, colour, icon on cards/tabs/chips/transcript ("Brandon · scout", harness badge when different). Settings → Sub-agents: list by source with global/per-project switches (+ reset to the global one), harness-first editor (shared fields, per-harness section, Read only preset, live tool checklists, Write description for me), Customize a discovered agent = an `extends` file. Tests: agent-defs format/service/http (41), Sub-agents settings (18), identity (9), plus harness tests.
     - Open (small): an `extends` written as a file path into a custom Claude config folder is read as a Glade file (use `claude:<name>`); Claude Code's tool list is only recorded from main Claude chats; small models may still skip report_done after the reminder.
+
+- [ ] **I-219** Sub-agent editor: the harness is fixed, not a "Runs on" picker — `settings`
+  - Reported: 2026-10-08 — the Sub-agents editor (I-218) shows a "Runs on" picker (From pi / pi / Claude Code / Codex), which contradicts the harness-first decision; the user asked why they can change the harness at all.
+  - Cause: left over from the generic design (an `extends` agent switching to another harness to reuse a prompt); "From pi" and "pi" are also two options meaning the same thing.
+  - Plan (lead): the harness is chosen once (New Agent menu: pi / Claude Code / Codex / same as the parent chat) and shown as read-only text in the editor; a customized discovered agent runs on its source's harness, fixed; to use another harness, create a new agent. The file format keeps accepting `harness` on an extends file, but the UI never offers it. `apps/web/src/features/settings/SubagentEditor.tsx` + tests.
+  - Acceptance: no harness picker in the editor for new, existing or customized agents; the harness shows as text; tests.
 
 ## Future features
 
