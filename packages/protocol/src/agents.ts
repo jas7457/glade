@@ -76,6 +76,10 @@ export interface AgentInfo {
   displayName?: string;
   /** Its colour key (`AgentColor`, I-084), when it has one. */
   color?: string;
+  /** Its icon (`AgentIcon`, I-218), from its agent definition. */
+  icon?: string;
+  /** The harness it runs on (I-217); may differ from its parent's. */
+  harness?: string;
   /** Its session (tab) id. */
   sessionId: string;
   /** Agent definition used, if any. */
@@ -99,10 +103,19 @@ export interface SpawnAgentRequest {
   name: string;
   /** Complete task; sent as the sub-agent's first prompt. */
   task: string;
-  /** Name of the agent definition (for display/list). */
+  /**
+   * Name of the agent definition (I-218): the server resolves it (Glade agents, discovered Claude
+   * Code / Codex / pi agents, `extends`) and applies its harness, model, thinking, prompt, tools and
+   * identity. Unknown or unavailable → 400 listing the available ones.
+   */
   agent?: string;
-  /** The definition's instructions, appended to the sub-agent's role prompt. */
+  /**
+   * Legacy (pi extension before I-218, ext-kit agent-teams): the definition's instructions,
+   * appended to the sub-agent's role prompt. Ignored when the server resolved `agent`.
+   */
   agentPrompt?: string;
+  /** Harness id to run on (I-217); default: the definition's, else the parent's (`inherit`). */
+  harness?: string;
   /** `provider/id` or a bare model id. Default: the caller's model. */
   model?: string;
   /** Default: the caller's thinking level. */

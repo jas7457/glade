@@ -145,6 +145,8 @@ export interface Session {
   agentDisplayName?: string;
   /** Colour key assigned at spawn (I-084), one of `AGENT_COLORS`; unique among active siblings. */
   agentColor?: string;
+  /** Icon from the agent definition (I-218), one of `AGENT_ICONS`. */
+  agentIcon?: string;
   /** Tab title. */
   title: string;
   /** `auto` titles may be replaced by generated ones; `user` titles never are. */
@@ -403,6 +405,8 @@ export interface Settings {
   };
   /** Saved prompts (I-098): global and per project, in their manual order. See `prompts.ts`. */
   prompts: import("./prompts.js").SavedPrompt[];
+  /** Glade agents switched on/off, globally and per project (I-218, `agent-defs.ts`). */
+  agentDefs: import("./agent-defs.js").AgentDefSwitches;
   /** Keeping the Mac awake (I-147, `power.ts`). Only the Mac app holds the assertion. */
   power: {
     /** "Keep this Mac awake while a chat is working" (General). */
@@ -447,6 +451,7 @@ export function defaultSettings(): Settings {
       hidden: [],
     },
     prompts: [],
+    agentDefs: { disabled: [], projects: {} },
     power: { whileWorking: true, whileShared: true, whileSharedOnBattery: false },
     localModels: { url: "http://127.0.0.1:8080" },
   };

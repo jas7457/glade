@@ -9,6 +9,7 @@ export * from "./workspaces.js";
 export * from "./search.js";
 export * from "./folder.js";
 export * from "./agents.js";
+export * from "./agent-defs.js";
 export * from "./harness.js";
 export * from "./agent-messages.js";
 export * from "./chat-tools.js";

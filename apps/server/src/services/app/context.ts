@@ -9,6 +9,7 @@ import type { HarnessRegistry } from "../../harness/registry.js";
 import type { AgentHarness, HarnessSession } from "../../harness/types.js";
 import type { Store } from "../../store/store.js";
 import { AgentRegistry, AgentTokens } from "../agents.js";
+import { AgentDefsService } from "../agent-defs/service.js";
 import { AttachmentStore } from "../attachments.js";
 import { CHATS_DIR } from "../../store/blobs.js";
 import { FsBrowseService } from "../fs-browse.js";
@@ -35,6 +36,8 @@ export interface AppServiceOptions {
   log?: (msg: string) => void;
   /** App data folder (default: the store's). */
   dataDir?: string;
+  /** Glade agents (I-218); injectable for tests (default: one on `dataDir` and the real home folder). */
+  agentDefs?: AgentDefsService;
   /** This server's base URL, handed to agents as `GLADE_URL` (see `AppService.setServerUrl`). */
   serverUrl?: string;
   /** Called after a session's run settles (e.g. to refresh the search index). */
@@ -149,6 +152,8 @@ export interface AppContext {
   readonly tokens: AgentTokens;
   readonly agentTimers: AgentTimers;
   readonly deliveries: Map<string, Promise<void>>;
+  /** Glade agents (I-218): definitions for `spawn_agent`. */
+  readonly agentDefs: AgentDefsService;
   /** Set once by `AppService`'s constructor. */
   usage: UsageLimitsHub | null;
   /** Session leases shared with other servers on the data folder (null = single server, tests). */
@@ -181,6 +186,7 @@ export function createAppContext(options: AppServiceOptions): AppContext {
     tokens: new AgentTokens(),
     agentTimers: new AgentTimers(),
     deliveries: new Map(),
+    agentDefs: options.agentDefs ?? new AgentDefsService({ dataDir, log: options.log }),
     usage: null,
     leases: null,
     serverUrl: options.serverUrl ?? null,
