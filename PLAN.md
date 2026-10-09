@@ -18,7 +18,7 @@ See AGENTS.md for the rules.
 
 Reported issues and requests, queued via the `issue-queue` skill
 (`.agents/skills/issue-queue/SKILL.md`). Nothing here is worked on until the user says "go".
-Next id: I-214.
+Next id: I-215.
 
   - Outcome (2026-09-27):
     - **Rust:** `tauri-plugin-opener` 2.6; `src-tauri/src/links.rs` allow-list (app/loopback origins stay in the app; other http/https/mailto open in the default browser and the navigation is cancelled; other schemes are blocked). `target=_blank`, `window.open` and "Open Link in New Window" never create windows (the main window is built in `lib.rs`, `"create": false`).
@@ -1718,6 +1718,12 @@ Next id: I-214.
       - The desktop folder dialog has no native "Choose in Finder…".
       - Group chats can't use worktrees.
       - Folders under `/tmp` aren't allowed (outside the browser's area).
+
+- [ ] **I-214** Make starting a standalone chat (no project) obvious — `shell`
+  - Reported: 2026-10-08 — the user couldn't find how to start a chat that belongs to no project: New Chat always lands in the project they were in, and there seemed to be no way to deselect it.
+  - Notes: today New Chat / ⌘N (`apps/web/src/app/commands.tsx` `new-chat`) opens the current route's project's new-chat screen; the only way out is the project chip in the context bar above the composer → "No Project" (`context-bar/ProjectPicker.tsx`). The Chats section header (`features/sidebar/Sidebar.tsx`) only has a New Folder button.
+  - Proposal (lead): a New Chat (+) button on the Chats section header that always opens a standalone new chat, plus a "New Standalone Chat" palette command; ⌘N and the sidebar's New Chat stay contextual.
+  - Open question: should the sidebar's top "New Chat" row (and/or ⌘N) always start a standalone chat instead, leaving project chats to each project's +?
 
 ## Future features
 
