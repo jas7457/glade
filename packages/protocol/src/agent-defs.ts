@@ -14,7 +14,9 @@
  *   `<project>/.pi/agents`, pi packages' `agents/`) are listed live, read-only, usable as they are.
  * - **`extends`** (`claude:<name>`, `codex:<name>`, `pi:<name>` or a file path) references another
  *   agent instead of copying it: read fresh at every spawn; the Glade file's fields override the
- *   source's; its body is appended to the source's prompt; its harness defaults to the source's.
+ *   source's only when set; its body is appended to the source's prompt. In an `extends` file,
+ *   `harness`/`model`/`thinking` = `inherit` (or omitted) mean "the source's value", not the
+ *   parent's; other fields that are null / [] / "" are likewise taken from the source.
  * - **Identity:** `nicknames` (first free one is used; when all are taken, numbering: "Brandon 2";
  *   none = the random name pool), optional `color` (`AgentColor`) and `icon` ({@link AGENT_ICONS}).
  *
